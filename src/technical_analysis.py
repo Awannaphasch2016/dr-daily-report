@@ -148,6 +148,9 @@ class TechnicalAnalyzer:
             # Volume SMA
             df['Volume_SMA'] = df['Volume'].rolling(window=20).mean()
 
+            # Pricing Uncertainty Score Components
+            df['Uncertainty_Score'], df['ATR'], df['VWAP'] = self.calculate_uncertainty_score(df)
+
             # Get latest indicators
             latest = df.iloc[-1]
 
@@ -163,7 +166,11 @@ class TechnicalAnalyzer:
                 'bb_lower': latest['BB_Lower'],
                 'volume_sma': latest['Volume_SMA'],
                 'current_price': latest['Close'],
-                'volume': latest['Volume']
+                'volume': latest['Volume'],
+                # New uncertainty indicators
+                'uncertainty_score': latest['Uncertainty_Score'],
+                'atr': latest['ATR'],
+                'vwap': latest['VWAP']
             }
 
             return indicators
