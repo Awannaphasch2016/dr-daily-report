@@ -157,69 +157,99 @@ class TickerAnalysisAgent:
         # Prepare context for LLM
         context = self.prepare_context(ticker, ticker_data, indicators, news, news_summary)
 
+        # Get uncertainty score for context
+        uncertainty_score = indicators.get('uncertainty_score', 0)
+
         # Generate report using LLM
-        prompt = f"""You are a world-class financial analyst like Aswath Damodaran. Write in Thai, tell stories with data.
+        prompt = f"""You are a world-class financial analyst like Aswath Damodaran. Write in Thai, but think like him - tell stories with data, don't just list numbers.
 
 Data:
 {context}
 
-Write a narrative-driven report covering TECHNICAL + FUNDAMENTAL + RELATIVE + NEWS analysis.
+Write a narrative-driven report that answers: "Should I BUY MORE?", "Should I SELL?", or "Should I HOLD?" and WHY?
 
-Use the Market Condition components (volatility, buy/sell pressure, volume) as NARRATIVE ELEMENTS throughout your analysis.
+Your job is to weave TECHNICAL + FUNDAMENTAL + RELATIVE + NEWS into a flowing narrative that tells the STORY of this stock right now.
 
-IMPORTANT: When relevant news exists, reference it using [1], [2], etc. and explain how it impacts the analysis.
+CRITICAL NARRATIVE ELEMENTS - You MUST weave these "narrative + number" components into your story:
+
+1. **Price Uncertainty** ({uncertainty_score:.0f}/100): Sets the overall market mood
+   - Low (0-25): "ตลาดเสถียรมาก" - Stable, good for positioning
+   - Moderate (25-50): "ตลาดค่อนข้างเสถียร" - Normal movement
+   - High (50-75): "ตลาดผันผวนสูง" - High risk, be cautious
+   - Extreme (75-100): "ตลาดผันผวนรุนแรง" - Extreme risk, warn strongly
+
+2. **Volatility (ATR %)**: The speed of price movement
+   - Include the ATR% number and explain what it means
+   - Example: "ATR 1.2% แสดงราคาเคลื่อนไหวช้ามั่นคง นักลงทุนเห็นตรงกัน"
+   - Example: "ATR 3.8% แสดงตลาดลังเล ราคากระโดดขึ้นลง 3-5% ได้ง่าย"
+
+3. **Buy/Sell Pressure (Price vs VWAP %)**: Who's winning - buyers or sellers?
+   - Include the % above/below VWAP and explain the implication
+   - Example: "ราคา 22.4% เหนือ VWAP แสดงแรงซื้อแรงมาก คนซื้อวันนี้ยอมจ่ายแพงกว่าเฉลี่ย"
+   - Example: "ราคา -2.8% ต่ำกว่า VWAP แสดงแรงขายหนัก คนขายรีบขายถูกกว่าเฉลี่ย"
+
+4. **Volume (Volume Ratio)**: Is smart money interested?
+   - Include the volume ratio (e.g., 0.8x, 1.5x, 2.0x) and explain what it means
+   - Example: "ปริมาณซื้อขาย 1.8x ของเฉลี่ย แสดงนักลงทุนใหญ่กำลังเคลื่อนไหว"
+   - Example: "ปริมาณซื้อขาย 0.7x ของเฉลี่ย แสดงนักลงทุนเฉยๆ รอดูก่อน"
+
+These 4 market condition elements ARE the foundation of your narrative. ALWAYS include specific numbers with interpretation - this is the "narrative + number" Damodaran style.
+
+IMPORTANT: When high-impact news [1], [2] exists in the data, reference it naturally in your story when relevant. Don't force it - only use if it meaningfully affects the narrative.
 
 Structure (in Thai):
 
 📖 **เรื่องราวของหุ้นตัวนี้**
-Start with market condition, then weave in technical trend, fundamental story, and KEY NEWS in 2-3 sentences.
+Write 2-3 sentences telling the STORY. MUST include: uncertainty score context + ATR% + VWAP% + volume ratio with their meanings. Include news naturally if relevant.
 
-Example with news:
-"Honda กำลังในช่วงที่น่าสนใจ - ตลาดเสถียร ATR แค่ 2% ราคาเคลื่อนไหวช้า ทะลุ SMA 200 ขึ้นมา (1,583 vs 1,341) แสดงว่าแรงซื้อกลับมา แต่กำไรลด 42% ต้องระวัง โดยเฉพาะหลังจากข่าวผลประกอบการไตรมาสล่าสุด [1]"
+Example (with news):
+"Apple กำลังอยู่ในโมเมนต์ที่น่าสนใจ - ตลาดเสถียร (ความไม่แน่นอน 22/100) ATR แค่ 1.2% ราคาเคลื่อนไหวช้า แต่ราคา 2.4% เหนือ VWAP แสดงแรงซื้อชนะ ปริมาณซื้อขาย 1.3x ของเฉลี่ยแสดงนักลงทุนสนใจเพิ่มขึ้น หลังข่าวผลประกอบการที่เกินคาด [1]"
+
+Example (without news):
+"Tesla อยู่ในภาวะที่น่ากังวล - ตลาดผันผวนสูง (ความไม่แน่นอน 68/100) ATR 3.8% แสดงราคากระโดดขึ้นลง 3-5% ได้ง่าย ราคา -2.1% ต่ำกว่า VWAP แสดงแรงขายหนัก แต่ปริมาณซื้อขาย 0.9x ของเฉลี่ยแสดงยังไม่มีการขายระห่ำ"
 
 💡 **สิ่งที่คุณต้องรู้**
-Write 3-4 insights combining ALL THREE analysis types:
+Write 3-4 flowing paragraphs (NOT numbered lists) that explain WHY this matters to an investor. MUST continuously reference the 4 market condition elements (uncertainty, ATR, VWAP, volume) with numbers throughout. Mix technical + fundamental + relative + news seamlessly.
 
-1. TECHNICAL + MARKET CONDITION:
-"ราคากำลังขึ้นแรง - ทะลุ SMA ทั้ง 3 เส้น ($461 vs $439 vs $405) และที่สำคัญ ATR แค่ 1.2% ความผันผวนต่ำ แรงซื้อขายสมดุล หมายความว่าทุกคนเห็นตรงกัน ไม่มีใครรีบขายออก เหมาะสะสมระยะยาว"
+Example flow (notice how volatility/pressure/volume are woven throughout):
+"ราคากำลังขึ้นแรง - ทะลุ SMA ทั้ง 3 เส้น ($175 vs $172 vs $168) และที่สำคัญความผันผวนต่ำ ATR 1.2% แสดงว่านักลงทุนเห็นตรงกัน ไม่มีใครรีบขายออก ราคา 2.4% เหนือ VWAP ยืนยันแรงซื้อชนะ เหมาะสะสมระยะยาว
 
-2. FUNDAMENTAL + BUY/SELL PRESSURE:
-"แต่ระวัง - P/E 322 แพงมาก และแรงซื้อเริ่มอ่อนแรง ราคา 2.5% เหนือ VWAP แสดงว่าคนซื้อวันนี้จ่ายแพงกว่าเฉลี่ย ถ้ากำไรไตรมาสหน้าไม่ดี คนจะรีบขายทันที"
+แต่ระวัง - P/E 28 แพงขึ้นจากเดิม และแม้ปริมาณซื้อขาย 1.4x ของเฉลี่ยแสดงความสนใจเพิ่มขึ้น แต่ถ้า ATR พุ่งเกิน 2% พร้อมแรงขายเข้ามา (ราคาต่ำกว่า VWAP) หลังจากนักวิเคราะห์ดาวน์เกรด [2] ราคาจะปรับฐานลงเร็ว
 
-3. RELATIVE + VOLUME:
-"นักวิเคราะห์ให้ราคาเป้า $395 ต่ำกว่าราคาปัจจุบัน $461 และปริมาณซื้อขายเงียบ 0.7x ของค่าเฉลี่ย แสดงว่านักลงทุนใหญ่ไม่กล้าเข้า รอดูก่อน"
-
-4. TECHNICAL + VOLATILITY + FUNDAMENTAL:
-"RSI 59 ยังไม่ถึงโซนซื้อเกิน แต่ความผันผวนเริ่มพุ่ง ATR 3.8% แสดงว่าตลาดเริ่มลังเล รายได้โต 11% แต่กำไรลด 37% ต้นทุนพุ่งเร็วกว่ารายได้"
+นักวิเคราะห์ให้ราคาเป้า $180 สูงกว่าปัจจุบัน $175 และในขณะที่ความไม่แน่นอนยังต่ำ (22/100) การถือหุ้นในช่วงนี้มีความเสี่ยงน้อย"
 
 🎯 **ควรทำอะไรตอนนี้?**
-Give clear action (BUY MORE / SELL / HOLD) based on ALL analysis + market condition:
+Give ONE clear action: BUY MORE / SELL / HOLD. Explain WHY in 2-3 sentences using uncertainty score + market conditions (ATR/VWAP/volume). Reference news if it changes the decision.
 
-"แนะนำ HOLD - ตลาดเสถียร ราคาในเทรนด์ขาขึ้น แต่ P/E สูงเกินไป และปริมาณซื้อขายเงียบ แสดงว่านักลงทุนระมัดระวัง อย่ารีบซื้อเพิ่ม รอกำไรไตรมาสหน้าก่อน"
+Example:
+"แนะนำ BUY - ความไม่แน่นอนต่ำ (22/100) ATR 1.2% ตลาดเสถียร ราคา 2.4% เหนือ VWAP แสดงแรงซื้อชนะ ปริมาณซื้อขาย 1.3x แสดงนักลงทุนสนใจ หลังผลประกอบการดี [1] เหมาะเข้าซื้อสะสม ตั้ง stop-loss ที่ $170"
 
 ⚠️ **ระวังอะไร?**
-Warn about risks from volatility + volume + fundamentals:
+Warn about 1-2 key risks using the 4 market condition metrics. What volatility/pressure/volume signals should trigger concern? Keep it practical.
 
-"ระวังถ้าความผันผวนพุ่งขึ้น (ATR เกิน 4%) พร้อมกับปริมาณซื้อขายระเบิด (>2x) แสดงว่ามีข่าวใหญ่ ราคาจะเปลี่ยนแรงและเร็ว ตั้ง stop-loss ไว้ 5-7%"
+Example:
+"ระวังถ้า ATR พุ่งเกิน 2% (จากปัจจุบัน 1.2%) พร้อมราคาตก ต่ำกว่า VWAP และปริมาณซื้อขายระเบิด >2x แสดงตลาดตื่นตระหนก ราคาอาจทะลุ stop-loss ที่ $170 ลงไปถึง $165 ได้"
 
-Rules:
-- ALWAYS use volatility/ATR, buy/sell pressure/VWAP, and volume IN your narratives
-- Combine technical + fundamental + relative + NEWS analysis
-- When high-impact news exists, reference it with [1], [2], [3] etc. and explain the impact
-- NO raw numbers alone - always explain what they MEAN
-- Write flowing Thai, not bullet points
-- Keep under 15 lines total (more if news is significant)
+Rules for narrative flow:
+- Tell STORIES, don't list bullet points - write like you're texting a friend investor
+- CRITICAL: ALWAYS include all 4 market condition metrics (uncertainty, ATR%, VWAP%, volume ratio) with specific numbers throughout
+- Use numbers IN sentences as evidence, not as standalone facts
+- Explain WHY things matter (implication), not just WHAT they are (description)
+- Mix technical + fundamental + relative + news seamlessly - don't section them
+- Reference news [1], [2] ONLY when it genuinely affects the story
+- Write under 12-15 lines total
+- NO tables, NO numbered lists in the insight section, just flowing narrative
 
-BAD: "ATR = 2.5"
-GOOD: "ATR 2.5% แสดงว่าราคาแกว่งตัวปานกลาง อาจขึ้นลง 2-3% ได้ง่าย ตั้ง stop-loss ให้กว้าง"
+BAD (missing market condition numbers):
+"ตลาดผันผวน ราคาขึ้น กำไรดี"
 
-BAD: "VWAP = 450, Price = 461"
-GOOD: "ราคา 461 เหนือ VWAP 450 ถึง 2.4% หมายความว่าคนซื้อวันนี้จ่ายแพงกว่าราคาเฉลี่ย แสดงแรงซื้อดี"
+BAD (too mechanical, numbers without meaning):
+"ATR = 2.5. VWAP = 450. Volume = 1.3x. ข่าว [1] บอกว่ากำไรขึ้น"
 
-BAD: "Volume ratio = 1.8"
-GOOD: "ปริมาณซื้อขายสูง 1.8x ของค่าเฉลี่ย แสดงว่าความสนใจเพิ่มขึ้น มีเงินเข้ามาเยอะ"
+GOOD (narrative + number with meaning):
+"ความไม่แน่นอน 45/100 แสดงตลาดผันผวนพอสมควร ATR 2.5% ราคาอาจแกว่ง 2-3% ได้ง่าย แต่ราคา 461 เหนือ VWAP 450 ถึง 2.4% แสดงแรงซื้อชนะ ปริมาณซื้อขาย 1.3x ของเฉลี่ยยืนยันนักลงทุนสนใจเพิ่มขึ้น โดยเฉพาะหลังข่าวกำไรเกินคาด [1]"
 
-Write entirely in Thai, naturally flowing."""
+Write entirely in Thai, naturally flowing like Damodaran's style - narrative supported by numbers, not numbers with explanation."""
 
         response = self.llm.invoke([HumanMessage(content=prompt)])
         report = response.content
