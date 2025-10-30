@@ -257,3 +257,47 @@ class TechnicalAnalyzer:
             return f"ราคาอยู่เหนือแนวกลาง - แนวโน้มบวก"
         else:
             return f"ราคาอยู่ใต้แนวกลาง - แนวโน้มลบ"
+
+    def analyze_uncertainty(self, indicators):
+        """Analyze Pricing Uncertainty Score"""
+        if not indicators:
+            return "ไม่สามารถวิเคราะห์ได้"
+
+        uncertainty = indicators.get('uncertainty_score')
+        atr = indicators.get('atr')
+        vwap = indicators.get('vwap')
+        price = indicators.get('current_price')
+
+        if uncertainty is None:
+            return "ไม่มีข้อมูล Uncertainty Score"
+
+        # Interpret uncertainty level
+        if uncertainty < 25:
+            level = "ต่ำ (ตลาดเสถียร)"
+            recommendation = "ความเสี่ยงต่ำ เหมาะสำหรับการถือระยะยาว"
+        elif uncertainty < 50:
+            level = "ปานกลาง"
+            recommendation = "ความเสี่ยงปานกลาง ควรติดตามอย่างใกล้ชิด"
+        elif uncertainty < 75:
+            level = "สูง"
+            recommendation = "ความเสี่ยงสูง ระวังความผันผวน"
+        else:
+            level = "สูงมาก (ผันผวนรุนแรง)"
+            recommendation = "ความเสี่ยงสูงมาก เหมาะสำหรับนักเทรดมืออาชีพเท่านั้น"
+
+        # Price position relative to VWAP
+        if vwap and price:
+            if price > vwap:
+                vwap_position = f"ราคาเหนือ VWAP ({vwap:.2f}) - แรงซื้อเหนือกว่า"
+            else:
+                vwap_position = f"ราคาต่ำกว่า VWAP ({vwap:.2f}) - แรงขายเหนือกว่า"
+        else:
+            vwap_position = ""
+
+        result = f"Uncertainty Score: {uncertainty:.2f}/100 - ระดับ{level}\n{recommendation}"
+        if vwap_position:
+            result += f"\n{vwap_position}"
+        if atr:
+            result += f"\nATR: {atr:.4f} (ความผันผวน)"
+
+        return result
