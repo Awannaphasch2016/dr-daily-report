@@ -151,9 +151,11 @@ class TickerAnalysisAgent:
         ticker = state["ticker"]
         ticker_data = state["ticker_data"]
         indicators = state["indicators"]
+        news = state.get("news", [])
+        news_summary = state.get("news_summary", {})
 
         # Prepare context for LLM
-        context = self.prepare_context(ticker, ticker_data, indicators)
+        context = self.prepare_context(ticker, ticker_data, indicators, news, news_summary)
 
         # Generate report using LLM
         prompt = f"""You are a world-class financial analyst like Aswath Damodaran. Write in Thai, tell stories with data.
@@ -161,17 +163,19 @@ class TickerAnalysisAgent:
 Data:
 {context}
 
-Write a narrative-driven report covering TECHNICAL + FUNDAMENTAL + RELATIVE analysis.
+Write a narrative-driven report covering TECHNICAL + FUNDAMENTAL + RELATIVE + NEWS analysis.
 
 Use the Market Condition components (volatility, buy/sell pressure, volume) as NARRATIVE ELEMENTS throughout your analysis.
+
+IMPORTANT: When relevant news exists, reference it using [1], [2], etc. and explain how it impacts the analysis.
 
 Structure (in Thai):
 
 📖 **เรื่องราวของหุ้นตัวนี้**
-Start with market condition, then weave in technical trend and fundamental story in 2-3 sentences.
+Start with market condition, then weave in technical trend, fundamental story, and KEY NEWS in 2-3 sentences.
 
-Example:
-"Honda กำลังในช่วงที่น่าสนใจ - ตลาดเสถียร ATR แค่ 2% ราคาเคลื่อนไหวช้า ทะลุ SMA 200 ขึ้นมา (1,583 vs 1,341) แสดงว่าแรงซื้อกลับมา แต่กำไรลด 42% ต้องระวัง"
+Example with news:
+"Honda กำลังในช่วงที่น่าสนใจ - ตลาดเสถียร ATR แค่ 2% ราคาเคลื่อนไหวช้า ทะลุ SMA 200 ขึ้นมา (1,583 vs 1,341) แสดงว่าแรงซื้อกลับมา แต่กำไรลด 42% ต้องระวัง โดยเฉพาะหลังจากข่าวผลประกอบการไตรมาสล่าสุด [1]"
 
 💡 **สิ่งที่คุณต้องรู้**
 Write 3-4 insights combining ALL THREE analysis types:
@@ -200,10 +204,11 @@ Warn about risks from volatility + volume + fundamentals:
 
 Rules:
 - ALWAYS use volatility/ATR, buy/sell pressure/VWAP, and volume IN your narratives
-- Combine technical + fundamental + relative analysis
+- Combine technical + fundamental + relative + NEWS analysis
+- When high-impact news exists, reference it with [1], [2], [3] etc. and explain the impact
 - NO raw numbers alone - always explain what they MEAN
 - Write flowing Thai, not bullet points
-- Keep under 12 lines total
+- Keep under 15 lines total (more if news is significant)
 
 BAD: "ATR = 2.5"
 GOOD: "ATR 2.5% แสดงว่าราคาแกว่งตัวปานกลาง อาจขึ้นลง 2-3% ได้ง่าย ตั้ง stop-loss ให้กว้าง"
@@ -218,6 +223,11 @@ Write entirely in Thai, naturally flowing."""
 
         response = self.llm.invoke([HumanMessage(content=prompt)])
         report = response.content
+
+        # Add news references at the end if news exists
+        if news:
+            news_references = self.news_fetcher.get_news_references(news)
+            report += f"\n\n{news_references}"
 
         # Save report to database
         yahoo_ticker = self.ticker_map.get(ticker.upper())
@@ -235,7 +245,7 @@ Write entirely in Thai, naturally flowing."""
         state["report"] = report
         return state
 
-    def prepare_context(self, ticker, ticker_data, indicators):
+    def prepare_context(self, ticker, ticker_data, indicators, news=None, news_summary=None):
         """Prepare context for LLM with uncertainty components"""
         current_price = indicators.get('current_price', 0)
         current_volume = indicators.get('volume', 0)
@@ -353,6 +363,43 @@ Bollinger: {self.technical_analyzer.analyze_bollinger(indicators)}
 - ราคาสูงสุด 52 สัปดาห์: {ticker_data.get('fifty_two_week_high', 'N/A')}
 - ราคาต่ำสุด 52 สัปดาห์: {ticker_data.get('fifty_two_week_low', 'N/A')}
 """
+
+        # Add news section if news exists
+        if news and len(news) > 0:
+            news_text = "\n\nข่าวสำคัญที่มีผลกระทบสูง (High-Impact News):\n"
+            news_text += f"จำนวนข่าวทั้งหมด: {news_summary.get('total_count', 0)}\n"
+            news_text += f"ข่าวดี: {news_summary.get('positive_count', 0)} | "
+            news_text += f"ข่าวลบ: {news_summary.get('negative_count', 0)} | "
+            news_text += f"เป็นกลาง: {news_summary.get('neutral_count', 0)}\n"
+            news_text += f"แนวโน้มโดยรวม: {news_summary.get('dominant_sentiment', 'neutral').upper()}\n"
+            news_text += f"มีข่าวใหม่ล่าสุด (< 24 ชม): {'YES' if news_summary.get('has_recent_news') else 'NO'}\n\n"
+
+            for idx, news_item in enumerate(news, 1):
+                title = news_item.get('title', '')
+                sentiment = news_item.get('sentiment', 'neutral')
+                impact_score = news_item.get('impact_score', 0)
+                timestamp = news_item.get('timestamp')
+
+                # Calculate time ago
+                now = datetime.now(timestamp.tzinfo) if timestamp.tzinfo else datetime.now()
+                hours_ago = (now - timestamp).total_seconds() / 3600
+                if hours_ago < 24:
+                    time_str = f"{int(hours_ago)}h ago"
+                else:
+                    days_ago = int(hours_ago / 24)
+                    time_str = f"{days_ago}d ago"
+
+                sentiment_indicator = {
+                    'positive': '📈 POSITIVE',
+                    'negative': '📉 NEGATIVE',
+                    'neutral': '📊 NEUTRAL'
+                }.get(sentiment, '📊 NEUTRAL')
+
+                news_text += f"[{idx}] {title}\n"
+                news_text += f"    Sentiment: {sentiment_indicator} | Impact: {impact_score:.0f}/100 | {time_str}\n\n"
+
+            context += news_text
+
         return context
 
     def _format_number(self, value):
@@ -381,6 +428,8 @@ Bollinger: {self.technical_analyzer.analyze_bollinger(indicators)}
             "ticker": ticker,
             "ticker_data": {},
             "indicators": {},
+            "news": [],
+            "news_summary": {},
             "report": "",
             "error": ""
         }

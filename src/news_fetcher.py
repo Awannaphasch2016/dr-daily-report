@@ -72,11 +72,36 @@ class NewsFetcher:
             # Process and format news
             formatted_news = []
             for item in news[:max_news]:
+                # Yahoo Finance API has nested structure - check for 'content' object
+                content = item.get('content', item)
+
+                # Get title from nested content or top level
+                title = content.get('title', item.get('title', ''))
+
+                # Get publisher from nested provider or top level
+                provider = content.get('provider', {})
+                publisher = provider.get('displayName', item.get('publisher', 'Unknown'))
+
+                # Get link from canonicalUrl or top level
+                canonical = content.get('canonicalUrl', {})
+                link = canonical.get('url', item.get('link', ''))
+
+                # Get timestamp from pubDate or providerPublishTime
+                pub_date = content.get('pubDate', content.get('displayTime', ''))
+                if pub_date:
+                    try:
+                        from dateutil import parser
+                        timestamp = parser.parse(pub_date)
+                    except:
+                        timestamp = datetime.fromtimestamp(item.get('providerPublishTime', 0))
+                else:
+                    timestamp = datetime.fromtimestamp(item.get('providerPublishTime', 0))
+
                 formatted_news.append({
-                    'title': item.get('title', ''),
-                    'link': item.get('link', ''),
-                    'publisher': item.get('publisher', 'Unknown'),
-                    'timestamp': datetime.fromtimestamp(item.get('providerPublishTime', 0)),
+                    'title': title,
+                    'link': link,
+                    'publisher': publisher,
+                    'timestamp': timestamp,
                     'raw': item
                 })
 
@@ -108,7 +133,9 @@ class NewsFetcher:
 
         # 2. Recency score (max 20 points)
         if timestamp:
-            hours_ago = (datetime.now() - timestamp).total_seconds() / 3600
+            # Make both datetimes timezone-aware or naive for comparison
+            now = datetime.now(timestamp.tzinfo) if timestamp.tzinfo else datetime.now()
+            hours_ago = (now - timestamp).total_seconds() / 3600
             if hours_ago < 24:
                 score += 20
             elif hours_ago < 168:  # 7 days
@@ -203,7 +230,8 @@ class NewsFetcher:
             timestamp = news['timestamp']
 
             # Format timestamp
-            hours_ago = (datetime.now() - timestamp).total_seconds() / 3600
+            now = datetime.now(timestamp.tzinfo) if timestamp.tzinfo else datetime.now()
+            hours_ago = (now - timestamp).total_seconds() / 3600
             if hours_ago < 24:
                 time_str = f"{int(hours_ago)} ชั่วโมงที่แล้ว"
             else:
@@ -259,8 +287,12 @@ class NewsFetcher:
         avg_score = sum(n['impact_score'] for n in news_items) / len(news_items)
 
         # Check if any news is less than 24 hours old
-        recent = any((datetime.now() - n['timestamp']).total_seconds() < 86400
-                    for n in news_items)
+        def is_recent(news):
+            ts = news['timestamp']
+            now = datetime.now(ts.tzinfo) if ts.tzinfo else datetime.now()
+            return (now - ts).total_seconds() < 86400
+
+        recent = any(is_recent(n) for n in news_items)
 
         return {
             'total_count': len(news_items),
