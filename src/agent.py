@@ -123,81 +123,64 @@ class TickerAnalysisAgent:
         # Prepare context for LLM
         context = self.prepare_context(ticker, ticker_data, indicators)
 
-        # Get uncertainty score for prompt guidance
-        uncertainty_score = indicators.get('uncertainty_score', 0)
-
         # Generate report using LLM
-        prompt = f"""You are a world-class financial analyst like Aswath Damodaran. Write in Thai, but think like him - tell stories with data, don't just list numbers.
+        prompt = f"""You are a world-class financial analyst like Aswath Damodaran. Write in Thai, tell stories with data.
 
 Data:
 {context}
 
-Write a narrative-driven report that answers: "Should I BUY MORE?", "Should I SELL?", or "Should I HOLD LONGER?" and WHY?
+Write a narrative-driven report covering TECHNICAL + FUNDAMENTAL + RELATIVE analysis.
 
-CRITICAL: Use the Uncertainty Score ({uncertainty_score:.1f}/100) to guide your narrative tone and recommendation:
-- Low (0-25): "ตลาดเสถียร" - Good for positioning/accumulating, emphasize stability
-- Moderate (25-50): "ผันผวนพอสมควร" - Caution advised, watch for signals
-- High (50-75): "ผันผวนสูง" - High risk, only for experienced traders
-- Extreme (75-100): "ผันผวนรุนแรง" - Warn strongly about timing risk
+Use the Market Condition components (volatility, buy/sell pressure, volume) as NARRATIVE ELEMENTS throughout your analysis.
 
 Structure (in Thai):
 
 📖 **เรื่องราวของหุ้นตัวนี้**
-Write 2-3 sentences telling the STORY. INCLUDE uncertainty context naturally:
+Start with market condition, then weave in technical trend and fundamental story in 2-3 sentences.
 
-Low Uncertainty Example:
-"Tesla อยู่ในจังหวะที่น่าสนใจ - ตลาดเสถียร (Uncertainty 22/100) ราคาทะลุ SMA ทั้ง 3 เส้น แสดงว่านักลงทุนกำลังกลับมาอย่างมั่นคง"
-
-High Uncertainty Example:
-"Tesla อยู่ในโซนอันตราย - ตลาดผันผวนสูง (Uncertainty 68/100) ราคาพุ่งขึ้นแรงแต่ ATR สูงบอกว่าอาจปรับลงไวเหมือนกัน"
-
-Extreme Uncertainty Example:
-"Tesla อยู่ในภาวะสับวุ่น - ตลาดผันผวนรุนแรง (Uncertainty 82/100) ราคากระโดดขึ้นลงทุกวัน แรงซื้อแรงขายชนกันหนัก"
+Example:
+"Honda กำลังในช่วงที่น่าสนใจ - ตลาดเสถียร ATR แค่ 2% ราคาเคลื่อนไหวช้า ทะลุ SMA 200 ขึ้นมา (1,583 vs 1,341) แสดงว่าแรงซื้อกลับมา แต่กำไรลด 42% ต้องระวัง"
 
 💡 **สิ่งที่คุณต้องรู้**
-Write 3-4 key insights as STORIES. WEAVE IN uncertainty implications:
+Write 3-4 insights combining ALL THREE analysis types:
 
-Low Uncertainty + Uptrend:
-"ราคากำลังขึ้นแข็งแกร่งและมั่นคง - ทะลุเส้น SMA 20, 50 และ 200 ($461 vs $439 vs $405) และความผันผวนต่ำ (22/100) หมายความว่าทุกคนเห็นตรงกัน เหมาะสะสมระยะยาว"
+1. TECHNICAL + MARKET CONDITION:
+"ราคากำลังขึ้นแรง - ทะลุ SMA ทั้ง 3 เส้น ($461 vs $439 vs $405) และที่สำคัญ ATR แค่ 1.2% ความผันผวนต่ำ แรงซื้อขายสมดุล หมายความว่าทุกคนเห็นตรงกัน ไม่มีใครรีบขายออก เหมาะสะสมระยะยาว"
 
-High Uncertainty + Valuation:
-"ระวัง - ตลาดจ่ายแพง P/E 322 และความผันผวนสูง (68/100) ถ้ากำไรไม่ดีตามคาด ราคาจะปรับลงแรงและเร็วมาก"
+2. FUNDAMENTAL + BUY/SELL PRESSURE:
+"แต่ระวัง - P/E 322 แพงมาก และแรงซื้อเริ่มอ่อนแรง ราคา 2.5% เหนือ VWAP แสดงว่าคนซื้อวันนี้จ่ายแพงกว่าเฉลี่ย ถ้ากำไรไตรมาสหน้าไม่ดี คนจะรีบขายทันที"
 
-Extreme Uncertainty + VWAP:
-"ราคาเหนือ VWAP แสดงว่าแรงซื้อชนะ แต่ความผันผวนรุนแรง (85/100) และ ATR พุ่งสูง ถึงราคาขึ้นก็ขึ้นแรงลงก็ลงไว ต้องมี stop-loss แน่น"
+3. RELATIVE + VOLUME:
+"นักวิเคราะห์ให้ราคาเป้า $395 ต่ำกว่าราคาปัจจุบัน $461 และปริมาณซื้อขายเงียบ 0.7x ของค่าเฉลี่ย แสดงว่านักลงทุนใหญ่ไม่กล้าเข้า รอดูก่อน"
+
+4. TECHNICAL + VOLATILITY + FUNDAMENTAL:
+"RSI 59 ยังไม่ถึงโซนซื้อเกิน แต่ความผันผวนเริ่มพุ่ง ATR 3.8% แสดงว่าตลาดเริ่มลังเล รายได้โต 11% แต่กำไรลด 37% ต้นทุนพุ่งเร็วกว่ารายได้"
 
 🎯 **ควรทำอะไรตอนนี้?**
-Tell them clearly: BUY MORE / SELL / HOLD LONGER. FACTOR IN uncertainty:
+Give clear action (BUY MORE / SELL / HOLD) based on ALL analysis + market condition:
 
-Low Uncertainty: "แนะนำ BUY MORE - ตลาดเสถียร ราคาในเทรนด์ขาขึ้น ความผันผวนต่ำทำให้ความเสี่ยงน้อย"
-
-High Uncertainty: "แนะนำ HOLD และรอดู - ถึงราคาจะขึ้น แต่ความผันผวนสูงทำให้จับจังหวะยาก อย่ารีบซื้อเพิ่ม"
-
-Extreme Uncertainty: "แนะนำ SELL ครึ่งหรือ HOLD แน่น - ความผันผวนรุนแรงเกินไป ถ้ายังถือต้องมี stop-loss 5-7%"
+"แนะนำ HOLD - ตลาดเสถียร ราคาในเทรนด์ขาขึ้น แต่ P/E สูงเกินไป และปริมาณซื้อขายเงียบ แสดงว่านักลงทุนระมัดระวัง อย่ารีบซื้อเพิ่ม รอกำไรไตรมาสหน้าก่อน"
 
 ⚠️ **ระวังอะไร?**
-Emphasize uncertainty-related risks:
+Warn about risks from volatility + volume + fundamentals:
 
-Low: "ระวังถ้าความผันผวนพุ่งขึ้นเกิน 40-50 แสดงว่าตลาดเริ่มลังเล อาจเป็นสัญญาณเปลี่ยนทิศ"
-
-High: "ระวังความผันผวนนี้มาก - Uncertainty 68/100 หมายความว่าราคาอาจกระโดด 5-10% ได้ง่าย ตั้ง stop-loss ให้กว้าง"
-
-Extreme: "อย่าเล่นกับไฟ - Uncertainty 85/100 นี่คือโซนที่มืออาชีพยังระวัง ราคาพุ่งขึ้นลงได้ 10-20% ในไม่กี่วัน"
+"ระวังถ้าความผันผวนพุ่งขึ้น (ATR เกิน 4%) พร้อมกับปริมาณซื้อขายระเบิด (>2x) แสดงว่ามีข่าวใหญ่ ราคาจะเปลี่ยนแรงและเร็ว ตั้ง stop-loss ไว้ 5-7%"
 
 Rules:
-- Tell STORIES, don't list bullet points
-- ALWAYS mention Uncertainty Score naturally and explain what it means
-- Use numbers IN sentences as evidence
-- Explain WHY things matter, not just WHAT they are
-- Write like texting a friend investor advice
+- ALWAYS use volatility/ATR, buy/sell pressure/VWAP, and volume IN your narratives
+- Combine technical + fundamental + relative analysis
+- NO raw numbers alone - always explain what they MEAN
+- Write flowing Thai, not bullet points
 - Keep under 12 lines total
-- NO tables, NO bullet lists, just flowing narrative
 
-BAD: "Uncertainty Score = 68.5"
-GOOD: "ตลาดผันผวนสูง (68/100) แสดงว่าราคาอาจกระโดด 5-10% ได้ง่าย ไม่เหมาะกับคนนอนไม่หลับ"
+BAD: "ATR = 2.5"
+GOOD: "ATR 2.5% แสดงว่าราคาแกว่งตัวปานกลาง อาจขึ้นลง 2-3% ได้ง่าย ตั้ง stop-loss ให้กว้าง"
 
-BAD: "VWAP = 450"
-GOOD: "ราคา 461 เหนือ VWAP 450 หมายความว่าคนซื้อวันนี้จ่ายแพงกว่าคนซื้อเฉลี่ย แสดงแรงซื้อแข็งแกร่ง"
+BAD: "VWAP = 450, Price = 461"
+GOOD: "ราคา 461 เหนือ VWAP 450 ถึง 2.4% หมายความว่าคนซื้อวันนี้จ่ายแพงกว่าราคาเฉลี่ย แสดงแรงซื้อดี"
+
+BAD: "Volume ratio = 1.8"
+GOOD: "ปริมาณซื้อขายสูง 1.8x ของค่าเฉลี่ย แสดงว่าความสนใจเพิ่มขึ้น มีเงินเข้ามาเยอะ"
 
 Write entirely in Thai, naturally flowing."""
 
@@ -221,12 +204,72 @@ Write entirely in Thai, naturally flowing."""
         return state
 
     def prepare_context(self, ticker, ticker_data, indicators):
-        """Prepare context for LLM"""
+        """Prepare context for LLM with uncertainty components"""
         current_price = indicators.get('current_price', 0)
+        current_volume = indicators.get('volume', 0)
+        volume_sma = indicators.get('volume_sma', 0)
 
-        # Get uncertainty score interpretation
+        # Get uncertainty score and its components
         uncertainty_score = indicators.get('uncertainty_score', 0)
-        uncertainty_analysis = self.technical_analyzer.analyze_uncertainty(indicators)
+        atr = indicators.get('atr', 0)
+        vwap = indicators.get('vwap', 0)
+
+        # Calculate buy/sell pressure indicators
+        if vwap and vwap > 0:
+            price_vs_vwap_pct = ((current_price - vwap) / vwap) * 100
+        else:
+            price_vs_vwap_pct = 0
+
+        if volume_sma and volume_sma > 0:
+            volume_ratio = current_volume / volume_sma
+        else:
+            volume_ratio = 1.0
+
+        # Interpret uncertainty level (don't show score, just interpretation)
+        if uncertainty_score < 25:
+            uncertainty_level = "ตลาดเสถียรมาก - แรงซื้อขายสมดุล เหมาะสำหรับการวางแผนระยะยาว"
+        elif uncertainty_score < 50:
+            uncertainty_level = "ตลาดค่อนข้างเสถียร - มีความเคลื่อนไหวปกติ เหมาะสำหรับการลงทุนทั่วไป"
+        elif uncertainty_score < 75:
+            uncertainty_level = "ตลาดผันผวนสูง - แรงซื้อขายไม่สมดุล ต้องระวังการเปลี่ยนทิศทางอย่างกะทันหัน"
+        else:
+            uncertainty_level = "ตลาดผันผวนรุนแรง - แรงซื้อขายชนกันหนัก เหมาะสำหรับมืออาชีพเท่านั้น"
+
+        # Interpret volatility (ATR) as percentage
+        if atr and current_price > 0:
+            atr_percent = (atr / current_price) * 100
+            if atr_percent < 1:
+                volatility_desc = f"ความผันผวนต่ำมาก (ATR {atr_percent:.2f}%) - ราคาเคลื่อนไหวช้า มั่นคง"
+            elif atr_percent < 2:
+                volatility_desc = f"ความผันผวนปานกลาง (ATR {atr_percent:.2f}%) - ราคาเคลื่อนไหวปกติ"
+            elif atr_percent < 4:
+                volatility_desc = f"ความผันผวนสูง (ATR {atr_percent:.2f}%) - ราคาแกว่งตัวรุนแรง อาจขึ้นลง 3-5% ได้ง่าย"
+            else:
+                volatility_desc = f"ความผันผวนสูงมาก (ATR {atr_percent:.2f}%) - ราคาแกว่งตัวมาก อาจขึ้นลง 5-10% ภายในวัน"
+        else:
+            volatility_desc = "ไม่สามารถวัดความผันผวนได้"
+
+        # Interpret buy/sell pressure from VWAP
+        if price_vs_vwap_pct > 3:
+            vwap_desc = f"แรงซื้อแรงมาก - ราคา {price_vs_vwap_pct:.1f}% เหนือ VWAP ({vwap:.2f}) คนซื้อยอมจ่ายแพงกว่าราคาเฉลี่ย แสดงความต้องการสูง"
+        elif price_vs_vwap_pct > 1:
+            vwap_desc = f"แรงซื้อดี - ราคา {price_vs_vwap_pct:.1f}% เหนือ VWAP ({vwap:.2f}) มีความต้องการซื้อเหนือกว่า"
+        elif price_vs_vwap_pct > -1:
+            vwap_desc = f"แรงซื้อขายสมดุล - ราคาใกล้เคียง VWAP ({vwap:.2f}) ตลาดยังไม่มีทิศทางชัด"
+        elif price_vs_vwap_pct > -3:
+            vwap_desc = f"แรงขายเริ่มมี - ราคา {abs(price_vs_vwap_pct):.1f}% ต่ำกว่า VWAP ({vwap:.2f}) มีแรงกดดันขาย"
+        else:
+            vwap_desc = f"แรงขายหนัก - ราคา {abs(price_vs_vwap_pct):.1f}% ต่ำกว่า VWAP ({vwap:.2f}) คนขายยอมขายถูกกว่าเฉลี่ย แสดงความตื่นตระหนก"
+
+        # Interpret volume
+        if volume_ratio > 2.0:
+            volume_desc = f"ปริมาณซื้อขายระเบิด {volume_ratio:.1f}x ของค่าเฉลี่ย - มีเหตุการณ์สำคัญ นักลงทุนใหญ่กำลังเคลื่อนไหว"
+        elif volume_ratio > 1.5:
+            volume_desc = f"ปริมาณซื้อขายสูง {volume_ratio:.1f}x ของค่าเฉลี่ย - ความสนใจเพิ่มขึ้นมาก"
+        elif volume_ratio > 0.7:
+            volume_desc = f"ปริมาณซื้อขายปกติ ({volume_ratio:.1f}x ของค่าเฉลี่ย)"
+        else:
+            volume_desc = f"ปริมาณซื้อขายเงียบ {volume_ratio:.1f}x ของค่าเฉลี่ย - นักลงทุนไม่ค่อยสนใจ อาจรอข่าวใหม่"
 
         context = f"""
 สัญลักษณ์: {ticker}
@@ -234,7 +277,7 @@ Write entirely in Thai, naturally flowing."""
 ราคาปัจจุบัน: {current_price:.2f}
 วันที่: {ticker_data.get('date')}
 
-ข้อมูลพื้นฐาน:
+ข้อมูลพื้นฐาน (Fundamental Analysis):
 - Market Cap: {self._format_number(ticker_data.get('market_cap'))}
 - P/E Ratio: {ticker_data.get('pe_ratio', 'N/A')}
 - Forward P/E: {ticker_data.get('forward_pe', 'N/A')}
@@ -242,8 +285,11 @@ Write entirely in Thai, naturally flowing."""
 - Dividend Yield: {self._format_percent(ticker_data.get('dividend_yield'))}
 - Sector: {ticker_data.get('sector', 'N/A')}
 - Industry: {ticker_data.get('industry', 'N/A')}
+- Revenue Growth: {self._format_percent(ticker_data.get('revenue_growth'))}
+- Earnings Growth: {self._format_percent(ticker_data.get('earnings_growth'))}
+- Profit Margin: {self._format_percent(ticker_data.get('profit_margin'))}
 
-การวิเคราะห์ทางเทคนิค:
+การวิเคราะห์ทางเทคนิค (Technical Analysis):
 - SMA 20: {indicators.get('sma_20', 'N/A'):.2f}
 - SMA 50: {indicators.get('sma_50', 'N/A'):.2f}
 - SMA 200: {indicators.get('sma_200', 'N/A'):.2f}
@@ -253,30 +299,27 @@ Write entirely in Thai, naturally flowing."""
 - Bollinger Upper: {indicators.get('bb_upper', 'N/A'):.2f}
 - Bollinger Middle: {indicators.get('bb_middle', 'N/A'):.2f}
 - Bollinger Lower: {indicators.get('bb_lower', 'N/A'):.2f}
-- VWAP: {indicators.get('vwap', 'N/A'):.2f}
-- ATR: {indicators.get('atr', 'N/A'):.4f}
 
 แนวโน้ม: {self.technical_analyzer.analyze_trend(indicators, current_price)}
 โมเมนตัม: {self.technical_analyzer.analyze_momentum(indicators)}
 MACD Signal: {self.technical_analyzer.analyze_macd(indicators)}
 Bollinger: {self.technical_analyzer.analyze_bollinger(indicators)}
 
-ความไม่แน่นอนของราคา (Pricing Uncertainty):
-{uncertainty_analysis}
+สภาวะตลาด (Market Condition - USE THESE IN YOUR NARRATIVE):
+สถานะ: {uncertainty_level}
 
-ความเห็นนักวิเคราะห์:
-- คำแนะนำ: {ticker_data.get('recommendation', 'N/A').upper()}
+1. ความผันผวน (Volatility): {volatility_desc}
+
+2. แรงซื้อ-ขาย (Buy/Sell Pressure): {vwap_desc}
+
+3. ปริมาณการซื้อขาย (Volume): {volume_desc}
+
+การวิเคราะห์เทียบเคียง (Relative Analysis):
+- คำแนะนำนักวิเคราะห์: {ticker_data.get('recommendation', 'N/A').upper()}
 - ราคาเป้าหมายเฉลี่ย: {ticker_data.get('target_mean_price', 'N/A')}
 - จำนวนนักวิเคราะห์: {ticker_data.get('analyst_count', 'N/A')}
-
-ช่วงราคา 52 สัปดาห์:
-- สูงสุด: {ticker_data.get('fifty_two_week_high', 'N/A')}
-- ต่ำสุด: {ticker_data.get('fifty_two_week_low', 'N/A')}
-
-การเติบโต:
-- Revenue Growth: {self._format_percent(ticker_data.get('revenue_growth'))}
-- Earnings Growth: {self._format_percent(ticker_data.get('earnings_growth'))}
-- Profit Margin: {self._format_percent(ticker_data.get('profit_margin'))}
+- ราคาสูงสุด 52 สัปดาห์: {ticker_data.get('fifty_two_week_high', 'N/A')}
+- ราคาต่ำสุด 52 สัปดาห์: {ticker_data.get('fifty_two_week_low', 'N/A')}
 """
         return context
 
