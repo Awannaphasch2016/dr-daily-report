@@ -39,7 +39,9 @@ env/
 
 # Deployment
 deployment_package/
-lambda_deployment.zip
+deployment_package_minimal/
+deployment_package_lambda/
+*.zip
 
 # IDE
 .vscode/
@@ -58,3 +60,14 @@ Thumbs.db
 # Temporary files
 *.tmp
 .cache/
+temp/
+tmp/
+
+# Deployment scripts (generated)
+create_deployment.py
+create_minimal_zip.py
+create_lambda.sh
+create_lambda_minimal.sh
+
+# Documentation (generated during deployment)
+LAMBDA_DEPLOYMENT_INSTRUCTIONS.md
