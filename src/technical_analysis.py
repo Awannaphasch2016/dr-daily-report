@@ -39,6 +39,90 @@ class TechnicalAnalyzer:
 
         return upper_band, sma, lower_band
 
+    def calculate_atr(self, data, period=14):
+        """
+        Calculate Average True Range (ATR) - Volatility Indicator
+        ATR measures market volatility by decomposing the entire range of price movement
+        """
+        high = data['High']
+        low = data['Low']
+        close = data['Close']
+        
+        # True Range calculation
+        tr1 = high - low  # Current high - current low
+        tr2 = abs(high - close.shift())  # Current high - previous close
+        tr3 = abs(low - close.shift())  # Current low - previous close
+        
+        # True Range is the maximum of the three
+        tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+        
+        # ATR is the moving average of True Range
+        atr = tr.rolling(window=period).mean()
+        
+        return atr
+
+    def calculate_vwap(self, data):
+        """
+        Calculate Volume Weighted Average Price (VWAP)
+        VWAP = Sum(Price * Volume) / Sum(Volume)
+        Represents the average price weighted by volume
+        """
+        typical_price = (data['High'] + data['Low'] + data['Close']) / 3
+        vwap = (typical_price * data['Volume']).cumsum() / data['Volume'].cumsum()
+        
+        return vwap
+
+    def calculate_uncertainty_score(self, data, atr_period=14):
+        """
+        Calculate Pricing Uncertainty Score (0-100 scale)
+        
+        Formula: Uncertainty = Buy-Sell Pressure × Volatility
+        Where: Buy-Sell Pressure = Price Action × Volume
+        
+        Components:
+        - ATR: Average True Range (volatility measure)
+        - VWAP: Volume Weighted Average Price (price action with volume)
+        - Volume Ratio: Current volume vs average volume
+        
+        Score Interpretation:
+        0-25:   Low uncertainty (stable market)
+        25-50:  Moderate uncertainty
+        50-75:  High uncertainty
+        75-100: Extreme uncertainty (volatile with strong buy/sell pressure)
+        """
+        try:
+            # Calculate ATR (volatility component)
+            atr = self.calculate_atr(data, period=atr_period)
+            
+            # Calculate VWAP (price action component)
+            vwap = self.calculate_vwap(data)
+            
+            # Calculate volume ratio (volume pressure component)
+            volume_sma = data['Volume'].rolling(window=20).mean()
+            volume_ratio = data['Volume'] / volume_sma
+            
+            # Calculate price deviation from VWAP (price action component)
+            price_deviation = abs(data['Close'] - vwap) / vwap
+            
+            # Buy-Sell Pressure = Price Action × Volume Ratio
+            buy_sell_pressure = price_deviation * volume_ratio
+            
+            # Normalize ATR as percentage of price
+            atr_normalized = atr / data['Close']
+            
+            # Pricing Uncertainty = Buy-Sell Pressure × Volatility
+            uncertainty_raw = buy_sell_pressure * atr_normalized
+            
+            # Normalize to 0-100 scale using tanh function for smooth bounded output
+            # tanh squashes values to [-1, 1], we scale to [0, 100]
+            uncertainty_score = 50 * (1 + np.tanh(uncertainty_raw * 10))
+            
+            return uncertainty_score, atr, vwap
+            
+        except Exception as e:
+            print(f"Error calculating uncertainty score: {str(e)}")
+            return None, None, None
+
     def calculate_all_indicators(self, hist_data):
         """Calculate all technical indicators"""
         if hist_data is None or hist_data.empty:
