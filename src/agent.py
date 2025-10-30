@@ -7,12 +7,15 @@ from datetime import datetime
 from src.data_fetcher import DataFetcher
 from src.technical_analysis import TechnicalAnalyzer
 from src.database import TickerDatabase
+from src.news_fetcher import NewsFetcher
 
 class AgentState(TypedDict):
     messages: Annotated[Sequence[HumanMessage | AIMessage], operator.add]
     ticker: str
     ticker_data: dict
     indicators: dict
+    news: list
+    news_summary: dict
     report: str
     error: str
 
@@ -21,6 +24,7 @@ class TickerAnalysisAgent:
         self.llm = ChatOpenAI(model="gpt-4o", temperature=0.8)
         self.data_fetcher = DataFetcher()
         self.technical_analyzer = TechnicalAnalyzer()
+        self.news_fetcher = NewsFetcher()
         self.db = TickerDatabase()
         self.ticker_map = self.data_fetcher.load_tickers()
         self.graph = self.build_graph()
@@ -31,12 +35,14 @@ class TickerAnalysisAgent:
 
         # Add nodes
         workflow.add_node("fetch_data", self.fetch_data)
+        workflow.add_node("fetch_news", self.fetch_news)
         workflow.add_node("analyze_technical", self.analyze_technical)
         workflow.add_node("generate_report", self.generate_report)
 
         # Add edges
         workflow.set_entry_point("fetch_data")
-        workflow.add_edge("fetch_data", "analyze_technical")
+        workflow.add_edge("fetch_data", "fetch_news")
+        workflow.add_edge("fetch_news", "analyze_technical")
         workflow.add_edge("analyze_technical", "generate_report")
         workflow.add_edge("generate_report", END)
 
@@ -81,6 +87,32 @@ class TickerAnalysisAgent:
         )
 
         state["ticker_data"] = data
+        return state
+
+    def fetch_news(self, state: AgentState) -> AgentState:
+        """Fetch high-impact news for the ticker"""
+        if state.get("error"):
+            return state
+
+        yahoo_ticker = self.ticker_map.get(state["ticker"].upper())
+        if not yahoo_ticker:
+            state["news"] = []
+            state["news_summary"] = {}
+            return state
+
+        # Fetch high-impact news (min score 40, max 5 items)
+        high_impact_news = self.news_fetcher.filter_high_impact_news(
+            yahoo_ticker,
+            min_score=40.0,
+            max_news=5
+        )
+
+        # Get news summary statistics
+        news_summary = self.news_fetcher.get_news_summary(high_impact_news)
+
+        state["news"] = high_impact_news
+        state["news_summary"] = news_summary
+
         return state
 
     def analyze_technical(self, state: AgentState) -> AgentState:
