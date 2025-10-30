@@ -36,12 +36,11 @@ env/
 *.db
 *.sqlite
 *.sqlite3
+data/*.db
+data/*.sqlite
 
-# Deployment
-deployment_package/
-deployment_package_minimal/
-deployment_package_lambda/
-*.zip
+# Deployment (build directory includes all deployment artifacts)
+# build/ is already covered above in Python section
 
 # IDE
 .vscode/
@@ -63,11 +62,5 @@ Thumbs.db
 temp/
 tmp/
 
-# Deployment scripts (generated)
-create_deployment.py
-create_minimal_zip.py
-create_lambda.sh
-create_lambda_minimal.sh
-
-# Documentation (generated during deployment)
-LAMBDA_DEPLOYMENT_INSTRUCTIONS.md
+# Note: Deployment scripts are now in scripts/ directory
+# Note: Documentation is now in docs/ directory
