@@ -32,6 +32,7 @@ class TickerAnalysisAgent:
         self.technical_analyzer = TechnicalAnalyzer()
         self.news_fetcher = NewsFetcher()
         self.db = TickerDatabase()
+        self.strategy_backtester = SMAStrategyBacktester(fast_period=20, slow_period=50)
         self.ticker_map = self.data_fetcher.load_tickers()
         self.graph = self.build_graph()
 
