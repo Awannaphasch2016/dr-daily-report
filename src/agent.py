@@ -4,10 +4,12 @@ from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, AIMessage
 import operator
 from datetime import datetime
+import re
 from src.data_fetcher import DataFetcher
 from src.technical_analysis import TechnicalAnalyzer
 from src.database import TickerDatabase
 from src.news_fetcher import NewsFetcher
+from src.strategy import SMAStrategyBacktester
 
 class AgentState(TypedDict):
     messages: Annotated[Sequence[HumanMessage | AIMessage], operator.add]
@@ -15,6 +17,9 @@ class AgentState(TypedDict):
     ticker_data: dict
     indicators: dict
     percentiles: dict  # Add percentiles field
+    chart_patterns: list  # Add chart patterns field
+    pattern_statistics: dict  # Add pattern statistics field
+    strategy_performance: dict  # Add strategy performance field
     news: list
     news_summary: dict
     report: str
