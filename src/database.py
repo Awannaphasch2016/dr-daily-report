@@ -3,7 +3,7 @@ from datetime import datetime
 import json
 
 class TickerDatabase:
-    def __init__(self, db_path="/tmp/ticker_data.db"):
+    def __init__(self, db_path="data/ticker_data.db"):
         self.db_path = db_path
         self.init_db()
 
