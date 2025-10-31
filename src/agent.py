@@ -253,11 +253,12 @@ Example:
 
 Rules for narrative flow:
 - Tell STORIES, don't list bullet points - write like you're texting a friend investor
-- CRITICAL: ALWAYS include all 4 market condition metrics (uncertainty, ATR%, VWAP%, volume ratio) with specific numbers throughout
+- CRITICAL: ALWAYS include all 4 market condition metrics (uncertainty, ATR%, VWAP%, volume ratio) with specific numbers AND percentile context throughout
 - Use numbers IN sentences as evidence, not as standalone facts
 - Explain WHY things matter (implication), not just WHAT they are (description)
-- Mix technical + fundamental + relative + news seamlessly - don't section them
+- Mix technical + fundamental + relative + news + statistical context seamlessly - don't section them
 - Reference news [1], [2] ONLY when it genuinely affects the story
+- CRITICAL: When percentile data is available, USE IT to add historical context to numbers (e.g., "RSI 75 ซึ่งอยู่ในเปอร์เซ็นไทล์ 85%")
 - Write under 12-15 lines total
 - NO tables, NO numbered lists in the insight section, just flowing narrative
 
@@ -267,8 +268,11 @@ BAD (missing market condition numbers):
 BAD (too mechanical, numbers without meaning):
 "ATR = 2.5. VWAP = 450. Volume = 1.3x. ข่าว [1] บอกว่ากำไรขึ้น"
 
-GOOD (narrative + number with meaning):
-"ความไม่แน่นอน 45/100 แสดงตลาดผันผวนพอสมควร ATR 2.5% ราคาอาจแกว่ง 2-3% ได้ง่าย แต่ราคา 461 เหนือ VWAP 450 ถึง 2.4% แสดงแรงซื้อชนะ ปริมาณซื้อขาย 1.3x ของเฉลี่ยยืนยันนักลงทุนสนใจเพิ่มขึ้น โดยเฉพาะหลังข่าวกำไรเกินคาด [1]"
+BAD (missing percentile context):
+"RSI 75 แสดงภาวะ Overbought" (missing "อยู่ในเปอร์เซ็นไทล์ 85% - สูงมากในอดีต")
+
+GOOD (narrative + number + historical context):
+"ความไม่แน่นอน 45/100 (เปอร์เซ็นไทล์ 50% - ปานกลาง) แสดงตลาดผันผวนพอสมควร ATR 2.5% (เปอร์เซ็นไทล์ 60%) ราคาอาจแกว่ง 2-3% ได้ง่าย แต่ราคา 461 เหนือ VWAP 450 ถึง 2.4% (เปอร์เซ็นไทล์ 55%) แสดงแรงซื้อชนะ ปริมาณซื้อขาย 1.3x ของเฉลี่ย (เปอร์เซ็นไทล์ 65%) ยืนยันนักลงทุนสนใจเพิ่มขึ้น โดยเฉพาะหลังข่าวกำไรเกินคาด [1]"
 
 Write entirely in Thai, naturally flowing like Damodaran's style - narrative supported by numbers, not numbers with explanation."""
 
