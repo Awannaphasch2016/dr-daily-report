@@ -161,7 +161,7 @@ class TickerAnalysisAgent:
         news_summary = state.get("news_summary", {})
 
         # Prepare context for LLM
-        context = self.prepare_context(ticker, ticker_data, indicators, percentiles, news, news_summary)
+        context = self.prepare_context(ticker, ticker_data, indicators, news, news_summary)
 
         # Get uncertainty score for context
         uncertainty_score = indicators.get('uncertainty_score', 0)
