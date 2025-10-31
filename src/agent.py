@@ -5,6 +5,7 @@ from langchain_core.messages import HumanMessage, AIMessage
 import operator
 from datetime import datetime
 import re
+import pandas as pd
 from src.data_fetcher import DataFetcher
 from src.technical_analysis import TechnicalAnalyzer
 from src.database import TickerDatabase
