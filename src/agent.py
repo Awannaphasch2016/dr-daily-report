@@ -186,127 +186,36 @@ class TickerAnalysisAgent:
         ticker_data = state["ticker_data"]
         indicators = state["indicators"]
         percentiles = state.get("percentiles", {})
+        chart_patterns = state.get("chart_patterns", [])
+        pattern_statistics = state.get("pattern_statistics", {})
+        strategy_performance = state.get("strategy_performance", {})
         news = state.get("news", [])
         news_summary = state.get("news_summary", {})
 
-        # Prepare context for LLM
-        context = self.prepare_context(ticker, ticker_data, indicators, news, news_summary)
-
-        # Get uncertainty score for context
+        # First pass: Generate report without strategy data to determine recommendation
+        context = self.prepare_context(ticker, ticker_data, indicators, percentiles, news, news_summary, strategy_performance=None)
         uncertainty_score = indicators.get('uncertainty_score', 0)
-
-        # Generate report using LLM
-        prompt = f"""You are a world-class financial analyst like Aswath Damodaran. Write in Thai, but think like him - tell stories with data, don't just list numbers.
-
-Data:
-{context}
-
-Write a narrative-driven report that answers: "Should I BUY MORE?", "Should I SELL?", or "Should I HOLD?" and WHY?
-
-Your job is to weave TECHNICAL + FUNDAMENTAL + RELATIVE + NEWS + STATISTICAL CONTEXT into a flowing narrative that tells the STORY of this stock right now.
-
-CRITICAL NARRATIVE ELEMENTS - You MUST weave these "narrative + number + historical context" components into your story:
-
-1. **Price Uncertainty** ({uncertainty_score:.0f}/100): Sets the overall market mood
-   - Low (0-25): "ตลาดเสถียรมาก" - Stable, good for positioning
-   - Moderate (25-50): "ตลาดค่อนข้างเสถียร" - Normal movement
-   - High (50-75): "ตลาดผันผวนสูง" - High risk, be cautious
-   - Extreme (75-100): "ตลาดผันผวนรุนแรง" - Extreme risk, warn strongly
-   - **IMPORTANT**: Use percentile information to add historical context (e.g., "Uncertainty 52/100 ซึ่งอยู่ในเปอร์เซ็นไทล์ 88% - แสดงว่าความไม่แน่นอนนี้สูงกว่าปกติเมื่อเทียบกับประวัติศาสตร์")
-
-2. **Volatility (ATR %)**: The speed of price movement
-   - Include the ATR% number and explain what it means
-   - Example: "ATR 1.2% แสดงราคาเคลื่อนไหวช้ามั่นคง นักลงทุนเห็นตรงกัน"
-   - Example: "ATR 3.8% แสดงตลาดลังเล ราคากระโดดขึ้นลง 3-5% ได้ง่าย"
-   - **IMPORTANT**: Use percentile context (e.g., "ATR 1.99% อยู่ในเปอร์เซ็นไทล์ 61% - สูงกว่าค่าเฉลี่ยปกติเล็กน้อย")
-
-3. **Buy/Sell Pressure (Price vs VWAP %)**: Who's winning - buyers or sellers?
-   - Include the % above/below VWAP and explain the implication
-   - Example: "ราคา 22.4% เหนือ VWAP แสดงแรงซื้อแรงมาก คนซื้อวันนี้ยอมจ่ายแพงกว่าเฉลี่ย"
-   - Example: "ราคา -2.8% ต่ำกว่า VWAP แสดงแรงขายหนัก คนขายรีบขายถูกกว่าเฉลี่ย"
-   - **IMPORTANT**: Use percentile to show rarity (e.g., "ราคา 5% เหนือ VWAP ซึ่งอยู่ในเปอร์เซ็นไทล์ 90% - แสดงแรงซื้อที่ผิดปกติมากในอดีต")
-
-4. **Volume (Volume Ratio)**: Is smart money interested?
-   - Include the volume ratio (e.g., 0.8x, 1.5x, 2.0x) and explain what it means
-   - Example: "ปริมาณซื้อขาย 1.8x ของเฉลี่ย แสดงนักลงทุนใหญ่กำลังเคลื่อนไหว"
-   - Example: "ปริมาณซื้อขาย 0.7x ของเฉลี่ย แสดงนักลงทุนเฉยๆ รอดูก่อน"
-   - **IMPORTANT**: Use percentile frequency (e.g., "ปริมาณ 1.03x อยู่ในเปอร์เซ็นไทล์ 71% - สูงกว่าปกติ แต่ไม่ใช่ระดับที่ผิดปกติ")
-
-5. **Statistical Context (Percentiles)**: Historical perspective on current values
-   - CRITICAL: You MUST incorporate percentile information naturally into your narrative
-   - This tells the reader: "Is this value unusual compared to history?"
-   - Examples:
-     * "RSI 81.12 ซึ่งอยู่ในเปอร์เซ็นไทล์ 94% - สูงมากในอดีต ควรระวังภาวะ Overbought"
-     * "MACD 6.32 อยู่ในเปอร์เซ็นไทล์ 77% - สูงกว่าปกติ แสดงแรงซื้อแรงมาก"
-     * "Uncertainty 52/100 อยู่ในเปอร์เซ็นไทล์ 88% - ความไม่แน่นอนนี้สูงกว่าปกติในอดีต"
-   - Frequency percentages help explain rarity:
-     * "RSI นี้สูงกว่า 70% ได้แค่ 28% ของเวลาในอดีต - แสดงภาวะ Overbought ที่หายาก"
-     * "Volume 1.03x แต่ในอดีตเคยสูงถึง 2x ได้แค่ 1.9% ของเวลา - ปริมาณปัจจุบันยังไม่ใช่ระดับผิดปกติ"
-
-These 5 elements (4 market conditions + statistical context) ARE the foundation of your narrative. ALWAYS include specific numbers WITH historical context (percentiles) - this is the "narrative + number + history" Damodaran style.
-
-IMPORTANT: When high-impact news [1], [2] exists in the data, reference it naturally in your story when relevant. Don't force it - only use if it meaningfully affects the narrative.
-
-Structure (in Thai):
-
-📖 **เรื่องราวของหุ้นตัวนี้**
-Write 2-3 sentences telling the STORY. MUST include: uncertainty score context + ATR% + VWAP% + volume ratio with their meanings. Include news naturally if relevant.
-
-Example (with news):
-"Apple กำลังอยู่ในโมเมนต์ที่น่าสนใจ - ตลาดเสถียร (ความไม่แน่นอน 22/100 อยู่ในเปอร์เซ็นไทล์ 15% - ต่ำมากในอดีต) ATR แค่ 1.2% (เปอร์เซ็นไทล์ 25%) ราคาเคลื่อนไหวช้ามั่นคง นักลงทุนเห็นตรงกัน แต่ราคา 2.4% เหนือ VWAP (เปอร์เซ็นไทล์ 60%) แสดงแรงซื้อชนะ ปริมาณซื้อขาย 1.3x ของเฉลี่ย (เปอร์เซ็นไทล์ 65%) แสดงนักลงทุนสนใจเพิ่มขึ้น หลังข่าวผลประกอบการที่เกินคาด [1]"
-
-Example (without news):
-"Tesla อยู่ในภาวะที่น่ากังวล - ตลาดผันผวนสูง (ความไม่แน่นอน 68/100 อยู่ในเปอร์เซ็นไทล์ 85% - สูงมากในอดีต) ATR 3.8% (เปอร์เซ็นไทล์ 80%) แสดงราคากระโดดขึ้นลง 3-5% ได้ง่าย ราคา -2.1% ต่ำกว่า VWAP (เปอร์เซ็นไทล์ 20%) แสดงแรงขายหนัก แต่ปริมาณซื้อขาย 0.9x ของเฉลี่ย (เปอร์เซ็นไทล์ 45%) แสดงยังไม่มีการขายระห่ำ"
-
-💡 **สิ่งที่คุณต้องรู้**
-Write 3-4 flowing paragraphs (NOT numbered lists) that explain WHY this matters to an investor. MUST continuously reference the 4 market condition elements (uncertainty, ATR, VWAP, volume) with numbers throughout. Mix technical + fundamental + relative + news seamlessly.
-
-Example flow (notice how volatility/pressure/volume are woven throughout):
-"ราคากำลังขึ้นแรง - ทะลุ SMA ทั้ง 3 เส้น ($175 vs $172 vs $168) และที่สำคัญความผันผวนต่ำ ATR 1.2% (เปอร์เซ็นไทล์ 25% - ต่ำมากในอดีต) แสดงว่านักลงทุนเห็นตรงกัน ไม่มีใครรีบขายออก ราคา 2.4% เหนือ VWAP (เปอร์เซ็นไทล์ 60%) ยืนยันแรงซื้อชนะ เหมาะสะสมระยะยาว
-
-แต่ระวัง - P/E 28 แพงขึ้นจากเดิม และแม้ปริมาณซื้อขาย 1.4x ของเฉลี่ย (เปอร์เซ็นไทล์ 75%) แสดงความสนใจเพิ่มขึ้น แต่ถ้า ATR พุ่งเกิน 2% พร้อมแรงขายเข้ามา (ราคาต่ำกว่า VWAP) หลังจากนักวิเคราะห์ดาวน์เกรด [2] ราคาจะปรับฐานลงเร็ว
-
-นักวิเคราะห์ให้ราคาเป้า $180 สูงกว่าปัจจุบัน $175 และในขณะที่ความไม่แน่นอนยังต่ำ (22/100 อยู่ในเปอร์เซ็นไทล์ 15% - ต่ำมากในอดีต) การถือหุ้นในช่วงนี้มีความเสี่ยงน้อย"
-
-🎯 **ควรทำอะไรตอนนี้?**
-Give ONE clear action: BUY MORE / SELL / HOLD. Explain WHY in 2-3 sentences using uncertainty score + market conditions (ATR/VWAP/volume). Reference news if it changes the decision.
-
-Example:
-"แนะนำ BUY - ความไม่แน่นอนต่ำ (22/100) ATR 1.2% ตลาดเสถียร ราคา 2.4% เหนือ VWAP แสดงแรงซื้อชนะ ปริมาณซื้อขาย 1.3x แสดงนักลงทุนสนใจ หลังผลประกอบการดี [1] เหมาะเข้าซื้อสะสม ตั้ง stop-loss ที่ $170"
-
-⚠️ **ระวังอะไร?**
-Warn about 1-2 key risks using the 4 market condition metrics. What volatility/pressure/volume signals should trigger concern? Keep it practical.
-
-Example:
-"ระวังถ้า ATR พุ่งเกิน 2% (จากปัจจุบัน 1.2%) พร้อมราคาตก ต่ำกว่า VWAP และปริมาณซื้อขายระเบิด >2x แสดงตลาดตื่นตระหนก ราคาอาจทะลุ stop-loss ที่ $170 ลงไปถึง $165 ได้"
-
-Rules for narrative flow:
-- Tell STORIES, don't list bullet points - write like you're texting a friend investor
-- CRITICAL: ALWAYS include all 4 market condition metrics (uncertainty, ATR%, VWAP%, volume ratio) with specific numbers AND percentile context throughout
-- Use numbers IN sentences as evidence, not as standalone facts
-- Explain WHY things matter (implication), not just WHAT they are (description)
-- Mix technical + fundamental + relative + news + statistical context seamlessly - don't section them
-- Reference news [1], [2] ONLY when it genuinely affects the story
-- CRITICAL: When percentile data is available, USE IT to add historical context to numbers (e.g., "RSI 75 ซึ่งอยู่ในเปอร์เซ็นไทล์ 85%")
-- Write under 12-15 lines total
-- NO tables, NO numbered lists in the insight section, just flowing narrative
-
-BAD (missing market condition numbers):
-"ตลาดผันผวน ราคาขึ้น กำไรดี"
-
-BAD (too mechanical, numbers without meaning):
-"ATR = 2.5. VWAP = 450. Volume = 1.3x. ข่าว [1] บอกว่ากำไรขึ้น"
-
-BAD (missing percentile context):
-"RSI 75 แสดงภาวะ Overbought" (missing "อยู่ในเปอร์เซ็นไทล์ 85% - สูงมากในอดีต")
-
-GOOD (narrative + number + historical context):
-"ความไม่แน่นอน 45/100 (เปอร์เซ็นไทล์ 50% - ปานกลาง) แสดงตลาดผันผวนพอสมควร ATR 2.5% (เปอร์เซ็นไทล์ 60%) ราคาอาจแกว่ง 2-3% ได้ง่าย แต่ราคา 461 เหนือ VWAP 450 ถึง 2.4% (เปอร์เซ็นไทล์ 55%) แสดงแรงซื้อชนะ ปริมาณซื้อขาย 1.3x ของเฉลี่ย (เปอร์เซ็นไทล์ 65%) ยืนยันนักลงทุนสนใจเพิ่มขึ้น โดยเฉพาะหลังข่าวกำไรเกินคาด [1]"
-
-Write entirely in Thai, naturally flowing like Damodaran's style - narrative supported by numbers, not numbers with explanation."""
-
+        
+        prompt = self._build_prompt(context, uncertainty_score, strategy_performance=None)
         response = self.llm.invoke([HumanMessage(content=prompt)])
-        report = response.content
+        initial_report = response.content
+
+        # Extract recommendation from initial report
+        recommendation = self._extract_recommendation(initial_report)
+        
+        # Check if strategy performance aligns with recommendation
+        include_strategy = self._check_strategy_alignment(recommendation, strategy_performance)
+        
+        # Second pass: If aligned, regenerate with strategy data
+        if include_strategy and strategy_performance:
+            context_with_strategy = self.prepare_context(
+                ticker, ticker_data, indicators, percentiles, news, news_summary, strategy_performance=strategy_performance
+            )
+            prompt_with_strategy = self._build_prompt(context_with_strategy, uncertainty_score, strategy_performance=strategy_performance)
+            response = self.llm.invoke([HumanMessage(content=prompt_with_strategy)])
+            report = response.content
+        else:
+            report = initial_report
 
         # Add news references at the end if news exists
         if news:
