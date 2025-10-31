@@ -112,7 +112,7 @@ def api_handler(event, context):
     - OPENAI_API_KEY: OpenAI API key
     
     Returns:
-        JSON response with ticker analysis data
+        JSON response with ticker analysis data including percentiles
     """
     try:
         # Extract ticker from query parameters
@@ -141,6 +141,7 @@ def api_handler(event, context):
             "ticker": ticker.upper(),
             "ticker_data": {},
             "indicators": {},
+            "percentiles": {},  # Add percentiles field
             "news": [],
             "news_summary": {},
             "report": "",
@@ -167,6 +168,7 @@ def api_handler(event, context):
         # Sanitize data for JSON serialization
         ticker_data = sanitize_ticker_data(final_state.get("ticker_data", {}))
         indicators = sanitize_dict(final_state.get("indicators", {}))
+        percentiles = sanitize_dict(final_state.get("percentiles", {}))
         news = sanitize_news(final_state.get("news", []))
         news_summary = sanitize_dict(final_state.get("news_summary", {}))
         report = final_state.get("report", "")
@@ -176,6 +178,7 @@ def api_handler(event, context):
             'ticker': ticker.upper(),
             'ticker_data': ticker_data,
             'indicators': indicators,
+            'percentiles': percentiles,  # Include percentiles in response
             'news': news,
             'news_summary': news_summary,
             'report': report
