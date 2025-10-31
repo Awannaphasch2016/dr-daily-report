@@ -174,32 +174,47 @@ Data:
 
 Write a narrative-driven report that answers: "Should I BUY MORE?", "Should I SELL?", or "Should I HOLD?" and WHY?
 
-Your job is to weave TECHNICAL + FUNDAMENTAL + RELATIVE + NEWS into a flowing narrative that tells the STORY of this stock right now.
+Your job is to weave TECHNICAL + FUNDAMENTAL + RELATIVE + NEWS + STATISTICAL CONTEXT into a flowing narrative that tells the STORY of this stock right now.
 
-CRITICAL NARRATIVE ELEMENTS - You MUST weave these "narrative + number" components into your story:
+CRITICAL NARRATIVE ELEMENTS - You MUST weave these "narrative + number + historical context" components into your story:
 
 1. **Price Uncertainty** ({uncertainty_score:.0f}/100): Sets the overall market mood
    - Low (0-25): "ตลาดเสถียรมาก" - Stable, good for positioning
    - Moderate (25-50): "ตลาดค่อนข้างเสถียร" - Normal movement
    - High (50-75): "ตลาดผันผวนสูง" - High risk, be cautious
    - Extreme (75-100): "ตลาดผันผวนรุนแรง" - Extreme risk, warn strongly
+   - **IMPORTANT**: Use percentile information to add historical context (e.g., "Uncertainty 52/100 ซึ่งอยู่ในเปอร์เซ็นไทล์ 88% - แสดงว่าความไม่แน่นอนนี้สูงกว่าปกติเมื่อเทียบกับประวัติศาสตร์")
 
 2. **Volatility (ATR %)**: The speed of price movement
    - Include the ATR% number and explain what it means
    - Example: "ATR 1.2% แสดงราคาเคลื่อนไหวช้ามั่นคง นักลงทุนเห็นตรงกัน"
    - Example: "ATR 3.8% แสดงตลาดลังเล ราคากระโดดขึ้นลง 3-5% ได้ง่าย"
+   - **IMPORTANT**: Use percentile context (e.g., "ATR 1.99% อยู่ในเปอร์เซ็นไทล์ 61% - สูงกว่าค่าเฉลี่ยปกติเล็กน้อย")
 
 3. **Buy/Sell Pressure (Price vs VWAP %)**: Who's winning - buyers or sellers?
    - Include the % above/below VWAP and explain the implication
    - Example: "ราคา 22.4% เหนือ VWAP แสดงแรงซื้อแรงมาก คนซื้อวันนี้ยอมจ่ายแพงกว่าเฉลี่ย"
    - Example: "ราคา -2.8% ต่ำกว่า VWAP แสดงแรงขายหนัก คนขายรีบขายถูกกว่าเฉลี่ย"
+   - **IMPORTANT**: Use percentile to show rarity (e.g., "ราคา 5% เหนือ VWAP ซึ่งอยู่ในเปอร์เซ็นไทล์ 90% - แสดงแรงซื้อที่ผิดปกติมากในอดีต")
 
 4. **Volume (Volume Ratio)**: Is smart money interested?
    - Include the volume ratio (e.g., 0.8x, 1.5x, 2.0x) and explain what it means
    - Example: "ปริมาณซื้อขาย 1.8x ของเฉลี่ย แสดงนักลงทุนใหญ่กำลังเคลื่อนไหว"
    - Example: "ปริมาณซื้อขาย 0.7x ของเฉลี่ย แสดงนักลงทุนเฉยๆ รอดูก่อน"
+   - **IMPORTANT**: Use percentile frequency (e.g., "ปริมาณ 1.03x อยู่ในเปอร์เซ็นไทล์ 71% - สูงกว่าปกติ แต่ไม่ใช่ระดับที่ผิดปกติ")
 
-These 4 market condition elements ARE the foundation of your narrative. ALWAYS include specific numbers with interpretation - this is the "narrative + number" Damodaran style.
+5. **Statistical Context (Percentiles)**: Historical perspective on current values
+   - CRITICAL: You MUST incorporate percentile information naturally into your narrative
+   - This tells the reader: "Is this value unusual compared to history?"
+   - Examples:
+     * "RSI 81.12 ซึ่งอยู่ในเปอร์เซ็นไทล์ 94% - สูงมากในอดีต ควรระวังภาวะ Overbought"
+     * "MACD 6.32 อยู่ในเปอร์เซ็นไทล์ 77% - สูงกว่าปกติ แสดงแรงซื้อแรงมาก"
+     * "Uncertainty 52/100 อยู่ในเปอร์เซ็นไทล์ 88% - ความไม่แน่นอนนี้สูงกว่าปกติในอดีต"
+   - Frequency percentages help explain rarity:
+     * "RSI นี้สูงกว่า 70% ได้แค่ 28% ของเวลาในอดีต - แสดงภาวะ Overbought ที่หายาก"
+     * "Volume 1.03x แต่ในอดีตเคยสูงถึง 2x ได้แค่ 1.9% ของเวลา - ปริมาณปัจจุบันยังไม่ใช่ระดับผิดปกติ"
+
+These 5 elements (4 market conditions + statistical context) ARE the foundation of your narrative. ALWAYS include specific numbers WITH historical context (percentiles) - this is the "narrative + number + history" Damodaran style.
 
 IMPORTANT: When high-impact news [1], [2] exists in the data, reference it naturally in your story when relevant. Don't force it - only use if it meaningfully affects the narrative.
 
