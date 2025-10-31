@@ -64,3 +64,19 @@ tmp/
 
 # Note: Deployment scripts are now in scripts/ directory
 # Note: Documentation is now in docs/ directory
+
+*.zip
+
+# Lambda deployment packages
+lambda_package/
+lambda_package_*/
+lambda_deployment*.zip
+Dockerfile.lambda
+
+# Lambda test files
+response*.json
+test_lambda*.py
+test_lambda*.json
+test_dbs*.json
+requirements_lambda.txt
+LAMBDA_DEPLOYMENT_INSTRUCTIONS.md
