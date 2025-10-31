@@ -143,6 +143,25 @@ class TickerAnalysisAgent:
 
         indicators = result['indicators']
         percentiles = result.get('percentiles', {})
+        chart_patterns = result.get('chart_patterns', [])
+        pattern_statistics = result.get('pattern_statistics', {})
+
+        # Calculate strategy performance
+        strategy_performance = {}
+        try:
+            buy_results = self.strategy_backtester.backtest_buy_only(hist_data)
+            sell_results = self.strategy_backtester.backtest_sell_only(hist_data)
+            
+            if buy_results and sell_results:
+                strategy_performance = {
+                    'buy_only': buy_results,
+                    'sell_only': sell_results,
+                    'last_buy_signal': self._get_last_buy_signal(hist_data),
+                    'last_sell_signal': self._get_last_sell_signal(hist_data)
+                }
+        except Exception as e:
+            print(f"Error calculating strategy performance: {str(e)}")
+            strategy_performance = {}
 
         # Save indicators to database
         yahoo_ticker = self.ticker_map.get(state["ticker"].upper())
@@ -152,6 +171,9 @@ class TickerAnalysisAgent:
 
         state["indicators"] = indicators
         state["percentiles"] = percentiles
+        state["chart_patterns"] = chart_patterns
+        state["pattern_statistics"] = pattern_statistics
+        state["strategy_performance"] = strategy_performance
         return state
 
     def generate_report(self, state: AgentState) -> AgentState:
