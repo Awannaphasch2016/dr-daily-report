@@ -380,15 +380,28 @@ Write entirely in Thai, naturally flowing like Damodaran's style - narrative sup
             if 'rsi' in percentiles:
                 rsi_stats = percentiles['rsi']
                 percentile_context += f"- RSI: {rsi_stats['current_value']:.2f} (เปอร์เซ็นไทล์: {rsi_stats['percentile']:.1f}% - สูงกว่าค่าเฉลี่ย {rsi_stats['mean']:.2f})\n"
+                percentile_context += f"  ความถี่ที่ RSI > 70: {rsi_stats['frequency_above_70']:.1f}% | ความถี่ที่ RSI < 30: {rsi_stats['frequency_below_30']:.1f}%\n"
+            if 'macd' in percentiles:
+                macd_stats = percentiles['macd']
+                percentile_context += f"- MACD: {macd_stats['current_value']:.4f} (เปอร์เซ็นไทล์: {macd_stats['percentile']:.1f}%)\n"
+                percentile_context += f"  ความถี่ที่ MACD > 0: {macd_stats['frequency_positive']:.1f}%\n"
             if 'uncertainty_score' in percentiles:
                 unc_stats = percentiles['uncertainty_score']
                 percentile_context += f"- Uncertainty Score: {unc_stats['current_value']:.2f}/100 (เปอร์เซ็นไทล์: {unc_stats['percentile']:.1f}%)\n"
+                percentile_context += f"  ความถี่ที่ต่ำ (<25): {unc_stats['frequency_low']:.1f}% | ความถี่ที่สูง (>75): {unc_stats['frequency_high']:.1f}%\n"
             if 'atr_percent' in percentiles:
                 atr_stats = percentiles['atr_percent']
                 percentile_context += f"- ATR %: {atr_stats['current_value']:.2f}% (เปอร์เซ็นไทล์: {atr_stats['percentile']:.1f}%)\n"
+                percentile_context += f"  ความถี่ที่ความผันผวนต่ำ (<1%): {atr_stats['frequency_low_volatility']:.1f}% | ความถี่ที่ความผันผวนสูง (>4%): {atr_stats['frequency_high_volatility']:.1f}%\n"
+            if 'price_vwap_percent' in percentiles:
+                vwap_stats = percentiles['price_vwap_percent']
+                percentile_context += f"- Price vs VWAP %: {vwap_stats['current_value']:.2f}% (เปอร์เซ็นไทล์: {vwap_stats['percentile']:.1f}%)\n"
+                percentile_context += f"  ความถี่ที่ราคาเหนือ VWAP >3%: {vwap_stats['frequency_above_3pct']:.1f}% | ความถี่ที่ราคาต่ำกว่า VWAP <-3%: {vwap_stats['frequency_below_neg3pct']:.1f}%\n"
             if 'volume_ratio' in percentiles:
                 vol_stats = percentiles['volume_ratio']
                 percentile_context += f"- Volume Ratio: {vol_stats['current_value']:.2f}x (เปอร์เซ็นไทล์: {vol_stats['percentile']:.1f}%)\n"
+                percentile_context += f"  ความถี่ที่ปริมาณสูง (>2x): {vol_stats['frequency_high_volume']:.1f}% | ความถี่ที่ปริมาณต่ำ (<0.7x): {vol_stats['frequency_low_volume']:.1f}%\n"
+            percentile_context += "\n**IMPORTANT**: Use these percentile values naturally in your narrative to add historical context. Don't just list them - weave them into the story!"
 
         context = f"""
 สัญลักษณ์: {ticker}
