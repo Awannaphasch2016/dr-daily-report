@@ -243,7 +243,120 @@ class TickerAnalysisAgent:
         state["report"] = report
         return state
 
-    def prepare_context(self, ticker, ticker_data, indicators, percentiles=None, news=None, news_summary=None):
+    def _build_prompt(self, context: str, uncertainty_score: float, strategy_performance: dict = None) -> str:
+        """Build LLM prompt with optional strategy performance data"""
+        base_prompt = f"""You are a world-class financial analyst like Aswath Damodaran. Write in Thai, but think like him - tell stories with data, don't just list numbers.
+
+Data:
+{context}
+
+Write a narrative-driven report that answers: "Should I BUY MORE?", "Should I SELL?", or "Should I HOLD?" and WHY?
+
+Your job is to weave TECHNICAL + FUNDAMENTAL + RELATIVE + NEWS + STATISTICAL CONTEXT into a flowing narrative that tells the STORY of this stock right now.
+
+CRITICAL NARRATIVE ELEMENTS - You MUST weave these "narrative + number + historical context" components into your story:
+
+1. **Price Uncertainty** ({uncertainty_score:.0f}/100): Sets the overall market mood
+   - Low (0-25): "ตลาดเสถียรมาก" - Stable, good for positioning
+   - Moderate (25-50): "ตลาดค่อนข้างเสถียร" - Normal movement
+   - High (50-75): "ตลาดผันผวนสูง" - High risk, be cautious
+   - Extreme (75-100): "ตลาดผันผวนรุนแรง" - Extreme risk, warn strongly
+   - **IMPORTANT**: Use percentile information to add historical context (e.g., "Uncertainty 52/100 ซึ่งอยู่ในเปอร์เซ็นไทล์ 88% - แสดงว่าความไม่แน่นอนนี้สูงกว่าปกติเมื่อเทียบกับประวัติศาสตร์")
+
+2. **Volatility (ATR %)**: The speed of price movement
+   - Include the ATR% number and explain what it means
+   - Example: "ATR 1.2% แสดงราคาเคลื่อนไหวช้ามั่นคง นักลงทุนเห็นตรงกัน"
+   - Example: "ATR 3.8% แสดงตลาดลังเล ราคากระโดดขึ้นลง 3-5% ได้ง่าย"
+   - **IMPORTANT**: Use percentile context (e.g., "ATR 1.99% อยู่ในเปอร์เซ็นไทล์ 61% - สูงกว่าค่าเฉลี่ยปกติเล็กน้อย")
+
+3. **Buy/Sell Pressure (Price vs VWAP %)**: Who's winning - buyers or sellers?
+   - Include the % above/below VWAP and explain the implication
+   - Example: "ราคา 22.4% เหนือ VWAP แสดงแรงซื้อแรงมาก คนซื้อวันนี้ยอมจ่ายแพงกว่าเฉลี่ย"
+   - Example: "ราคา -2.8% ต่ำกว่า VWAP แสดงแรงขายหนัก คนขายรีบขายถูกกว่าเฉลี่ย"
+   - **IMPORTANT**: Use percentile to show rarity (e.g., "ราคา 5% เหนือ VWAP ซึ่งอยู่ในเปอร์เซ็นไทล์ 90% - แสดงแรงซื้อที่ผิดปกติมากในอดีต")
+
+4. **Volume (Volume Ratio)**: Is smart money interested?
+   - Include the volume ratio (e.g., 0.8x, 1.5x, 2.0x) and explain what it means
+   - Example: "ปริมาณซื้อขาย 1.8x ของเฉลี่ย แสดงนักลงทุนใหญ่กำลังเคลื่อนไหว"
+   - Example: "ปริมาณซื้อขาย 0.7x ของเฉลี่ย แสดงนักลงทุนเฉยๆ รอดูก่อน"
+   - **IMPORTANT**: Use percentile frequency (e.g., "ปริมาณ 1.03x อยู่ในเปอร์เซ็นไทล์ 71% - สูงกว่าปกติ แต่ไม่ใช่ระดับที่ผิดปกติ")
+
+5. **Statistical Context (Percentiles)**: Historical perspective on current values
+   - CRITICAL: You MUST incorporate percentile information naturally into your narrative
+   - This tells the reader: "Is this value unusual compared to history?"
+   - Examples:
+     * "RSI 81.12 ซึ่งอยู่ในเปอร์เซ็นไทล์ 94% - สูงมากในอดีต ควรระวังภาวะ Overbought"
+     * "MACD 6.32 อยู่ในเปอร์เซ็นไทล์ 77% - สูงกว่าปกติ แสดงแรงซื้อแรงมาก"
+     * "Uncertainty 52/100 อยู่ในเปอร์เซ็นไทล์ 88% - ความไม่แน่นอนนี้สูงกว่าปกติในอดีต"
+   - Frequency percentages help explain rarity:
+     * "RSI นี้สูงกว่า 70% ได้แค่ 28% ของเวลาในอดีต - แสดงภาวะ Overbought ที่หายาก"
+     * "Volume 1.03x แต่ในอดีตเคยสูงถึง 2x ได้แค่ 1.9% ของเวลา - ปริมาณปัจจุบันยังไม่ใช่ระดับผิดปกติ"
+
+These 5 elements (4 market conditions + statistical context) ARE the foundation of your narrative. ALWAYS include specific numbers WITH historical context (percentiles) - this is the "narrative + number + history" Damodaran style."""
+
+        # Add strategy performance section if provided
+        strategy_section = ""
+        if strategy_performance:
+            strategy_section = """
+
+6. **Strategy Performance (Historical Backtesting)**: When strategy performance data is provided, USE IT to support your recommendation
+   - CRITICAL: Only include strategy performance when it ALIGNS with your BUY/SELL recommendation
+   - Weave strategy performance naturally into your narrative with "narrative + number" style
+   - DO NOT mention what strategy was used - just present the performance as evidence
+   - Examples of how to incorporate:
+     * For BUY recommendation: "หากคุณติดตามกลยุทธ์ของเรา การซื้อครั้งล่าสุดอยู่ที่ $175 และเมื่อดูจากสถิติการซื้อเท่านั้น (buy-only strategy) ในอดีต การเข้าตำแหน่งแบบนี้ให้ผลตอบแทนเฉลี่ย +15.2% โดยมี Sharpe ratio 1.2 และอัตราชนะ 62% - แสดงว่าจุดเข้าแบบนี้มีความเสี่ยงต่ำและให้ผลตอบแทนดี"
+     * For SELL recommendation: "หากคุณติดตามกลยุทธ์ของเรา การขายครั้งล่าสุดอยู่ที่ $180 และเมื่อดูจากสถิติการขายเท่านั้น (sell-only strategy) ในอดีต การเข้าตำแหน่งแบบนี้ให้ผลตอบแทนเฉลี่ย +8.5% โดยมี Sharpe ratio 0.9 และอัตราชนะ 58% - แสดงว่าจุดเข้าแบบนี้มีความเสี่ยงปานกลางและให้ผลตอบแทนดี"
+   - Include risk/reward metrics: "Max Drawdown -12.5% แสดงว่าในอดีต ตำแหน่งแบบนี้เสี่ยงสูงสุดที่จะขาดทุน 12.5% ก่อนจะกลับขึ้นมา"
+   - Format: "หากคุณติดตามกลยุทธ์ของเรา, การซื้อ/ขายครั้งล่าสุดอยู่ที่ [price] และเมื่อดูจากสถิติการซื้อ/ขายเท่านั้น (buy-only/sell-only strategy) ในอดีต, การเข้าตำแหน่งแบบนี้ให้ผลตอบแทนเฉลี่ย [return]% โดยมี Sharpe ratio [sharpe] และอัตราชนะ [win_rate]% - แสดงว่า[interpretation]"
+   - NEVER mention the strategy name (SMA crossing) - just say "กลยุทธ์ของเรา" or "strategies"
+   - Use strategy data to strengthen your argument, not as standalone facts"""
+
+        prompt = base_prompt + strategy_section + """
+
+IMPORTANT: When high-impact news [1], [2] exists in the data, reference it naturally in your story when relevant. Don't force it - only use if it meaningfully affects the narrative.
+
+Structure (in Thai):
+
+📖 **เรื่องราวของหุ้นตัวนี้**
+Write 2-3 sentences telling the STORY. MUST include: uncertainty score context + ATR% + VWAP% + volume ratio with their meanings. Include news naturally if relevant.
+
+💡 **สิ่งที่คุณต้องรู้**
+Write 3-4 flowing paragraphs (NOT numbered lists) that explain WHY this matters to an investor. MUST continuously reference the 4 market condition elements (uncertainty, ATR, VWAP, volume) with numbers throughout. Mix technical + fundamental + relative + news seamlessly.
+{strategy_integration_instruction}
+
+🎯 **ควรทำอะไรตอนนี้?**
+Give ONE clear action: BUY MORE / SELL / HOLD. Explain WHY in 2-3 sentences using uncertainty score + market conditions (ATR/VWAP/volume). Reference news if it changes the decision.
+{strategy_recommendation_instruction}
+
+⚠️ **ระวังอะไร?**
+Warn about 1-2 key risks using the 4 market condition metrics. What volatility/pressure/volume signals should trigger concern? Keep it practical.
+
+Rules for narrative flow:
+- Tell STORIES, don't list bullet points - write like you're texting a friend investor
+- CRITICAL: ALWAYS include all 4 market condition metrics (uncertainty, ATR%, VWAP%, volume ratio) with specific numbers AND percentile context throughout
+- Use numbers IN sentences as evidence, not as standalone facts
+- Explain WHY things matter (implication), not just WHAT they are (description)
+- Mix technical + fundamental + relative + news + statistical context seamlessly - don't section them
+- Reference news [1], [2] ONLY when it genuinely affects the story
+- CRITICAL: When percentile data is available, USE IT to add historical context to numbers (e.g., "RSI 75 ซึ่งอยู่ในเปอร์เซ็นไทล์ 85%")
+- Write under 12-15 lines total
+- NO tables, NO numbered lists in the insight section, just flowing narrative
+
+Write entirely in Thai, naturally flowing like Damodaran's style - narrative supported by numbers, not numbers with explanation."""
+
+        # Add strategy-specific instructions
+        if strategy_performance:
+            prompt = prompt.replace(
+                "{strategy_integration_instruction}",
+                "\n- If strategy performance data is provided, weave it naturally into this section to support your analysis"
+            ).replace(
+                "{strategy_recommendation_instruction}",
+                "\n- If strategy performance data is provided and aligns with your recommendation, include it here to strengthen your argument (e.g., 'หากคุณติดตามกลยุทธ์ของเรา การซื้อครั้งล่าสุดอยู่ที่ $X และสถิติแสดงว่า...')"
+            )
+        else:
+            prompt = prompt.replace("{strategy_integration_instruction}", "").replace("{strategy_recommendation_instruction}", "")
+
+        return prompt
         """Prepare context for LLM with uncertainty components and percentile information"""
         current_price = indicators.get('current_price', 0)
         current_volume = indicators.get('volume', 0)
