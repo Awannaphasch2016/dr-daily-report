@@ -14,6 +14,7 @@ class AgentState(TypedDict):
     ticker: str
     ticker_data: dict
     indicators: dict
+    percentiles: dict  # Add percentiles field
     news: list
     news_summary: dict
     report: str
@@ -116,7 +117,7 @@ class TickerAnalysisAgent:
         return state
 
     def analyze_technical(self, state: AgentState) -> AgentState:
-        """Analyze technical indicators"""
+        """Analyze technical indicators with percentile analysis"""
         if state.get("error"):
             return state
 
@@ -127,12 +128,15 @@ class TickerAnalysisAgent:
             state["error"] = "ไม่มีข้อมูลประวัติสำหรับการวิเคราะห์"
             return state
 
-        # Calculate indicators
-        indicators = self.technical_analyzer.calculate_all_indicators(hist_data)
+        # Calculate indicators with percentiles
+        result = self.technical_analyzer.calculate_all_indicators_with_percentiles(hist_data)
 
-        if not indicators:
+        if not result or not result.get('indicators'):
             state["error"] = "ไม่สามารถคำนวณ indicators ได้"
             return state
+
+        indicators = result['indicators']
+        percentiles = result.get('percentiles', {})
 
         # Save indicators to database
         yahoo_ticker = self.ticker_map.get(state["ticker"].upper())
@@ -141,6 +145,7 @@ class TickerAnalysisAgent:
         )
 
         state["indicators"] = indicators
+        state["percentiles"] = percentiles
         return state
 
     def generate_report(self, state: AgentState) -> AgentState:
@@ -151,11 +156,12 @@ class TickerAnalysisAgent:
         ticker = state["ticker"]
         ticker_data = state["ticker_data"]
         indicators = state["indicators"]
+        percentiles = state.get("percentiles", {})
         news = state.get("news", [])
         news_summary = state.get("news_summary", {})
 
         # Prepare context for LLM
-        context = self.prepare_context(ticker, ticker_data, indicators, news, news_summary)
+        context = self.prepare_context(ticker, ticker_data, indicators, percentiles, news, news_summary)
 
         # Get uncertainty score for context
         uncertainty_score = indicators.get('uncertainty_score', 0)
@@ -258,6 +264,11 @@ Write entirely in Thai, naturally flowing like Damodaran's style - narrative sup
         if news:
             news_references = self.news_fetcher.get_news_references(news)
             report += f"\n\n{news_references}"
+        
+        # Add percentile analysis at the end
+        if percentiles:
+            percentile_analysis = self.technical_analyzer.format_percentile_analysis(percentiles)
+            report += f"\n\n{percentile_analysis}"
 
         # Save report to database
         yahoo_ticker = self.ticker_map.get(ticker.upper())
@@ -275,8 +286,8 @@ Write entirely in Thai, naturally flowing like Damodaran's style - narrative sup
         state["report"] = report
         return state
 
-    def prepare_context(self, ticker, ticker_data, indicators, news=None, news_summary=None):
-        """Prepare context for LLM with uncertainty components"""
+    def prepare_context(self, ticker, ticker_data, indicators, percentiles=None, news=None, news_summary=None):
+        """Prepare context for LLM with uncertainty components and percentile information"""
         current_price = indicators.get('current_price', 0)
         current_volume = indicators.get('volume', 0)
         volume_sma = indicators.get('volume_sma', 0)
@@ -343,6 +354,23 @@ Write entirely in Thai, naturally flowing like Damodaran's style - narrative sup
         else:
             volume_desc = f"ปริมาณซื้อขายเงียบ {volume_ratio:.1f}x ของค่าเฉลี่ย - นักลงทุนไม่ค่อยสนใจ อาจรอข่าวใหม่"
 
+        # Add percentile context if available
+        percentile_context = ""
+        if percentiles:
+            percentile_context = "\n\nการวิเคราะห์เปอร์เซ็นไทล์ (Percentile Analysis - เปรียบเทียบกับประวัติศาสตร์):\n"
+            if 'rsi' in percentiles:
+                rsi_stats = percentiles['rsi']
+                percentile_context += f"- RSI: {rsi_stats['current_value']:.2f} (เปอร์เซ็นไทล์: {rsi_stats['percentile']:.1f}% - สูงกว่าค่าเฉลี่ย {rsi_stats['mean']:.2f})\n"
+            if 'uncertainty_score' in percentiles:
+                unc_stats = percentiles['uncertainty_score']
+                percentile_context += f"- Uncertainty Score: {unc_stats['current_value']:.2f}/100 (เปอร์เซ็นไทล์: {unc_stats['percentile']:.1f}%)\n"
+            if 'atr_percent' in percentiles:
+                atr_stats = percentiles['atr_percent']
+                percentile_context += f"- ATR %: {atr_stats['current_value']:.2f}% (เปอร์เซ็นไทล์: {atr_stats['percentile']:.1f}%)\n"
+            if 'volume_ratio' in percentiles:
+                vol_stats = percentiles['volume_ratio']
+                percentile_context += f"- Volume Ratio: {vol_stats['current_value']:.2f}x (เปอร์เซ็นไทล์: {vol_stats['percentile']:.1f}%)\n"
+
         context = f"""
 สัญลักษณ์: {ticker}
 บริษัท: {ticker_data.get('company_name', ticker)}
@@ -385,7 +413,7 @@ Bollinger: {self.technical_analyzer.analyze_bollinger(indicators)}
 2. แรงซื้อ-ขาย (Buy/Sell Pressure): {vwap_desc}
 
 3. ปริมาณการซื้อขาย (Volume): {volume_desc}
-
+{percentile_context}
 การวิเคราะห์เทียบเคียง (Relative Analysis):
 - คำแนะนำนักวิเคราะห์: {ticker_data.get('recommendation', 'N/A').upper()}
 - ราคาเป้าหมายเฉลี่ย: {ticker_data.get('target_mean_price', 'N/A')}
@@ -458,6 +486,7 @@ Bollinger: {self.technical_analyzer.analyze_bollinger(indicators)}
             "ticker": ticker,
             "ticker_data": {},
             "indicators": {},
+            "percentiles": {},
             "news": [],
             "news_summary": {},
             "report": "",
