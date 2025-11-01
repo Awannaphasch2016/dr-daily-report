@@ -162,6 +162,7 @@ def api_handler(event: "LambdaEvent", context: "LambdaContext | None") -> dict[s
             "report": "",
             "faithfulness_score": {},
             "completeness_score": {},
+            "reasoning_quality_score": {},
             "error": ""
         }
         
@@ -194,9 +195,11 @@ def api_handler(event: "LambdaEvent", context: "LambdaContext | None") -> dict[s
         # Convert dataclass scores to dicts for JSON serialization
         faithfulness_score_obj = final_state.get("faithfulness_score")
         completeness_score_obj = final_state.get("completeness_score")
+        reasoning_quality_score_obj = final_state.get("reasoning_quality_score")
         
         faithfulness_score = {}
         completeness_score = {}
+        reasoning_quality_score = {}
         
         if faithfulness_score_obj:
             faithfulness_score = {
@@ -215,6 +218,15 @@ def api_handler(event: "LambdaEvent", context: "LambdaContext | None") -> dict[s
                 'covered_elements': completeness_score_obj.covered_elements
             }
             completeness_score = sanitize_dict(completeness_score)
+        
+        if reasoning_quality_score_obj:
+            reasoning_quality_score = {
+                'overall_score': reasoning_quality_score_obj.overall_score,
+                'dimension_scores': reasoning_quality_score_obj.dimension_scores,
+                'issues': reasoning_quality_score_obj.issues,
+                'strengths': reasoning_quality_score_obj.strengths
+            }
+            reasoning_quality_score = sanitize_dict(reasoning_quality_score)
 
         # Build response
         response_data = {
