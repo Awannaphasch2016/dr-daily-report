@@ -1,8 +1,18 @@
 import json
-import os
 from datetime import datetime
-from typing import Any, Dict
+from typing import TYPE_CHECKING
 from src.agent import TickerAnalysisAgent
+
+if TYPE_CHECKING:
+    from typing_extensions import TypedDict
+
+    class LambdaEvent(TypedDict, total=False):
+        queryStringParameters: dict[str, str] | None
+        headers: dict[str, str] | None
+        body: str | None
+
+    class LambdaContext:
+        pass
 
 # Initialize agent (cold start optimization)
 agent = None
@@ -14,17 +24,17 @@ def get_agent():
         agent = TickerAnalysisAgent()
     return agent
 
-def sanitize_ticker_data(data: Dict[str, Any]) -> Dict[str, Any]:
+def sanitize_ticker_data(data: dict[str, object]) -> dict[str, object]:
     """
     Remove non-serializable objects from ticker_data (e.g., DataFrame)
-    
+
     Args:
         data: Raw ticker_data dictionary
-        
+
     Returns:
         Sanitized dictionary suitable for JSON serialization
     """
-    sanitized = {}
+    sanitized: dict[str, object] = {}
     
     # Copy all fields except 'history' (DataFrame)
     for key, value in data.items():
@@ -43,20 +53,20 @@ def sanitize_ticker_data(data: Dict[str, Any]) -> Dict[str, Any]:
     
     return sanitized
 
-def sanitize_news(news_list: list) -> list:
+def sanitize_news(news_list: list[dict[str, object]]) -> list[dict[str, object]]:
     """
     Sanitize news items for JSON serialization
-    
+
     Args:
         news_list: List of news dictionaries
-        
+
     Returns:
         List of sanitized news dictionaries
     """
-    sanitized_news = []
+    sanitized_news: list[dict[str, object]] = []
     
     for news_item in news_list:
-        sanitized_item = {}
+        sanitized_item: dict[str, object] = {}
         
         for key, value in news_item.items():
             if key == 'raw':
@@ -78,10 +88,10 @@ def sanitize_news(news_list: list) -> list:
     
     return sanitized_news
 
-def sanitize_dict(data: Dict[str, Any]) -> Dict[str, Any]:
+def sanitize_dict(data: dict[str, object]) -> dict[str, object]:
     """Recursively sanitize dictionary for JSON serialization"""
-    sanitized = {}
-    
+    sanitized: dict[str, object] = {}
+
     for key, value in data.items():
         if value is None:
             sanitized[key] = None
@@ -101,16 +111,16 @@ def sanitize_dict(data: Dict[str, Any]) -> Dict[str, Any]:
     
     return sanitized
 
-def api_handler(event, context):
+def api_handler(event: "LambdaEvent", context: "LambdaContext | None") -> dict[str, object]:
     """
     AWS Lambda handler for REST API endpoint
-    
+
     Expected query parameters:
     - ticker: Ticker symbol (e.g., 'AAPL', 'DBS19')
-    
+
     Expected environment variables:
     - OPENAI_API_KEY: OpenAI API key
-    
+
     Returns:
         JSON response with ticker analysis data including percentiles
     """
@@ -135,8 +145,9 @@ def api_handler(event, context):
         # Get agent instance
         agent_instance = get_agent()
         
-        # Initialize state
-        initial_state = {
+        # Initialize state (AgentState type)
+        from src.agent import AgentState
+        initial_state: AgentState = {
             "messages": [],
             "ticker": ticker.upper(),
             "ticker_data": {},
@@ -216,18 +227,22 @@ def api_handler(event, context):
             })
         }
 
-def test_handler():
+def test_handler() -> None:
     """Test handler locally"""
     # Load test event
-    test_event = {
+    test_event: "LambdaEvent" = {
         'queryStringParameters': {
             'ticker': 'DBS19'
         }
     }
-    
+
     # Test
     result = api_handler(test_event, None)
-    print(json.dumps(json.loads(result['body']), indent=2, ensure_ascii=False))
+    body = result.get('body')
+    if isinstance(body, str):
+        print(json.dumps(json.loads(body), indent=2, ensure_ascii=False))
+    else:
+        print("Error: body is not a string")
 
 if __name__ == "__main__":
     # For local testing

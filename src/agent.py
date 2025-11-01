@@ -11,6 +11,7 @@ from src.technical_analysis import TechnicalAnalyzer
 from src.database import TickerDatabase
 from src.news_fetcher import NewsFetcher
 from src.chart_generator import ChartGenerator
+from src.pdf_generator import PDFReportGenerator
 try:
     from src.strategy import SMAStrategyBacktester
     HAS_STRATEGY = True
@@ -40,6 +41,7 @@ class TickerAnalysisAgent:
         self.technical_analyzer = TechnicalAnalyzer()
         self.news_fetcher = NewsFetcher()
         self.chart_generator = ChartGenerator()
+        self.pdf_generator = PDFReportGenerator(use_thai_font=True)
         self.db = TickerDatabase()
         self.strategy_backtester = SMAStrategyBacktester(fast_period=20, slow_period=50)
         self.ticker_map = self.data_fetcher.load_tickers()
@@ -753,3 +755,53 @@ Bollinger: {self.technical_analyzer.analyze_bollinger(indicators)}"""
             return f"❌ เกิดข้อผิดพลาด: {final_state['error']}"
 
         return final_state.get("report", "ไม่สามารถสร้างรายงานได้")
+
+    def generate_pdf_report(self, ticker: str, output_path: str = None) -> bytes:
+        """
+        Generate PDF report for ticker analysis
+
+        Args:
+            ticker: Ticker symbol
+            output_path: Optional path to save PDF file (if None, returns bytes)
+
+        Returns:
+            PDF bytes if output_path is None, otherwise saves to file and returns bytes
+        """
+        # Run analysis
+        initial_state = {
+            "messages": [],
+            "ticker": ticker,
+            "ticker_data": {},
+            "indicators": {},
+            "percentiles": {},
+            "chart_patterns": [],
+            "pattern_statistics": {},
+            "strategy_performance": {},
+            "news": [],
+            "news_summary": {},
+            "chart_base64": "",
+            "report": "",
+            "error": ""
+        }
+
+        # Run the graph
+        final_state = self.graph.invoke(initial_state)
+
+        # Check for errors
+        if final_state.get("error"):
+            raise ValueError(f"Analysis failed: {final_state['error']}")
+
+        # Generate PDF
+        pdf_bytes = self.pdf_generator.generate_report(
+            ticker=ticker,
+            ticker_data=final_state.get("ticker_data", {}),
+            indicators=final_state.get("indicators", {}),
+            percentiles=final_state.get("percentiles", {}),
+            news=final_state.get("news", []),
+            news_summary=final_state.get("news_summary", {}),
+            chart_base64=final_state.get("chart_base64", ""),
+            report=final_state.get("report", ""),
+            output_path=output_path
+        )
+
+        return pdf_bytes
