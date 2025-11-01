@@ -93,6 +93,7 @@ def show_scores_for_ticker(ticker: str = "DBS19"):
             "report": "",
             "faithfulness_score": {},
             "completeness_score": {},
+            "reasoning_quality_score": {},
             "error": ""
         }
 
@@ -106,6 +107,7 @@ def show_scores_for_ticker(ticker: str = "DBS19"):
         # Get scores
         faithfulness_score = final_state.get("faithfulness_score")
         completeness_score = final_state.get("completeness_score")
+        reasoning_quality_score = final_state.get("reasoning_quality_score")
 
         # Print report (first 500 chars)
         report = final_state.get("report", "")

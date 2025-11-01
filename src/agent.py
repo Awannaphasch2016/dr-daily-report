@@ -14,6 +14,7 @@ from src.chart_generator import ChartGenerator
 from src.pdf_generator import PDFReportGenerator
 from src.faithfulness_scorer import FaithfulnessScorer
 from src.completeness_scorer import CompletenessScorer
+from src.reasoning_quality_scorer import ReasoningQualityScorer
 try:
     from src.strategy import SMAStrategyBacktester
     HAS_STRATEGY = True
@@ -47,6 +48,7 @@ class TickerAnalysisAgent:
         self.pdf_generator = PDFReportGenerator(use_thai_font=True)
         self.faithfulness_scorer = FaithfulnessScorer()
         self.completeness_scorer = CompletenessScorer()
+        self.reasoning_quality_scorer = ReasoningQualityScorer()
         self.db = TickerDatabase()
         self.strategy_backtester = SMAStrategyBacktester(fast_period=20, slow_period=50)
         self.ticker_map = self.data_fetcher.load_tickers()
@@ -300,9 +302,16 @@ class TickerAnalysisAgent:
         )
         state["completeness_score"] = completeness_score
 
-        # Print both score reports
+        # Score reasoning quality
+        reasoning_quality_score = self._score_reasoning_quality(
+            report, indicators, percentiles, ticker_data
+        )
+        state["reasoning_quality_score"] = reasoning_quality_score
+
+        # Print all score reports
         print("\n" + self.faithfulness_scorer.format_score_report(faithfulness_score))
         print("\n" + self.completeness_scorer.format_score_report(completeness_score))
+        print("\n" + self.reasoning_quality_scorer.format_score_report(reasoning_quality_score))
 
         return state
 
@@ -580,6 +589,23 @@ Write entirely in Thai, naturally flowing like Damodaran's style - narrative sup
         
         return completeness_score
     
+    def _score_reasoning_quality(
+        self,
+        report: str,
+        indicators: dict,
+        percentiles: dict,
+        ticker_data: dict
+    ):
+        """Score reasoning quality of narrative explanations"""
+        reasoning_quality_score = self.reasoning_quality_scorer.score_narrative(
+            narrative=report,
+            indicators=indicators,
+            percentiles=percentiles,
+            ticker_data=ticker_data
+        )
+        
+        return reasoning_quality_score
+    
     def _format_fundamental_section(self, ticker_data: dict) -> str:
         """Format fundamental analysis section"""
         return f"""ข้อมูลพื้นฐาน (Fundamental Analysis):
@@ -818,6 +844,7 @@ Bollinger: {self.technical_analyzer.analyze_bollinger(indicators)}"""
             "report": "",
             "faithfulness_score": {},
             "completeness_score": {},
+            "reasoning_quality_score": {},
             "error": ""
         }
 
@@ -857,6 +884,7 @@ Bollinger: {self.technical_analyzer.analyze_bollinger(indicators)}"""
             "report": "",
             "faithfulness_score": {},
             "completeness_score": {},
+            "reasoning_quality_score": {},
             "error": ""
         }
 
