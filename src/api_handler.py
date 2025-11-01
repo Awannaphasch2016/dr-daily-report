@@ -164,6 +164,11 @@ def api_handler(event: "LambdaEvent", context: "LambdaContext | None") -> dict[s
             "completeness_score": {},
             "reasoning_quality_score": {},
             "compliance_score": {},
+            "qos_score": {},
+            "cost_score": {},
+            "timing_metrics": {},
+            "api_costs": {},
+            "database_metrics": {},
             "error": ""
         }
         
@@ -198,11 +203,15 @@ def api_handler(event: "LambdaEvent", context: "LambdaContext | None") -> dict[s
         completeness_score_obj = final_state.get("completeness_score")
         reasoning_quality_score_obj = final_state.get("reasoning_quality_score")
         compliance_score_obj = final_state.get("compliance_score")
+        qos_score_obj = final_state.get("qos_score")
+        cost_score_obj = final_state.get("cost_score")
         
         faithfulness_score = {}
         completeness_score = {}
         reasoning_quality_score = {}
         compliance_score = {}
+        qos_score = {}
+        cost_score = {}
         
         if faithfulness_score_obj:
             faithfulness_score = {
@@ -239,6 +248,30 @@ def api_handler(event: "LambdaEvent", context: "LambdaContext | None") -> dict[s
                 'compliant_elements': compliance_score_obj.compliant_elements
             }
             compliance_score = sanitize_dict(compliance_score)
+        
+        if qos_score_obj:
+            qos_score = {
+                'overall_score': qos_score_obj.overall_score,
+                'dimension_scores': qos_score_obj.dimension_scores,
+                'metrics': qos_score_obj.metrics,
+                'issues': qos_score_obj.issues,
+                'strengths': qos_score_obj.strengths,
+                'timestamp': qos_score_obj.timestamp.isoformat() if hasattr(qos_score_obj.timestamp, 'isoformat') else str(qos_score_obj.timestamp)
+            }
+            qos_score = sanitize_dict(qos_score)
+        
+        if cost_score_obj:
+            cost_score = {
+                'overall_cost_thb': cost_score_obj.overall_cost_thb,
+                'cost_efficiency_score': cost_score_obj.cost_efficiency_score,
+                'cost_breakdown': cost_score_obj.cost_breakdown,
+                'token_usage': cost_score_obj.token_usage,
+                'llm_calls': cost_score_obj.llm_calls,
+                'issues': cost_score_obj.issues,
+                'strengths': cost_score_obj.strengths,
+                'timestamp': cost_score_obj.timestamp.isoformat() if hasattr(cost_score_obj.timestamp, 'isoformat') else str(cost_score_obj.timestamp)
+            }
+            cost_score = sanitize_dict(cost_score)
 
         # Build response
         response_data = {
@@ -254,6 +287,8 @@ def api_handler(event: "LambdaEvent", context: "LambdaContext | None") -> dict[s
             'completeness_score': completeness_score,
             'reasoning_quality_score': reasoning_quality_score,
             'compliance_score': compliance_score,
+            'qos_score': qos_score,
+            'cost_score': cost_score,
             'overall_quality_score': (
                 faithfulness_score.get('overall_score', 0) * 0.5 +
                 completeness_score.get('overall_score', 0) * 0.2 +

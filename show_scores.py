@@ -95,6 +95,11 @@ def show_scores_for_ticker(ticker: str = "DBS19"):
             "completeness_score": {},
             "reasoning_quality_score": {},
             "compliance_score": {},
+            "qos_score": {},
+            "cost_score": {},
+            "timing_metrics": {},
+            "api_costs": {},
+            "database_metrics": {},
             "error": ""
         }
 
@@ -110,6 +115,8 @@ def show_scores_for_ticker(ticker: str = "DBS19"):
         completeness_score = final_state.get("completeness_score")
         reasoning_quality_score = final_state.get("reasoning_quality_score")
         compliance_score = final_state.get("compliance_score")
+        qos_score = final_state.get("qos_score")
+        cost_score = final_state.get("cost_score")
 
         # Print report (first 500 chars)
         report = final_state.get("report", "")
@@ -164,6 +171,28 @@ def show_scores_for_ticker(ticker: str = "DBS19"):
         else:
             print("⚠️  No compliance score found")
 
+        # Print QoS score
+        if qos_score:
+            print("=" * 80)
+            print("QOS SCORE")
+            print("=" * 80)
+            print()
+            print(agent.qos_scorer.format_score_report(qos_score))
+            print()
+        else:
+            print("⚠️  No QoS score found")
+
+        # Print Cost score
+        if cost_score:
+            print("=" * 80)
+            print("COST SCORE")
+            print("=" * 80)
+            print()
+            print(agent.cost_scorer.format_score_report(cost_score))
+            print()
+        else:
+            print("⚠️  No cost score found")
+
         # Print overall quality score
         if faithfulness_score and completeness_score and reasoning_quality_score and compliance_score:
             overall_quality = (
@@ -181,6 +210,10 @@ def show_scores_for_ticker(ticker: str = "DBS19"):
             print(f"   (Completeness: {completeness_score.overall_score:.1f}/100 × 0.2)")
             print(f"   (Reasoning Quality: {reasoning_quality_score.overall_score:.1f}/100 × 0.2)")
             print(f"   (Compliance: {compliance_score.overall_score:.1f}/100 × 0.1)")
+            print()
+            print("ℹ️  Note: QoS Score is tracked separately (operational quality)")
+            if qos_score:
+                print(f"   QoS Score: {qos_score.overall_score:.1f}/100 (System Performance)")
             print()
 
         print("=" * 80)

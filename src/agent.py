@@ -6,6 +6,7 @@ import operator
 from datetime import datetime
 import re
 import pandas as pd
+import time
 from src.data_fetcher import DataFetcher
 from src.technical_analysis import TechnicalAnalyzer
 from src.database import TickerDatabase
@@ -16,6 +17,8 @@ from src.faithfulness_scorer import FaithfulnessScorer
 from src.completeness_scorer import CompletenessScorer
 from src.reasoning_quality_scorer import ReasoningQualityScorer
 from src.compliance_scorer import ComplianceScorer
+from src.qos_scorer import QoSScorer
+from src.cost_scorer import CostScorer
 try:
     from src.strategy import SMAStrategyBacktester
     HAS_STRATEGY = True
@@ -40,6 +43,11 @@ class AgentState(TypedDict):
     completeness_score: dict  # Add completeness scoring field
     reasoning_quality_score: dict  # Add reasoning quality scoring field
     compliance_score: dict  # Add compliance scoring field
+    qos_score: dict  # Add QoS scoring field
+    cost_score: dict  # Add cost scoring field
+    timing_metrics: dict  # Add timing metrics field
+    api_costs: dict  # Add API costs field
+    database_metrics: dict  # Add database metrics field
     error: str
 
 class TickerAnalysisAgent:
@@ -54,10 +62,15 @@ class TickerAnalysisAgent:
         self.completeness_scorer = CompletenessScorer()
         self.reasoning_quality_scorer = ReasoningQualityScorer()
         self.compliance_scorer = ComplianceScorer()
+        self.qos_scorer = QoSScorer()
+        self.cost_scorer = CostScorer()
         self.db = TickerDatabase()
         self.strategy_backtester = SMAStrategyBacktester(fast_period=20, slow_period=50)
         self.ticker_map = self.data_fetcher.load_tickers()
         self.graph = self.build_graph()
+        
+        # Track database query count for QoS
+        self._db_query_count = 0
 
     def build_graph(self):
         """Build LangGraph workflow"""
@@ -82,7 +95,11 @@ class TickerAnalysisAgent:
 
     def fetch_data(self, state: AgentState) -> AgentState:
         """Fetch ticker data from Yahoo Finance"""
+        start_time = time.perf_counter()
         ticker = state["ticker"]
+
+        # Reset query count at start of new run
+        self._db_query_count = 0
 
         # Get Yahoo ticker from symbol
         yahoo_ticker = self.ticker_map.get(ticker.upper())
@@ -117,6 +134,13 @@ class TickerAnalysisAgent:
                 'dividend_yield': data.get('dividend_yield')
             }
         )
+        self._db_query_count += 1
+
+        # Record timing
+        elapsed = time.perf_counter() - start_time
+        timing_metrics = state.get("timing_metrics", {})
+        timing_metrics["data_fetch"] = elapsed
+        state["timing_metrics"] = timing_metrics
 
         state["ticker_data"] = data
         return state
@@ -126,6 +150,7 @@ class TickerAnalysisAgent:
         if state.get("error"):
             return state
 
+        start_time = time.perf_counter()
         yahoo_ticker = self.ticker_map.get(state["ticker"].upper())
         if not yahoo_ticker:
             state["news"] = []
@@ -142,6 +167,12 @@ class TickerAnalysisAgent:
         # Get news summary statistics
         news_summary = self.news_fetcher.get_news_summary(high_impact_news)
 
+        # Record timing
+        elapsed = time.perf_counter() - start_time
+        timing_metrics = state.get("timing_metrics", {})
+        timing_metrics["news_fetch"] = elapsed
+        state["timing_metrics"] = timing_metrics
+
         state["news"] = high_impact_news
         state["news_summary"] = news_summary
 
@@ -152,6 +183,7 @@ class TickerAnalysisAgent:
         if state.get("error"):
             return state
 
+        start_time = time.perf_counter()
         ticker_data = state["ticker_data"]
         hist_data = ticker_data.get('history')
 
@@ -194,6 +226,13 @@ class TickerAnalysisAgent:
         self.db.insert_technical_indicators(
             yahoo_ticker, ticker_data['date'], indicators
         )
+        self._db_query_count += 1
+
+        # Record timing
+        elapsed = time.perf_counter() - start_time
+        timing_metrics = state.get("timing_metrics", {})
+        timing_metrics["technical_analysis"] = elapsed
+        state["timing_metrics"] = timing_metrics
 
         state["indicators"] = indicators
         state["percentiles"] = percentiles
@@ -207,6 +246,7 @@ class TickerAnalysisAgent:
         if state.get("error"):
             return state
 
+        start_time = time.perf_counter()
         try:
             ticker = state["ticker"]
             ticker_data = state["ticker_data"]
@@ -228,6 +268,12 @@ class TickerAnalysisAgent:
             # Don't set error - chart is optional, continue without it
             state["chart_base64"] = ""
 
+        # Record timing (even if failed)
+        elapsed = time.perf_counter() - start_time
+        timing_metrics = state.get("timing_metrics", {})
+        timing_metrics["chart_generation"] = elapsed
+        state["timing_metrics"] = timing_metrics
+
         return state
 
     def generate_report(self, state: AgentState) -> AgentState:
@@ -235,6 +281,7 @@ class TickerAnalysisAgent:
         if state.get("error"):
             return state
 
+        llm_start_time = time.perf_counter()
         ticker = state["ticker"]
         ticker_data = state["ticker_data"]
         indicators = state["indicators"]
@@ -245,6 +292,12 @@ class TickerAnalysisAgent:
         news = state.get("news", [])
         news_summary = state.get("news_summary", {})
 
+        # Initialize API costs tracking
+        api_costs = state.get("api_costs", {})
+        total_input_tokens = 0
+        total_output_tokens = 0
+        llm_calls = 0
+
         # First pass: Generate report without strategy data to determine recommendation
         context = self.prepare_context(ticker, ticker_data, indicators, percentiles, news, news_summary, strategy_performance=None)
         uncertainty_score = indicators.get('uncertainty_score', 0)
@@ -252,6 +305,18 @@ class TickerAnalysisAgent:
         prompt = self._build_prompt(context, uncertainty_score, strategy_performance=None)
         response = self.llm.invoke([HumanMessage(content=prompt)])
         initial_report = response.content
+        llm_calls += 1
+
+        # Extract token usage from response
+        response_metadata = getattr(response, 'response_metadata', {})
+        usage = response_metadata.get('token_usage', {})
+        if usage:
+            total_input_tokens += usage.get('prompt_tokens', 0)
+            total_output_tokens += usage.get('completion_tokens', 0)
+        else:
+            # Fallback: estimate tokens (rough approximation: 4 chars per token)
+            total_input_tokens += len(prompt) // 4
+            total_output_tokens += len(initial_report) // 4
 
         # Extract recommendation from initial report
         recommendation = self._extract_recommendation(initial_report)
@@ -267,8 +332,31 @@ class TickerAnalysisAgent:
             prompt_with_strategy = self._build_prompt(context_with_strategy, uncertainty_score, strategy_performance=strategy_performance)
             response = self.llm.invoke([HumanMessage(content=prompt_with_strategy)])
             report = response.content
+            llm_calls += 1
+
+            # Extract token usage from second response
+            response_metadata = getattr(response, 'response_metadata', {})
+            usage = response_metadata.get('token_usage', {})
+            if usage:
+                total_input_tokens += usage.get('prompt_tokens', 0)
+                total_output_tokens += usage.get('completion_tokens', 0)
+            else:
+                total_input_tokens += len(prompt_with_strategy) // 4
+                total_output_tokens += len(report) // 4
         else:
             report = initial_report
+
+        # Record LLM timing
+        llm_elapsed = time.perf_counter() - llm_start_time
+        timing_metrics = state.get("timing_metrics", {})
+        timing_metrics["llm_generation"] = llm_elapsed
+        state["timing_metrics"] = timing_metrics
+
+        # Calculate API costs
+        api_costs = self.cost_scorer.calculate_api_cost(
+            total_input_tokens, total_output_tokens, actual_cost_usd=None
+        )
+        state["api_costs"] = api_costs
 
         # Add news references at the end if news exists
         if news:
@@ -292,9 +380,13 @@ class TickerAnalysisAgent:
                 'sector_analysis': ticker_data.get('sector', 'N/A')
             }
         )
+        self._db_query_count += 1
 
         state["report"] = report
 
+        # Score narrative (with timing)
+        scoring_start_time = time.perf_counter()
+        
         # Score narrative faithfulness
         faithfulness_score = self._score_narrative_faithfulness(
             report, indicators, percentiles, news, ticker_data
@@ -319,11 +411,60 @@ class TickerAnalysisAgent:
         )
         state["compliance_score"] = compliance_score
 
+        # Record scoring timing
+        scoring_elapsed = time.perf_counter() - scoring_start_time
+        timing_metrics["scoring"] = scoring_elapsed
+        state["timing_metrics"] = timing_metrics
+
+        # Calculate total latency
+        total_latency = sum(timing_metrics.values())
+        timing_metrics["total"] = total_latency
+        state["timing_metrics"] = timing_metrics
+
+        # Prepare database metrics
+        database_metrics = {
+            'query_count': self._db_query_count,
+            'cache_hit': False  # Could be enhanced with cache checking
+        }
+        state["database_metrics"] = database_metrics
+
+        # Calculate QoS score
+        historical_data = self.db.get_historical_qos(yahoo_ticker) if yahoo_ticker else None
+        
+        qos_score = self.qos_scorer.score_qos(
+            timing_metrics=timing_metrics,
+            database_metrics=database_metrics,
+            error_occurred=bool(state.get("error")),
+            cache_hit=False,
+            llm_calls=llm_calls,
+            historical_data=historical_data
+        )
+        state["qos_score"] = qos_score
+
+        # Calculate Cost score
+        cost_score = self.cost_scorer.score_cost(
+            api_costs=api_costs,
+            llm_calls=llm_calls,
+            database_metrics=database_metrics,
+            cache_hit=False
+        )
+        state["cost_score"] = cost_score
+
+        # Save QoS metrics to database
+        if yahoo_ticker:
+            self.db.save_qos_metrics(yahoo_ticker, ticker_data['date'], qos_score)
+            self.db.save_cost_metrics(yahoo_ticker, ticker_data['date'], cost_score)
+
         # Print all score reports
         print("\n" + self.faithfulness_scorer.format_score_report(faithfulness_score))
         print("\n" + self.completeness_scorer.format_score_report(completeness_score))
         print("\n" + self.reasoning_quality_scorer.format_score_report(reasoning_quality_score))
         print("\n" + self.compliance_scorer.format_score_report(compliance_score))
+        print("\n" + self.qos_scorer.format_score_report(qos_score))
+        print("\n" + self.cost_scorer.format_score_report(cost_score))
+
+        # Reset query count for next run
+        self._db_query_count = 0
 
         return state
 
@@ -873,6 +1014,11 @@ Bollinger: {self.technical_analyzer.analyze_bollinger(indicators)}"""
             "completeness_score": {},
             "reasoning_quality_score": {},
             "compliance_score": {},
+            "qos_score": {},
+            "cost_score": {},
+            "timing_metrics": {},
+            "api_costs": {},
+            "database_metrics": {},
             "error": ""
         }
 
@@ -914,6 +1060,11 @@ Bollinger: {self.technical_analyzer.analyze_bollinger(indicators)}"""
             "completeness_score": {},
             "reasoning_quality_score": {},
             "compliance_score": {},
+            "qos_score": {},
+            "cost_score": {},
+            "timing_metrics": {},
+            "api_costs": {},
+            "database_metrics": {},
             "error": ""
         }
 
