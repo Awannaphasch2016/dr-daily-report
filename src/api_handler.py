@@ -163,6 +163,7 @@ def api_handler(event: "LambdaEvent", context: "LambdaContext | None") -> dict[s
             "faithfulness_score": {},
             "completeness_score": {},
             "reasoning_quality_score": {},
+            "compliance_score": {},
             "error": ""
         }
         
@@ -196,10 +197,12 @@ def api_handler(event: "LambdaEvent", context: "LambdaContext | None") -> dict[s
         faithfulness_score_obj = final_state.get("faithfulness_score")
         completeness_score_obj = final_state.get("completeness_score")
         reasoning_quality_score_obj = final_state.get("reasoning_quality_score")
+        compliance_score_obj = final_state.get("compliance_score")
         
         faithfulness_score = {}
         completeness_score = {}
         reasoning_quality_score = {}
+        compliance_score = {}
         
         if faithfulness_score_obj:
             faithfulness_score = {
@@ -227,6 +230,15 @@ def api_handler(event: "LambdaEvent", context: "LambdaContext | None") -> dict[s
                 'strengths': reasoning_quality_score_obj.strengths
             }
             reasoning_quality_score = sanitize_dict(reasoning_quality_score)
+        
+        if compliance_score_obj:
+            compliance_score = {
+                'overall_score': compliance_score_obj.overall_score,
+                'dimension_scores': compliance_score_obj.dimension_scores,
+                'violations': compliance_score_obj.violations,
+                'compliant_elements': compliance_score_obj.compliant_elements
+            }
+            compliance_score = sanitize_dict(compliance_score)
 
         # Build response
         response_data = {
@@ -240,10 +252,19 @@ def api_handler(event: "LambdaEvent", context: "LambdaContext | None") -> dict[s
             'report': report,
             'faithfulness_score': faithfulness_score,
             'completeness_score': completeness_score,
+            'reasoning_quality_score': reasoning_quality_score,
+            'compliance_score': compliance_score,
             'overall_quality_score': (
-                faithfulness_score.get('overall_score', 0) * 0.8 +
-                completeness_score.get('overall_score', 0) * 0.2
-            ) if faithfulness_score.get('overall_score') is not None and completeness_score.get('overall_score') is not None else None
+                faithfulness_score.get('overall_score', 0) * 0.5 +
+                completeness_score.get('overall_score', 0) * 0.2 +
+                reasoning_quality_score.get('overall_score', 0) * 0.2 +
+                compliance_score.get('overall_score', 0) * 0.1
+            ) if all([
+                faithfulness_score.get('overall_score') is not None,
+                completeness_score.get('overall_score') is not None,
+                reasoning_quality_score.get('overall_score') is not None,
+                compliance_score.get('overall_score') is not None
+            ]) else None
         }
         
         return {

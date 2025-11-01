@@ -15,6 +15,7 @@ from src.pdf_generator import PDFReportGenerator
 from src.faithfulness_scorer import FaithfulnessScorer
 from src.completeness_scorer import CompletenessScorer
 from src.reasoning_quality_scorer import ReasoningQualityScorer
+from src.compliance_scorer import ComplianceScorer
 try:
     from src.strategy import SMAStrategyBacktester
     HAS_STRATEGY = True
@@ -36,6 +37,9 @@ class AgentState(TypedDict):
     chart_base64: str  # Add chart image field (base64 PNG)
     report: str
     faithfulness_score: dict  # Add faithfulness scoring field
+    completeness_score: dict  # Add completeness scoring field
+    reasoning_quality_score: dict  # Add reasoning quality scoring field
+    compliance_score: dict  # Add compliance scoring field
     error: str
 
 class TickerAnalysisAgent:
@@ -49,6 +53,7 @@ class TickerAnalysisAgent:
         self.faithfulness_scorer = FaithfulnessScorer()
         self.completeness_scorer = CompletenessScorer()
         self.reasoning_quality_scorer = ReasoningQualityScorer()
+        self.compliance_scorer = ComplianceScorer()
         self.db = TickerDatabase()
         self.strategy_backtester = SMAStrategyBacktester(fast_period=20, slow_period=50)
         self.ticker_map = self.data_fetcher.load_tickers()
@@ -308,10 +313,17 @@ class TickerAnalysisAgent:
         )
         state["reasoning_quality_score"] = reasoning_quality_score
 
+        # Score compliance
+        compliance_score = self._score_compliance(
+            report, indicators, news
+        )
+        state["compliance_score"] = compliance_score
+
         # Print all score reports
         print("\n" + self.faithfulness_scorer.format_score_report(faithfulness_score))
         print("\n" + self.completeness_scorer.format_score_report(completeness_score))
         print("\n" + self.reasoning_quality_scorer.format_score_report(reasoning_quality_score))
+        print("\n" + self.compliance_scorer.format_score_report(compliance_score))
 
         return state
 
@@ -606,6 +618,21 @@ Write entirely in Thai, naturally flowing like Damodaran's style - narrative sup
         
         return reasoning_quality_score
     
+    def _score_compliance(
+        self,
+        report: str,
+        indicators: dict,
+        news: list
+    ):
+        """Score compliance with format/policy requirements"""
+        compliance_score = self.compliance_scorer.score_narrative(
+            narrative=report,
+            indicators=indicators,
+            news_data=news
+        )
+        
+        return compliance_score
+    
     def _format_fundamental_section(self, ticker_data: dict) -> str:
         """Format fundamental analysis section"""
         return f"""ข้อมูลพื้นฐาน (Fundamental Analysis):
@@ -845,6 +872,7 @@ Bollinger: {self.technical_analyzer.analyze_bollinger(indicators)}"""
             "faithfulness_score": {},
             "completeness_score": {},
             "reasoning_quality_score": {},
+            "compliance_score": {},
             "error": ""
         }
 
@@ -885,6 +913,7 @@ Bollinger: {self.technical_analyzer.analyze_bollinger(indicators)}"""
             "faithfulness_score": {},
             "completeness_score": {},
             "reasoning_quality_score": {},
+            "compliance_score": {},
             "error": ""
         }
 
