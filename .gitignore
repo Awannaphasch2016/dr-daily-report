@@ -66,6 +66,7 @@ tmp/
 # Note: Documentation is now in docs/ directory
 
 *.zip
+reports/*
 
 # Lambda deployment packages
 lambda_package/
