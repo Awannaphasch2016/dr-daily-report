@@ -17,7 +17,6 @@ class FaithfulnessScore:
     metric_scores: Dict[str, float]  # Individual metric scores
     violations: List[str]  # List of faithfulness violations
     verified_claims: List[str]  # List of verified factual claims
-    missing_required: List[str]  # Required elements not mentioned
 
 
 class FaithfulnessScorer:
@@ -28,8 +27,9 @@ class FaithfulnessScorer:
     1. Numeric accuracy - All numbers match source data
     2. Percentile accuracy - Percentile claims match calculations
     3. News citation accuracy - References match actual news
-    4. Required element coverage - All critical metrics mentioned
-    5. Interpretation accuracy - Qualitative claims match quantitative thresholds
+    4. Interpretation accuracy - Qualitative claims match quantitative thresholds
+    
+    Note: Completeness (coverage) is now handled by CompletenessScorer
     """
 
     # Interpretation thresholds (from prompt)
@@ -87,7 +87,6 @@ class FaithfulnessScorer:
         """
         violations = []
         verified_claims = []
-        missing_required = []
 
         # 1. Check numeric accuracy
         numeric_score, numeric_violations, numeric_verified = self._check_numeric_accuracy(
@@ -110,13 +109,7 @@ class FaithfulnessScorer:
         violations.extend(news_violations)
         verified_claims.extend(news_verified)
 
-        # 4. Check required element coverage
-        coverage_score, missing = self._check_required_coverage(
-            narrative, ground_truth
-        )
-        missing_required.extend(missing)
-
-        # 5. Check interpretation accuracy
+        # 4. Check interpretation accuracy
         interpretation_score, interp_violations, interp_verified = self._check_interpretation_accuracy(
             narrative, ground_truth
         )
@@ -124,19 +117,18 @@ class FaithfulnessScorer:
         verified_claims.extend(interp_verified)
 
         # Calculate overall score (weighted average)
+        # Updated weights: Numeric 30%, Percentile 25%, News 20%, Interpretation 25%
         overall_score = (
-            numeric_score * 0.25 +
-            percentile_score * 0.20 +
-            news_score * 0.15 +
-            coverage_score * 0.20 +
-            interpretation_score * 0.20
+            numeric_score * 0.30 +
+            percentile_score * 0.25 +
+            news_score * 0.20 +
+            interpretation_score * 0.25
         )
 
         metric_scores = {
             'numeric_accuracy': numeric_score,
             'percentile_accuracy': percentile_score,
             'news_citation_accuracy': news_score,
-            'required_coverage': coverage_score,
             'interpretation_accuracy': interpretation_score
         }
 
@@ -144,8 +136,7 @@ class FaithfulnessScorer:
             overall_score=overall_score,
             metric_scores=metric_scores,
             violations=violations,
-            verified_claims=verified_claims,
-            missing_required=missing_required
+            verified_claims=verified_claims
         )
 
     def _check_numeric_accuracy(
@@ -330,33 +321,6 @@ class FaithfulnessScorer:
 
         return score, violations, verified
 
-    def _check_required_coverage(
-        self,
-        narrative: str,
-        ground_truth: Dict
-    ) -> Tuple[float, List[str]]:
-        """Check if all required elements are mentioned"""
-        missing = []
-
-        # Required elements (as per prompt)
-        required_elements = {
-            'uncertainty': ['ความไม่แน่นอน', 'uncertainty'],
-            'atr': ['ATR', 'ความผันผวน', 'volatility'],
-            'vwap': ['VWAP', 'แรงซื้อ', 'แรงขาย'],
-            'volume': ['ปริมาณ', 'volume']
-        }
-
-        for element, keywords in required_elements.items():
-            found = any(keyword.lower() in narrative.lower() for keyword in keywords)
-            if not found:
-                missing.append(f"❌ Required element '{element}' not mentioned")
-
-        # Calculate score
-        total_required = len(required_elements)
-        covered = total_required - len(missing)
-        score = (covered / total_required * 100) if total_required > 0 else 100
-
-        return score, missing
 
     def _check_interpretation_accuracy(
         self,
@@ -456,14 +420,6 @@ class FaithfulnessScorer:
             ])
             for violation in score.violations:
                 report_lines.append(f"  {violation}")
-
-        if score.missing_required:
-            report_lines.extend([
-                "",
-                "❌ Missing Required Elements:",
-            ])
-            for missing in score.missing_required:
-                report_lines.append(f"  {missing}")
 
         report_lines.extend([
             "",

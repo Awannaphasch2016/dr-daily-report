@@ -17,7 +17,7 @@ Verifies that all numbers in the narrative match the source data:
 
 **Tolerance**: 2% for most metrics, 0.5% for prices
 
-### 2. Percentile Accuracy (Weight: 20%)
+### 2. Percentile Accuracy (Weight: 25%)
 Verifies that percentile claims match historical calculations:
 - **Pattern**: "เปอร์เซ็นไทล์ 88%" must match actual percentile for that metric
 - **Tolerance**: Within 5 percentage points
@@ -34,14 +34,7 @@ Verifies that news references [1], [2], [3] are valid:
 - Citation [2] must reference second news item
 - Invalid citations (e.g., [5] when only 3 news items exist) are flagged
 
-### 4. Required Coverage (Weight: 20%)
-Checks if all critical elements are mentioned:
-- ✅ **Uncertainty** - Must mention "ความไม่แน่นอน" or "uncertainty"
-- ✅ **ATR** - Must mention "ATR" or "ความผันผวน"
-- ✅ **VWAP** - Must mention "VWAP" or "แรงซื้อ"/"แรงขาย"
-- ✅ **Volume** - Must mention "ปริมาณ" or "volume"
-
-### 5. Interpretation Accuracy (Weight: 20%)
+### 4. Interpretation Accuracy (Weight: 25%)
 Verifies that qualitative interpretations match quantitative thresholds:
 
 #### Uncertainty Interpretation
@@ -95,11 +88,10 @@ is_accurate = abs(claimed_value - actual_value) <= (actual_value * tolerance)
 ### 4. Scoring
 ```python
 overall_score = (
-    numeric_accuracy * 0.25 +
-    percentile_accuracy * 0.20 +
-    news_citation_accuracy * 0.15 +
-    required_coverage * 0.20 +
-    interpretation_accuracy * 0.20
+    numeric_accuracy * 0.30 +
+    percentile_accuracy * 0.25 +
+    news_citation_accuracy * 0.20 +
+    interpretation_accuracy * 0.25
 )
 ```
 
@@ -266,7 +258,6 @@ class FaithfulnessScore:
     metric_scores: Dict[str, float]   # Individual metric scores
     violations: List[str]             # Faithfulness violations
     verified_claims: List[str]        # Verified factual claims
-    missing_required: List[str]       # Required elements not mentioned
 ```
 
 ## Testing
@@ -369,13 +360,73 @@ else:
     publish_report(report)
 ```
 
+## Design Decision: Completeness vs Faithfulness
+
+### The Question
+
+**Point 4 (Required Coverage)** checks whether all critical elements are mentioned, not whether what's mentioned is accurate. This raises the question: Should completeness be part of faithfulness scoring?
+
+### The Distinction
+
+- **Faithfulness**: "Does what is stated accurately reflect the source data?"
+- **Completeness**: "Are all required elements included?"
+
+These are separate dimensions in evaluation frameworks:
+- **RAGAS** separates `faithfulness` from `answer_relevancy` and `answer_completeness`
+- **Academic literature** distinguishes between accuracy (faithfulness) and coverage (completeness)
+
+### Why It's Currently Included
+
+1. **Practical concern**: A report missing critical metrics (e.g., uncertainty) can be misleading even if everything stated is accurate
+2. **Prompt adherence**: If the prompt requires mentioning certain elements, omitting them violates requirements
+3. **User expectation**: Users expect comprehensive reports, not just accurate fragments
+
+### Arguments Against Inclusion
+
+1. **Semantic clarity**: Faithfulness should measure accuracy, not coverage
+2. **Separate concerns**: Mixing completeness with faithfulness conflates different quality dimensions
+3. **Score interpretation**: A low faithfulness score could mean "inaccurate" OR "incomplete" - unclear which
+
+### Alternative Approaches
+
+**Option A: Separate Metrics** (Most theoretically pure)
+```python
+faithfulness_score = (
+    numeric_accuracy * 0.30 +
+    percentile_accuracy * 0.25 +
+    news_citation_accuracy * 0.20 +
+    interpretation_accuracy * 0.25
+)
+
+completeness_score = required_coverage  # Separate score
+overall_quality = (faithfulness_score * 0.8) + (completeness_score * 0.2)
+```
+
+**Option B: Rename Overall Metric** (Most pragmatic)
+- Rename "Faithfulness Score" → "Report Quality Score"
+- Keep both metrics but clarify they measure different things
+
+**Option C: Reduce Weight** (Current compromise)
+- Keep it but reduce weight from 20% → 10%
+- Document it as "completeness check within faithfulness scorer"
+
+### Current Decision
+
+Currently using **Option C** - keeping Required Coverage at 20% weight but documenting it as a completeness metric. This is a pragmatic choice recognizing that:
+- For end users, a "faithfulness score" that includes completeness is more actionable
+- Separating them would require changing the API and documentation
+- The combined score still provides value even if not theoretically pure
+
+**Future consideration**: If separating metrics becomes important, Option A provides the cleanest theoretical foundation.
+
 ## Limitations
 
 1. **Pattern Matching**: May miss claims phrased differently
 2. **Thai Language**: Regex patterns may not catch all Thai variations
 3. **Context Understanding**: Can't verify semantic correctness (e.g., "bullish" interpretation)
-4. **Implicit Claims**: Can't detect omitted information
+4. **Implicit Claims**: Can't detect omitted information (though Required Coverage partially addresses this)
 5. **Cross-Claim Consistency**: Doesn't check if multiple claims contradict each other
+6. **Completeness vs Faithfulness**: Point 4 mixes completeness with faithfulness (see above)
 
 ## References
 
@@ -385,9 +436,15 @@ else:
 
 ## Changelog
 
+### v2.0.0 (2025-11-01)
+- ✅ Separated completeness from faithfulness
+- ✅ Removed Required Coverage metric (now handled by CompletenessScorer)
+- ✅ Updated weights: Numeric 30%, Percentile 25%, News 20%, Interpretation 25%
+- ✅ Updated documentation
+
 ### v1.0.0 (2025-11-01)
 - ✅ Initial implementation
-- ✅ 5 metric scoring system
+- ✅ 5 metric scoring system (including Required Coverage)
 - ✅ Thai language pattern matching
 - ✅ Integration with agent workflow
 - ✅ Comprehensive test coverage

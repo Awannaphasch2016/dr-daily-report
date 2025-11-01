@@ -160,6 +160,8 @@ def api_handler(event: "LambdaEvent", context: "LambdaContext | None") -> dict[s
             "news_summary": {},
             "chart_base64": "",
             "report": "",
+            "faithfulness_score": {},
+            "completeness_score": {},
             "error": ""
         }
         
@@ -188,6 +190,31 @@ def api_handler(event: "LambdaEvent", context: "LambdaContext | None") -> dict[s
         news_summary = sanitize_dict(final_state.get("news_summary", {}))
         chart_base64 = final_state.get("chart_base64", "")
         report = final_state.get("report", "")
+        
+        # Convert dataclass scores to dicts for JSON serialization
+        faithfulness_score_obj = final_state.get("faithfulness_score")
+        completeness_score_obj = final_state.get("completeness_score")
+        
+        faithfulness_score = {}
+        completeness_score = {}
+        
+        if faithfulness_score_obj:
+            faithfulness_score = {
+                'overall_score': faithfulness_score_obj.overall_score,
+                'metric_scores': faithfulness_score_obj.metric_scores,
+                'violations': faithfulness_score_obj.violations,
+                'verified_claims': faithfulness_score_obj.verified_claims
+            }
+            faithfulness_score = sanitize_dict(faithfulness_score)
+        
+        if completeness_score_obj:
+            completeness_score = {
+                'overall_score': completeness_score_obj.overall_score,
+                'dimension_scores': completeness_score_obj.dimension_scores,
+                'missing_elements': completeness_score_obj.missing_elements,
+                'covered_elements': completeness_score_obj.covered_elements
+            }
+            completeness_score = sanitize_dict(completeness_score)
 
         # Build response
         response_data = {
@@ -198,7 +225,13 @@ def api_handler(event: "LambdaEvent", context: "LambdaContext | None") -> dict[s
             'news': news,
             'news_summary': news_summary,
             'chart_base64': chart_base64,  # Include chart as base64 PNG
-            'report': report
+            'report': report,
+            'faithfulness_score': faithfulness_score,
+            'completeness_score': completeness_score,
+            'overall_quality_score': (
+                faithfulness_score.get('overall_score', 0) * 0.8 +
+                completeness_score.get('overall_score', 0) * 0.2
+            ) if faithfulness_score.get('overall_score') is not None and completeness_score.get('overall_score') is not None else None
         }
         
         return {
@@ -228,6 +261,26 @@ def api_handler(event: "LambdaEvent", context: "LambdaContext | None") -> dict[s
         }
 
 def test_handler() -> None:
+    """Test handler locally"""
+    # Load test event
+    test_event: "LambdaEvent" = {
+        'queryStringParameters': {
+            'ticker': 'DBS19'
+        }
+    }
+
+    # Test
+    result = api_handler(test_event, None)
+    body = result.get('body')
+    if isinstance(body, str):
+        print(json.dumps(json.loads(body), indent=2, ensure_ascii=False))
+    else:
+        print("Error: body is not a string")
+
+if __name__ == "__main__":
+    # For local testing
+    test_handler()
+ne:
     """Test handler locally"""
     # Load test event
     test_event: "LambdaEvent" = {
