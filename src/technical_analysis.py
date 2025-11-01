@@ -170,6 +170,140 @@ class TechnicalAnalyzer:
             print(f"Error calculating historical indicators: {str(e)}")
             return None
 
+    def _calculate_single_percentile(self, historical_values, current_value, frequency_functions=None):
+        """Calculate percentile for a single indicator"""
+        if len(historical_values) == 0:
+            return None
+        
+        percentile = stats.percentileofscore(historical_values, current_value, kind='rank')
+        result = {
+            'current_value': current_value,
+            'percentile': percentile,
+            'mean': historical_values.mean(),
+            'std': historical_values.std(),
+            'min': historical_values.min(),
+            'max': historical_values.max()
+        }
+        
+        if frequency_functions:
+            for key, func in frequency_functions.items():
+                result[key] = func(historical_values).sum() / len(historical_values) * 100
+        
+        return result
+    
+    def _calculate_rsi_percentile(self, valid_data, current_indicators):
+        """Calculate RSI percentile"""
+        if 'RSI' not in valid_data.columns or current_indicators.get('rsi') is None:
+            return None
+        
+        rsi_values = valid_data['RSI'].dropna()
+        freq_funcs = {
+            'frequency_above_70': lambda x: x > 70,
+            'frequency_below_30': lambda x: x < 30
+        }
+        return self._calculate_single_percentile(rsi_values, current_indicators['rsi'], freq_funcs)
+    
+    def _calculate_macd_percentile(self, valid_data, current_indicators):
+        """Calculate MACD percentile"""
+        if 'MACD' not in valid_data.columns or current_indicators.get('macd') is None:
+            return None
+        
+        macd_values = valid_data['MACD'].dropna()
+        freq_funcs = {'frequency_positive': lambda x: x > 0}
+        return self._calculate_single_percentile(macd_values, current_indicators['macd'], freq_funcs)
+    
+    def _calculate_uncertainty_percentile(self, valid_data, current_indicators):
+        """Calculate Uncertainty Score percentile"""
+        if 'Uncertainty_Score' not in valid_data.columns or current_indicators.get('uncertainty_score') is None:
+            return None
+        
+        uncertainty_values = valid_data['Uncertainty_Score'].dropna()
+        freq_funcs = {
+            'frequency_low': lambda x: x < 25,
+            'frequency_high': lambda x: x > 75
+        }
+        return self._calculate_single_percentile(uncertainty_values, current_indicators['uncertainty_score'], freq_funcs)
+    
+    def _calculate_atr_percent_percentile(self, valid_data, current_indicators):
+        """Calculate ATR percent percentile"""
+        if 'ATR_Percent' not in valid_data.columns or current_indicators.get('atr') is None:
+            return None
+        
+        atr_pct_values = valid_data['ATR_Percent'].dropna()
+        current_price = current_indicators.get('current_price', 0)
+        if current_price <= 0 or len(atr_pct_values) == 0:
+            return None
+        
+        current_atr_pct = (current_indicators['atr'] / current_price) * 100
+        freq_funcs = {
+            'frequency_low_volatility': lambda x: x < 1,
+            'frequency_high_volatility': lambda x: x > 4
+        }
+        return self._calculate_single_percentile(atr_pct_values, current_atr_pct, freq_funcs)
+    
+    def _calculate_vwap_percent_percentile(self, valid_data, current_indicators):
+        """Calculate Price vs VWAP percent percentile"""
+        if 'Price_VWAP_Pct' not in valid_data.columns or current_indicators.get('vwap') is None:
+            return None
+        
+        vwap_pct_values = valid_data['Price_VWAP_Pct'].dropna()
+        current_price = current_indicators.get('current_price', 0)
+        current_vwap = current_indicators.get('vwap', 0)
+        if current_vwap <= 0 or len(vwap_pct_values) == 0:
+            return None
+        
+        current_vwap_pct = ((current_price - current_vwap) / current_vwap) * 100
+        freq_funcs = {
+            'frequency_above_3pct': lambda x: x > 3,
+            'frequency_below_neg3pct': lambda x: x < -3
+        }
+        return self._calculate_single_percentile(vwap_pct_values, current_vwap_pct, freq_funcs)
+    
+    def _calculate_volume_ratio_percentile(self, valid_data, current_indicators):
+        """Calculate Volume Ratio percentile"""
+        if 'Volume_Ratio' not in valid_data.columns or current_indicators.get('volume') is None:
+            return None
+        
+        volume_ratio_values = valid_data['Volume_Ratio'].dropna()
+        current_volume = current_indicators.get('volume', 0)
+        volume_sma = current_indicators.get('volume_sma', 1)
+        if volume_sma <= 0 or len(volume_ratio_values) == 0:
+            return None
+        
+        current_volume_ratio = current_volume / volume_sma
+        freq_funcs = {
+            'frequency_high_volume': lambda x: x > 2.0,
+            'frequency_low_volume': lambda x: x < 0.7
+        }
+        return self._calculate_single_percentile(volume_ratio_values, current_volume_ratio, freq_funcs)
+    
+    def _calculate_sma_percentiles(self, valid_data, current_indicators):
+        """Calculate SMA deviation percentiles for all periods"""
+        sma_percentiles = {}
+        
+        for sma_period in [20, 50, 200]:
+            sma_col = f'SMA_{sma_period}'
+            sma_key = f'sma_{sma_period}'
+            
+            if sma_col not in valid_data.columns or current_indicators.get(sma_key) is None:
+                continue
+            
+            current_sma = current_indicators[sma_key]
+            current_price = current_indicators.get('current_price', 0)
+            if current_price <= 0:
+                continue
+            
+            sma_diff_pct = ((current_price - current_sma) / current_sma) * 100
+            sma_diff_values = ((valid_data['Close'] - valid_data[sma_col]) / valid_data[sma_col] * 100).dropna()
+            
+            if len(sma_diff_values) > 0:
+                freq_funcs = {'frequency_above_sma': lambda x: x > 0}
+                result = self._calculate_single_percentile(sma_diff_values, sma_diff_pct, freq_funcs)
+                if result:
+                    sma_percentiles[f'{sma_key}_deviation'] = result
+        
+        return sma_percentiles
+
     def calculate_percentiles(self, historical_df, current_indicators):
         """
         Calculate percentile ranks for current indicator values based on historical distribution
@@ -186,147 +320,39 @@ class TechnicalAnalyzer:
 
         try:
             percentiles = {}
-            
-            # Filter out NaN values for calculations
             valid_data = historical_df.dropna()
             
             if valid_data.empty:
                 return {}
 
-            # RSI Percentiles (0-100 scale)
-            if 'RSI' in valid_data.columns and current_indicators.get('rsi') is not None:
-                rsi_values = valid_data['RSI'].dropna()
-                if len(rsi_values) > 0:
-                    current_rsi = current_indicators['rsi']
-                    percentile = stats.percentileofscore(rsi_values, current_rsi, kind='rank')
-                    percentiles['rsi'] = {
-                        'current_value': current_rsi,
-                        'percentile': percentile,
-                        'mean': rsi_values.mean(),
-                        'std': rsi_values.std(),
-                        'min': rsi_values.min(),
-                        'max': rsi_values.max(),
-                        'frequency_above_70': (rsi_values > 70).sum() / len(rsi_values) * 100,
-                        'frequency_below_30': (rsi_values < 30).sum() / len(rsi_values) * 100
-                    }
+            # Calculate each indicator percentile using helper methods
+            rsi_result = self._calculate_rsi_percentile(valid_data, current_indicators)
+            if rsi_result:
+                percentiles['rsi'] = rsi_result
 
-            # MACD Percentiles
-            if 'MACD' in valid_data.columns and current_indicators.get('macd') is not None:
-                macd_values = valid_data['MACD'].dropna()
-                if len(macd_values) > 0:
-                    current_macd = current_indicators['macd']
-                    percentile = stats.percentileofscore(macd_values, current_macd, kind='rank')
-                    percentiles['macd'] = {
-                        'current_value': current_macd,
-                        'percentile': percentile,
-                        'mean': macd_values.mean(),
-                        'std': macd_values.std(),
-                        'min': macd_values.min(),
-                        'max': macd_values.max(),
-                        'frequency_positive': (macd_values > 0).sum() / len(macd_values) * 100
-                    }
+            macd_result = self._calculate_macd_percentile(valid_data, current_indicators)
+            if macd_result:
+                percentiles['macd'] = macd_result
 
-            # Uncertainty Score Percentiles (0-100 scale)
-            if 'Uncertainty_Score' in valid_data.columns and current_indicators.get('uncertainty_score') is not None:
-                uncertainty_values = valid_data['Uncertainty_Score'].dropna()
-                if len(uncertainty_values) > 0:
-                    current_uncertainty = current_indicators['uncertainty_score']
-                    percentile = stats.percentileofscore(uncertainty_values, current_uncertainty, kind='rank')
-                    percentiles['uncertainty_score'] = {
-                        'current_value': current_uncertainty,
-                        'percentile': percentile,
-                        'mean': uncertainty_values.mean(),
-                        'std': uncertainty_values.std(),
-                        'min': uncertainty_values.min(),
-                        'max': uncertainty_values.max(),
-                        'frequency_low': ((uncertainty_values < 25).sum() / len(uncertainty_values) * 100),
-                        'frequency_high': ((uncertainty_values > 75).sum() / len(uncertainty_values) * 100)
-                    }
+            uncertainty_result = self._calculate_uncertainty_percentile(valid_data, current_indicators)
+            if uncertainty_result:
+                percentiles['uncertainty_score'] = uncertainty_result
 
-            # ATR Percent Percentiles (volatility as % of price)
-            if 'ATR_Percent' in valid_data.columns and current_indicators.get('atr') is not None:
-                atr_pct_values = valid_data['ATR_Percent'].dropna()
-                if len(atr_pct_values) > 0:
-                    current_price = current_indicators.get('current_price', 0)
-                    if current_price > 0:
-                        current_atr_pct = (current_indicators['atr'] / current_price) * 100
-                        percentile = stats.percentileofscore(atr_pct_values, current_atr_pct, kind='rank')
-                        percentiles['atr_percent'] = {
-                            'current_value': current_atr_pct,
-                            'percentile': percentile,
-                            'mean': atr_pct_values.mean(),
-                            'std': atr_pct_values.std(),
-                            'min': atr_pct_values.min(),
-                            'max': atr_pct_values.max(),
-                            'frequency_low_volatility': ((atr_pct_values < 1).sum() / len(atr_pct_values) * 100),
-                            'frequency_high_volatility': ((atr_pct_values > 4).sum() / len(atr_pct_values) * 100)
-                        }
+            atr_result = self._calculate_atr_percent_percentile(valid_data, current_indicators)
+            if atr_result:
+                percentiles['atr_percent'] = atr_result
 
-            # Price vs VWAP Percent Percentiles
-            if 'Price_VWAP_Pct' in valid_data.columns and current_indicators.get('vwap') is not None:
-                vwap_pct_values = valid_data['Price_VWAP_Pct'].dropna()
-                if len(vwap_pct_values) > 0:
-                    current_price = current_indicators.get('current_price', 0)
-                    current_vwap = current_indicators.get('vwap', 0)
-                    if current_vwap > 0:
-                        current_vwap_pct = ((current_price - current_vwap) / current_vwap) * 100
-                        percentile = stats.percentileofscore(vwap_pct_values, current_vwap_pct, kind='rank')
-                        percentiles['price_vwap_percent'] = {
-                            'current_value': current_vwap_pct,
-                            'percentile': percentile,
-                            'mean': vwap_pct_values.mean(),
-                            'std': vwap_pct_values.std(),
-                            'min': vwap_pct_values.min(),
-                            'max': vwap_pct_values.max(),
-                            'frequency_above_3pct': ((vwap_pct_values > 3).sum() / len(vwap_pct_values) * 100),
-                            'frequency_below_neg3pct': ((vwap_pct_values < -3).sum() / len(vwap_pct_values) * 100)
-                        }
+            vwap_result = self._calculate_vwap_percent_percentile(valid_data, current_indicators)
+            if vwap_result:
+                percentiles['price_vwap_percent'] = vwap_result
 
-            # Volume Ratio Percentiles
-            if 'Volume_Ratio' in valid_data.columns and current_indicators.get('volume') is not None:
-                volume_ratio_values = valid_data['Volume_Ratio'].dropna()
-                if len(volume_ratio_values) > 0:
-                    current_volume = current_indicators.get('volume', 0)
-                    volume_sma = current_indicators.get('volume_sma', 1)
-                    if volume_sma > 0:
-                        current_volume_ratio = current_volume / volume_sma
-                        percentile = stats.percentileofscore(volume_ratio_values, current_volume_ratio, kind='rank')
-                        percentiles['volume_ratio'] = {
-                            'current_value': current_volume_ratio,
-                            'percentile': percentile,
-                            'mean': volume_ratio_values.mean(),
-                            'std': volume_ratio_values.std(),
-                            'min': volume_ratio_values.min(),
-                            'max': volume_ratio_values.max(),
-                            'frequency_high_volume': ((volume_ratio_values > 2.0).sum() / len(volume_ratio_values) * 100),
-                            'frequency_low_volume': ((volume_ratio_values < 0.7).sum() / len(volume_ratio_values) * 100)
-                        }
+            volume_result = self._calculate_volume_ratio_percentile(valid_data, current_indicators)
+            if volume_result:
+                percentiles['volume_ratio'] = volume_result
 
-            # SMA Percentiles (20-day, 50-day, 200-day)
-            for sma_period in [20, 50, 200]:
-                sma_col = f'SMA_{sma_period}'
-                sma_key = f'sma_{sma_period}'
-                if sma_col in valid_data.columns and current_indicators.get(sma_key) is not None:
-                    sma_values = valid_data[sma_col].dropna()
-                    if len(sma_values) > 0:
-                        current_sma = current_indicators[sma_key]
-                        current_price = current_indicators.get('current_price', 0)
-                        if current_price > 0:
-                            # Calculate price vs SMA percentage
-                            sma_diff_pct = ((current_price - current_sma) / current_sma) * 100
-                            sma_diff_values = ((valid_data['Close'] - valid_data[sma_col]) / valid_data[sma_col] * 100).dropna()
-                            
-                            if len(sma_diff_values) > 0:
-                                percentile = stats.percentileofscore(sma_diff_values, sma_diff_pct, kind='rank')
-                                percentiles[f'{sma_key}_deviation'] = {
-                                    'current_value': sma_diff_pct,
-                                    'percentile': percentile,
-                                    'mean': sma_diff_values.mean(),
-                                    'std': sma_diff_values.std(),
-                                    'min': sma_diff_values.min(),
-                                    'max': sma_diff_values.max(),
-                                    'frequency_above_sma': ((sma_diff_values > 0).sum() / len(sma_diff_values) * 100)
-                                }
+            # SMA percentiles
+            sma_percentiles = self._calculate_sma_percentiles(valid_data, current_indicators)
+            percentiles.update(sma_percentiles)
 
             return percentiles
 
@@ -552,6 +578,44 @@ class TechnicalAnalyzer:
 
         return result
 
+    def _format_percentile_entry(self, key: str, stats: dict, config: dict) -> list:
+        """Format a single percentile entry"""
+        percentile = stats['percentile']
+        current = stats['current_value']
+        
+        # Determine level and interpretation
+        if percentile >= config.get('high_threshold', 90):
+            level = config.get('high_label', 'สูงมาก')
+            interpretation = config.get('high_interp', '')
+        elif percentile >= config.get('medium_high_threshold', 75):
+            level = config.get('medium_high_label', 'สูง')
+            interpretation = config.get('medium_high_interp', '')
+        elif percentile >= config.get('medium_threshold', 50):
+            level = config.get('medium_label', 'ปานกลางสูง')
+            interpretation = config.get('medium_interp', '')
+        elif percentile >= config.get('medium_low_threshold', 25):
+            level = config.get('medium_low_label', 'ปานกลางต่ำ')
+            interpretation = config.get('medium_low_interp', '')
+        else:
+            level = config.get('low_label', 'ต่ำ')
+            interpretation = config.get('low_interp', '')
+        
+        lines = [f"{config['name']}: {current:.{config.get('decimals', 2)}f} (เปอร์เซ็นไทล์: {percentile:.1f}% - {level})"]
+        lines.append(f"  - {interpretation}")
+        
+        # Add mean/std
+        if 'mean' in stats:
+            unit = config.get('unit', '')
+            lines.append(f"  - ค่าเฉลี่ย: {stats['mean']:.{config.get('decimals', 2)}f}{unit}")
+        
+        # Add frequency info
+        for freq_key, freq_label in config.get('frequencies', {}).items():
+            if freq_key in stats:
+                lines.append(f"  - {freq_label}: {stats[freq_key]:.1f}%")
+        
+        lines.append("")  # Empty line separator
+        return lines
+    
     def format_percentile_analysis(self, percentiles):
         """
         Format percentile analysis into readable Thai text
@@ -565,143 +629,133 @@ class TechnicalAnalyzer:
         if not percentiles:
             return ""
 
-        lines = []
-        lines.append("\n📊 **การวิเคราะห์เปอร์เซ็นไทล์ (Percentile Analysis):**\n")
+        lines = ["\n📊 **การวิเคราะห์เปอร์เซ็นไทล์ (Percentile Analysis):**\n"]
 
-        # RSI Percentiles
+        # RSI configuration
         if 'rsi' in percentiles:
-            rsi_stats = percentiles['rsi']
-            percentile = rsi_stats['percentile']
-            current = rsi_stats['current_value']
-            
-            if percentile >= 90:
-                level = "สูงมาก (อยู่ในช่วง 90% บนสุด)"
-                interpretation = "RSI สูงมากในอดีต - ควรระวังภาวะ Overbought"
-            elif percentile >= 75:
-                level = "สูง (อยู่ในช่วง 75-90%)"
-                interpretation = "RSI สูงกว่าปกติ - ตลาดอาจร้อนแรง"
-            elif percentile >= 50:
-                level = "ปานกลางสูง (อยู่ในช่วง 50-75%)"
-                interpretation = "RSI สูงกว่าค่าเฉลี่ย - แรงซื้อดี"
-            elif percentile >= 25:
-                level = "ปานกลางต่ำ (อยู่ในช่วง 25-50%)"
-                interpretation = "RSI ต่ำกว่าค่าเฉลี่ย - แรงซื้ออ่อน"
-            else:
-                level = "ต่ำ (อยู่ในช่วง 25% ล่างสุด)"
-                interpretation = "RSI ต่ำมากในอดีต - อาจเป็นโอกาสซื้อ (Oversold)"
-            
-            lines.append(f"RSI: {current:.2f} (เปอร์เซ็นไทล์: {percentile:.1f}% - {level})")
-            lines.append(f"  - {interpretation}")
-            lines.append(f"  - ค่าเฉลี่ย: {rsi_stats['mean']:.2f}, ค่าเบี่ยงเบนมาตรฐาน: {rsi_stats['std']:.2f}")
-            lines.append(f"  - ความถี่ที่ RSI > 70: {rsi_stats['frequency_above_70']:.1f}%")
-            lines.append(f"  - ความถี่ที่ RSI < 30: {rsi_stats['frequency_below_30']:.1f}%\n")
+            config = {
+                'name': 'RSI',
+                'high_threshold': 90,
+                'high_label': 'สูงมาก (อยู่ในช่วง 90% บนสุด)',
+                'high_interp': 'RSI สูงมากในอดีต - ควรระวังภาวะ Overbought',
+                'medium_high_threshold': 75,
+                'medium_high_label': 'สูง (อยู่ในช่วง 75-90%)',
+                'medium_high_interp': 'RSI สูงกว่าปกติ - ตลาดอาจร้อนแรง',
+                'medium_threshold': 50,
+                'medium_label': 'ปานกลางสูง (อยู่ในช่วง 50-75%)',
+                'medium_interp': 'RSI สูงกว่าค่าเฉลี่ย - แรงซื้อดี',
+                'medium_low_threshold': 25,
+                'medium_low_label': 'ปานกลางต่ำ (อยู่ในช่วง 25-50%)',
+                'medium_low_interp': 'RSI ต่ำกว่าค่าเฉลี่ย - แรงซื้ออ่อน',
+                'low_label': 'ต่ำ (อยู่ในช่วง 25% ล่างสุด)',
+                'low_interp': 'RSI ต่ำมากในอดีต - อาจเป็นโอกาสซื้อ (Oversold)',
+                'frequencies': {
+                    'frequency_above_70': 'ความถี่ที่ RSI > 70',
+                    'frequency_below_30': 'ความถี่ที่ RSI < 30'
+                },
+                'decimals': 2
+            }
+            lines.extend(self._format_percentile_entry('rsi', percentiles['rsi'], config))
 
-        # MACD Percentiles
+        # MACD configuration
         if 'macd' in percentiles:
-            macd_stats = percentiles['macd']
-            percentile = macd_stats['percentile']
-            current = macd_stats['current_value']
-            
-            if percentile >= 75:
-                level = "สูงมาก"
-                interpretation = "MACD สูงกว่าปกติ - แรงซื้อแรงมาก"
-            elif percentile >= 50:
-                level = "สูงกว่าค่าเฉลี่ย"
-                interpretation = "MACD บวก - แรงซื้อเหนือกว่า"
-            elif percentile >= 25:
-                level = "ต่ำกว่าค่าเฉลี่ย"
-                interpretation = "MACD ลบ - แรงขายเหนือกว่า"
-            else:
-                level = "ต่ำมาก"
-                interpretation = "MACD ต่ำมาก - แรงขายหนัก"
-            
-            lines.append(f"MACD: {current:.4f} (เปอร์เซ็นไทล์: {percentile:.1f}% - {level})")
-            lines.append(f"  - {interpretation}")
-            lines.append(f"  - ค่าเฉลี่ย: {macd_stats['mean']:.4f}")
-            lines.append(f"  - ความถี่ที่ MACD > 0: {macd_stats['frequency_positive']:.1f}%\n")
+            config = {
+                'name': 'MACD',
+                'high_threshold': 75,
+                'high_label': 'สูงมาก',
+                'high_interp': 'MACD สูงกว่าปกติ - แรงซื้อแรงมาก',
+                'medium_threshold': 50,
+                'medium_label': 'สูงกว่าค่าเฉลี่ย',
+                'medium_interp': 'MACD บวก - แรงซื้อเหนือกว่า',
+                'medium_low_threshold': 25,
+                'medium_low_label': 'ต่ำกว่าค่าเฉลี่ย',
+                'medium_low_interp': 'MACD ลบ - แรงขายเหนือกว่า',
+                'low_label': 'ต่ำมาก',
+                'low_interp': 'MACD ต่ำมาก - แรงขายหนัก',
+                'frequencies': {'frequency_positive': 'ความถี่ที่ MACD > 0'},
+                'decimals': 4
+            }
+            lines.extend(self._format_percentile_entry('macd', percentiles['macd'], config))
 
-        # Uncertainty Score Percentiles
+        # Uncertainty Score configuration
         if 'uncertainty_score' in percentiles:
-            unc_stats = percentiles['uncertainty_score']
-            percentile = unc_stats['percentile']
-            current = unc_stats['current_value']
-            
-            if percentile >= 90:
-                level = "สูงมาก (อยู่ในช่วง 90% บนสุด)"
-                interpretation = "ความไม่แน่นอนสูงมากในอดีต - ตลาดผันผวนรุนแรง"
-            elif percentile >= 75:
-                level = "สูง (อยู่ในช่วง 75-90%)"
-                interpretation = "ความไม่แน่นอนสูง - ตลาดผันผวน"
-            elif percentile >= 50:
-                level = "ปานกลางสูง (อยู่ในช่วง 50-75%)"
-                interpretation = "ความไม่แน่นอนสูงกว่าปกติ"
-            elif percentile >= 25:
-                level = "ปานกลางต่ำ (อยู่ในช่วง 25-50%)"
-                interpretation = "ความไม่แน่นอนต่ำกว่าปกติ - ตลาดค่อนข้างเสถียร"
-            else:
-                level = "ต่ำ (อยู่ในช่วง 25% ล่างสุด)"
-                interpretation = "ความไม่แน่นอนต่ำมากในอดีต - ตลาดเสถียรมาก"
-            
-            lines.append(f"Uncertainty Score: {current:.2f}/100 (เปอร์เซ็นไทล์: {percentile:.1f}% - {level})")
-            lines.append(f"  - {interpretation}")
-            lines.append(f"  - ค่าเฉลี่ย: {unc_stats['mean']:.2f}")
-            lines.append(f"  - ความถี่ที่ต่ำ (<25): {unc_stats['frequency_low']:.1f}%")
-            lines.append(f"  - ความถี่ที่สูง (>75): {unc_stats['frequency_high']:.1f}%\n")
+            config = {
+                'name': 'Uncertainty Score',
+                'high_threshold': 90,
+                'high_label': 'สูงมาก (อยู่ในช่วง 90% บนสุด)',
+                'high_interp': 'ความไม่แน่นอนสูงมากในอดีต - ตลาดผันผวนรุนแรง',
+                'medium_high_threshold': 75,
+                'medium_high_label': 'สูง (อยู่ในช่วง 75-90%)',
+                'medium_high_interp': 'ความไม่แน่นอนสูง - ตลาดผันผวน',
+                'medium_threshold': 50,
+                'medium_label': 'ปานกลางสูง (อยู่ในช่วง 50-75%)',
+                'medium_interp': 'ความไม่แน่นอนสูงกว่าปกติ',
+                'medium_low_threshold': 25,
+                'medium_low_label': 'ปานกลางต่ำ (อยู่ในช่วง 25-50%)',
+                'medium_low_interp': 'ความไม่แน่นอนต่ำกว่าปกติ - ตลาดค่อนข้างเสถียร',
+                'low_label': 'ต่ำ (อยู่ในช่วง 25% ล่างสุด)',
+                'low_interp': 'ความไม่แน่นอนต่ำมากในอดีต - ตลาดเสถียรมาก',
+                'frequencies': {
+                    'frequency_low': 'ความถี่ที่ต่ำ (<25)',
+                    'frequency_high': 'ความถี่ที่สูง (>75)'
+                },
+                'unit': '/100',
+                'decimals': 2
+            }
+            lines.extend(self._format_percentile_entry('uncertainty_score', percentiles['uncertainty_score'], config))
 
-        # ATR Percent Percentiles
+        # ATR Percent configuration
         if 'atr_percent' in percentiles:
-            atr_stats = percentiles['atr_percent']
-            percentile = atr_stats['percentile']
-            current = atr_stats['current_value']
-            
-            if percentile >= 90:
-                level = "สูงมาก (อยู่ในช่วง 90% บนสุด)"
-                interpretation = "ความผันผวนสูงมากในอดีต - ตลาดผันผวนรุนแรง"
-            elif percentile >= 75:
-                level = "สูง (อยู่ในช่วง 75-90%)"
-                interpretation = "ความผันผวนสูง - ตลาดผันผวน"
-            elif percentile >= 50:
-                level = "ปานกลางสูง"
-                interpretation = "ความผันผวนสูงกว่าปกติ"
-            elif percentile >= 25:
-                level = "ปานกลางต่ำ"
-                interpretation = "ความผันผวนต่ำกว่าปกติ - ตลาดเสถียร"
-            else:
-                level = "ต่ำ (อยู่ในช่วง 25% ล่างสุด)"
-                interpretation = "ความผันผวนต่ำมากในอดีต - ตลาดเสถียรมาก"
-            
-            lines.append(f"ATR (%): {current:.2f}% (เปอร์เซ็นไทล์: {percentile:.1f}% - {level})")
-            lines.append(f"  - {interpretation}")
-            lines.append(f"  - ค่าเฉลี่ย: {atr_stats['mean']:.2f}%")
-            lines.append(f"  - ความถี่ที่ความผันผวนต่ำ (<1%): {atr_stats['frequency_low_volatility']:.1f}%")
-            lines.append(f"  - ความถี่ที่ความผันผวนสูง (>4%): {atr_stats['frequency_high_volatility']:.1f}%\n")
+            config = {
+                'name': 'ATR (%)',
+                'high_threshold': 90,
+                'high_label': 'สูงมาก (อยู่ในช่วง 90% บนสุด)',
+                'high_interp': 'ความผันผวนสูงมากในอดีต - ตลาดผันผวนรุนแรง',
+                'medium_high_threshold': 75,
+                'medium_high_label': 'สูง (อยู่ในช่วง 75-90%)',
+                'medium_high_interp': 'ความผันผวนสูง - ตลาดผันผวน',
+                'medium_threshold': 50,
+                'medium_label': 'ปานกลางสูง',
+                'medium_interp': 'ความผันผวนสูงกว่าปกติ',
+                'medium_low_threshold': 25,
+                'medium_low_label': 'ปานกลางต่ำ',
+                'medium_low_interp': 'ความผันผวนต่ำกว่าปกติ - ตลาดเสถียร',
+                'low_label': 'ต่ำ (อยู่ในช่วง 25% ล่างสุด)',
+                'low_interp': 'ความผันผวนต่ำมากในอดีต - ตลาดเสถียรมาก',
+                'frequencies': {
+                    'frequency_low_volatility': 'ความถี่ที่ความผันผวนต่ำ (<1%)',
+                    'frequency_high_volatility': 'ความถี่ที่ความผันผวนสูง (>4%)'
+                },
+                'unit': '%',
+                'decimals': 2
+            }
+            lines.extend(self._format_percentile_entry('atr_percent', percentiles['atr_percent'], config))
 
-        # Volume Ratio Percentiles
+        # Volume Ratio configuration
         if 'volume_ratio' in percentiles:
-            vol_stats = percentiles['volume_ratio']
-            percentile = vol_stats['percentile']
-            current = vol_stats['current_value']
-            
-            if percentile >= 90:
-                level = "สูงมาก (อยู่ในช่วง 90% บนสุด)"
-                interpretation = "ปริมาณซื้อขายสูงมากในอดีต - มีเหตุการณ์สำคัญ"
-            elif percentile >= 75:
-                level = "สูง (อยู่ในช่วง 75-90%)"
-                interpretation = "ปริมาณซื้อขายสูง - ความสนใจเพิ่มขึ้น"
-            elif percentile >= 50:
-                level = "ปานกลางสูง"
-                interpretation = "ปริมาณซื้อขายสูงกว่าปกติ"
-            elif percentile >= 25:
-                level = "ปานกลางต่ำ"
-                interpretation = "ปริมาณซื้อขายต่ำกว่าปกติ"
-            else:
-                level = "ต่ำ (อยู่ในช่วง 25% ล่างสุด)"
-                interpretation = "ปริมาณซื้อขายต่ำมากในอดีต - ตลาดเงียบ"
-            
-            lines.append(f"Volume Ratio: {current:.2f}x (เปอร์เซ็นไทล์: {percentile:.1f}% - {level})")
-            lines.append(f"  - {interpretation}")
-            lines.append(f"  - ค่าเฉลี่ย: {vol_stats['mean']:.2f}x")
-            lines.append(f"  - ความถี่ที่ปริมาณสูง (>2x): {vol_stats['frequency_high_volume']:.1f}%")
-            lines.append(f"  - ความถี่ที่ปริมาณต่ำ (<0.7x): {vol_stats['frequency_low_volume']:.1f}%\n")
+            config = {
+                'name': 'Volume Ratio',
+                'high_threshold': 90,
+                'high_label': 'สูงมาก (อยู่ในช่วง 90% บนสุด)',
+                'high_interp': 'ปริมาณซื้อขายสูงมากในอดีต - มีเหตุการณ์สำคัญ',
+                'medium_high_threshold': 75,
+                'medium_high_label': 'สูง (อยู่ในช่วง 75-90%)',
+                'medium_high_interp': 'ปริมาณซื้อขายสูง - ความสนใจเพิ่มขึ้น',
+                'medium_threshold': 50,
+                'medium_label': 'ปานกลางสูง',
+                'medium_interp': 'ปริมาณซื้อขายสูงกว่าปกติ',
+                'medium_low_threshold': 25,
+                'medium_low_label': 'ปานกลางต่ำ',
+                'medium_low_interp': 'ปริมาณซื้อขายต่ำกว่าปกติ',
+                'low_label': 'ต่ำ (อยู่ในช่วง 25% ล่างสุด)',
+                'low_interp': 'ปริมาณซื้อขายต่ำมากในอดีต - ตลาดเงียบ',
+                'frequencies': {
+                    'frequency_high_volume': 'ความถี่ที่ปริมาณสูง (>2x)',
+                    'frequency_low_volume': 'ความถี่ที่ปริมาณต่ำ (<0.7x)'
+                },
+                'unit': 'x',
+                'decimals': 2
+            }
+            lines.extend(self._format_percentile_entry('volume_ratio', percentiles['volume_ratio'], config))
 
         return "\n".join(lines)
