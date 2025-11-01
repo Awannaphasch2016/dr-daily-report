@@ -27,6 +27,13 @@ LINE Bot สำหรับรายงานวิเคราะห์หุ�
   - Key Insights และคำแนะนำ
   - สรุปโอกาสและความเสี่ยง
 
+- 📈 Professional Chart Visualization (NEW!)
+  - Candlestick price charts with volume
+  - Technical indicators overlay (SMA, Bollinger Bands)
+  - RSI and MACD subplots
+  - Base64 PNG export for easy integration
+  - See [Chart Visualization Docs](docs/CHART_VISUALIZATION.md)
+
 ## Architecture
 
 ```
@@ -207,12 +214,13 @@ See `tickers.csv` for the full list of supported tickers. Examples:
 
 ## Future Enhancements
 
+- [x] Historical trend charts ✅ (See Chart Visualization feature)
 - [ ] Sector comparison analysis
-- [ ] Historical trend charts
-- [ ] Multi-ticker comparison
+- [ ] Multi-ticker comparison charts
 - [ ] Alert notifications
 - [ ] Portfolio tracking
 - [ ] Backtesting capabilities
+- [ ] Interactive charts (Plotly/Bokeh)
 
 ## License
 

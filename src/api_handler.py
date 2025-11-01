@@ -141,9 +141,13 @@ def api_handler(event, context):
             "ticker": ticker.upper(),
             "ticker_data": {},
             "indicators": {},
-            "percentiles": {},  # Add percentiles field
+            "percentiles": {},
+            "chart_patterns": [],
+            "pattern_statistics": {},
+            "strategy_performance": {},
             "news": [],
             "news_summary": {},
+            "chart_base64": "",
             "report": "",
             "error": ""
         }
@@ -171,8 +175,9 @@ def api_handler(event, context):
         percentiles = sanitize_dict(final_state.get("percentiles", {}))
         news = sanitize_news(final_state.get("news", []))
         news_summary = sanitize_dict(final_state.get("news_summary", {}))
+        chart_base64 = final_state.get("chart_base64", "")
         report = final_state.get("report", "")
-        
+
         # Build response
         response_data = {
             'ticker': ticker.upper(),
@@ -181,6 +186,7 @@ def api_handler(event, context):
             'percentiles': percentiles,  # Include percentiles in response
             'news': news,
             'news_summary': news_summary,
+            'chart_base64': chart_base64,  # Include chart as base64 PNG
             'report': report
         }
         

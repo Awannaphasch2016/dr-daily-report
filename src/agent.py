@@ -10,6 +10,7 @@ from src.data_fetcher import DataFetcher
 from src.technical_analysis import TechnicalAnalyzer
 from src.database import TickerDatabase
 from src.news_fetcher import NewsFetcher
+from src.chart_generator import ChartGenerator
 try:
     from src.strategy import SMAStrategyBacktester
     HAS_STRATEGY = True
@@ -28,6 +29,7 @@ class AgentState(TypedDict):
     strategy_performance: dict  # Add strategy performance field
     news: list
     news_summary: dict
+    chart_base64: str  # Add chart image field (base64 PNG)
     report: str
     error: str
 
@@ -37,6 +39,7 @@ class TickerAnalysisAgent:
         self.data_fetcher = DataFetcher()
         self.technical_analyzer = TechnicalAnalyzer()
         self.news_fetcher = NewsFetcher()
+        self.chart_generator = ChartGenerator()
         self.db = TickerDatabase()
         self.strategy_backtester = SMAStrategyBacktester(fast_period=20, slow_period=50)
         self.ticker_map = self.data_fetcher.load_tickers()
@@ -50,13 +53,15 @@ class TickerAnalysisAgent:
         workflow.add_node("fetch_data", self.fetch_data)
         workflow.add_node("fetch_news", self.fetch_news)
         workflow.add_node("analyze_technical", self.analyze_technical)
+        workflow.add_node("generate_chart", self.generate_chart)
         workflow.add_node("generate_report", self.generate_report)
 
         # Add edges
         workflow.set_entry_point("fetch_data")
         workflow.add_edge("fetch_data", "fetch_news")
         workflow.add_edge("fetch_news", "analyze_technical")
-        workflow.add_edge("analyze_technical", "generate_report")
+        workflow.add_edge("analyze_technical", "generate_chart")
+        workflow.add_edge("generate_chart", "generate_report")
         workflow.add_edge("generate_report", END)
 
         return workflow.compile()
@@ -181,6 +186,34 @@ class TickerAnalysisAgent:
         state["chart_patterns"] = chart_patterns
         state["pattern_statistics"] = pattern_statistics
         state["strategy_performance"] = strategy_performance
+        return state
+
+    def generate_chart(self, state: AgentState) -> AgentState:
+        """Generate technical analysis chart"""
+        if state.get("error"):
+            return state
+
+        try:
+            ticker = state["ticker"]
+            ticker_data = state["ticker_data"]
+            indicators = state["indicators"]
+
+            # Generate chart (90 days by default)
+            chart_base64 = self.chart_generator.generate_chart(
+                ticker_data=ticker_data,
+                indicators=indicators,
+                ticker_symbol=ticker,
+                days=90
+            )
+
+            state["chart_base64"] = chart_base64
+            print(f"✅ Chart generated for {ticker}")
+
+        except Exception as e:
+            print(f"⚠️  Chart generation failed: {str(e)}")
+            # Don't set error - chart is optional, continue without it
+            state["chart_base64"] = ""
+
         return state
 
     def generate_report(self, state: AgentState) -> AgentState:
@@ -702,8 +735,12 @@ Bollinger: {self.technical_analyzer.analyze_bollinger(indicators)}"""
             "ticker_data": {},
             "indicators": {},
             "percentiles": {},
+            "chart_patterns": [],
+            "pattern_statistics": {},
+            "strategy_performance": {},
             "news": [],
             "news_summary": {},
+            "chart_base64": "",
             "report": "",
             "error": ""
         }
