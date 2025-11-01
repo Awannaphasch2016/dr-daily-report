@@ -12,6 +12,7 @@ from src.database import TickerDatabase
 from src.news_fetcher import NewsFetcher
 from src.chart_generator import ChartGenerator
 from src.pdf_generator import PDFReportGenerator
+from src.faithfulness_scorer import FaithfulnessScorer
 try:
     from src.strategy import SMAStrategyBacktester
     HAS_STRATEGY = True
@@ -32,6 +33,7 @@ class AgentState(TypedDict):
     news_summary: dict
     chart_base64: str  # Add chart image field (base64 PNG)
     report: str
+    faithfulness_score: dict  # Add faithfulness scoring field
     error: str
 
 class TickerAnalysisAgent:
@@ -42,6 +44,7 @@ class TickerAnalysisAgent:
         self.news_fetcher = NewsFetcher()
         self.chart_generator = ChartGenerator()
         self.pdf_generator = PDFReportGenerator(use_thai_font=True)
+        self.faithfulness_scorer = FaithfulnessScorer()
         self.db = TickerDatabase()
         self.strategy_backtester = SMAStrategyBacktester(fast_period=20, slow_period=50)
         self.ticker_map = self.data_fetcher.load_tickers()
@@ -282,6 +285,16 @@ class TickerAnalysisAgent:
         )
 
         state["report"] = report
+
+        # Score narrative faithfulness
+        faithfulness_score = self._score_narrative_faithfulness(
+            report, indicators, percentiles, news, ticker_data
+        )
+        state["faithfulness_score"] = faithfulness_score
+
+        # Print faithfulness report
+        print("\n" + self.faithfulness_scorer.format_score_report(faithfulness_score))
+
         return state
 
     def _build_prompt(self, context: str, uncertainty_score: float, strategy_performance: dict = None) -> str:
@@ -507,6 +520,37 @@ Write entirely in Thai, naturally flowing like Damodaran's style - narrative sup
         
         context += "\n**IMPORTANT**: Use these percentile values naturally in your narrative to add historical context. Don't just list them - weave them into the story!"
         return context
+
+    def _score_narrative_faithfulness(
+        self,
+        report: str,
+        indicators: dict,
+        percentiles: dict,
+        news: list,
+        ticker_data: dict
+    ):
+        """Score narrative faithfulness to ground truth data"""
+        # Calculate market conditions for ground truth
+        market_conditions = self._calculate_market_conditions(indicators)
+
+        # Prepare ground truth with additional metrics
+        ground_truth = {
+            'uncertainty_score': indicators.get('uncertainty_score', 0),
+            'atr_pct': (indicators.get('atr', 0) / indicators.get('current_price', 1)) * 100 if indicators.get('current_price', 0) > 0 else 0,
+            'vwap_pct': market_conditions.get('price_vs_vwap_pct', 0),
+            'volume_ratio': market_conditions.get('volume_ratio', 0),
+        }
+
+        # Score the narrative
+        faithfulness_score = self.faithfulness_scorer.score_narrative(
+            narrative=report,
+            ground_truth=ground_truth,
+            indicators=indicators,
+            percentiles=percentiles,
+            news_data=news
+        )
+
+        return faithfulness_score
     
     def _format_fundamental_section(self, ticker_data: dict) -> str:
         """Format fundamental analysis section"""

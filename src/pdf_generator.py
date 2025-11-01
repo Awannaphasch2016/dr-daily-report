@@ -288,14 +288,14 @@ class PDFReportGenerator:
             self.danger_color if dominant_sentiment == 'NEGATIVE' else self.neutral_color
         )
 
-        # Create summary table
+        # Create summary table (wrap formatted values in Paragraph for HTML rendering)
         summary_data = [
-            ['Price', f'<b>${current_price:.2f}</b>'],
+            ['Price', Paragraph(f'<b>${current_price:.2f}</b>', self.styles['Normal'])],
             ['Market Cap', market_cap_str],
             ['P/E Ratio', f'{pe_ratio:.2f}' if isinstance(pe_ratio, (int, float)) else str(pe_ratio)],
-            ['RSI', f'<font color="{rsi_color}">{rsi:.2f} ({rsi_status})</font>'],
+            ['RSI', Paragraph(f'<font color="{rsi_color}">{rsi:.2f} ({rsi_status})</font>', self.styles['Normal'])],
             ['Analyst Rating', recommendation.upper() if recommendation else 'N/A'],
-            ['News Sentiment', f'<font color="{sentiment_color}">{dominant_sentiment}</font>']
+            ['News Sentiment', Paragraph(f'<font color="{sentiment_color}">{dominant_sentiment}</font>', self.styles['Normal'])]
         ]
 
         table = Table(summary_data, colWidths=[3*inch, 3*inch])
@@ -468,13 +468,13 @@ class PDFReportGenerator:
             sentiment = news_item.get('sentiment', 'neutral').upper()
             impact_score = news_item.get('impact_score', 0)
 
-            # Color code sentiment
+            # Color code sentiment (wrap in Paragraph for HTML rendering)
             if sentiment == 'POSITIVE':
-                sentiment_colored = f'<font color="{self.success_color}">📈 {sentiment}</font>'
+                sentiment_colored = Paragraph(f'<font color="{self.success_color}">📈 {sentiment}</font>', self.styles['Normal'])
             elif sentiment == 'NEGATIVE':
-                sentiment_colored = f'<font color="{self.danger_color}">📉 {sentiment}</font>'
+                sentiment_colored = Paragraph(f'<font color="{self.danger_color}">📉 {sentiment}</font>', self.styles['Normal'])
             else:
-                sentiment_colored = f'<font color="{self.neutral_color}">📊 {sentiment}</font>'
+                sentiment_colored = Paragraph(f'<font color="{self.neutral_color}">📊 {sentiment}</font>', self.styles['Normal'])
 
             news_data.append([
                 f'[{idx}]',
