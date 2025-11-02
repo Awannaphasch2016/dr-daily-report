@@ -348,23 +348,3 @@ def test_handler() -> None:
 if __name__ == "__main__":
     # For local testing
     test_handler()
-ne:
-    """Test handler locally"""
-    # Load test event
-    test_event: "LambdaEvent" = {
-        'queryStringParameters': {
-            'ticker': 'DBS19'
-        }
-    }
-
-    # Test
-    result = api_handler(test_event, None)
-    body = result.get('body')
-    if isinstance(body, str):
-        print(json.dumps(json.loads(body), indent=2, ensure_ascii=False))
-    else:
-        print("Error: body is not a string")
-
-if __name__ == "__main__":
-    # For local testing
-    test_handler()

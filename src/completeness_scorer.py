@@ -246,7 +246,7 @@ class CompletenessScorer:
                 'sentiment', 'sentiment', 'news sentiment', 'market sentiment'
             ]) or
             bool(re.search(r'vwap', narrative_lower)) or
-            len(news_data) > 0 and any('[1]' in narrative or '[2]' in narrative or '[3]' in narrative)
+            (len(news_data) > 0 and ('[1]' in narrative or '[2]' in narrative or '[3]' in narrative))
         )
         
         if has_sentiment:
