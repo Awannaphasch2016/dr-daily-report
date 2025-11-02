@@ -160,6 +160,7 @@ def api_handler(event: "LambdaEvent", context: "LambdaContext | None") -> dict[s
             "news_summary": {},
             "chart_base64": "",
             "report": "",
+            "audio_base64": "",
             "faithfulness_score": {},
             "completeness_score": {},
             "reasoning_quality_score": {},
@@ -191,6 +192,7 @@ def api_handler(event: "LambdaEvent", context: "LambdaContext | None") -> dict[s
         news_summary = sanitize_dict(final_state.get("news_summary", {}))
         chart_base64 = final_state.get("chart_base64", "")
         report = final_state.get("report", "")
+        audio_base64 = final_state.get("audio_base64", "")
         
         # Convert dataclass scores to dicts for JSON serialization
         faithfulness_score_obj = final_state.get("faithfulness_score")
@@ -273,26 +275,6 @@ def api_handler(event: "LambdaEvent", context: "LambdaContext | None") -> dict[s
         }
 
 def test_handler() -> None:
-    """Test handler locally"""
-    # Load test event
-    test_event: "LambdaEvent" = {
-        'queryStringParameters': {
-            'ticker': 'DBS19'
-        }
-    }
-
-    # Test
-    result = api_handler(test_event, None)
-    body = result.get('body')
-    if isinstance(body, str):
-        print(json.dumps(json.loads(body), indent=2, ensure_ascii=False))
-    else:
-        print("Error: body is not a string")
-
-if __name__ == "__main__":
-    # For local testing
-    test_handler()
-ne:
     """Test handler locally"""
     # Load test event
     test_event: "LambdaEvent" = {

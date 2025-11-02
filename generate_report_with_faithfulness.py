@@ -68,6 +68,7 @@ def generate_report_with_faithfulness(ticker: str = "AAPL19"):
             "news_summary": {},
             "chart_base64": "",
             "report": "",
+            "audio_base64": "",
             "error": ""
         }
 

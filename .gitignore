@@ -81,3 +81,4 @@ test_lambda*.json
 test_dbs*.json
 requirements_lambda.txt
 LAMBDA_DEPLOYMENT_INSTRUCTIONS.md
+*.mp3

@@ -98,6 +98,7 @@ def generate_all_reports(output_dir='reports', delay_between_requests=2):
                 "news_summary": {},
                 "chart_base64": "",
                 "report": "",
+                "audio_base64": "",
                 "error": ""
             }
 

@@ -12,6 +12,7 @@ from src.database import TickerDatabase
 from src.news_fetcher import NewsFetcher
 from src.chart_generator import ChartGenerator
 from src.pdf_generator import PDFReportGenerator
+from src.audio_generator import AudioGenerator
 from src.faithfulness_scorer import FaithfulnessScorer
 from src.completeness_scorer import CompletenessScorer
 from src.reasoning_quality_scorer import ReasoningQualityScorer
@@ -36,6 +37,8 @@ class AgentState(TypedDict):
     chart_base64: str  # Add chart image field (base64 PNG)
     report: str
     faithfulness_score: dict  # Add faithfulness scoring field
+    audio_base64: str  # Thai audio (base64 MP3)
+    audio_english_base64: str  # English audio (base64 MP3)
     error: str
 
 class TickerAnalysisAgent:
@@ -46,6 +49,13 @@ class TickerAnalysisAgent:
         self.news_fetcher = NewsFetcher()
         self.chart_generator = ChartGenerator()
         self.pdf_generator = PDFReportGenerator(use_thai_font=True)
+        # Initialize audio generator (optional - will skip if API keys not set)
+        try:
+            self.audio_generator = AudioGenerator()
+        except (ValueError, Exception) as e:
+            print(f"⚠️  Audio generator not available: {str(e)}")
+            print("   Note: Botnoi API key required for Thai audio, ElevenLabs API key required for English audio")
+            self.audio_generator = None
         self.faithfulness_scorer = FaithfulnessScorer()
         self.completeness_scorer = CompletenessScorer()
         self.reasoning_quality_scorer = ReasoningQualityScorer()
@@ -64,6 +74,7 @@ class TickerAnalysisAgent:
         workflow.add_node("analyze_technical", self.analyze_technical)
         workflow.add_node("generate_chart", self.generate_chart)
         workflow.add_node("generate_report", self.generate_report)
+        workflow.add_node("generate_audio", self.generate_audio)
 
         # Add edges
         workflow.set_entry_point("fetch_data")
@@ -71,7 +82,8 @@ class TickerAnalysisAgent:
         workflow.add_edge("fetch_news", "analyze_technical")
         workflow.add_edge("analyze_technical", "generate_chart")
         workflow.add_edge("generate_chart", "generate_report")
-        workflow.add_edge("generate_report", END)
+        workflow.add_edge("generate_report", "generate_audio")
+        workflow.add_edge("generate_audio", END)
 
         return workflow.compile()
 
@@ -313,6 +325,81 @@ class TickerAnalysisAgent:
         print("\n" + self.completeness_scorer.format_score_report(completeness_score))
         print("\n" + self.reasoning_quality_scorer.format_score_report(reasoning_quality_score))
 
+        return state
+
+    def generate_audio(self, state: AgentState) -> AgentState:
+        """Generate audio from report text using Botnoi Voice API (Thai) and ElevenLabs (English)"""
+        if state.get("error"):
+            state["audio_base64"] = ""
+            state["audio_english_base64"] = ""
+            return state
+        
+        # Skip if audio generator not available
+        if not self.audio_generator:
+            state["audio_base64"] = ""
+            state["audio_english_base64"] = ""
+            return state
+        
+        report = state.get("report", "")
+        
+        if not report:
+            state["audio_base64"] = ""
+            state["audio_english_base64"] = ""
+            return state
+        
+        try:
+            # Clean text for TTS (remove markdown, emojis, etc.)
+            cleaned_text = self.audio_generator.clean_text_for_tts(report)
+            
+            # Generate Thai audio using Botnoi (native Thai TTS)
+            try:
+                audio_base64 = self.audio_generator.generate_audio_base64(
+                    cleaned_text,
+                    language='th',
+                    speed=1.0
+                )
+                state["audio_base64"] = audio_base64
+                print(f"✅ Thai audio generated successfully ({len(audio_base64):,} chars base64)")
+            except Exception as e:
+                print(f"⚠️  Thai audio generation failed: {str(e)}")
+                state["audio_base64"] = ""
+            
+            # Generate English audio using ElevenLabs
+            try:
+                # Translate Thai report to English
+                english_text = self.audio_generator.translate_to_english(cleaned_text, self.llm)
+                print(f"✅ Report translated to English ({len(english_text)} characters)")
+                
+                # Clean English text for TTS
+                cleaned_english = self.audio_generator.clean_text_for_tts(english_text)
+                
+                # Generate English audio using ElevenLabs
+                audio_english_base64 = self.audio_generator.generate_audio_base64(
+                    cleaned_english,
+                    language='en'
+                )
+                state["audio_english_base64"] = audio_english_base64
+                print(f"✅ English audio generated successfully ({len(audio_english_base64):,} chars base64)")
+                
+                # Save English audio file
+                import base64
+                audio_bytes = base64.b64decode(audio_english_base64)
+                ticker = state.get("ticker", "UNKNOWN")
+                audio_file = f"report_{ticker}_english.mp3"
+                with open(audio_file, "wb") as f:
+                    f.write(audio_bytes)
+                print(f"✅ English audio saved to: {audio_file} ({len(audio_bytes)/1024:.1f} KB)")
+                
+            except Exception as e:
+                print(f"⚠️  English audio generation failed: {str(e)}")
+                state["audio_english_base64"] = ""
+            
+        except Exception as e:
+            print(f"⚠️  Audio generation failed: {str(e)}")
+            # Don't set error - audio is optional, continue without it
+            state["audio_base64"] = ""
+            state["audio_english_base64"] = ""
+        
         return state
 
     def _build_prompt(self, context: str, uncertainty_score: float, strategy_performance: dict = None) -> str:
@@ -842,6 +929,7 @@ Bollinger: {self.technical_analyzer.analyze_bollinger(indicators)}"""
             "news_summary": {},
             "chart_base64": "",
             "report": "",
+            "audio_base64": "",
             "faithfulness_score": {},
             "completeness_score": {},
             "reasoning_quality_score": {},
@@ -882,6 +970,7 @@ Bollinger: {self.technical_analyzer.analyze_bollinger(indicators)}"""
             "news_summary": {},
             "chart_base64": "",
             "report": "",
+            "audio_base64": "",
             "faithfulness_score": {},
             "completeness_score": {},
             "reasoning_quality_score": {},

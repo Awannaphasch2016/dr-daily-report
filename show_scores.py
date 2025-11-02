@@ -91,6 +91,7 @@ def show_scores_for_ticker(ticker: str = "DBS19"):
             "news_summary": {},
             "chart_base64": "",
             "report": "",
+            "audio_base64": "",
             "faithfulness_score": {},
             "completeness_score": {},
             "reasoning_quality_score": {},
