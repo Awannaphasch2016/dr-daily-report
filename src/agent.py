@@ -19,12 +19,8 @@ from src.reasoning_quality_scorer import ReasoningQualityScorer
 from src.compliance_scorer import ComplianceScorer
 from src.qos_scorer import QoSScorer
 from src.cost_scorer import CostScorer
-try:
-    from src.strategy import SMAStrategyBacktester
-    HAS_STRATEGY = True
-except ImportError:
-    HAS_STRATEGY = False
-    SMAStrategyBacktester = None
+from src.strategy import SMAStrategyBacktester
+from src.comparative_analysis import ComparativeAnalyzer
 
 class AgentState(TypedDict):
     messages: Annotated[Sequence[HumanMessage | AIMessage], operator.add]
@@ -37,6 +33,8 @@ class AgentState(TypedDict):
     strategy_performance: dict  # Add strategy performance field
     news: list
     news_summary: dict
+    comparative_data: dict
+    comparative_insights: dict
     chart_base64: str  # Add chart image field (base64 PNG)
     report: str
     faithfulness_score: dict  # Add faithfulness scoring field
@@ -66,6 +64,7 @@ class TickerAnalysisAgent:
         self.cost_scorer = CostScorer()
         self.db = TickerDatabase()
         self.strategy_backtester = SMAStrategyBacktester(fast_period=20, slow_period=50)
+        self.comparative_analyzer = ComparativeAnalyzer()
         self.ticker_map = self.data_fetcher.load_tickers()
         self.graph = self.build_graph()
         
@@ -80,14 +79,18 @@ class TickerAnalysisAgent:
         workflow.add_node("fetch_data", self.fetch_data)
         workflow.add_node("fetch_news", self.fetch_news)
         workflow.add_node("analyze_technical", self.analyze_technical)
+        workflow.add_node("fetch_comparative_data", self.fetch_comparative_data)
+        workflow.add_node("analyze_comparative_insights", self.analyze_comparative_insights)
         workflow.add_node("generate_chart", self.generate_chart)
         workflow.add_node("generate_report", self.generate_report)
-
+        
         # Add edges
         workflow.set_entry_point("fetch_data")
         workflow.add_edge("fetch_data", "fetch_news")
         workflow.add_edge("fetch_news", "analyze_technical")
-        workflow.add_edge("analyze_technical", "generate_chart")
+        workflow.add_edge("analyze_technical", "fetch_comparative_data")
+        workflow.add_edge("fetch_comparative_data", "analyze_comparative_insights")
+        workflow.add_edge("analyze_comparative_insights", "generate_chart")
         workflow.add_edge("generate_chart", "generate_report")
         workflow.add_edge("generate_report", END)
 
@@ -299,7 +302,8 @@ class TickerAnalysisAgent:
         llm_calls = 0
 
         # First pass: Generate report without strategy data to determine recommendation
-        context = self.prepare_context(ticker, ticker_data, indicators, percentiles, news, news_summary, strategy_performance=None)
+        comparative_insights = state.get("comparative_insights", {})
+        context = self.prepare_context(ticker, ticker_data, indicators, percentiles, news, news_summary, strategy_performance=None, comparative_insights=comparative_insights)
         uncertainty_score = indicators.get('uncertainty_score', 0)
         
         prompt = self._build_prompt(context, uncertainty_score, strategy_performance=None)
@@ -327,7 +331,7 @@ class TickerAnalysisAgent:
         # Second pass: If aligned, regenerate with strategy data
         if include_strategy and strategy_performance:
             context_with_strategy = self.prepare_context(
-                ticker, ticker_data, indicators, percentiles, news, news_summary, strategy_performance=strategy_performance
+                ticker, ticker_data, indicators, percentiles, news, news_summary, strategy_performance=strategy_performance, comparative_insights=comparative_insights
             )
             prompt_with_strategy = self._build_prompt(context_with_strategy, uncertainty_score, strategy_performance=strategy_performance)
             response = self.llm.invoke([HumanMessage(content=prompt_with_strategy)])
@@ -485,9 +489,10 @@ CRITICAL NARRATIVE ELEMENTS - You MUST weave these "narrative + number + histori
 
         narrative_elements = self._build_base_prompt_section(uncertainty_score)
         strategy_section = self._build_strategy_section() if strategy_performance else ""
+        comparative_section = self._build_comparative_section()
         structure = self._build_prompt_structure(bool(strategy_performance))
         
-        return base_intro + narrative_elements + strategy_section + structure
+        return base_intro + narrative_elements + strategy_section + comparative_section + structure
     
     def _build_base_prompt_section(self, uncertainty_score: float) -> str:
         """Build the base narrative elements section"""
@@ -545,6 +550,25 @@ These 5 elements (4 market conditions + statistical context) ARE the foundation 
    - NEVER mention the strategy name (SMA crossing) - just say "กลยุทธ์ของเรา" or "strategies"
    - Use strategy data to strengthen your argument, not as standalone facts"""
 
+    def _build_comparative_section(self) -> str:
+        """Build comparative analysis section"""
+        return """
+
+7. **Comparative Analysis (Relative Performance)**: When comparative insights are provided, USE THEM to add relative context
+   - CRITICAL: Weave comparative insights naturally into your narrative - don't create a separate section
+   - Use comparative data to show how this ticker performs RELATIVE to peers
+   - Examples of how to incorporate:
+     * Similar tickers: "หุ้นนี้เคลื่อนไหวคล้ายกับ XYZ (correlation 0.85) และ ABC (correlation 0.78) - แสดงว่าอยู่ในกลุ่มเดียวกัน"
+     * Volatility comparison: "ความผันผวนสูงกว่าค่าเฉลี่ยของหุ้นในกลุ่ม 25% - แสดงว่าหุ้นนี้มีความเสี่ยงสูงกว่าเพื่อนบ้าน"
+     * Return comparison: "ผลตอบแทนต่ำกว่าค่าเฉลี่ยของกลุ่ม 15% - แสดงว่า underperform เมื่อเทียบกับเพื่อนร่วมกลุ่ม"
+     * Cluster context: "อยู่ในกลุ่มเดียวกับ DEF, GHI - หุ้นในกลุ่มนี้มักจะ..."
+   - Use comparative insights to strengthen your argument about whether the ticker is outperforming or underperforming its peers
+   - Format examples:
+     * "เมื่อเทียบกับหุ้นที่คล้ายกัน เช่น [ticker] (correlation [value]), หุ้นนี้มีความผันผวน[สูงกว่า/ต่ำกว่า]และให้ผลตอบแทน[ดีกว่า/แย่กว่า]"
+     * "หุ้นนี้อยู่ในอันดับที่ [rank] จาก [total] ด้านความผันผวน - แสดงว่า[interpretation]"
+   - NEVER create a separate "การวิเคราะห์เปรียบเทียบ" section - integrate naturally into the main narrative
+   - Use comparative data as supporting evidence, not as standalone facts"""
+
     def _build_prompt_structure(self, has_strategy: bool) -> str:
         """Build the report structure section"""
         strategy_integration = "\n- If strategy performance data is provided, weave it naturally into this section to support your analysis" if has_strategy else ""
@@ -573,7 +597,7 @@ Rules for narrative flow:
 - CRITICAL: ALWAYS include all 4 market condition metrics (uncertainty, ATR%, VWAP%, volume ratio) with specific numbers AND percentile context throughout
 - Use numbers IN sentences as evidence, not as standalone facts
 - Explain WHY things matter (implication), not just WHAT they are (description)
-- Mix technical + fundamental + relative + news + statistical context seamlessly - don't section them
+- Mix technical + fundamental + relative + news + statistical context + comparative analysis seamlessly - don't section them
 - Reference news [1], [2] ONLY when it genuinely affects the story
 - CRITICAL: When percentile data is available, USE IT to add historical context to numbers (e.g., "RSI 75 ซึ่งอยู่ในเปอร์เซ็นไทล์ 85%")
 - Write under 12-15 lines total
@@ -842,7 +866,237 @@ Bollinger: {self.technical_analyzer.analyze_bollinger(indicators)}"""
 
         return news_text
     
-    def prepare_context(self, ticker: str, ticker_data: dict, indicators: dict, percentiles: dict, news: list, news_summary: dict, strategy_performance: dict = None) -> str:
+    def fetch_comparative_data(self, state: AgentState) -> AgentState:
+        """Fetch historical data for comparative analysis with similar tickers"""
+        if state.get("error"):
+            return state
+        
+        start_time = time.perf_counter()
+        ticker = state["ticker"]
+        yahoo_ticker = self.ticker_map.get(ticker.upper())
+        
+        if not yahoo_ticker:
+            state["comparative_data"] = {}
+            return state
+        
+        try:
+            # Get similar tickers from the same sector or nearby tickers in our list
+            # For now, fetch 3-5 other tickers from our ticker list for comparison
+            all_tickers = list(self.ticker_map.keys())
+            similar_tickers = []
+            
+            # Find tickers in same sector if available
+            ticker_data = state.get("ticker_data", {})
+            sector = ticker_data.get("sector")
+            
+            # Get 3-5 other tickers (excluding current ticker)
+            for t in all_tickers:
+                if t != ticker.upper() and len(similar_tickers) < 5:
+                    similar_tickers.append(t)
+            
+            # Fetch historical data for comparative analysis
+            comparative_data = {}
+            for t in similar_tickers[:5]:  # Limit to 5 to avoid too many API calls
+                yt = self.ticker_map.get(t)
+                if yt:
+                    try:
+                        hist_data = self.data_fetcher.fetch_historical_data(yt, days=90)
+                        if hist_data is not None and not hist_data.empty:
+                            comparative_data[t] = hist_data
+                    except Exception as e:
+                        print(f"⚠️  Failed to fetch comparative data for {t}: {str(e)}")
+                        continue
+            
+            state["comparative_data"] = comparative_data
+            print(f"✅ Fetched comparative data for {len(comparative_data)} tickers")
+            
+        except Exception as e:
+            print(f"⚠️  Comparative data fetch failed: {str(e)}")
+            state["comparative_data"] = {}
+        
+        # Record timing
+        elapsed = time.perf_counter() - start_time
+        timing_metrics = state.get("timing_metrics", {})
+        timing_metrics["comparative_data_fetch"] = elapsed
+        state["timing_metrics"] = timing_metrics
+        
+        return state
+    
+    def analyze_comparative_insights(self, state: AgentState) -> AgentState:
+        """Perform comparative analysis and extract narrative-ready insights"""
+        if state.get("error"):
+            return state
+        
+        start_time = time.perf_counter()
+        ticker = state["ticker"]
+        ticker_data = state.get("ticker_data", {})
+        indicators = state.get("indicators", {})
+        comparative_data = state.get("comparative_data", {})
+        
+        if not comparative_data:
+            state["comparative_insights"] = {}
+            return state
+        
+        try:
+            # Add current ticker's data to comparative dataset
+            yahoo_ticker = self.ticker_map.get(ticker.upper())
+            if yahoo_ticker and ticker_data.get("history") is not None:
+                hist_data = ticker_data.get("history")
+                if hist_data is not None and not hist_data.empty:
+                    comparative_data[ticker.upper()] = hist_data
+            
+            # Perform comprehensive comparative analysis
+            if len(comparative_data) >= 2:
+                analysis_results = self.comparative_analyzer.comprehensive_analysis(comparative_data)
+                
+                # Extract narrative-ready insights
+                insights = self._extract_narrative_insights(ticker, indicators, analysis_results, comparative_data)
+                state["comparative_insights"] = insights
+                print(f"✅ Generated comparative insights for {ticker}")
+            else:
+                state["comparative_insights"] = {}
+                
+        except Exception as e:
+            print(f"⚠️  Comparative analysis failed: {str(e)}")
+            state["comparative_insights"] = {}
+        
+        # Record timing
+        elapsed = time.perf_counter() - start_time
+        timing_metrics = state.get("timing_metrics", {})
+        timing_metrics["comparative_analysis"] = elapsed
+        state["timing_metrics"] = timing_metrics
+        
+        return state
+    
+    def _extract_narrative_insights(self, target_ticker: str, indicators: dict, analysis_results: dict, comparative_data: dict) -> dict:
+        """Extract insights that can be woven into narrative in Damodaran style"""
+        insights = {}
+        
+        if 'error' in analysis_results:
+            return insights
+        
+        # Get correlation insights
+        if 'correlation_matrix' in analysis_results:
+            corr_dict = analysis_results['correlation_matrix']
+            if isinstance(corr_dict, dict):
+                corr_matrix = pd.DataFrame(corr_dict)
+            else:
+                corr_matrix = corr_dict
+            
+            if not corr_matrix.empty and target_ticker.upper() in corr_matrix.index:
+                # Find most similar tickers
+                similar = self.comparative_analyzer.find_similar_tickers(
+                    corr_matrix, target_ticker.upper(), top_n=3
+                )
+                insights['similar_tickers'] = similar
+                
+                # Average correlation
+                target_corrs = corr_matrix.loc[target_ticker.upper()].drop(target_ticker.upper())
+                insights['avg_correlation'] = float(target_corrs.mean()) if len(target_corrs) > 0 else None
+        
+        # Get clustering insights
+        if 'clustering' in analysis_results:
+            clustering = analysis_results['clustering']
+            clusters = self.comparative_analyzer.get_ticker_clusters(clustering)
+            
+            # Find which cluster target ticker is in
+            for cluster_id, tickers in clusters.items():
+                if target_ticker.upper() in tickers:
+                    insights['cluster_id'] = cluster_id
+                    insights['cluster_members'] = [t for t in tickers if t != target_ticker.upper()][:3]
+                    break
+        
+        # Get feature comparison insights
+        if 'features' in analysis_results:
+            features_df = analysis_results['features']
+            if not features_df.empty and 'ticker' in features_df.columns:
+                # Set ticker as index for easier access
+                features_df_indexed = features_df.set_index('ticker')
+                
+                if target_ticker.upper() in features_df_indexed.index:
+                    target_features = features_df_indexed.loc[target_ticker.upper()]
+                    
+                    # Compare volatility, returns, sharpe ratio
+                    insights['volatility_vs_peers'] = {
+                        'current': float(target_features.get('volatility', 0)),
+                        'peer_avg': float(features_df_indexed['volatility'].mean()) if 'volatility' in features_df_indexed.columns else None
+                    }
+                    
+                    insights['return_vs_peers'] = {
+                        'current': float(target_features.get('mean_return', 0)),
+                        'peer_avg': float(features_df_indexed['mean_return'].mean()) if 'mean_return' in features_df_indexed.columns else None
+                    }
+                    
+                    insights['sharpe_vs_peers'] = {
+                        'current': float(target_features.get('sharpe_ratio', 0)),
+                        'peer_avg': float(features_df_indexed['sharpe_ratio'].mean()) if 'sharpe_ratio' in features_df_indexed.columns else None
+                    }
+                    
+                    # Rank position
+                    if 'volatility' in features_df_indexed.columns:
+                        vol_rank = (features_df_indexed['volatility'] < target_features['volatility']).sum() + 1
+                        insights['volatility_rank'] = {
+                            'position': int(vol_rank),
+                            'total': len(features_df_indexed)
+                        }
+        
+        return insights
+    
+    def _format_comparative_insights(self, ticker: str, insights: dict) -> str:
+        """Format comparative insights for narrative context"""
+        if not insights:
+            return ""
+        
+        lines = []
+        
+        # Similar tickers
+        if 'similar_tickers' in insights and insights['similar_tickers']:
+            similar = insights['similar_tickers']
+            ticker_list = ", ".join([f"{t[0]} (correlation {t[1]:.2f})" for t in similar[:3]])
+            lines.append(f"- หุ้นที่เคลื่อนไหวคล้ายกัน: {ticker_list}")
+            
+            if 'avg_correlation' in insights and insights['avg_correlation'] is not None:
+                avg_corr = insights['avg_correlation']
+                lines.append(f"- ความสัมพันธ์เฉลี่ยกับหุ้นอื่น: {avg_corr:.2f}")
+        
+        # Cluster membership
+        if 'cluster_id' in insights and 'cluster_members' in insights:
+            members = insights['cluster_members']
+            if members:
+                members_str = ", ".join(members[:3])
+                lines.append(f"- อยู่ในกลุ่มเดียวกันกับ: {members_str}")
+        
+        # Feature comparisons
+        if 'volatility_vs_peers' in insights:
+            vol_data = insights['volatility_vs_peers']
+            if vol_data.get('current') is not None and vol_data.get('peer_avg') is not None:
+                current_vol = vol_data['current']
+                peer_avg = vol_data['peer_avg']
+                diff_pct = ((current_vol - peer_avg) / peer_avg * 100) if peer_avg > 0 else 0
+                if abs(diff_pct) > 5:  # Only mention if significant difference
+                    direction = "สูงกว่า" if diff_pct > 0 else "ต่ำกว่า"
+                    lines.append(f"- ความผันผวน {direction}ค่าเฉลี่ยของหุ้นอื่น {abs(diff_pct):.1f}% (ปัจจุบัน: {current_vol:.2f}% vs ค่าเฉลี่ย: {peer_avg:.2f}%)")
+        
+        if 'return_vs_peers' in insights:
+            return_data = insights['return_vs_peers']
+            if return_data.get('current') is not None and return_data.get('peer_avg') is not None:
+                current_ret = return_data['current']
+                peer_avg = return_data['peer_avg']
+                diff_pct = ((current_ret - peer_avg) / abs(peer_avg) * 100) if abs(peer_avg) > 0.01 else 0
+                if abs(diff_pct) > 10:  # Only mention if significant difference
+                    direction = "สูงกว่า" if diff_pct > 0 else "ต่ำกว่า"
+                    lines.append(f"- ผลตอบแทน {direction}ค่าเฉลี่ยของหุ้นอื่น {abs(diff_pct):.1f}% (ปัจจุบัน: {current_ret:.2f}% vs ค่าเฉลี่ย: {peer_avg:.2f}%)")
+        
+        if 'volatility_rank' in insights:
+            rank_data = insights['volatility_rank']
+            position = rank_data['position']
+            total = rank_data['total']
+            percentile = (position / total * 100) if total > 0 else 0
+            lines.append(f"- อันดับความผันผวน: {position}/{total} (เปอร์เซ็นไทล์ {percentile:.0f}%)")
+        
+        return "\n".join(lines) if lines else ""
+    
+    def prepare_context(self, ticker: str, ticker_data: dict, indicators: dict, percentiles: dict, news: list, news_summary: dict, strategy_performance: dict = None, comparative_insights: dict = None) -> str:
         """Prepare context for LLM with uncertainty components and percentile information"""
         conditions = self._calculate_market_conditions(indicators)
         current_price = conditions['current_price']
@@ -855,6 +1109,10 @@ Bollinger: {self.technical_analyzer.analyze_bollinger(indicators)}"""
         fundamental_section = self._format_fundamental_section(ticker_data)
         technical_section = self._format_technical_section(indicators, current_price)
         news_section = self._format_news_section(news, news_summary)
+        
+        # Add comparative insights
+        comparative_insights = comparative_insights or {}
+        comparative_section = self._format_comparative_insights(ticker, comparative_insights)
         
         context = f"""
 สัญลักษณ์: {ticker}
@@ -879,6 +1137,9 @@ Bollinger: {self.technical_analyzer.analyze_bollinger(indicators)}"""
 - จำนวนนักวิเคราะห์: {ticker_data.get('analyst_count', 'N/A')}
 - ราคาสูงสุด 52 สัปดาห์: {ticker_data.get('fifty_two_week_high', 'N/A')}
 - ราคาต่ำสุด 52 สัปดาห์: {ticker_data.get('fifty_two_week_low', 'N/A')}
+
+การวิเคราะห์เปรียบเทียบกับหุ้นอื่น (Comparative Analysis):
+{comparative_section if comparative_section else "- ไม่มีข้อมูลเปรียบเทียบ (ใช้ข้อมูลเดียวกับหุ้นตัวนี้เท่านั้น)"}
 {news_section}"""
         
         return context
