@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Report Details - {{ report.ticker }}</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+            padding: 30px;
+        }
+        
+        .header {
+            border-bottom: 2px solid #e0e0e0;
+            padding-bottom: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .back-link {
+            display: inline-block;
+            margin-bottom: 15px;
+            color: #667eea;
+            text-decoration: none;
+            font-weight: 600;
+        }
+        
+        .back-link:hover {
+            text-decoration: underline;
+        }
+        
+        h1 {
+            color: #333;
+            font-size: 2em;
+            margin-bottom: 10px;
+        }
+        
+        .meta-info {
+            color: #666;
+            font-size: 1em;
+        }
+        
+        .recommendation {
+            display: inline-block;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-weight: 600;
+            margin-top: 10px;
+        }
+        
+        .recommendation.buy {
+            background: #d4edda;
+            color: #155724;
+        }
+        
+        .recommendation.sell {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        
+        .recommendation.hold {
+            background: #fff3cd;
+            color: #856404;
+        }
+        
+        .report-content {
+            line-height: 1.8;
+            color: #333;
+            white-space: pre-wrap;
+            font-size: 1.1em;
+            margin-bottom: 30px;
+        }
+        
+        .actions {
+            display: flex;
+            gap: 15px;
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 2px solid #e0e0e0;
+        }
+        
+        .btn-link {
+            padding: 12px 24px;
+            background: #667eea;
+            color: white;
+            text-decoration: none;
+            border-radius: 6px;
+            font-weight: 600;
+            transition: background 0.3s;
+        }
+        
+        .btn-link:hover {
+            background: #5568d3;
+        }
+        
+        .btn-link.secondary {
+            background: #6c757d;
+        }
+        
+        .btn-link.secondary:hover {
+            background: #5a6268;
+        }
+        
+        .chart-section {
+            margin: 30px 0;
+            text-align: center;
+        }
+        
+        .chart-section img {
+            max-width: 100%;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <a href="/" class="back-link">← Back to Reports</a>
+            <h1>{{ report.ticker }} - {{ report.report_date }}</h1>
+            <div class="meta-info">
+                Generated: {{ report.created_at }}
+                {% if report.recommendation %}
+                <span class="recommendation {{ report.recommendation.lower() }}">
+                    {{ report.recommendation }}
+                </span>
+                {% endif %}
+            </div>
+        </div>
+        
+        {% if report.chart_base64 %}
+        <div class="chart-section">
+            <h2>Chart</h2>
+            <img src="data:image/png;base64,{{ report.chart_base64 }}" alt="Price Chart">
+        </div>
+        {% endif %}
+        
+        <div class="report-content">
+            {{ report.report_text }}
+        </div>
+        
+        <div class="actions">
+            {% if report.audio_base64 %}
+            <a href="/audio/{{ report.ticker }}/{{ report.report_date }}/thai" class="btn-link">
+                🎵 Listen (Thai)
+            </a>
+            {% endif %}
+            {% if report.audio_english_base64 %}
+            <a href="/audio/{{ report.ticker }}/{{ report.report_date }}/english" class="btn-link secondary">
+                🎵 Listen (English)
+            </a>
+            {% endif %}
+            <a href="/" class="btn-link secondary">Back to List</a>
+        </div>
+    </div>
+</body>
+</html>

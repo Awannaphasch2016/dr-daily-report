@@ -7,6 +7,7 @@ import sys
 import os
 import csv
 import time
+import sqlite3
 from datetime import datetime
 from pathlib import Path
 
@@ -14,6 +15,26 @@ from pathlib import Path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '.')))
 
 from src.agent import TickerAnalysisAgent
+
+
+def save_pdf_to_archive(ticker, report_date, pdf_filename, db_path='webapp/data/ticker_reports.db'):
+    """Save PDF filename to pdf_archive table"""
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            INSERT OR REPLACE INTO pdf_archive
+            (ticker, report_date, pdf_filename)
+            VALUES (?, ?, ?)
+        """, (ticker, report_date, pdf_filename))
+
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"   ⚠️  Failed to save to pdf_archive: {str(e)}")
+        return False
 
 
 def load_tickers(csv_path='data/tickers.csv'):
@@ -118,6 +139,7 @@ def generate_all_reports(output_dir='reports', delay_between_requests=2):
             # Generate PDF
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             output_filename = os.path.join(output_dir, f"{ticker}_report_{timestamp}.pdf")
+            pdf_filename_only = f"{ticker}_report_{timestamp}.pdf"
 
             pdf_bytes = agent.pdf_generator.generate_report(
                 ticker=ticker,
@@ -139,6 +161,11 @@ def generate_all_reports(output_dir='reports', delay_between_requests=2):
             if overall_score:
                 print(f"   📊 Faithfulness Score: {overall_score:.1f}/100")
             print(f"   💾 Report saved to SQLite database")
+
+            # Save PDF filename to pdf_archive table
+            report_date = datetime.now().strftime("%Y-%m-%d")
+            if save_pdf_to_archive(ticker, report_date, pdf_filename_only):
+                print(f"   📑 PDF indexed in archive database")
 
             results['success'].append({
                 'ticker': ticker,

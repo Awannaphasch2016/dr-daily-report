@@ -5,6 +5,7 @@ from langchain_core.messages import HumanMessage, AIMessage
 import operator
 from datetime import datetime
 import re
+import os
 import pandas as pd
 from src.data_fetcher import DataFetcher
 from src.technical_analysis import TechnicalAnalyzer
@@ -394,6 +395,9 @@ class TickerAnalysisAgent:
                 print(f"⚠️  English audio generation failed: {str(e)}")
                 state["audio_english_base64"] = ""
             
+            # Optionally save report to webapp database
+            self._save_to_webapp_db(state)
+            
         except Exception as e:
             print(f"⚠️  Audio generation failed: {str(e)}")
             # Don't set error - audio is optional, continue without it
@@ -401,6 +405,53 @@ class TickerAnalysisAgent:
             state["audio_english_base64"] = ""
         
         return state
+    
+    def _save_to_webapp_db(self, state: AgentState):
+        """Save report to webapp database if webapp is available"""
+        webapp_url = os.getenv("WEBAPP_URL", "http://localhost:5000")
+        
+        try:
+            import requests
+            from datetime import date
+            
+            # Extract recommendation
+            report = state.get("report", "")
+            report_upper = report.upper()
+            if 'แนะนำ BUY' in report or 'BUY' in report_upper:
+                recommendation = 'BUY'
+            elif 'แนะนำ SELL' in report or 'SELL' in report_upper:
+                recommendation = 'SELL'
+            else:
+                recommendation = 'HOLD'
+            
+            report_data = {
+                'ticker': state.get('ticker', '').upper(),
+                'report_date': str(date.today()),
+                'report_text': report,
+                'chart_base64': state.get('chart_base64', ''),
+                'audio_base64': state.get('audio_base64', ''),
+                'audio_english_base64': state.get('audio_english_base64', ''),
+                'indicators': state.get('indicators', {}),
+                'percentiles': state.get('percentiles', {}),
+                'news': state.get('news', []),
+                'recommendation': recommendation
+            }
+            
+            response = requests.post(
+                f"{webapp_url}/api/save_report",
+                json=report_data,
+                timeout=10
+            )
+            response.raise_for_status()
+            print(f"✅ Report saved to webapp database")
+            
+        except ImportError:
+            # requests not available, skip
+            pass
+        except Exception as e:
+            # Webapp not available or error - this is optional, don't fail
+            print(f"⚠️  Could not save to webapp database: {str(e)}")
+            pass
 
     def _build_prompt(self, context: str, uncertainty_score: float, strategy_performance: dict = None) -> str:
         """Build LLM prompt with optional strategy performance data"""
