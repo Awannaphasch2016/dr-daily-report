@@ -350,6 +350,24 @@ class TickerAnalysisAgent:
         else:
             report = initial_report
 
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        # INJECT DETERMINISTIC NUMBERS (Damodaran "narrative + number" approach)
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        # Calculate ground truth for injection
+        conditions = self._calculate_market_conditions(indicators)
+        ground_truth = {
+            'uncertainty_score': indicators.get('uncertainty_score', 0),
+            'atr_pct': (indicators.get('atr', 0) / indicators.get('current_price', 1)) * 100 if indicators.get('current_price', 0) > 0 else 0,
+            'vwap_pct': conditions.get('price_vs_vwap_pct', 0),
+            'volume_ratio': conditions.get('volume_ratio', 0),
+        }
+
+        # Replace all {{PLACEHOLDERS}} with exact ground truth values
+        report = self.inject_deterministic_numbers(
+            report, ground_truth, indicators, percentiles
+        )
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
         # Record LLM timing
         llm_elapsed = time.perf_counter() - llm_start_time
         timing_metrics = state.get("timing_metrics", {})
@@ -454,10 +472,27 @@ class TickerAnalysisAgent:
         )
         state["cost_score"] = cost_score
 
-        # Save QoS metrics to database
+        # Save all scores to database
         if yahoo_ticker:
+            # Save quality scores
+            self.db.save_faithfulness_score(yahoo_ticker, ticker_data['date'], faithfulness_score)
+            self.db.save_completeness_score(yahoo_ticker, ticker_data['date'], completeness_score)
+            self.db.save_reasoning_quality_score(yahoo_ticker, ticker_data['date'], reasoning_quality_score)
+            self.db.save_compliance_score(yahoo_ticker, ticker_data['date'], compliance_score)
+
+            # Save performance metrics
             self.db.save_qos_metrics(yahoo_ticker, ticker_data['date'], qos_score)
             self.db.save_cost_metrics(yahoo_ticker, ticker_data['date'], cost_score)
+
+            # Save aggregated summary
+            self.db.save_score_summary(yahoo_ticker, ticker_data['date'], {
+                'faithfulness': faithfulness_score,
+                'completeness': completeness_score,
+                'reasoning_quality': reasoning_quality_score,
+                'compliance': compliance_score,
+                'qos': qos_score,
+                'cost': cost_score
+            })
 
         # Print all score reports
         print("\n" + self.faithfulness_scorer.format_score_report(faithfulness_score))
@@ -483,6 +518,39 @@ Write a narrative-driven report that answers: "Should I BUY MORE?", "Should I SE
 
 Your job is to weave TECHNICAL + FUNDAMENTAL + RELATIVE + NEWS + STATISTICAL CONTEXT into a flowing narrative that tells the STORY of this stock right now.
 
+🔢 CRITICAL: USE PLACEHOLDERS FOR ALL NUMBERS (Damodaran "narrative + number" approach)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+To ensure 100% accuracy, NEVER write actual numbers. ALWAYS use placeholders:
+
+Market Conditions:
+  - Uncertainty: {{{{UNCERTAINTY}}}}/100 (NOT "52/100")
+  - ATR: {{{{ATR_PCT}}}}% (NOT "1.30%")
+  - VWAP: {{{{VWAP_PCT}}}}% (NOT "22.06%")
+  - Volume: {{{{VOLUME_RATIO}}}}x (NOT "0.87x")
+  - RSI: {{{{RSI}}}} (NOT "65.36")
+  - MACD: {{{{MACD}}}} (NOT "6.32")
+  - Price: ${{{{CURRENT_PRICE}}}} (NOT "$53.93")
+
+Percentiles:
+  - RSI Percentile: {{{{RSI_PERCENTILE}}}}% (NOT "88.5%")
+  - Uncertainty Percentile: {{{{UNCERTAINTY_SCORE_PERCENTILE}}}}% (NOT "66.0%")
+  - ATR Percentile: {{{{ATR_PERCENT_PERCENTILE}}}}% (NOT "75.2%")
+  - VWAP Percentile: {{{{PRICE_VWAP_PERCENT_PERCENTILE}}}}% (NOT "92.1%")
+  - Volume Percentile: {{{{VOLUME_RATIO_PERCENTILE}}}}% (NOT "45.3%")
+
+Examples:
+  ❌ BAD: "ความไม่แน่นอน 52/100 ซึ่งอยู่ในเปอร์เซ็นไทล์ 66%"
+  ✅ GOOD: "ความไม่แน่นอน {{{{UNCERTAINTY}}}}/100 ซึ่งอยู่ในเปอร์เซ็นไทล์ {{{{UNCERTAINTY_SCORE_PERCENTILE}}}}%"
+
+  ❌ BAD: "ATR 1.30% อยู่ในเปอร์เซ็นไทล์ 75%"
+  ✅ GOOD: "ATR {{{{ATR_PCT}}}}% อยู่ในเปอร์เซ็นไทล์ {{{{ATR_PERCENT_PERCENTILE}}}}%"
+
+  ❌ BAD: "ราคา 22.06% เหนือ VWAP"
+  ✅ GOOD: "ราคา {{{{VWAP_PCT}}}}% เหนือ VWAP"
+
+Write naturally - just replace numbers with {{{{PLACEHOLDERS}}}}. The system will fill in exact values automatically.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 CRITICAL NARRATIVE ELEMENTS - You MUST weave these "narrative + number + historical context" components into your story:
 
 """
@@ -491,7 +559,7 @@ CRITICAL NARRATIVE ELEMENTS - You MUST weave these "narrative + number + histori
         strategy_section = self._build_strategy_section() if strategy_performance else ""
         comparative_section = self._build_comparative_section()
         structure = self._build_prompt_structure(bool(strategy_performance))
-        
+
         return base_intro + narrative_elements + strategy_section + comparative_section + structure
     
     def _build_base_prompt_section(self, uncertainty_score: float) -> str:
@@ -1113,16 +1181,49 @@ Bollinger: {self.technical_analyzer.analyze_bollinger(indicators)}"""
         # Add comparative insights
         comparative_insights = comparative_insights or {}
         comparative_section = self._format_comparative_insights(ticker, comparative_insights)
-        
+
+        # Calculate ground truth for placeholder reference
+        ground_truth = {
+            'uncertainty_score': conditions['uncertainty_score'],
+            'atr_pct': (indicators.get('atr', 0) / current_price * 100) if current_price > 0 else 0,
+            'vwap_pct': conditions['price_vs_vwap_pct'],
+            'volume_ratio': conditions['volume_ratio'],
+        }
+
         context = f"""
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔢 GROUND TRUTH VALUES - USE THESE PLACEHOLDERS IN YOUR NARRATIVE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Market Conditions (use placeholders, current values shown for reference):
+  {{{{UNCERTAINTY}}}} = {ground_truth['uncertainty_score']:.1f}
+  {{{{ATR_PCT}}}} = {ground_truth['atr_pct']:.2f}
+  {{{{VWAP_PCT}}}} = {abs(ground_truth['vwap_pct']):.2f}
+  {{{{VOLUME_RATIO}}}} = {ground_truth['volume_ratio']:.2f}
+  {{{{RSI}}}} = {indicators.get('rsi', 0):.2f}
+  {{{{MACD}}}} = {indicators.get('macd', 0):.4f}
+  {{{{CURRENT_PRICE}}}} = {current_price:.2f}
+
+Percentiles (use placeholders, current values shown for reference):"""
+
+        # Add percentile placeholders
+        for key, value in percentiles.items():
+            percentile_val = value.get('percentile', 0) if isinstance(value, dict) else value
+            context += f"\n  {{{{{key.upper()}_PERCENTILE}}}} = {percentile_val:.1f}"
+
+        context += f"""
+
+REMEMBER: Write "{{{{UNCERTAINTY}}}}/100" NOT "{ground_truth['uncertainty_score']:.1f}/100"
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 สัญลักษณ์: {ticker}
 บริษัท: {ticker_data.get('company_name', ticker)}
-ราคาปัจจุบัน: {current_price:.2f}
+ราคาปัจจุบัน: Use {{{{CURRENT_PRICE}}}} placeholder (current: {current_price:.2f})
 วันที่: {ticker_data.get('date')}
 
 {fundamental_section}
 {technical_section}
-สภาวะตลาด (Market Condition - USE THESE IN YOUR NARRATIVE):
+สภาวะตลาด (Market Condition - USE PLACEHOLDERS FOR THESE VALUES):
 สถานะ: {uncertainty_level}
 
 1. ความผันผวน (Volatility): {volatility_desc}
@@ -1255,6 +1356,61 @@ Bollinger: {self.technical_analyzer.analyze_bollinger(indicators)}"""
         
         # For HOLD, we don't include strategy data
         return False
+
+    def inject_deterministic_numbers(
+        self,
+        narrative: str,
+        ground_truth: dict,
+        indicators: dict,
+        percentiles: dict
+    ) -> str:
+        """
+        Replace placeholders with exact ground truth values to ensure 100% faithfulness.
+
+        This implements the Damodaran "narrative + number" approach where:
+        - Numbers are deterministic (exact values from ground truth)
+        - Narrative is LLM-generated (natural storytelling)
+
+        Args:
+            narrative: LLM-generated text with {{PLACEHOLDERS}}
+            ground_truth: Calculated market conditions
+            indicators: Technical indicators
+            percentiles: Percentile data for historical context
+
+        Returns:
+            Narrative with all placeholders replaced by exact values
+        """
+        # Build replacement dictionary
+        replacements = {
+            '{{UNCERTAINTY}}': f"{ground_truth['uncertainty_score']:.1f}",
+            '{{ATR_PCT}}': f"{ground_truth['atr_pct']:.2f}",
+            '{{VWAP_PCT}}': f"{abs(ground_truth['vwap_pct']):.2f}",  # abs() for Thai text formatting
+            '{{VOLUME_RATIO}}': f"{ground_truth['volume_ratio']:.2f}",
+            '{{RSI}}': f"{indicators.get('rsi', 0):.2f}",
+            '{{MACD}}': f"{indicators.get('macd', 0):.4f}",
+            '{{CURRENT_PRICE}}': f"{indicators.get('current_price', 0):.2f}",
+            '{{SMA_20}}': f"{indicators.get('sma_20', 0):.2f}",
+            '{{SMA_50}}': f"{indicators.get('sma_50', 0):.2f}",
+        }
+
+        # Add percentile replacements
+        for key, value in percentiles.items():
+            percentile_val = value.get('percentile', 0) if isinstance(value, dict) else value
+            placeholder = f"{{{{{key.upper()}_PERCENTILE}}}}"
+            replacements[placeholder] = f"{percentile_val:.1f}"
+
+        # Perform replacements
+        result = narrative
+        for placeholder, value in replacements.items():
+            result = result.replace(placeholder, value)
+
+        # Validation: Check if any placeholders remain (LLM forgot to use them)
+        remaining = re.findall(r'\{\{[A-Z_]+\}\}', result)
+        if remaining:
+            print(f"⚠️  Warning: Unused placeholders found: {remaining}")
+            print(f"   LLM may have forgotten to use these placeholders")
+
+        return result
 
     def analyze_ticker(self, ticker: str) -> str:
         """Main entry point to analyze ticker"""

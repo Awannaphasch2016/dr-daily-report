@@ -130,8 +130,172 @@ class TickerDatabase:
 
         # Index for querying historical cost trends
         cursor.execute("""
-            CREATE INDEX IF NOT EXISTS idx_cost_ticker_date 
+            CREATE INDEX IF NOT EXISTS idx_cost_ticker_date
             ON cost_metrics(ticker, date DESC)
+        """)
+
+        # Table for faithfulness scores
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS faithfulness_scores (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ticker TEXT NOT NULL,
+                date DATE NOT NULL,
+                overall_score REAL NOT NULL,
+
+                -- Dimension scores (4)
+                numeric_accuracy REAL,
+                percentile_accuracy REAL,
+                news_citation_accuracy REAL,
+                interpretation_accuracy REAL,
+
+                -- Counts
+                violation_count INTEGER,
+                verified_claim_count INTEGER,
+
+                -- JSON for lists
+                violations_json TEXT,
+                verified_claims_json TEXT,
+
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(ticker, date)
+            )
+        """)
+
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_faithfulness_ticker_date
+            ON faithfulness_scores(ticker, date DESC)
+        """)
+
+        # Table for completeness scores
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS completeness_scores (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ticker TEXT NOT NULL,
+                date DATE NOT NULL,
+                overall_score REAL NOT NULL,
+
+                -- Dimension scores (6)
+                context_completeness REAL,
+                analysis_dimensions REAL,
+                temporal_completeness REAL,
+                actionability REAL,
+                narrative_structure REAL,
+                quantitative_context REAL,
+
+                -- Counts
+                missing_element_count INTEGER,
+                covered_element_count INTEGER,
+
+                -- JSON for lists
+                missing_elements_json TEXT,
+                covered_elements_json TEXT,
+
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(ticker, date)
+            )
+        """)
+
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_completeness_ticker_date
+            ON completeness_scores(ticker, date DESC)
+        """)
+
+        # Table for reasoning quality scores
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS reasoning_quality_scores (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ticker TEXT NOT NULL,
+                date DATE NOT NULL,
+                overall_score REAL NOT NULL,
+
+                -- Dimension scores (6)
+                clarity REAL,
+                coverage REAL,
+                specificity REAL,
+                alignment REAL,
+                minimality REAL,
+                consistency REAL,
+
+                -- Counts
+                issue_count INTEGER,
+                strength_count INTEGER,
+
+                -- JSON for lists
+                issues_json TEXT,
+                strengths_json TEXT,
+
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(ticker, date)
+            )
+        """)
+
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_reasoning_ticker_date
+            ON reasoning_quality_scores(ticker, date DESC)
+        """)
+
+        # Table for compliance scores
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS compliance_scores (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ticker TEXT NOT NULL,
+                date DATE NOT NULL,
+                overall_score REAL NOT NULL,
+
+                -- Dimension scores (6)
+                structure_compliance REAL,
+                content_compliance REAL,
+                format_compliance REAL,
+                length_compliance REAL,
+                language_compliance REAL,
+                citation_compliance REAL,
+
+                -- Counts
+                violation_count INTEGER,
+                compliant_element_count INTEGER,
+
+                -- JSON for lists
+                violations_json TEXT,
+                compliant_elements_json TEXT,
+
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(ticker, date)
+            )
+        """)
+
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_compliance_ticker_date
+            ON compliance_scores(ticker, date DESC)
+        """)
+
+        # Table for score summary (aggregated view)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS score_summary (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ticker TEXT NOT NULL,
+                date DATE NOT NULL,
+
+                -- Overall scores from all scorers
+                faithfulness_score REAL,
+                completeness_score REAL,
+                reasoning_quality_score REAL,
+                compliance_score REAL,
+                qos_score REAL,
+                cost_efficiency_score REAL,
+
+                -- Aggregate metrics
+                total_cost_thb REAL,
+                total_latency REAL,
+                llm_calls INTEGER,
+
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(ticker, date)
+            )
+        """)
+
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_summary_ticker_date
+            ON score_summary(ticker, date DESC)
         """)
 
         conn.commit()
@@ -384,3 +548,200 @@ class TickerDatabase:
             'error_occurred': bool(row[8]),
             'timestamp': row[9]
         }
+
+    def save_faithfulness_score(self, ticker, date, score):
+        """Save faithfulness score to database"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            INSERT OR REPLACE INTO faithfulness_scores
+            (ticker, date, overall_score, numeric_accuracy, percentile_accuracy,
+             news_citation_accuracy, interpretation_accuracy, violation_count,
+             verified_claim_count, violations_json, verified_claims_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            ticker, date, score.overall_score,
+            score.metric_scores.get('numeric_accuracy'),
+            score.metric_scores.get('percentile_accuracy'),
+            score.metric_scores.get('news_citation_accuracy'),
+            score.metric_scores.get('interpretation_accuracy'),
+            len(score.violations),
+            len(score.verified_claims),
+            json.dumps(score.violations),
+            json.dumps(score.verified_claims)
+        ))
+
+        conn.commit()
+        conn.close()
+
+    def save_completeness_score(self, ticker, date, score):
+        """Save completeness score to database"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            INSERT OR REPLACE INTO completeness_scores
+            (ticker, date, overall_score, context_completeness, analysis_dimensions,
+             temporal_completeness, actionability, narrative_structure,
+             quantitative_context, missing_element_count, covered_element_count,
+             missing_elements_json, covered_elements_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            ticker, date, score.overall_score,
+            score.dimension_scores.get('context_completeness'),
+            score.dimension_scores.get('analysis_dimensions'),
+            score.dimension_scores.get('temporal_completeness'),
+            score.dimension_scores.get('actionability'),
+            score.dimension_scores.get('narrative_structure'),
+            score.dimension_scores.get('quantitative_context'),
+            len(score.missing_elements),
+            len(score.covered_elements),
+            json.dumps(score.missing_elements),
+            json.dumps(score.covered_elements)
+        ))
+
+        conn.commit()
+        conn.close()
+
+    def save_reasoning_quality_score(self, ticker, date, score):
+        """Save reasoning quality score to database"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            INSERT OR REPLACE INTO reasoning_quality_scores
+            (ticker, date, overall_score, clarity, coverage, specificity,
+             alignment, minimality, consistency, issue_count, strength_count,
+             issues_json, strengths_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            ticker, date, score.overall_score,
+            score.dimension_scores.get('clarity'),
+            score.dimension_scores.get('coverage'),
+            score.dimension_scores.get('specificity'),
+            score.dimension_scores.get('alignment'),
+            score.dimension_scores.get('minimality'),
+            score.dimension_scores.get('consistency'),
+            len(score.issues),
+            len(score.strengths),
+            json.dumps(score.issues),
+            json.dumps(score.strengths)
+        ))
+
+        conn.commit()
+        conn.close()
+
+    def save_compliance_score(self, ticker, date, score):
+        """Save compliance score to database"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            INSERT OR REPLACE INTO compliance_scores
+            (ticker, date, overall_score, structure_compliance, content_compliance,
+             format_compliance, length_compliance, language_compliance,
+             citation_compliance, violation_count, compliant_element_count,
+             violations_json, compliant_elements_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            ticker, date, score.overall_score,
+            score.dimension_scores.get('structure_compliance'),
+            score.dimension_scores.get('content_compliance'),
+            score.dimension_scores.get('format_compliance'),
+            score.dimension_scores.get('length_compliance'),
+            score.dimension_scores.get('language_compliance'),
+            score.dimension_scores.get('citation_compliance'),
+            len(score.violations),
+            len(score.compliant_elements),
+            json.dumps(score.violations),
+            json.dumps(score.compliant_elements)
+        ))
+
+        conn.commit()
+        conn.close()
+
+    def save_score_summary(self, ticker, date, all_scores):
+        """Save aggregated score summary"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        # Extract values from score objects
+        faithfulness = all_scores.get('faithfulness')
+        completeness = all_scores.get('completeness')
+        reasoning_quality = all_scores.get('reasoning_quality')
+        compliance = all_scores.get('compliance')
+        qos = all_scores.get('qos')
+        cost = all_scores.get('cost')
+
+        cursor.execute("""
+            INSERT OR REPLACE INTO score_summary
+            (ticker, date, faithfulness_score, completeness_score,
+             reasoning_quality_score, compliance_score, qos_score,
+             cost_efficiency_score, total_cost_thb, total_latency, llm_calls)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            ticker, date,
+            faithfulness.overall_score if faithfulness else None,
+            completeness.overall_score if completeness else None,
+            reasoning_quality.overall_score if reasoning_quality else None,
+            compliance.overall_score if compliance else None,
+            qos.overall_score if qos else None,
+            cost.cost_efficiency_score if cost else None,
+            cost.overall_cost_thb if cost else None,
+            qos.metrics.get('timing', {}).get('total') if qos else None,
+            qos.metrics.get('llm_calls') if qos else None
+        ))
+
+        conn.commit()
+        conn.close()
+
+    def get_historical_scores(self, ticker, days=30):
+        """
+        Get historical scores for trend analysis
+
+        Args:
+            ticker: Ticker symbol
+            days: Number of days to look back
+
+        Returns:
+            List of score summaries
+        """
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT
+                date, faithfulness_score, completeness_score,
+                reasoning_quality_score, compliance_score, qos_score,
+                cost_efficiency_score, total_cost_thb, total_latency,
+                llm_calls, created_at
+            FROM score_summary
+            WHERE ticker = ?
+            ORDER BY date DESC
+            LIMIT ?
+        """, (ticker, days))
+
+        rows = cursor.fetchall()
+        conn.close()
+
+        if not rows:
+            return []
+
+        results = []
+        for row in rows:
+            results.append({
+                'date': row[0],
+                'faithfulness_score': row[1],
+                'completeness_score': row[2],
+                'reasoning_quality_score': row[3],
+                'compliance_score': row[4],
+                'qos_score': row[5],
+                'cost_efficiency_score': row[6],
+                'total_cost_thb': row[7],
+                'total_latency': row[8],
+                'llm_calls': row[9],
+                'created_at': row[10]
+            })
+
+        return results
