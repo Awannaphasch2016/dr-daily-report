@@ -19,4 +19,4 @@ install-playwright:
 # Update dependencies
 update:
     @echo "📦 Updating dependencies..."
-    pip install --upgrade -r requirements.txt
+    pip install --upgrade -r ../requirements.txt

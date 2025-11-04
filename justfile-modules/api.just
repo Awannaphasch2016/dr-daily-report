@@ -4,7 +4,7 @@
 # Test API endpoint
 api-test:
     @echo "🌐 Testing API..."
-    python webapp/test_api.py
+    python ../webapp/test_api.py
 
 # Test tiles API
 api-tiles:

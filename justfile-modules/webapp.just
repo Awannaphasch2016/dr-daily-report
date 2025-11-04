@@ -4,17 +4,17 @@
 # Start Flask webapp
 webapp:
     @echo "🚀 Starting Flask webapp..."
-    cd webapp && python app.py
+    python ../webapp/app.py
 
 # Start webapp with auto-reload
 webapp-dev:
     @echo "🚀 Starting Flask webapp (development mode)..."
-    cd webapp && FLASK_ENV=development FLASK_DEBUG=1 python app.py
+    FLASK_ENV=development FLASK_DEBUG=1 python ../webapp/app.py
 
 # Run webapp server (alternative)
 server:
     @echo "🚀 Starting server..."
-    python scripts/run_server.py
+    python ../scripts/run_server.py
 
 # Check if Flask app is running
 check-webapp:
