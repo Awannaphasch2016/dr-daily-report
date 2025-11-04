@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stock Tiles Dashboard - Bokeh Visualization</title>
+    {{ bokeh_script|safe }}
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background-color: #f5f7fa;
+            padding: 20px;
+            color: #333;
+        }
+
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+        }
+
+        .header {
+            margin-bottom: 30px;
+            text-align: center;
+            position: relative;
+        }
+
+        .header-nav {
+            position: absolute;
+            top: 0;
+            right: 0;
+        }
+
+        .nav-link {
+            padding: 8px 16px;
+            background-color: #3498db;
+            color: white;
+            text-decoration: none;
+            border-radius: 4px;
+            font-size: 14px;
+            transition: background-color 0.3s;
+        }
+
+        .nav-link:hover {
+            background-color: #2980b9;
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            color: #2c3e50;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            color: #7f8c8d;
+            font-size: 1.1em;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #95a5a6;
+        }
+
+        .legend {
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+            font-size: 0.85em;
+        }
+
+        .legend-section {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .legend-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+
+        #tiles-container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            min-height: 400px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="header-nav">
+                <a href="/" class="nav-link">📊 View Archive</a>
+            </div>
+            <h1>📈 Stock Tiles Dashboard</h1>
+            <p>High-density multi-variable financial visualization using Bokeh</p>
+        </div>
+
+        <div class="legend">
+            <div class="legend-section">
+                <strong>Volatility:</strong>
+                <div class="legend-item"><span class="legend-dot" style="background: #27ae60;"></span> Low</div>
+                <div class="legend-item"><span class="legend-dot" style="background: #f39c12;"></span> Medium</div>
+                <div class="legend-item"><span class="legend-dot" style="background: #e74c3c;"></span> High</div>
+            </div>
+            <div class="legend-section">
+                <strong>Market Cap:</strong>
+                <div class="legend-item">Mega | Large | Mid | Small</div>
+            </div>
+            <div class="legend-section">
+                <strong>52-Week Position:</strong>
+                <div class="legend-item">Vertical bar shows position in 52-week range</div>
+                <div class="legend-item"><span class="legend-dot" style="background: #27ae60;"></span> Positive move</div>
+                <div class="legend-item"><span class="legend-dot" style="background: #e74c3c;"></span> Negative move</div>
+                <div class="legend-item"><span class="legend-dot" style="background: #95a5a6;"></span> Neutral</div>
+            </div>
+        </div>
+
+        <div id="tiles-container">
+            {{ bokeh_div|safe }}
+        </div>
+    </div>
+    {{ bokeh_script|safe }}
+</body>
+</html>

@@ -150,8 +150,38 @@ def serve_pdf(filename):
 
 @app.route('/tiles')
 def tiles_view():
-    """Stock tiles visualization page"""
-    return render_template('tiles.html')
+    """Stock tiles visualization page using Bokeh"""
+    # Get tiles data by calling the internal API logic
+    # We'll use a request context to call get_tiles_data
+    from flask import has_request_context
+    
+    try:
+        # Get data using the same endpoint logic
+        tiles_data_json = get_tiles_data()
+        tiles_data = tiles_data_json.get_json()
+    except Exception as e:
+        print(f"Error getting tiles data: {e}")
+        tiles_data = []
+    
+    # Import and use Bokeh visualization
+    try:
+        from bokeh_tiles import create_tiles_visualization
+    except ImportError:
+        from webapp.bokeh_tiles import create_tiles_visualization
+    
+    # Get container width from request or use default
+    container_width = request.args.get('width', 1600, type=int)
+    
+    try:
+        script, div = create_tiles_visualization(tiles_data, container_width)
+    except Exception as e:
+        print(f"Error creating Bokeh visualization: {e}")
+        import traceback
+        traceback.print_exc()
+        script = ''
+        div = f'<div class="empty-state">Error creating visualization: {str(e)}</div>'
+    
+    return render_template('tiles_bokeh.html', bokeh_script=script, bokeh_div=div)
 
 
 def calculate_52week_position(current_price, week_52_high, week_52_low):
