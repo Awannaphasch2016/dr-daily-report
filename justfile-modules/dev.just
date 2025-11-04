@@ -17,6 +17,10 @@ test-file test_file:
 test-follow:
     @cd .. && PYTHONPATH=$(pwd) python tests/test_line_follow.py
 
+# Run LINE bot help command test
+test-help:
+    @cd .. && PYTHONPATH=$(pwd) python tests/test_line_help.py
+
 # Run LINE bot message test
 test-message ticker:
     @cd .. && PYTHONPATH=.. python tests/test_line_message.py {{ticker}}

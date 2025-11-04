@@ -58,19 +58,9 @@ class LineBot:
         response = requests.post(url, headers=headers, json=data)
         return response.status_code == 200
 
-    def handle_follow(self, event):
-        """Handle follow event (when user adds bot as friend)"""
-        event_type = event.get("type")
-
-        if event_type != "follow":
-            return None
-
-        # Extract user information if available
-        source = event.get("source", {})
-        user_id = source.get("userId", "")
-
-        # Create welcome message in Thai
-        welcome_message = """สวัสดีครับ! 👋
+    def get_help_message(self):
+        """Get help/usage instructions message"""
+        return """สวัสดีครับ! 👋
 
 ยินดีต้อนรับสู่ Daily Report Bot 🤖
 
@@ -86,7 +76,19 @@ class LineBot:
 
 มีคำถามเพิ่มเติม? ส่ง ticker มาลองใช้ดูได้เลยครับ! 🚀"""
 
-        return welcome_message
+    def handle_follow(self, event):
+        """Handle follow event (when user adds bot as friend)"""
+        event_type = event.get("type")
+
+        if event_type != "follow":
+            return None
+
+        # Extract user information if available
+        source = event.get("source", {})
+        user_id = source.get("userId", "")
+
+        # Return welcome message
+        return self.get_help_message()
 
     def handle_message(self, event):
         """Handle incoming message"""
@@ -100,6 +102,11 @@ class LineBot:
             return "กรุณาส่งชื่อ ticker เป็นข้อความ"
 
         text = message.get("text", "").strip()
+        text_lower = text.lower()
+
+        # Check if it's a help command
+        if text_lower == "help" or text_lower == "วิธีใช้" or text_lower == "ใช้งาน":
+            return self.get_help_message()
 
         # Check if it's a ticker request
         if not text:
@@ -108,7 +115,7 @@ class LineBot:
         # Show processing message
         processing_msg = f"🔍 กำลังวิเคราะห์ {text.upper()}...\nโปรดรอสักครู่"
 
-        # Generate report
+        # Generate report (use original text case for ticker)
         report = self.agent.analyze_ticker(text)
 
         return report
