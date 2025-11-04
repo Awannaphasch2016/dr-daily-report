@@ -58,6 +58,36 @@ class LineBot:
         response = requests.post(url, headers=headers, json=data)
         return response.status_code == 200
 
+    def handle_follow(self, event):
+        """Handle follow event (when user adds bot as friend)"""
+        event_type = event.get("type")
+
+        if event_type != "follow":
+            return None
+
+        # Extract user information if available
+        source = event.get("source", {})
+        user_id = source.get("userId", "")
+
+        # Create welcome message in Thai
+        welcome_message = """สวัสดีครับ! 👋
+
+ยินดีต้อนรับสู่ Daily Report Bot 🤖
+
+บอทนี้ช่วยวิเคราะห์ข้อมูลหุ้นกู้แปลงสภาพ (Warrant) และสร้างรายงานการวิเคราะห์ให้คุณ
+
+📝 วิธีใช้งาน:
+- ส่งชื่อ ticker ที่ต้องการวิเคราะห์ เช่น:
+  • DBS19
+  • UOB19
+  • PFIZER19
+  
+บอทจะวิเคราะห์และส่งรายงานการวิเคราะห์ให้คุณทันที
+
+มีคำถามเพิ่มเติม? ส่ง ticker มาลองใช้ดูได้เลยครับ! 🚀"""
+
+        return welcome_message
+
     def handle_message(self, event):
         """Handle incoming message"""
         message_type = event.get("type")
@@ -105,15 +135,32 @@ class LineBot:
         events = data.get("events", [])
 
         for event in events:
+            event_type = event.get("type")
             reply_token = event.get("replyToken")
 
-            if not reply_token:
+            # Handle different event types
+            response_text = None
+
+            if event_type == "follow":
+                # User added bot as friend
+                response_text = self.handle_follow(event)
+            elif event_type == "message":
+                # User sent a message
+                response_text = self.handle_message(event)
+            elif event_type == "unfollow":
+                # User blocked/unfollowed bot (no reply token)
+                # Log if needed, but don't send reply
+                continue
+            elif event_type in ["join", "leave"]:
+                # Bot joined/left a group (no reply token needed)
+                # These events don't require replies
+                continue
+            else:
+                # Unknown event type - log but don't error
                 continue
 
-            # Handle message
-            response_text = self.handle_message(event)
-
-            if response_text:
+            # Send reply if we have response text and reply token
+            if response_text and reply_token:
                 self.reply_message(reply_token, response_text)
 
         return {
