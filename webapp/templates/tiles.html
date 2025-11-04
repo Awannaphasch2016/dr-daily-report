@@ -1,0 +1,832 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stock Tiles Dashboard - Multi-Variable Encoding</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background-color: #f5f7fa;
+            padding: 20px;
+            color: #333;
+        }
+
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+        }
+
+        .header {
+            margin-bottom: 30px;
+            text-align: center;
+            position: relative;
+        }
+
+        .header-nav {
+            position: absolute;
+            top: 0;
+            right: 0;
+        }
+
+        .nav-link {
+            padding: 8px 16px;
+            background-color: #3498db;
+            color: white;
+            text-decoration: none;
+            border-radius: 4px;
+            font-size: 14px;
+            transition: background-color 0.3s;
+        }
+
+        .nav-link:hover {
+            background-color: #2980b9;
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            color: #2c3e50;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            color: #7f8c8d;
+            font-size: 1.1em;
+        }
+
+        .controls {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        .control-group label {
+            font-weight: 600;
+            color: #555;
+            font-size: 0.9em;
+        }
+
+        .control-group select, .control-group input {
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+
+        .stats {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+
+        .stat-card {
+            background: white;
+            padding: 15px 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            flex: 1;
+            min-width: 150px;
+        }
+
+        .stat-label {
+            font-size: 0.9em;
+            color: #7f8c8d;
+            margin-bottom: 5px;
+        }
+
+        .stat-value {
+            font-size: 1.8em;
+            font-weight: 700;
+            color: #2c3e50;
+        }
+
+        #tiles-container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            min-height: 400px;
+        }
+
+        .tile {
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .tile:hover {
+            transform: translateY(-3px);
+            filter: brightness(1.05);
+        }
+
+        .tile-background {
+            stroke-width: 2;
+        }
+
+        .tile-sector-border {
+            stroke-width: 3;
+            opacity: 0.8;
+        }
+
+        .tile-volatility-high {
+            stroke-width: 4;
+            stroke-dasharray: 4,2;
+        }
+
+        .tile-volatility-medium {
+            stroke-width: 3;
+            stroke-dasharray: 2,2;
+        }
+
+        .tile-volatility-low {
+            stroke-width: 2;
+        }
+
+        .tile-text {
+            font-family: inherit;
+            pointer-events: none;
+        }
+
+        .tile-ticker {
+            font-weight: 700;
+            font-size: 16px;
+            fill: #2c3e50;
+        }
+
+        .tile-price {
+            font-weight: 700;
+            font-size: 18px;
+            fill: #2c3e50;
+        }
+
+        .tile-change-positive {
+            fill: #27ae60;
+            font-weight: 600;
+            font-size: 14px;
+        }
+
+        .tile-change-negative {
+            fill: #e74c3c;
+            font-weight: 600;
+            font-size: 14px;
+        }
+
+        .tile-change-neutral {
+            fill: #95a5a6;
+            font-weight: 600;
+            font-size: 14px;
+        }
+
+        .tile-metric {
+            font-size: 11px;
+            fill: #7f8c8d;
+        }
+
+        .tile-metric-label {
+            font-weight: 600;
+        }
+
+        .week52-bar-bg {
+            fill: #ecf0f1;
+            rx: 2;
+        }
+
+        .week52-bar-fill {
+            rx: 2;
+        }
+
+        .market-cap-badge {
+            font-size: 9px;
+            font-weight: 700;
+            text-anchor: middle;
+            fill: white;
+        }
+
+        .volatility-dot {
+            r: 4;
+        }
+
+        .volatility-high {
+            fill: #e74c3c;
+        }
+
+        .volatility-medium {
+            fill: #f39c12;
+        }
+
+        .volatility-low {
+            fill: #27ae60;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #7f8c8d;
+            font-size: 1.2em;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #95a5a6;
+        }
+
+        .legend {
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+            font-size: 0.85em;
+        }
+
+        .legend-section {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .legend-color {
+            width: 16px;
+            height: 16px;
+            border-radius: 3px;
+            display: inline-block;
+        }
+
+        .legend-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="header-nav">
+                <a href="/" class="nav-link">📋 View Archive</a>
+            </div>
+            <h1>📊 Stock Tiles Dashboard</h1>
+            <p>High-density multi-variable financial visualization</p>
+        </div>
+
+        <div class="controls">
+            <div class="control-group">
+                <label for="sortBy">Sort By</label>
+                <select id="sortBy">
+                    <option value="ticker">Ticker</option>
+                    <option value="date">Date</option>
+                    <option value="changePercent">Change %</option>
+                    <option value="price">Price</option>
+                    <option value="volume">Volume</option>
+                    <option value="week52Position">52-Week Position</option>
+                    <option value="volatility">Volatility</option>
+                    <option value="marketCap">Market Cap</option>
+                    <option value="sector">Sector</option>
+                </select>
+            </div>
+
+            <div class="control-group">
+                <label for="filterSector">Sector</label>
+                <select id="filterSector">
+                    <option value="">All Sectors</option>
+                </select>
+            </div>
+
+            <div class="control-group">
+                <label for="filterVolatility">Volatility</label>
+                <select id="filterVolatility">
+                    <option value="">All</option>
+                    <option value="low">Low</option>
+                    <option value="medium">Medium</option>
+                    <option value="high">High</option>
+                </select>
+            </div>
+
+            <div class="control-group">
+                <label for="filterMarketCap">Market Cap</label>
+                <select id="filterMarketCap">
+                    <option value="">All</option>
+                    <option value="mega">Mega</option>
+                    <option value="large">Large</option>
+                    <option value="mid">Mid</option>
+                    <option value="small">Small</option>
+                </select>
+            </div>
+
+            <div class="control-group">
+                <label for="filterRecommendation">Recommendation</label>
+                <select id="filterRecommendation">
+                    <option value="">All</option>
+                    <option value="BUY">Buy</option>
+                    <option value="HOLD">Hold</option>
+                    <option value="SELL">Sell</option>
+                </select>
+            </div>
+
+            <div class="control-group">
+                <label for="searchTicker">Search Ticker</label>
+                <input type="text" id="searchTicker" placeholder="DBS19" value="DBS19">
+            </div>
+        </div>
+
+        <div class="legend">
+            <div class="legend-section">
+                <strong>Volatility:</strong>
+                <div class="legend-item"><span class="legend-dot volatility-low"></span> Low</div>
+                <div class="legend-item"><span class="legend-dot volatility-medium"></span> Medium</div>
+                <div class="legend-item"><span class="legend-dot volatility-high"></span> High</div>
+            </div>
+            <div class="legend-section">
+                <strong>Market Cap:</strong>
+                <div class="legend-item">Mega | Large | Mid | Small</div>
+            </div>
+            <div class="legend-section">
+                <strong>52-Week Position:</strong>
+                <div class="legend-item">Bar shows position in 52-week range</div>
+            </div>
+        </div>
+
+        <div class="stats">
+            <div class="stat-card">
+                <div class="stat-label">Total Tickers</div>
+                <div class="stat-value" id="totalTickers">-</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Gainers</div>
+                <div class="stat-value" id="gainers" style="color: #27ae60;">-</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Decliners</div>
+                <div class="stat-value" id="decliners" style="color: #e74c3c;">-</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Latest Date</div>
+                <div class="stat-value" id="latestDate" style="font-size: 1.2em;">-</div>
+            </div>
+        </div>
+
+        <div id="tiles-container">
+            <div class="loading">Loading stock data...</div>
+        </div>
+    </div>
+
+    <script>
+        // Global variables
+        let allData = [];
+        let filteredData = [];
+        let sortBy = 'ticker';
+        let filterSector = '';
+        let filterVolatility = '';
+        let filterMarketCap = '';
+        let filterRecommendation = '';
+        let searchTicker = 'DBS19';
+
+        // Tile dimensions - compact for high density
+        const tileWidth = 180;
+        const tileHeight = 160;
+        const tilePadding = 12;
+
+        // Sector colors (matching backend)
+        const sectorColors = {
+            'Technology': '#3498db',
+            'Healthcare': '#e74c3c',
+            'Financial Services': '#f39c12',
+            'Consumer Cyclical': '#9b59b6',
+            'Communication Services': '#1abc9c',
+            'Industrials': '#34495e',
+            'Consumer Defensive': '#e67e22',
+            'Energy': '#f1c40f',
+            'Utilities': '#16a085',
+            'Real Estate': '#c0392b',
+            'Basic Materials': '#95a5a6',
+            'Unknown': '#7f8c8d'
+        };
+
+        // Initialize visualization
+        async function init() {
+            try {
+                // Set default search ticker value
+                const searchInput = document.getElementById('searchTicker');
+                if (searchInput) {
+                    searchInput.value = searchTicker;
+                }
+                
+                console.log('Fetching data from /api/tiles-data...');
+                const response = await fetch('/api/tiles-data');
+                
+                if (!response.ok) {
+                    throw new Error(`API responded with status ${response.status}`);
+                }
+                
+                allData = await response.json();
+                
+                console.log('Total data received:', allData.length);
+                if (allData.length > 0) {
+                    console.log('Sample data:', allData.slice(0, 2));
+                }
+                
+                // Populate sector filter
+                const sectors = [...new Set(allData.map(d => d.sector).filter(Boolean))].sort();
+                const sectorSelect = document.getElementById('filterSector');
+                sectors.forEach(sector => {
+                    const option = document.createElement('option');
+                    option.value = sector;
+                    option.textContent = sector;
+                    sectorSelect.appendChild(option);
+                });
+                
+                updateStats();
+                applyFilters();
+                console.log('After filtering, filteredData length:', filteredData.length);
+                renderTiles();
+                
+                // Setup event listeners
+                document.getElementById('sortBy').addEventListener('change', (e) => {
+                    sortBy = e.target.value;
+                    applyFilters();
+                    renderTiles();
+                });
+
+                document.getElementById('filterSector').addEventListener('change', (e) => {
+                    filterSector = e.target.value;
+                    applyFilters();
+                    renderTiles();
+                });
+
+                document.getElementById('filterVolatility').addEventListener('change', (e) => {
+                    filterVolatility = e.target.value;
+                    applyFilters();
+                    renderTiles();
+                });
+
+                document.getElementById('filterMarketCap').addEventListener('change', (e) => {
+                    filterMarketCap = e.target.value;
+                    applyFilters();
+                    renderTiles();
+                });
+
+                document.getElementById('filterRecommendation').addEventListener('change', (e) => {
+                    filterRecommendation = e.target.value;
+                    applyFilters();
+                    renderTiles();
+                });
+
+                document.getElementById('searchTicker').addEventListener('input', (e) => {
+                    searchTicker = e.target.value.toUpperCase();
+                    applyFilters();
+                    renderTiles();
+                });
+            } catch (error) {
+                console.error('Error loading data:', error);
+                document.getElementById('tiles-container').innerHTML = 
+                    '<div class="empty-state">Error loading data: ' + error.message + '</div>';
+            }
+        }
+
+        function updateStats() {
+            const total = allData.length;
+            const gainers = allData.filter(d => d.changePercent > 0).length;
+            const decliners = allData.filter(d => d.changePercent < 0).length;
+            const latestDate = allData.length > 0 ? allData[0].date : 'N/A';
+
+            document.getElementById('totalTickers').textContent = total;
+            document.getElementById('gainers').textContent = gainers;
+            document.getElementById('decliners').textContent = decliners;
+            document.getElementById('latestDate').textContent = latestDate;
+        }
+
+        function applyFilters() {
+            filteredData = [...allData];
+
+            // Filter by sector
+            if (filterSector) {
+                filteredData = filteredData.filter(d => d.sector === filterSector);
+            }
+
+            // Filter by volatility
+            if (filterVolatility) {
+                filteredData = filteredData.filter(d => d.volatilityBucket === filterVolatility);
+            }
+
+            // Filter by market cap
+            if (filterMarketCap) {
+                filteredData = filteredData.filter(d => d.marketCapCategory === filterMarketCap);
+            }
+
+            // Filter by recommendation
+            if (filterRecommendation) {
+                filteredData = filteredData.filter(d => 
+                    d.recommendation && d.recommendation.toUpperCase() === filterRecommendation
+                );
+            }
+
+            // Filter by search ticker
+            if (searchTicker) {
+                filteredData = filteredData.filter(d => 
+                    d.ticker.toUpperCase().includes(searchTicker.toUpperCase())
+                );
+            }
+
+            // Sort data
+            filteredData.sort((a, b) => {
+                switch(sortBy) {
+                    case 'ticker':
+                        return a.ticker.localeCompare(b.ticker);
+                    case 'date':
+                        return new Date(b.date) - new Date(a.date);
+                    case 'changePercent':
+                        return (b.changePercent || 0) - (a.changePercent || 0);
+                    case 'price':
+                        return (b.price || 0) - (a.price || 0);
+                    case 'volume':
+                        return (b.volume || 0) - (a.volume || 0);
+                    case 'week52Position':
+                        return (b.week52Position || 0) - (a.week52Position || 0);
+                    case 'volatility':
+                        const volOrder = {high: 3, medium: 2, low: 1};
+                        return (volOrder[b.volatilityBucket] || 0) - (volOrder[a.volatilityBucket] || 0);
+                    case 'marketCap':
+                        return (b.marketCap || 0) - (a.marketCap || 0);
+                    case 'sector':
+                        return (a.sector || '').localeCompare(b.sector || '');
+                    default:
+                        return 0;
+                }
+            });
+        }
+
+        function renderTiles() {
+            const container = d3.select('#tiles-container');
+            container.selectAll('*').remove();
+
+            console.log('Filtered data length:', filteredData.length);
+            
+            if (filteredData.length === 0) {
+                if (allData.length === 0) {
+                    container.html('<div class="empty-state">No data available. Please check the API endpoint.</div>');
+                } else {
+                    container.html('<div class="empty-state">No data matches your filters. Try clearing the filters.</div>');
+                }
+                return;
+            }
+
+            // Calculate grid dimensions
+            const containerWidth = container.node().getBoundingClientRect().width;
+            const colsPerRow = Math.floor(containerWidth / (tileWidth + tilePadding));
+            const cols = Math.max(1, colsPerRow);
+
+            // Create SVG container
+            const svg = container.append('svg')
+                .attr('width', containerWidth)
+                .attr('height', Math.ceil(filteredData.length / cols) * (tileHeight + tilePadding) + tilePadding);
+
+            // Create groups for each tile
+            const tiles = svg.selectAll('.tile')
+                .data(filteredData)
+                .enter()
+                .append('g')
+                .attr('class', 'tile')
+                .attr('transform', (d, i) => {
+                    const col = i % cols;
+                    const row = Math.floor(i / cols);
+                    const x = col * (tileWidth + tilePadding) + tilePadding;
+                    const y = row * (tileHeight + tilePadding) + tilePadding;
+                    return `translate(${x},${y})`;
+                })
+                .on('click', (event, d) => {
+                    window.open(`/reports/${d.filename}`, '_blank');
+                });
+
+            // Tile background with sector color border
+            tiles.append('rect')
+                .attr('class', 'tile-background')
+                .attr('width', tileWidth)
+                .attr('height', tileHeight)
+                .attr('rx', 6)
+                .attr('fill', '#ffffff')
+                .attr('stroke', d => sectorColors[d.sector] || '#bdc3c7')
+                .attr('stroke-width', 2);
+
+            // Sector color border (left edge)
+            tiles.append('rect')
+                .attr('class', 'tile-sector-border')
+                .attr('width', 4)
+                .attr('height', tileHeight)
+                .attr('rx', 6)
+                .attr('x', 0)
+                .attr('y', 0)
+                .attr('fill', d => sectorColors[d.sector] || '#7f8c8d');
+
+            // Volatility indicator (dot in top-right)
+            tiles.append('circle')
+                .attr('class', d => {
+                    const vol = d.volatilityBucket;
+                    if (!vol) return 'volatility-dot';
+                    return `volatility-dot volatility-${vol}`;
+                })
+                .attr('cx', tileWidth - 12)
+                .attr('cy', 12)
+                .attr('r', d => {
+                    const vol = d.volatilityBucket;
+                    if (vol === 'high') return 6;
+                    if (vol === 'medium') return 4;
+                    return 3;
+                })
+                .attr('fill', d => {
+                    const vol = d.volatilityBucket;
+                    if (vol === 'high') return '#e74c3c';
+                    if (vol === 'medium') return '#f39c12';
+                    if (vol === 'low') return '#27ae60';
+                    return '#95a5a6';
+                });
+
+            // Ticker symbol
+            tiles.append('text')
+                .attr('class', 'tile-text tile-ticker')
+                .attr('x', 10)
+                .attr('y', 25)
+                .text(d => d.ticker);
+
+            // Market cap badge (top-right)
+            tiles.append('text')
+                .attr('class', 'tile-text market-cap-badge')
+                .attr('x', tileWidth - 10)
+                .attr('y', 30)
+                .attr('fill', d => {
+                    const cat = d.marketCapCategory;
+                    if (cat === 'mega') return '#8e44ad';
+                    if (cat === 'large') return '#3498db';
+                    if (cat === 'mid') return '#27ae60';
+                    if (cat === 'small') return '#f39c12';
+                    return '#95a5a6';
+                })
+                .text(d => {
+                    const cat = d.marketCapCategory;
+                    if (cat === 'mega') return 'M';
+                    if (cat === 'large') return 'L';
+                    if (cat === 'mid') return 'M';
+                    if (cat === 'small') return 'S';
+                    return '';
+                });
+
+            // Price
+            tiles.append('text')
+                .attr('class', 'tile-text tile-price')
+                .attr('x', 10)
+                .attr('y', 50)
+                .text(d => {
+                    if (d.price) {
+                        return '$' + d.price.toFixed(2);
+                    }
+                    return 'N/A';
+                });
+
+            // Change
+            tiles.append('text')
+                .attr('class', d => {
+                    const change = d.changePercent || 0;
+                    if (change > 0) return 'tile-text tile-change-positive';
+                    if (change < 0) return 'tile-text tile-change-negative';
+                    return 'tile-text tile-change-neutral';
+                })
+                .attr('x', 10)
+                .attr('y', 68)
+                .text(d => {
+                    const change = d.change || 0;
+                    const changePercent = d.changePercent || 0;
+                    if (d.price === null || d.price === undefined) {
+                        return 'N/A';
+                    }
+                    if (change === 0 && changePercent === 0) return '0.00%';
+                    const sign = change >= 0 ? '+' : '';
+                    return `${sign}${changePercent.toFixed(2)}%`;
+                });
+
+            // 52-week position bar
+            const week52BarGroup = tiles.append('g')
+                .attr('class', 'week52-bar-group');
+
+            week52BarGroup.append('rect')
+                .attr('class', 'week52-bar-bg')
+                .attr('x', 10)
+                .attr('y', 78)
+                .attr('width', tileWidth - 20)
+                .attr('height', 6);
+
+            week52BarGroup.append('rect')
+                .attr('class', 'week52-bar-fill')
+                .attr('x', 10)
+                .attr('y', 78)
+                .attr('width', d => {
+                    const pos = d.week52Position;
+                    if (pos === null || pos === undefined) return 0;
+                    return ((tileWidth - 20) * pos) / 100;
+                })
+                .attr('height', 6)
+                .attr('fill', d => {
+                    const pos = d.week52Position;
+                    if (pos === null || pos === undefined) return '#95a5a6';
+                    if (pos > 75) return '#27ae60';
+                    if (pos > 50) return '#3498db';
+                    if (pos > 25) return '#f39c12';
+                    return '#e74c3c';
+                });
+
+            // 52-week position label
+            tiles.append('text')
+                .attr('class', 'tile-text tile-metric')
+                .attr('x', 10)
+                .attr('y', 95)
+                .text(d => {
+                    const pos = d.week52Position;
+                    if (pos === null || pos === undefined) return '52W: N/A';
+                    return `52W: ${pos.toFixed(0)}%`;
+                });
+
+            // Volume
+            tiles.append('text')
+                .attr('class', 'tile-text tile-metric')
+                .attr('x', 10)
+                .attr('y', 110)
+                .text(d => {
+                    if (d.volume) {
+                        const vol = d.volume >= 1000000 
+                            ? (d.volume / 1000000).toFixed(1) + 'M'
+                            : d.volume >= 1000
+                            ? (d.volume / 1000).toFixed(1) + 'K'
+                            : d.volume;
+                        return `Vol: ${vol}`;
+                    }
+                    return 'Vol: N/A';
+                });
+
+            // Sector (bottom)
+            tiles.append('text')
+                .attr('class', 'tile-text tile-metric')
+                .attr('x', 10)
+                .attr('y', 125)
+                .text(d => {
+                    const sector = d.sector || 'Unknown';
+                    return sector.length > 20 ? sector.substring(0, 20) + '...' : sector;
+                });
+
+            // Recommendation badge (bottom-right)
+            tiles.append('text')
+                .attr('class', 'tile-text tile-metric')
+                .attr('x', tileWidth - 10)
+                .attr('y', tileHeight - 8)
+                .attr('text-anchor', 'end')
+                .attr('font-weight', '700')
+                .attr('font-size', '10px')
+                .attr('fill', d => {
+                    const rec = (d.recommendation || '').toUpperCase();
+                    if (rec.includes('BUY')) return '#27ae60';
+                    if (rec.includes('SELL')) return '#e74c3c';
+                    return '#f39c12';
+                })
+                .text(d => {
+                    const rec = d.recommendation || 'N/A';
+                    if (rec === 'N/A') return '';
+                    return rec.toUpperCase();
+                });
+        }
+
+        // Initialize on page load
+        init();
+
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            renderTiles();
+        });
+    </script>
+</body>
+</html>
