@@ -205,11 +205,48 @@
 
         .week52-bar-bg {
             fill: #ecf0f1;
-            rx: 2;
+            stroke: #bdc3c7;
+            stroke-width: 1;
         }
 
-        .week52-bar-fill {
-            rx: 2;
+        .week52-bar-vertical {
+            stroke: #bdc3c7;
+            stroke-width: 2;
+        }
+
+        .week52-glyph {
+            transition: all 0.2s ease;
+        }
+
+        .week52-glyph-positive {
+            fill: #27ae60;
+            stroke: #229954;
+            stroke-width: 1;
+        }
+
+        .week52-glyph-negative {
+            fill: #e74c3c;
+            stroke: #c0392b;
+            stroke-width: 1;
+        }
+
+        .week52-glyph-neutral {
+            fill: #95a5a6;
+            stroke: #7f8c8d;
+            stroke-width: 1;
+        }
+
+        .week52-tail {
+            stroke-width: 1;
+            opacity: 0.5;
+        }
+
+        .week52-tail-up {
+            stroke: #27ae60;
+        }
+
+        .week52-tail-down {
+            stroke: #e74c3c;
         }
 
         .market-cap-badge {
@@ -370,7 +407,10 @@
             </div>
             <div class="legend-section">
                 <strong>52-Week Position:</strong>
-                <div class="legend-item">Bar shows position in 52-week range</div>
+                <div class="legend-item">Vertical bar shows position in 52-week range</div>
+                <div class="legend-item"><span class="legend-dot" style="background: #27ae60;"></span> Positive move</div>
+                <div class="legend-item"><span class="legend-dot" style="background: #e74c3c;"></span> Negative move</div>
+                <div class="legend-item"><span class="legend-dot" style="background: #95a5a6;"></span> Neutral</div>
             </div>
         </div>
 
@@ -730,34 +770,124 @@
                     return `${sign}${changePercent.toFixed(2)}%`;
                 });
 
-            // 52-week position bar
-            const week52BarGroup = tiles.append('g')
-                .attr('class', 'week52-bar-group');
+            // Enhanced 52-week glyph (vertical bar with daily move indicator)
+            const week52BarY = 75;
+            const week52BarHeight = 40;
+            const week52BarX = tileWidth - 30;
+            const week52BarWidth = 4;
 
-            week52BarGroup.append('rect')
-                .attr('class', 'week52-bar-bg')
-                .attr('x', 10)
-                .attr('y', 78)
-                .attr('width', tileWidth - 20)
-                .attr('height', 6);
+            // Create 52-week glyph group for each tile
+            const week52Groups = tiles.append('g')
+                .attr('class', 'week52-group');
 
-            week52BarGroup.append('rect')
-                .attr('class', 'week52-bar-fill')
-                .attr('x', 10)
-                .attr('y', 78)
-                .attr('width', d => {
+            // Vertical bar background (full 52-week range) - one per tile
+            week52Groups.append('line')
+                .attr('class', 'week52-bar-vertical')
+                .attr('x1', week52BarX)
+                .attr('y1', week52BarY)
+                .attr('x2', week52BarX)
+                .attr('y2', week52BarY + week52BarHeight)
+                .attr('stroke', '#bdc3c7')
+                .attr('stroke-width', 2);
+
+            // Calculate glyph position and properties
+            const week52Glyphs = week52Groups.append('g')
+                .attr('class', 'week52-glyph-container')
+                .attr('transform', d => {
                     const pos = d.week52Position;
-                    if (pos === null || pos === undefined) return 0;
-                    return ((tileWidth - 20) * pos) / 100;
+                    if (pos === null || pos === undefined) {
+                        // Center if no data
+                        return `translate(${week52BarX}, ${week52BarY + week52BarHeight / 2})`;
+                    }
+                    // Normalized position: 0 = bottom (52wk_low), 1 = top (52wk_high)
+                    const yPos = week52BarY + week52BarHeight - (pos / 100 * week52BarHeight);
+                    return `translate(${week52BarX}, ${yPos})`;
+                });
+
+            // Tail/stalk showing available range
+            week52Glyphs.append('line')
+                .attr('class', d => {
+                    const change = d.changePercent || 0;
+                    if (change > 0) return 'week52-tail week52-tail-up';
+                    if (change < 0) return 'week52-tail week52-tail-down';
+                    return 'week52-tail';
                 })
-                .attr('height', 6)
-                .attr('fill', d => {
+                .attr('x1', 0)
+                .attr('y1', d => {
+                    const change = d.changePercent || 0;
+                    const pos = d.week52Position || 50;
+                    if (change > 1.5) return -8; // Tail extends up for positive moves
+                    if (change < -1.5) return 8; // Tail extends down for negative moves
+                    return 0;
+                })
+                .attr('x2', 0)
+                .attr('y2', 0)
+                .attr('stroke-width', 1.5)
+                .attr('stroke', d => {
+                    const change = d.changePercent || 0;
+                    if (change > 0) return '#27ae60';
+                    if (change < 0) return '#e74c3c';
+                    return '#95a5a6';
+                })
+                .attr('opacity', d => {
+                    const change = Math.abs(d.changePercent || 0);
+                    return change > 0.2 ? 0.6 : 0.3;
+                });
+
+            // Glyph shape (circle/ellipse based on daily move magnitude)
+            week52Glyphs.append('ellipse')
+                .attr('class', d => {
+                    const change = d.changePercent || 0;
+                    if (change > 0.2) return 'week52-glyph week52-glyph-positive';
+                    if (change < -0.2) return 'week52-glyph week52-glyph-negative';
+                    return 'week52-glyph week52-glyph-neutral';
+                })
+                .attr('rx', d => {
+                    const change = Math.abs(d.changePercent || 0);
+                    // Base size: 3px, scales up with magnitude
+                    if (change > 3) return 5;
+                    if (change > 1.5) return 4;
+                    if (change > 0.2) return 3.5;
+                    return 3;
+                })
+                .attr('ry', d => {
+                    const change = d.changePercent || 0;
+                    const absChange = Math.abs(change);
+                    // Vertical elongation for larger moves
+                    if (absChange > 3) return 6;
+                    if (absChange > 1.5) return 5;
+                    if (absChange > 0.2) return 4;
+                    return 3;
+                })
+                .attr('cy', d => {
+                    const change = d.changePercent || 0;
+                    // Slight vertical offset based on direction
+                    if (change > 1.5) return -1; // Shift up for positive moves
+                    if (change < -1.5) return 1; // Shift down for negative moves
+                    return 0;
+                })
+                .attr('cx', 0);
+
+            // Tooltip (shown on hover)
+            week52Glyphs.append('title')
+                .text(d => {
                     const pos = d.week52Position;
-                    if (pos === null || pos === undefined) return '#95a5a6';
-                    if (pos > 75) return '#27ae60';
-                    if (pos > 50) return '#3498db';
-                    if (pos > 25) return '#f39c12';
-                    return '#e74c3c';
+                    const change = d.changePercent || 0;
+                    const price = d.price;
+                    const week52High = d.week52High;
+                    const week52Low = d.week52Low;
+                    
+                    if (pos === null || pos === undefined) {
+                        return 'No 52-week range data';
+                    }
+                    
+                    let tooltip = `Price: $${price?.toFixed(2) || 'N/A'}\n`;
+                    tooltip += `Daily Change: ${change >= 0 ? '+' : ''}${change.toFixed(2)}%\n`;
+                    tooltip += `52-Wk Position: ${pos.toFixed(1)}%\n`;
+                    if (week52High && week52Low) {
+                        tooltip += `52-Wk Range: $${week52Low.toFixed(2)} - $${week52High.toFixed(2)}`;
+                    }
+                    return tooltip;
                 });
 
             // 52-week position label
