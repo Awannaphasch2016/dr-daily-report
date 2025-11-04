@@ -21,6 +21,8 @@ from src.qos_scorer import QoSScorer
 from src.cost_scorer import CostScorer
 from src.strategy import SMAStrategyBacktester
 from src.comparative_analysis import ComparativeAnalyzer
+from src.scoring_service import ScoringService, ScoringContext
+import json
 
 class AgentState(TypedDict):
     messages: Annotated[Sequence[HumanMessage | AIMessage], operator.add]
@@ -62,12 +64,13 @@ class TickerAnalysisAgent:
         self.compliance_scorer = ComplianceScorer()
         self.qos_scorer = QoSScorer()
         self.cost_scorer = CostScorer()
+        self.scoring_service = ScoringService()
         self.db = TickerDatabase()
         self.strategy_backtester = SMAStrategyBacktester(fast_period=20, slow_period=50)
         self.comparative_analyzer = ComparativeAnalyzer()
         self.ticker_map = self.data_fetcher.load_tickers()
         self.graph = self.build_graph()
-        
+
         # Track database query count for QoS
         self._db_query_count = 0
 
@@ -390,13 +393,50 @@ class TickerAnalysisAgent:
             percentile_analysis = self.technical_analyzer.format_percentile_analysis(percentiles)
             report += f"\n\n{percentile_analysis}"
 
-        # Save report to database
+        # Build scoring context for storage and scoring
+        # Convert datetime/DataFrame objects to JSON-serializable format
+        def make_json_serializable(obj):
+            """Recursively convert datetime/date/DataFrame objects to JSON-serializable format"""
+            from datetime import date
+            if isinstance(obj, (datetime, date)):
+                return obj.isoformat()
+            elif isinstance(obj, pd.Timestamp):
+                return obj.isoformat()
+            elif isinstance(obj, pd.DataFrame):
+                # Convert DataFrame to list of records (handles timestamp indexes)
+                df_copy = obj.reset_index(drop=False)
+                return make_json_serializable(df_copy.to_dict('records'))
+            elif isinstance(obj, dict):
+                # Convert dict keys and values
+                return {str(k) if isinstance(k, (pd.Timestamp, datetime, date)) else k: make_json_serializable(v)
+                        for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [make_json_serializable(item) for item in obj]
+            return obj
+
+        market_conditions = self._calculate_market_conditions(indicators)
+        scoring_context = ScoringContext(
+            indicators=make_json_serializable(indicators),
+            percentiles=make_json_serializable(percentiles),
+            news=make_json_serializable(news),
+            ticker_data=make_json_serializable(ticker_data),
+            market_conditions={
+                'uncertainty_score': indicators.get('uncertainty_score', 0),
+                'atr_pct': (indicators.get('atr', 0) / indicators.get('current_price', 1)) * 100 if indicators.get('current_price', 0) > 0 else 0,
+                'price_vs_vwap_pct': market_conditions.get('price_vs_vwap_pct', 0),
+                'volume_ratio': market_conditions.get('volume_ratio', 0),
+            },
+            comparative_insights=make_json_serializable(state.get('comparative_insights', {}))
+        )
+
+        # Save report with context to database
         yahoo_ticker = self.ticker_map.get(ticker.upper())
         self.db.save_report(
             yahoo_ticker,
             ticker_data['date'],
             {
                 'report_text': report,
+                'context_json': json.dumps(scoring_context.to_json()),
                 'technical_summary': self.technical_analyzer.analyze_trend(indicators, indicators.get('current_price')),
                 'fundamental_summary': f"P/E: {ticker_data.get('pe_ratio', 'N/A')}",
                 'sector_analysis': ticker_data.get('sector', 'N/A')
@@ -406,31 +446,20 @@ class TickerAnalysisAgent:
 
         state["report"] = report
 
-        # Score narrative (with timing)
+        # Score narrative using ScoringService (with timing)
         scoring_start_time = time.perf_counter()
-        
-        # Score narrative faithfulness
-        faithfulness_score = self._score_narrative_faithfulness(
-            report, indicators, percentiles, news, ticker_data
-        )
+
+        # Compute all quality scores using service layer
+        quality_scores = self.scoring_service.compute_all_quality_scores(report, scoring_context)
+
+        faithfulness_score = quality_scores['faithfulness']
+        completeness_score = quality_scores['completeness']
+        reasoning_quality_score = quality_scores['reasoning_quality']
+        compliance_score = quality_scores['compliance']
+
         state["faithfulness_score"] = faithfulness_score
-
-        # Score narrative completeness
-        completeness_score = self._score_narrative_completeness(
-            report, ticker_data, indicators, percentiles, news
-        )
         state["completeness_score"] = completeness_score
-
-        # Score reasoning quality
-        reasoning_quality_score = self._score_reasoning_quality(
-            report, indicators, percentiles, ticker_data
-        )
         state["reasoning_quality_score"] = reasoning_quality_score
-
-        # Score compliance
-        compliance_score = self._score_compliance(
-            report, indicators, news
-        )
         state["compliance_score"] = compliance_score
 
         # Record scoring timing

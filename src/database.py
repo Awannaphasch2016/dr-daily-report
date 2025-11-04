@@ -61,6 +61,7 @@ class TickerDatabase:
                 ticker TEXT NOT NULL,
                 date DATE NOT NULL,
                 report_text TEXT,
+                context_json TEXT,
                 technical_summary TEXT,
                 fundamental_summary TEXT,
                 sector_analysis TEXT,
@@ -344,15 +345,37 @@ class TickerDatabase:
 
         cursor.execute("""
             INSERT OR REPLACE INTO reports
-            (ticker, date, report_text, technical_summary, fundamental_summary, sector_analysis)
-            VALUES (?, ?, ?, ?, ?, ?)
+            (ticker, date, report_text, context_json, technical_summary, fundamental_summary, sector_analysis)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
         """, (ticker, date, report_data.get('report_text'),
+              report_data.get('context_json'),
               report_data.get('technical_summary'),
               report_data.get('fundamental_summary'),
               report_data.get('sector_analysis')))
 
         conn.commit()
         conn.close()
+
+    def get_report_with_context(self, ticker, date):
+        """Get report with context data for rescoring"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT report_text, context_json
+            FROM reports
+            WHERE ticker = ? AND date = ?
+        """, (ticker, date))
+
+        row = cursor.fetchone()
+        conn.close()
+
+        if row:
+            return {
+                'report_text': row[0],
+                'context_json': row[1]
+            }
+        return None
 
     def get_latest_data(self, ticker, days=30):
         """Get latest ticker data"""
