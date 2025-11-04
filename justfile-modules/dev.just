@@ -21,6 +21,14 @@ test-follow:
 test-help:
     @cd .. && PYTHONPATH=$(pwd) python tests/test_line_help.py
 
+# Run LINE bot error handling test
+test-error-handling:
+    @cd .. && PYTHONPATH=$(pwd) python tests/test_line_error_handling.py
+
+# Run LINE bot fuzzy matching test
+test-fuzzy-matching:
+    @cd .. && PYTHONPATH=$(pwd) python tests/test_fuzzy_matching.py
+
 # Run LINE bot message test
 test-message ticker:
     @cd .. && PYTHONPATH=.. python tests/test_line_message.py {{ticker}}

@@ -5,12 +5,18 @@ import hashlib
 import base64
 import requests
 from src.agent import TickerAnalysisAgent
+from src.ticker_matcher import TickerMatcher
+from src.data_fetcher import DataFetcher
 
 class LineBot:
     def __init__(self):
         self.channel_access_token = os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
         self.channel_secret = os.getenv("LINE_CHANNEL_SECRET")
         self.agent = TickerAnalysisAgent()
+        # Initialize ticker matcher with ticker map (load directly to ensure it's available)
+        data_fetcher = DataFetcher()
+        ticker_map = data_fetcher.load_tickers()
+        self.ticker_matcher = TickerMatcher(ticker_map)
 
     def verify_signature(self, body, signature):
         """Verify LINE webhook signature"""
@@ -76,6 +82,28 @@ class LineBot:
 
 มีคำถามเพิ่มเติม? ส่ง ticker มาลองใช้ดูได้เลยครับ! 🚀"""
 
+    def get_error_message(self, ticker=None):
+        """Get user-friendly error message"""
+        if ticker:
+            return f"""ขออภัยครับ 😔
+
+ไม่สามารถวิเคราะห์ข้อมูลสำหรับ {ticker.upper()} ได้ในขณะนี้
+
+กรุณาลองใหม่อีกครั้งในภายหลัง หรือลองส่ง ticker อื่น เช่น:
+• DBS19
+• UOB19
+• PFIZER19
+
+หากปัญหายังคงมีอยู่ กรุณาติดต่อทีมสนับสนุนครับ"""
+        else:
+            return """ขออภัยครับ 😔
+
+เกิดข้อผิดพลาดในการประมวลผลคำขอของคุณ
+
+กรุณาลองใหม่อีกครั้งในภายหลัง หรือส่ง "help" เพื่อดูวิธีใช้งาน
+
+หากปัญหายังคงมีอยู่ กรุณาติดต่อทีมสนับสนุนครับ"""
+
     def handle_follow(self, event):
         """Handle follow event (when user adds bot as friend)"""
         event_type = event.get("type")
@@ -92,33 +120,51 @@ class LineBot:
 
     def handle_message(self, event):
         """Handle incoming message"""
-        message_type = event.get("type")
+        try:
+            message_type = event.get("type")
 
-        if message_type != "message":
-            return None
+            if message_type != "message":
+                return None
 
-        message = event.get("message", {})
-        if message.get("type") != "text":
-            return "กรุณาส่งชื่อ ticker เป็นข้อความ"
+            message = event.get("message", {})
+            if message.get("type") != "text":
+                return "กรุณาส่งชื่อ ticker เป็นข้อความ"
 
-        text = message.get("text", "").strip()
-        text_lower = text.lower()
+            text = message.get("text", "").strip()
+            text_lower = text.lower()
 
-        # Check if it's a help command
-        if text_lower == "help" or text_lower == "วิธีใช้" or text_lower == "ใช้งาน":
-            return self.get_help_message()
+            # Check if it's a help command
+            if text_lower == "help" or text_lower == "วิธีใช้" or text_lower == "ใช้งาน":
+                return self.get_help_message()
 
-        # Check if it's a ticker request
-        if not text:
-            return "กรุณาส่งชื่อ ticker เช่น DBS19, UOB19"
+            # Check if it's a ticker request
+            if not text:
+                return "กรุณาส่งชื่อ ticker เช่น DBS19, UOB19"
 
-        # Show processing message
-        processing_msg = f"🔍 กำลังวิเคราะห์ {text.upper()}...\nโปรดรอสักครู่"
-
-        # Generate report (use original text case for ticker)
-        report = self.agent.analyze_ticker(text)
-
-        return report
+            # Use fuzzy matching to find best ticker match
+            matched_ticker, suggestion = self.ticker_matcher.match_with_suggestion(text)
+            
+            # Generate report using matched ticker
+            try:
+                report = self.agent.analyze_ticker(matched_ticker)
+                
+                # Check if report is None or empty
+                if not report or not isinstance(report, str) or len(report.strip()) == 0:
+                    return self.get_error_message(matched_ticker)
+                
+                # Prepend suggestion if available (suggestion already contains emoji)
+                if suggestion:
+                    return f"{suggestion}\n\n{report}"
+                
+                return report
+            except Exception as e:
+                # Log error for debugging but don't expose technical details to user
+                print(f"Error analyzing ticker {matched_ticker}: {str(e)}")
+                return self.get_error_message(matched_ticker)
+        except Exception as e:
+            # Catch any unexpected errors in message handling
+            print(f"Error handling message: {str(e)}")
+            return self.get_error_message()
 
     def handle_webhook(self, body, signature):
         """Handle LINE webhook"""
@@ -145,30 +191,45 @@ class LineBot:
             event_type = event.get("type")
             reply_token = event.get("replyToken")
 
-            # Handle different event types
+            # Skip events without reply token (they don't need replies)
+            if not reply_token:
+                continue
+
+            # Handle different event types with error handling
             response_text = None
 
-            if event_type == "follow":
-                # User added bot as friend
-                response_text = self.handle_follow(event)
-            elif event_type == "message":
-                # User sent a message
-                response_text = self.handle_message(event)
-            elif event_type == "unfollow":
-                # User blocked/unfollowed bot (no reply token)
-                # Log if needed, but don't send reply
-                continue
-            elif event_type in ["join", "leave"]:
-                # Bot joined/left a group (no reply token needed)
-                # These events don't require replies
-                continue
-            else:
-                # Unknown event type - log but don't error
-                continue
+            try:
+                if event_type == "follow":
+                    # User added bot as friend
+                    response_text = self.handle_follow(event)
+                elif event_type == "message":
+                    # User sent a message
+                    response_text = self.handle_message(event)
+                elif event_type == "unfollow":
+                    # User blocked/unfollowed bot (no reply token)
+                    # Log if needed, but don't send reply
+                    continue
+                elif event_type in ["join", "leave"]:
+                    # Bot joined/left a group (no reply token needed)
+                    # These events don't require replies
+                    continue
+                else:
+                    # Unknown event type - log but don't error
+                    continue
+            except Exception as e:
+                # Catch any unexpected errors in event handling
+                print(f"Error handling event type {event_type}: {str(e)}")
+                response_text = self.get_error_message()
 
-            # Send reply if we have response text and reply token
+            # Always send a reply if we have response text and reply token
+            # This ensures users always get a response even on errors
             if response_text and reply_token:
-                self.reply_message(reply_token, response_text)
+                try:
+                    self.reply_message(reply_token, response_text)
+                except Exception as e:
+                    # If sending reply fails, log but don't fail the webhook
+                    # LINE will retry if needed
+                    print(f"Error sending reply message: {str(e)}")
 
         return {
             "statusCode": 200,
