@@ -146,7 +146,7 @@ def api_handler(event: "LambdaEvent", context: "LambdaContext | None") -> dict[s
         agent_instance = get_agent()
         
         # Initialize state (AgentState type)
-        from src.agent import AgentState
+        from src.types import AgentState
         initial_state: AgentState = {
             "messages": [],
             "ticker": ticker.upper(),

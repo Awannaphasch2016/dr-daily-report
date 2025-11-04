@@ -188,7 +188,7 @@ def test_integration_with_agent():
                 'Close': np.random.uniform(100, 200, 100),
                 'Volume': np.random.uniform(1000000, 10000000, 100)
             }, index=pd.date_range('2024-01-01', periods=100, freq='D')),
-            'date': pd.Timestamp('2024-12-01')
+            'date': '2024-12-01'  # Use string instead of Timestamp for database compatibility
         },
         "indicators": {},
         "percentiles": {},
@@ -199,7 +199,7 @@ def test_integration_with_agent():
     }
     
     # Test analyze_technical method
-    result_state = agent.analyze_technical(state)
+    result_state = agent.workflow_nodes.analyze_technical(state)
     
     assert 'indicators' in result_state, "Should have indicators"
     assert 'percentiles' in result_state, "Should have percentiles"
