@@ -4,9 +4,11 @@ import hmac
 import hashlib
 import base64
 import requests
+from datetime import date
 from src.agent import TickerAnalysisAgent
 from src.ticker_matcher import TickerMatcher
 from src.data_fetcher import DataFetcher
+from src.database import TickerDatabase
 
 class LineBot:
     def __init__(self):
@@ -17,6 +19,8 @@ class LineBot:
         data_fetcher = DataFetcher()
         ticker_map = data_fetcher.load_tickers()
         self.ticker_matcher = TickerMatcher(ticker_map)
+        # Initialize database for caching
+        self.db = TickerDatabase()
 
     def verify_signature(self, body, signature):
         """Verify LINE webhook signature"""
@@ -144,13 +148,43 @@ class LineBot:
             # Use fuzzy matching to find best ticker match
             matched_ticker, suggestion = self.ticker_matcher.match_with_suggestion(text)
             
-            # Generate report using matched ticker
+            # Check cache first (key: ticker + today's date)
+            today = date.today().isoformat()
+            cached_report = self.db.get_cached_report(matched_ticker, today)
+            
+            if cached_report:
+                # Cache hit - return cached report
+                print(f"✅ Cache hit for {matched_ticker} on {today}")
+                
+                # Prepend suggestion if available
+                if suggestion:
+                    return f"{suggestion}\n\n{cached_report}"
+                
+                return cached_report
+            
+            # Cache miss - generate new report
+            print(f"❌ Cache miss for {matched_ticker} on {today}, generating new report...")
+            
             try:
                 report = self.agent.analyze_ticker(matched_ticker)
                 
                 # Check if report is None or empty
                 if not report or not isinstance(report, str) or len(report.strip()) == 0:
                     return self.get_error_message(matched_ticker)
+                
+                # Save to cache for future use
+                try:
+                    self.db.save_report(matched_ticker, today, {
+                        'report_text': report,
+                        'context_json': None,
+                        'technical_summary': None,
+                        'fundamental_summary': None,
+                        'sector_analysis': None
+                    })
+                    print(f"💾 Cached report for {matched_ticker} on {today}")
+                except Exception as cache_error:
+                    # Log cache error but don't fail the request
+                    print(f"⚠️  Error caching report: {str(cache_error)}")
                 
                 # Prepend suggestion if available (suggestion already contains emoji)
                 if suggestion:

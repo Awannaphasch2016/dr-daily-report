@@ -29,6 +29,10 @@ test-error-handling:
 test-fuzzy-matching:
     @cd .. && PYTHONPATH=$(pwd) python tests/test_fuzzy_matching.py
 
+# Run LINE bot caching test
+test-caching:
+    @cd .. && PYTHONPATH=$(pwd) python tests/test_caching.py
+
 # Run LINE bot message test
 test-message ticker:
     @cd .. && PYTHONPATH=.. python tests/test_line_message.py {{ticker}}
