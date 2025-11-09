@@ -1,0 +1,27 @@
+# Lambda Container Image Dockerfile
+# This builds a container image that runs directly in AWS Lambda
+
+FROM public.ecr.aws/lambda/python:3.11
+
+# Upgrade pip and install build tools
+RUN pip install --upgrade pip setuptools wheel
+
+# Copy requirements file
+COPY requirements_lambda.txt ${LAMBDA_TASK_ROOT}/
+
+# Install Python dependencies
+# Install tiktoken first with prebuilt wheel to avoid compilation issues
+RUN pip install --no-cache-dir --prefer-binary tiktoken
+
+# Install all other dependencies
+RUN pip install --no-cache-dir --prefer-binary -r ${LAMBDA_TASK_ROOT}/requirements_lambda.txt
+
+# Copy application code
+COPY src/ ${LAMBDA_TASK_ROOT}/src/
+
+# Copy data files
+COPY data/tickers.csv ${LAMBDA_TASK_ROOT}/
+
+# Set the CMD to your handler (could also be done in Dockerfile or Lambda configuration)
+# Format: module_name.handler_function_name
+CMD ["src.lambda_handler.lambda_handler"]
