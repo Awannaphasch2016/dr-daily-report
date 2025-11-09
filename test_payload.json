@@ -1,0 +1,6 @@
+{
+  "body": "{\"events\":[{\"type\":\"message\",\"replyToken\":\"test_token\",\"source\":{\"userId\":\"test_user\"},\"message\":{\"type\":\"text\",\"text\":\"DBS19\"}}]}",
+  "headers": {
+    "x-line-signature": "test_signature"
+  }
+}

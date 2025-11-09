@@ -1,5 +1,5 @@
 # Terraform configuration for LINE Bot Lambda Function
-# This manages the Lambda function, API Gateway, and related resources
+# This manages the Lambda function with ZIP deployment and Lambda Function URL
 
 terraform {
   required_version = ">= 1.0"
@@ -27,77 +27,96 @@ data "aws_caller_identity" "current" {}
 data "aws_region" "current" {}
 
 ###############################################################################
-# ECR Repository for Lambda Container Images
+# ZIP Deployment Package Build
 ###############################################################################
 
-resource "aws_ecr_repository" "lambda_repo" {
-  name                 = var.ecr_repository_name
-  image_tag_mutability = "MUTABLE"
-
-  image_scanning_configuration {
-    scan_on_push = true
-  }
-
-  tags = {
-    Name        = var.ecr_repository_name
-    Environment = var.environment
-    Project     = "LineBot"
-  }
-}
-
-# ECR lifecycle policy to keep only recent images
-resource "aws_ecr_lifecycle_policy" "lambda_repo_policy" {
-  repository = aws_ecr_repository.lambda_repo.name
-
-  policy = jsonencode({
-    rules = [{
-      rulePriority = 1
-      description  = "Keep last 5 images"
-      selection = {
-        tagStatus     = "any"
-        countType     = "imageCountMoreThan"
-        countNumber   = 5
-      }
-      action = {
-        type = "expire"
-      }
-    }]
-  })
-}
-
-###############################################################################
-# Docker Image Build and Push
-###############################################################################
-
-# Build and push Docker image to ECR
-resource "null_resource" "docker_build_push" {
-  # Trigger rebuild when Dockerfile or source code changes
+# Build ZIP deployment package
+resource "null_resource" "zip_build" {
+  # Trigger rebuild when source code or requirements change
   triggers = {
-    dockerfile_hash = filemd5("${path.module}/../Dockerfile.lambda.container")
-    always_run      = timestamp() # Always rebuild for now
+    requirements_hash = filemd5("${path.module}/../requirements_minimal.txt")
+    src_hash          = sha256(join("", [for f in fileset("${path.module}/../src", "**") : filemd5("${path.module}/../src/${f}")]))
+    tickers_hash      = filemd5("${path.module}/../data/tickers.csv")
   }
 
   provisioner "local-exec" {
     command = <<-EOT
-      # Login to ECR
-      aws ecr get-login-password --region ${var.aws_region} | \
-        docker login --username AWS --password-stdin ${data.aws_caller_identity.current.account_id}.dkr.ecr.${var.aws_region}.amazonaws.com
+      set -e
+      
+      # Create build directory
+      echo "📦 Creating deployment package..."
+      rm -rf build/deployment_package
+      mkdir -p build/deployment_package
+      
+      # Install dependencies
+      echo "📥 Installing dependencies..."
+      pip install -r requirements_minimal.txt -t build/deployment_package/ --quiet || true
+      
+      # Copy application files
+      echo "📋 Copying application files..."
+      cp -r src build/deployment_package/src
+      cp src/lambda_handler.py build/deployment_package/lambda_handler.py
+      cp data/tickers.csv build/deployment_package/
+      
+      # Create deployment package using Python
+      echo "📦 Creating ZIP file..."
+      python3 << 'PYTHON'
+import os
+import zipfile
+import shutil
 
-      # Build Docker image
-      docker build -f Dockerfile.lambda.container -t ${var.function_name}:latest .
+# Change to deployment package directory
+os.chdir('build/deployment_package')
 
-      # Tag image for ECR
-      docker tag ${var.function_name}:latest \
-        ${aws_ecr_repository.lambda_repo.repository_url}:latest
+# Exclude patterns
+exclude_dirs = {'__pycache__', '.pytest_cache', 'tests', 'test', 'docs', 'doc', '.git'}
+exclude_extensions = {'.pyc', '.pyo', '.pyd', '.so.dbg', '.dist-info'}
 
-      # Push to ECR
-      docker push ${aws_ecr_repository.lambda_repo.repository_url}:latest
+# Create ZIP file
+with zipfile.ZipFile('../lambda_deployment.zip', 'w', zipfile.ZIP_DEFLATED) as zipf:
+    for root, dirs, files in os.walk('.'):
+        # Remove excluded directories from dirs list to prevent traversal
+        dirs[:] = [d for d in dirs if d not in exclude_dirs]
+        
+        for file in files:
+            # Skip excluded files
+            if any(file.endswith(ext) for ext in exclude_extensions):
+                continue
+            
+            file_path = os.path.join(root, file)
+            # Skip if in excluded directory
+            if any(excluded in file_path.split(os.sep) for excluded in exclude_dirs):
+                continue
+            
+            arcname = os.path.relpath(file_path, '.')
+            zipf.write(file_path, arcname)
+
+print("✅ ZIP file created successfully")
+PYTHON
+      
+      echo "✅ Deployment package created: build/lambda_deployment.zip"
     EOT
 
     working_dir = "${path.module}/.."
   }
+}
 
-  depends_on = [aws_ecr_repository.lambda_repo]
+###############################################################################
+# S3 Bucket for Lambda Deployment Package
+###############################################################################
+
+# Use existing bucket
+data "aws_s3_bucket" "deployment" {
+  bucket = "line-bot-ticker-deploy-20251030"
+}
+
+# Upload ZIP to S3
+resource "aws_s3_object" "lambda_zip" {
+  bucket = data.aws_s3_bucket.deployment.id
+  key    = "lambda_deployment_${null_resource.zip_build.id}.zip"
+  source = "${path.module}/../build/lambda_deployment.zip"
+
+  depends_on = [null_resource.zip_build]
 }
 
 ###############################################################################
@@ -152,25 +171,27 @@ resource "aws_iam_role_policy" "lambda_custom" {
 }
 
 ###############################################################################
-# Lambda Function (Container Image)
+# Lambda Function (ZIP Deployment)
 ###############################################################################
 
 resource "aws_lambda_function" "line_bot" {
   function_name = var.function_name
   role          = aws_iam_role.lambda_role.arn
+  handler       = "lambda_handler.lambda_handler"
 
-  # Container image configuration
-  package_type = "Image"
-  image_uri    = "${aws_ecr_repository.lambda_repo.repository_url}:latest"
+  # ZIP deployment configuration via S3
+  s3_bucket = aws_s3_object.lambda_zip.bucket
+  s3_key    = aws_s3_object.lambda_zip.key
 
+  runtime     = "python3.11"
   memory_size = var.lambda_memory
   timeout     = var.lambda_timeout
 
   environment {
     variables = {
-      OPENAI_API_KEY              = var.openai_api_key
-      LINE_CHANNEL_ACCESS_TOKEN   = var.line_channel_access_token
-      LINE_CHANNEL_SECRET         = var.line_channel_secret
+      OPENAI_API_KEY            = var.openai_api_key
+      LINE_CHANNEL_ACCESS_TOKEN = var.line_channel_access_token
+      LINE_CHANNEL_SECRET       = var.line_channel_secret
     }
   }
 
@@ -181,106 +202,25 @@ resource "aws_lambda_function" "line_bot" {
   }
 
   depends_on = [
-    null_resource.docker_build_push,
+    null_resource.zip_build,
+    aws_s3_object.lambda_zip,
     aws_iam_role_policy_attachment.lambda_basic
   ]
 }
 
-# CloudWatch Log Group for Lambda
-resource "aws_cloudwatch_log_group" "lambda_logs" {
-  name              = "/aws/lambda/${var.function_name}"
-  retention_in_days = var.log_retention_days
-
-  tags = {
-    Name        = "${var.function_name}-logs"
-    Environment = var.environment
-  }
-}
-
 ###############################################################################
-# API Gateway (HTTP API) for LINE Webhook
+# Lambda Function URL for LINE Webhook
 ###############################################################################
 
-resource "aws_apigatewayv2_api" "line_webhook" {
-  name          = "${var.function_name}-api"
-  protocol_type = "HTTP"
+resource "aws_lambda_function_url" "line_webhook" {
+  function_name      = aws_lambda_function.line_bot.function_name
+  authorization_type = "NONE"
 
-  description = "LINE Bot webhook endpoint"
-
-  cors_configuration {
+  cors {
     allow_origins = ["*"]
     allow_methods = ["POST", "GET"]
     allow_headers = ["*"]
   }
 
-  tags = {
-    Name        = "${var.function_name}-api"
-    Environment = var.environment
-  }
-}
-
-# API Gateway Integration with Lambda
-resource "aws_apigatewayv2_integration" "lambda" {
-  api_id = aws_apigatewayv2_api.line_webhook.id
-
-  integration_type   = "AWS_PROXY"
-  integration_uri    = aws_lambda_function.line_bot.invoke_arn
-  integration_method = "POST"
-
-  payload_format_version = "2.0"
-}
-
-# API Gateway Route
-resource "aws_apigatewayv2_route" "webhook" {
-  api_id    = aws_apigatewayv2_api.line_webhook.id
-  route_key = "POST /webhook"
-
-  target = "integrations/${aws_apigatewayv2_integration.lambda.id}"
-}
-
-# API Gateway Stage (default)
-resource "aws_apigatewayv2_stage" "default" {
-  api_id      = aws_apigatewayv2_api.line_webhook.id
-  name        = "$default"
-  auto_deploy = true
-
-  access_log_settings {
-    destination_arn = aws_cloudwatch_log_group.api_logs.arn
-    format = jsonencode({
-      requestId      = "$context.requestId"
-      ip             = "$context.identity.sourceIp"
-      requestTime    = "$context.requestTime"
-      httpMethod     = "$context.httpMethod"
-      routeKey       = "$context.routeKey"
-      status         = "$context.status"
-      protocol       = "$context.protocol"
-      responseLength = "$context.responseLength"
-    })
-  }
-
-  tags = {
-    Name        = "${var.function_name}-stage"
-    Environment = var.environment
-  }
-}
-
-# CloudWatch Log Group for API Gateway
-resource "aws_cloudwatch_log_group" "api_logs" {
-  name              = "/aws/apigateway/${var.function_name}"
-  retention_in_days = var.log_retention_days
-
-  tags = {
-    Name        = "${var.function_name}-api-logs"
-    Environment = var.environment
-  }
-}
-
-# Lambda permission for API Gateway to invoke
-resource "aws_lambda_permission" "api_gateway" {
-  statement_id  = "AllowAPIGatewayInvoke"
-  action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.line_bot.function_name
-  principal     = "apigateway.amazonaws.com"
-
-  source_arn = "${aws_apigatewayv2_api.line_webhook.execution_arn}/*/*"
+  depends_on = [aws_lambda_function.line_bot]
 }
