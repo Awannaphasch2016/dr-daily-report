@@ -15,13 +15,13 @@ Provides statistical and graph-based analysis for comparing multiple tickers:
 import pandas as pd
 import numpy as np
 from typing import Dict, List, Tuple, Optional, Any
-from sklearn.preprocessing import StandardScaler
-from sklearn.cluster import KMeans
-from sklearn.cluster import AgglomerativeClustering
-from sklearn.metrics import silhouette_score
-from sklearn.decomposition import PCA
-from sklearn.metrics.pairwise import euclidean_distances
-import networkx as nx
+# sklearn removed to reduce Lambda deployment size
+# from sklearn.preprocessing import StandardScaler
+# from sklearn.cluster import KMeans
+# from sklearn.cluster import AgglomerativeClustering
+# from sklearn.metrics import silhouette_score
+# from sklearn.decomposition import PCA
+# from sklearn.metrics.pairwise import euclidean_distances
 import warnings
 warnings.filterwarnings('ignore')
 

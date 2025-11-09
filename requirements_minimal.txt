@@ -1,10 +1,31 @@
-yfinance>=0.2.40
+# numpy, pandas, matplotlib moved to S3 and loaded at runtime
+# yfinance, ta, qdrant-client installed with --no-deps (dependencies provided in S3)
+
+# Dependencies for yfinance (excluding numpy/pandas)
+beautifulsoup4>=4.12.0
+curl_cffi>=0.5.0
+frozendict>=2.3.0
+multitasking>=0.0.11
+peewee>=3.16.0
+platformdirs>=3.10.0
+pytz>=2023.3
+websockets>=11.0
+
+# Dependencies for qdrant-client (excluding numpy)
+grpcio>=1.56.0
+httpx>=0.24.0
+portalocker>=2.7.0
+pydantic>=2.0.0
+
+# Common dependencies
+protobuf>=4.23.0
+urllib3>=2.0.0
+requests>=2.31.0
+
+# Packages that don't require numpy/pandas
 langgraph>=0.2.0
 langchain>=0.2.0
 langchain-openai>=0.1.0
 langchain-core>=0.2.0
-qdrant-client>=1.9.0
-pandas>=2.0.0
-numpy<2.0.0,>=1.24.0
+reportlab>=4.0.0
 python-dotenv>=1.0.0
-requests>=2.31.0

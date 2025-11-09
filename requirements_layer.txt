@@ -1,0 +1,3 @@
+# Only matplotlib-specific dependencies (numpy, pillow already in main package)
+matplotlib>=3.7.0
+--no-deps

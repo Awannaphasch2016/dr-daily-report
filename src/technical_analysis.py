@@ -1,6 +1,5 @@
 import pandas as pd
 import numpy as np
-from scipy import stats
 
 class TechnicalAnalyzer:
     def __init__(self):
@@ -174,8 +173,9 @@ class TechnicalAnalyzer:
         """Calculate percentile for a single indicator"""
         if len(historical_values) == 0:
             return None
-        
-        percentile = stats.percentileofscore(historical_values, current_value, kind='rank')
+
+        # Calculate percentile using numpy instead of scipy
+        percentile = (np.sum(historical_values <= current_value) / len(historical_values)) * 100
         result = {
             'current_value': current_value,
             'percentile': percentile,

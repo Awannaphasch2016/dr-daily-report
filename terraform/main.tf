@@ -34,9 +34,11 @@ data "aws_region" "current" {}
 resource "null_resource" "zip_build" {
   # Trigger rebuild when source code or requirements change
   triggers = {
-    requirements_hash = filemd5("${path.module}/../requirements_minimal.txt")
-    src_hash          = sha256(join("", [for f in fileset("${path.module}/../src", "**") : filemd5("${path.module}/../src/${f}")]))
-    tickers_hash      = filemd5("${path.module}/../data/tickers.csv")
+    requirements_hash        = filemd5("${path.module}/../requirements_minimal.txt")
+    requirements_nodeps_hash = filemd5("${path.module}/../requirements_nodeps.txt")
+    requirements_heavy_hash  = filemd5("${path.module}/../requirements_heavy.txt")
+    src_hash                 = sha256(join("", [for f in fileset("${path.module}/../src", "**") : filemd5("${path.module}/../src/${f}")]))
+    tickers_hash             = filemd5("${path.module}/../data/tickers.csv")
   }
 
   provisioner "local-exec" {
@@ -45,12 +47,21 @@ resource "null_resource" "zip_build" {
       
       # Create build directory
       echo "📦 Creating deployment package..."
-      rm -rf build/deployment_package
+      # Clean using Docker to handle permission issues
+      if [ -d "build/deployment_package" ]; then
+        docker run --rm -v "$(pwd)/build":/build alpine sh -c "rm -rf /build/deployment_package"
+      fi
       mkdir -p build/deployment_package
       
-      # Install dependencies
-      echo "📥 Installing dependencies..."
-      pip install -r requirements_minimal.txt -t build/deployment_package/ --quiet || true
+      # Install dependencies using Lambda's Docker image for compatibility
+      echo "📥 Installing dependencies (using Lambda Docker environment)..."
+      docker run --rm --platform linux/amd64 \
+        --entrypoint /bin/bash \
+        -v "$(pwd)":/var/task \
+        public.ecr.aws/lambda/python:3.11 \
+        -c "pip install --upgrade pip && \
+            pip install -r requirements_minimal.txt -t /var/task/build/deployment_package/ --prefer-binary && \
+            pip install --no-deps -r requirements_nodeps.txt -t /var/task/build/deployment_package/ --prefer-binary"
       
       # Copy application files
       echo "📋 Copying application files..."
@@ -165,6 +176,13 @@ resource "aws_iam_role_policy" "lambda_custom" {
           "logs:PutLogEvents"
         ]
         Resource = "arn:aws:logs:*:*:*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:GetObject"
+        ]
+        Resource = "arn:aws:s3:::line-bot-ticker-deploy-20251030/python-libs/*"
       }
     ]
   })
@@ -186,6 +204,8 @@ resource "aws_lambda_function" "line_bot" {
   runtime     = "python3.11"
   memory_size = var.lambda_memory
   timeout     = var.lambda_timeout
+
+  # Heavy dependencies loaded from S3 at runtime (no layer needed)
 
   environment {
     variables = {
