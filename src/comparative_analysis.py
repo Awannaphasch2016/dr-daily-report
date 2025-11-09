@@ -14,14 +14,9 @@ Provides statistical and graph-based analysis for comparing multiple tickers:
 
 import pandas as pd
 import numpy as np
+import networkx as nx
 from typing import Dict, List, Tuple, Optional, Any
-# sklearn removed to reduce Lambda deployment size
-# from sklearn.preprocessing import StandardScaler
-# from sklearn.cluster import KMeans
-# from sklearn.cluster import AgglomerativeClustering
-# from sklearn.metrics import silhouette_score
-# from sklearn.decomposition import PCA
-# from sklearn.metrics.pairwise import euclidean_distances
+# sklearn removed to reduce Lambda deployment size - clustering/PCA features disabled
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -35,8 +30,8 @@ class ComparativeAnalyzer:
     """
     
     def __init__(self):
-        """Initialize the analyzer with a standard scaler."""
-        self.scaler = StandardScaler()
+        """Initialize the analyzer."""
+        pass
     
     def prepare_ticker_features(self, ticker_data: Dict[str, pd.DataFrame]) -> pd.DataFrame:
         """
@@ -170,25 +165,14 @@ class ComparativeAnalyzer:
         
         X = features_df[feature_cols].values
         
-        # Handle NaN values
-        X = np.nan_to_num(X, nan=0.0)
-        
-        # Scale features
-        X_scaled = self.scaler.fit_transform(X)
-        
-        # K-means clustering
-        kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
-        kmeans_clusters = kmeans.fit_predict(X_scaled)
-        
-        # Hierarchical clustering
-        hierarchical = AgglomerativeClustering(n_clusters=n_clusters)
-        hierarchical_clusters = hierarchical.fit_predict(X_scaled)
-        
-        # Calculate silhouette score
-        try:
-            silhouette = silhouette_score(X_scaled, kmeans_clusters)
-        except:
-            silhouette = None
+        # sklearn not available - clustering features disabled
+        # Return empty result since clustering requires sklearn
+        return {
+            'tickers': features_df.index.tolist(),
+            'kmeans_clusters': [],
+            'hierarchical_clusters': [],
+            'silhouette_score': None
+        }
         
         return {
             'tickers': features_df.index.tolist(),
@@ -226,22 +210,12 @@ class ComparativeAnalyzer:
         if not feature_cols:
             return {}
         
-        X = features_df[feature_cols].values
-        
-        # Handle NaN values
-        X = np.nan_to_num(X, nan=0.0)
-        
-        # Scale features
-        X_scaled = self.scaler.fit_transform(X)
-        
-        # Perform PCA
-        pca = PCA(n_components=n_components)
-        components = pca.fit_transform(X_scaled)
-        
+        # sklearn not available - PCA features disabled
+        # Return empty result since PCA requires sklearn
         return {
             'tickers': features_df.index.tolist(),
-            'components': components.tolist(),
-            'explained_variance_ratio': pca.explained_variance_ratio_.tolist()
+            'components': [],
+            'explained_variance_ratio': []
         }
     
     def build_similarity_graph(
@@ -386,28 +360,9 @@ class ComparativeAnalyzer:
         if not feature_cols:
             return pd.DataFrame()
         
-        X = features_df[feature_cols].values
-        
-        # Handle NaN values
-        X = np.nan_to_num(X, nan=0.0)
-        
-        # Scale features
-        X_scaled = self.scaler.fit_transform(X)
-        
-        # Calculate distances
-        if metric == 'euclidean':
-            distances = euclidean_distances(X_scaled)
-        else:
-            raise ValueError(f"Unsupported metric: {metric}")
-        
-        # Create DataFrame
-        distance_matrix = pd.DataFrame(
-            distances,
-            index=features_df.index,
-            columns=features_df.index
-        )
-        
-        return distance_matrix
+        # sklearn not available - distance calculation disabled
+        # Return empty DataFrame since euclidean_distances requires sklearn
+        return pd.DataFrame()
     
     def get_ticker_clusters(self, clustering_results: Dict[str, Any]) -> Dict[int, List[str]]:
         """

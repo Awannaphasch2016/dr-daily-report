@@ -5,7 +5,6 @@ This module downloads numpy, pandas, and matplotlib from S3 on cold starts
 import os
 import sys
 import zipfile
-import boto3
 import logging
 
 logger = logging.getLogger(__name__)
@@ -19,8 +18,28 @@ ZIP_PATH = "/tmp/data-science-libs.zip"
 def load_heavy_dependencies():
     """
     Download and extract heavy dependencies from S3 if not already present in /tmp
+    In local environment, skip S3 download and assume dependencies are installed
     """
     try:
+        # In local environment (not Lambda), skip S3 download
+        # Assume numpy/pandas/matplotlib are installed locally
+        if not os.environ.get('AWS_LAMBDA_FUNCTION_NAME'):
+            logger.info("Local environment detected - skipping S3 dependency download")
+            # Try importing to verify dependencies are available
+            try:
+                import numpy
+                import pandas
+                import matplotlib
+                logger.info("Heavy dependencies available locally")
+                return True
+            except ImportError as e:
+                logger.warning(f"Some dependencies not available locally: {e}")
+                logger.warning("In Lambda, dependencies will be loaded from S3")
+                return True  # Don't fail in local testing
+        
+        # Lambda environment - proceed with S3 download
+        import boto3
+        
         # Check if already loaded
         site_packages_path = os.path.join(TMP_DIR, "site-packages")
         if os.path.exists(site_packages_path) and site_packages_path in sys.path:

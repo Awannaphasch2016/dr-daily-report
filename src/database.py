@@ -1,9 +1,18 @@
 import sqlite3
 from datetime import datetime
 import json
+import os
 
 class TickerDatabase:
-    def __init__(self, db_path="data/ticker_data.db"):
+    def __init__(self, db_path=None):
+        # Use /tmp in Lambda environment, otherwise use provided path or default
+        if db_path is None:
+            if os.environ.get('AWS_LAMBDA_FUNCTION_NAME'):
+                # Lambda environment - use /tmp for writable storage
+                db_path = "/tmp/ticker_data.db"
+            else:
+                # Local environment
+                db_path = "data/ticker_data.db"
         self.db_path = db_path
         self.init_db()
 

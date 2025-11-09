@@ -206,7 +206,7 @@ class LineBot:
         if not self.verify_signature(body, signature):
             return {
                 "statusCode": 403,
-                "body": json.dumps({"error": "Invalid signature"})
+                "body": json.dumps({"error": "Invalid signature"}, ensure_ascii=False)
             }
 
         # Parse body
@@ -215,11 +215,12 @@ class LineBot:
         except json.JSONDecodeError:
             return {
                 "statusCode": 400,
-                "body": json.dumps({"error": "Invalid JSON"})
+                "body": json.dumps({"error": "Invalid JSON"}, ensure_ascii=False)
             }
 
         # Process events
         events = data.get("events", [])
+        responses = []
 
         for event in events:
             event_type = event.get("type")
@@ -258,13 +259,33 @@ class LineBot:
             # Always send a reply if we have response text and reply token
             # This ensures users always get a response even on errors
             if response_text and reply_token:
-                try:
-                    self.reply_message(reply_token, response_text)
-                except Exception as e:
-                    # If sending reply fails, log but don't fail the webhook
-                    # LINE will retry if needed
-                    print(f"Error sending reply message: {str(e)}")
+                # In test mode (test_signature), return the response text instead of sending to LINE API
+                if signature == 'test_signature':
+                    print(f"DEBUG: Test mode - response_text length: {len(response_text) if response_text else 0}")
+                    print(f"response_text: {response_text }")
+                    responses.append(response_text)
+                else:
+                    try:
+                        self.reply_message(reply_token, response_text)
+                    except Exception as e:
+                        # If sending reply fails, log but don't fail the webhook
+                        # LINE will retry if needed
+                        print(f"Error sending reply message: {str(e)}")
+            else:
+                if signature == 'test_signature':
+                    print(f"DEBUG: No response_text or reply_token. response_text={response_text}, reply_token={reply_token}")
 
+        # Return response
+        if signature == 'test_signature' and responses:
+            # In test mode, return the actual response text
+            return {
+                "statusCode": 200,
+                "body": json.dumps({
+                    "message": "OK",
+                    "responses": responses
+                })
+            }
+        
         return {
             "statusCode": 200,
             "body": json.dumps({"message": "OK"})
