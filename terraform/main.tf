@@ -39,6 +39,7 @@ resource "null_resource" "zip_build" {
     requirements_heavy_hash  = filemd5("${path.module}/../requirements_heavy.txt")
     src_hash                 = sha256(join("", [for f in fileset("${path.module}/../src", "**") : filemd5("${path.module}/../src/${f}")]))
     tickers_hash             = filemd5("${path.module}/../data/tickers.csv")
+    fonts_hash               = sha256(join("", [for f in fileset("${path.module}/../fonts", "**") : filemd5("${path.module}/../fonts/${f}")]))
   }
 
   provisioner "local-exec" {
@@ -68,6 +69,14 @@ resource "null_resource" "zip_build" {
       cp -r src build/deployment_package/src
       cp src/lambda_handler.py build/deployment_package/lambda_handler.py
       cp data/tickers.csv build/deployment_package/
+      
+      # Copy fonts directory for Thai character support in PDFs
+      if [ -d "fonts" ]; then
+        cp -r fonts build/deployment_package/fonts
+        echo "✅ Copied fonts directory for Thai character support"
+      else
+        echo "⚠️  Warning: fonts directory not found - Thai characters may not display correctly in PDFs"
+      fi
       
       # Create deployment package using Python
       echo "📦 Creating ZIP file..."

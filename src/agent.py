@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 from typing import TypedDict, Annotated, Sequence
 from langgraph.graph import StateGraph, END
 from langchain_openai import ChatOpenAI

@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Workflow nodes for LangGraph ticker analysis agent"""
 
 import logging

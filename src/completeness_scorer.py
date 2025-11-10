@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 Completeness Scorer for Narrative Reports
 

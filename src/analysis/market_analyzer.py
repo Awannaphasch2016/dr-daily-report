@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Market analysis utilities for calculating market conditions and interpretations"""
 
 from typing import Dict

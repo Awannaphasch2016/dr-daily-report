@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Prompt building utilities for LLM report generation"""
 
 import logging

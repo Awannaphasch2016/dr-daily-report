@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 PDF Report Generator for Ticker Analysis
 

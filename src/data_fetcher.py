@@ -212,22 +212,46 @@ class DataFetcher:
                         
                 except Exception as info_error:
                     # Info failure is non-fatal - we can still return historical data
-                    logger.warning(f"⚠️  Failed to get ticker info for {ticker} (attempt {info_attempt + 1}/3): {str(info_error)}")
-                    logger.warning(f"   Error type: {type(info_error).__name__}")
-                    print(f"⚠️  Failed to get ticker info for {ticker} (attempt {info_attempt + 1}/3): {str(info_error)}")
-                    print(f"   Error type: {type(info_error).__name__}")
-                    import traceback
-                    logger.warning(f"   Traceback: {traceback.format_exc()}")
+                    error_type = type(info_error).__name__
+                    error_msg = str(info_error)
+                    
+                    # Check if this is a known transient Yahoo Finance API error
+                    is_transient_error = (
+                        'JSONDecodeError' in error_type or 
+                        'Expecting value' in error_msg or
+                        'ConnectionError' in error_type or
+                        'Timeout' in error_type
+                    )
                     
                     if info_attempt < 2:
+                        # Retry attempt - log more briefly for transient errors
+                        if is_transient_error:
+                            logger.info(f"⚠️  Yahoo Finance API transient error (attempt {info_attempt + 1}/3): {error_type} - will retry...")
+                            print(f"⚠️  Yahoo Finance API transient error (attempt {info_attempt + 1}/3): {error_type} - will retry...")
+                        else:
+                            logger.warning(f"⚠️  Failed to get ticker info for {ticker} (attempt {info_attempt + 1}/3): {error_msg}")
+                            logger.warning(f"   Error type: {error_type}")
+                            print(f"⚠️  Failed to get ticker info for {ticker} (attempt {info_attempt + 1}/3): {error_msg}")
+                            print(f"   Error type: {error_type}")
+                        
                         logger.info(f"   Retrying info fetch in 2 seconds...")
                         print(f"   Retrying info fetch in 2 seconds...")
                         time.sleep(2)
                         info = {}  # Reset for retry
                     else:
-                        # Final attempt failed, continue with empty info dict
-                        logger.warning(f"   All info fetch attempts failed, continuing without fundamental data")
-                        print(f"   All info fetch attempts failed, continuing without fundamental data")
+                        # Final attempt failed - log full details
+                        logger.warning(f"⚠️  All info fetch attempts failed for {ticker}")
+                        logger.warning(f"   Final error: {error_type}: {error_msg}")
+                        print(f"⚠️  All info fetch attempts failed for {ticker}")
+                        print(f"   Final error: {error_type}: {error_msg}")
+                        
+                        # Only log full traceback for non-transient errors or if debugging is needed
+                        if not is_transient_error:
+                            import traceback
+                            logger.debug(f"   Full traceback: {traceback.format_exc()}")
+                        
+                        logger.info(f"   Continuing without fundamental data (historical data still available)")
+                        print(f"   Continuing without fundamental data (historical data still available)")
                         info = {}
             
             if not info_fetch_success:

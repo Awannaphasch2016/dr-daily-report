@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 Reasoning Quality Scorer for Narrative Reports
 
