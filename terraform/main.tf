@@ -131,6 +131,55 @@ resource "aws_s3_object" "lambda_zip" {
 }
 
 ###############################################################################
+# S3 Bucket for PDF Reports Storage
+###############################################################################
+
+resource "aws_s3_bucket" "pdf_reports" {
+  bucket = "line-bot-pdf-reports-${data.aws_caller_identity.current.account_id}"
+
+  tags = {
+    Name        = "line-bot-pdf-reports"
+    Environment = var.environment
+    Project     = "LineBot"
+  }
+}
+
+# Bucket versioning (optional, for recovery)
+resource "aws_s3_bucket_versioning" "pdf_reports" {
+  bucket = aws_s3_bucket.pdf_reports.id
+
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
+# Lifecycle policy - delete PDFs older than 30 days
+resource "aws_s3_bucket_lifecycle_configuration" "pdf_reports" {
+  bucket = aws_s3_bucket.pdf_reports.id
+
+  rule {
+    id     = "delete_old_pdfs"
+    status = "Enabled"
+
+    prefix = "reports/"
+
+    expiration {
+      days = 30
+    }
+  }
+}
+
+# Block public access (keep bucket private)
+resource "aws_s3_bucket_public_access_block" "pdf_reports" {
+  bucket = aws_s3_bucket.pdf_reports.id
+
+  block_public_acls       = true
+  block_public_policy      = true
+  ignore_public_acls       = true
+  restrict_public_buckets  = true
+}
+
+###############################################################################
 # IAM Role for Lambda
 ###############################################################################
 
@@ -183,6 +232,22 @@ resource "aws_iam_role_policy" "lambda_custom" {
           "s3:GetObject"
         ]
         Resource = "arn:aws:s3:::line-bot-ticker-deploy-20251030/python-libs/*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:PutObject",
+          "s3:GetObject",
+          "s3:DeleteObject"
+        ]
+        Resource = "${aws_s3_bucket.pdf_reports.arn}/*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:ListBucket"
+        ]
+        Resource = aws_s3_bucket.pdf_reports.arn
       }
     ]
   })
@@ -212,6 +277,8 @@ resource "aws_lambda_function" "line_bot" {
       OPENAI_API_KEY            = var.openai_api_key
       LINE_CHANNEL_ACCESS_TOKEN = var.line_channel_access_token
       LINE_CHANNEL_SECRET       = var.line_channel_secret
+      PDF_STORAGE_BUCKET        = aws_s3_bucket.pdf_reports.id
+      PDF_URL_EXPIRATION_HOURS  = "24"
     }
   }
 

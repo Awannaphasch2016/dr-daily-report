@@ -20,6 +20,11 @@ output "webhook_url" {
   value       = aws_lambda_function_url.line_webhook.function_url
 }
 
+output "pdf_storage_bucket" {
+  description = "S3 bucket name for PDF reports storage"
+  value       = aws_s3_bucket.pdf_reports.id
+}
+
 # Summary output for easy reference
 output "deployment_summary" {
   description = "Summary of deployed resources"

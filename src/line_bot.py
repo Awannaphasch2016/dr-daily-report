@@ -4,11 +4,15 @@ import hmac
 import hashlib
 import base64
 import requests
+import logging
 from datetime import date
 from src.agent import TickerAnalysisAgent
 from src.ticker_matcher import TickerMatcher
 from src.data_fetcher import DataFetcher
 from src.database import TickerDatabase
+from src.pdf_storage import PDFStorage
+
+logger = logging.getLogger(__name__)
 
 class LineBot:
     def __init__(self):
@@ -21,6 +25,16 @@ class LineBot:
         self.ticker_matcher = TickerMatcher(ticker_map)
         # Initialize database for caching
         self.db = TickerDatabase()
+        # Initialize PDF storage (gracefully handle if S3 not available)
+        try:
+            self.pdf_storage = PDFStorage()
+            if self.pdf_storage.is_available():
+                logger.info("PDF storage initialized and available")
+            else:
+                logger.debug("PDF storage initialized but S3 not available (likely local env)")
+        except Exception as e:
+            logger.warning(f"Failed to initialize PDF storage: {e}")
+            self.pdf_storage = None
 
     def verify_signature(self, body, signature):
         """Verify LINE webhook signature"""
@@ -122,6 +136,24 @@ class LineBot:
         # Return welcome message
         return self.get_help_message()
 
+    def format_message_with_pdf_link(self, report_text: str, pdf_url: str) -> str:
+        """
+        Format message with PDF link at top (concise format), followed by report text
+        
+        Args:
+            report_text: Current report text output
+            pdf_url: Presigned URL to PDF
+            
+        Returns:
+            Formatted message in Thai
+        """
+        return f"""📄 รายงานฉบับเต็ม: {pdf_url}
+⏰ ใช้งานได้ 24 ชั่วโมง
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+{report_text}"""
+    
     def handle_message(self, event):
         """Handle incoming message"""
         try:
@@ -172,7 +204,26 @@ class LineBot:
                 if not report or not isinstance(report, str) or len(report.strip()) == 0:
                     return self.get_error_message(matched_ticker)
                 
-                # Save to cache for future use
+                # Generate PDF and get URL (if PDF storage is available)
+                final_message = report
+                if self.pdf_storage and self.pdf_storage.is_available():
+                    try:
+                        logger.info(f"📄 Generating PDF for {matched_ticker}...")
+                        pdf_bytes = self.agent.generate_pdf_report(matched_ticker)
+                        pdf_url = self.pdf_storage.upload_and_get_url(pdf_bytes, matched_ticker)
+                        
+                        # Format message with PDF link
+                        final_message = self.format_message_with_pdf_link(report, pdf_url)
+                        logger.info(f"✅ PDF generated and uploaded: {pdf_url[:50]}...")
+                    except Exception as pdf_error:
+                        # PDF generation failed - fallback to text-only report
+                        logger.warning(f"⚠️  PDF generation failed for {matched_ticker}: {str(pdf_error)}")
+                        # Continue with text-only report
+                        final_message = report
+                else:
+                    logger.debug("PDF storage not available, skipping PDF generation")
+                
+                # Save to cache for future use (save original report text, not PDF link version)
                 try:
                     self.db.save_report(matched_ticker, today, {
                         'report_text': report,
@@ -188,9 +239,9 @@ class LineBot:
                 
                 # Prepend suggestion if available (suggestion already contains emoji)
                 if suggestion:
-                    return f"{suggestion}\n\n{report}"
+                    return f"{suggestion}\n\n{final_message}"
                 
-                return report
+                return final_message
             except Exception as e:
                 # Log error for debugging but don't expose technical details to user
                 print(f"Error analyzing ticker {matched_ticker}: {str(e)}")
