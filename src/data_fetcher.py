@@ -158,20 +158,81 @@ class DataFetcher:
             print(f"📅 Latest data date: {latest_date}, Close: {latest['Close']:.2f}")
 
             # Step 2: Get fundamental data (this often fails in Lambda)
-            info = {}
+            # First, try to get company name from chart API meta (more reliable)
+            # Initialize with ticker as fallback
+            company_name_from_meta = ticker
             try:
-                logger.info(f"📈 Fetching info data for {ticker}...")
-                print(f"📈 Fetching info data for {ticker}...")
-                info = stock.info
-                logger.info(f"✅ Got info data for {ticker}: company={info.get('longName', 'N/A')}")
-                print(f"✅ Got info data for {ticker}: company={info.get('longName', 'N/A')}")
-            except Exception as info_error:
-                # Info failure is non-fatal - we can still return historical data
-                logger.warning(f"⚠️  Failed to get ticker info for {ticker}: {str(info_error)}")
-                logger.warning(f"   Error type: {type(info_error).__name__}")
-                print(f"⚠️  Failed to get ticker info for {ticker}: {str(info_error)}")
-                print(f"   Error type: {type(info_error).__name__}")
-                # Continue with empty info dict - historical data is more important
+                # Try to get meta from a quick chart API call
+                chart_url = f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}"
+                chart_params = {"interval": "1d", "range": "1d"}
+                chart_headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+                chart_response = requests.get(chart_url, params=chart_params, headers=chart_headers, timeout=5)
+                if chart_response.status_code == 200:
+                    chart_data = chart_response.json()
+                    chart_result = chart_data.get('chart', {}).get('result', [])
+                    if chart_result and len(chart_result) > 0:
+                        meta = chart_result[0].get('meta', {})
+                        company_name_from_meta = meta.get('longName', ticker)
+                        logger.info(f"   ✅ Got company name from chart API: {company_name_from_meta}")
+                        print(f"   ✅ Got company name from chart API: {company_name_from_meta}")
+            except Exception as meta_error:
+                logger.debug(f"   Could not get company name from chart API: {meta_error}")
+                # Keep default value (ticker)
+                pass
+            
+            info = {}
+            info_fetch_success = False
+            for info_attempt in range(3):
+                try:
+                    logger.info(f"📈 Fetching info data for {ticker} (attempt {info_attempt + 1}/3)...")
+                    print(f"📈 Fetching info data for {ticker} (attempt {info_attempt + 1}/3)...")
+                    info = stock.info
+                    
+                    # Validate that we got actual data (not empty dict)
+                    if info and isinstance(info, dict) and len(info) > 0:
+                        # Check if we have at least one key indicator
+                        if 'longName' in info or 'marketCap' in info or 'trailingPE' in info:
+                            logger.info(f"✅ Got info data for {ticker}: company={info.get('longName', 'N/A')}, marketCap={info.get('marketCap', 'N/A')}, pe={info.get('trailingPE', 'N/A')}")
+                            print(f"✅ Got info data for {ticker}: company={info.get('longName', 'N/A')}, marketCap={info.get('marketCap', 'N/A')}, pe={info.get('trailingPE', 'N/A')}")
+                            info_fetch_success = True
+                            break
+                        else:
+                            logger.warning(f"⚠️  Info data appears empty or invalid (no key fields) for {ticker}")
+                            print(f"⚠️  Info data appears empty or invalid (no key fields) for {ticker}")
+                    else:
+                        logger.warning(f"⚠️  Info data is empty dict for {ticker}")
+                        print(f"⚠️  Info data is empty dict for {ticker}")
+                    
+                    # If we got here, info fetch didn't succeed, retry
+                    if info_attempt < 2:
+                        logger.info(f"   Retrying info fetch in 2 seconds...")
+                        print(f"   Retrying info fetch in 2 seconds...")
+                        time.sleep(2)
+                        info = {}  # Reset for retry
+                        
+                except Exception as info_error:
+                    # Info failure is non-fatal - we can still return historical data
+                    logger.warning(f"⚠️  Failed to get ticker info for {ticker} (attempt {info_attempt + 1}/3): {str(info_error)}")
+                    logger.warning(f"   Error type: {type(info_error).__name__}")
+                    print(f"⚠️  Failed to get ticker info for {ticker} (attempt {info_attempt + 1}/3): {str(info_error)}")
+                    print(f"   Error type: {type(info_error).__name__}")
+                    import traceback
+                    logger.warning(f"   Traceback: {traceback.format_exc()}")
+                    
+                    if info_attempt < 2:
+                        logger.info(f"   Retrying info fetch in 2 seconds...")
+                        print(f"   Retrying info fetch in 2 seconds...")
+                        time.sleep(2)
+                        info = {}  # Reset for retry
+                    else:
+                        # Final attempt failed, continue with empty info dict
+                        logger.warning(f"   All info fetch attempts failed, continuing without fundamental data")
+                        print(f"   All info fetch attempts failed, continuing without fundamental data")
+                        info = {}
+            
+            if not info_fetch_success:
+                logger.warning(f"⚠️  Could not fetch fundamental data for {ticker} after 3 attempts - continuing with historical data only")
+                print(f"⚠️  Could not fetch fundamental data for {ticker} after 3 attempts - continuing with historical data only")
 
             data = {
                 'date': latest_date,
@@ -186,9 +247,27 @@ class DataFetcher:
                 'dividend_yield': info.get('dividendYield') if info else None,
                 'sector': info.get('sector') if info else None,
                 'industry': info.get('industry') if info else None,
-                'company_name': info.get('longName', ticker) if info else ticker,
+                'company_name': info.get('longName', company_name_from_meta) if info else company_name_from_meta,
                 'history': hist
             }
+            
+            # Log extracted fundamental values
+            logger.info(f"📊 Extracted fundamental data for {ticker}:")
+            logger.info(f"   Market Cap: {data['market_cap']}")
+            logger.info(f"   P/E Ratio: {data['pe_ratio']}")
+            logger.info(f"   EPS: {data['eps']}")
+            logger.info(f"   Dividend Yield: {data['dividend_yield']}")
+            logger.info(f"   Sector: {data['sector']}")
+            logger.info(f"   Industry: {data['industry']}")
+            logger.info(f"   Company Name: {data['company_name']}")
+            print(f"📊 Extracted fundamental data for {ticker}:")
+            print(f"   Market Cap: {data['market_cap']}")
+            print(f"   P/E Ratio: {data['pe_ratio']}")
+            print(f"   EPS: {data['eps']}")
+            print(f"   Dividend Yield: {data['dividend_yield']}")
+            print(f"   Sector: {data['sector']}")
+            print(f"   Industry: {data['industry']}")
+            print(f"   Company Name: {data['company_name']}")
 
             logger.info(f"✅ Successfully fetched data for {ticker}")
             print(f"✅ Successfully fetched data for {ticker}")

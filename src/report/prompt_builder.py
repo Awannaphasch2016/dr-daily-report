@@ -1,6 +1,11 @@
 """Prompt building utilities for LLM report generation"""
 
+import logging
 from typing import Dict, Optional
+
+# Setup logger
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 
 class PromptBuilder:
@@ -8,6 +13,15 @@ class PromptBuilder:
     
     def build_prompt(self, context: str, uncertainty_score: float, strategy_performance: dict = None) -> str:
         """Build LLM prompt with optional strategy performance data"""
+        logger.info("🔨 [PromptBuilder] Building prompt")
+        logger.info(f"   📊 Input parameters:")
+        logger.info(f"      - Context length: {len(context)} characters")
+        logger.info(f"      - Uncertainty score: {uncertainty_score:.2f}/100")
+        logger.info(f"      - Strategy performance included: {strategy_performance is not None}")
+        
+        if strategy_performance:
+            logger.info(f"      - Strategy performance keys: {list(strategy_performance.keys())}")
+        
         base_intro = f"""You are a world-class financial analyst like Aswath Damodaran. Write in Thai, but think like him - tell stories with data, don't just list numbers.
 
 Data:
@@ -59,7 +73,36 @@ CRITICAL NARRATIVE ELEMENTS - You MUST weave these "narrative + number + histori
         comparative_section = self._build_comparative_section()
         structure = self.build_prompt_structure(bool(strategy_performance))
 
-        return base_intro + narrative_elements + strategy_section + comparative_section + structure
+        # Log section details
+        logger.info(f"   📋 Prompt sections:")
+        logger.info(f"      - Base intro: {len(base_intro)} chars")
+        logger.info(f"      - Narrative elements: {len(narrative_elements)} chars")
+        logger.info(f"      - Strategy section: {len(strategy_section)} chars {'(included)' if strategy_section else '(excluded)'}")
+        logger.info(f"      - Comparative section: {len(comparative_section)} chars")
+        logger.info(f"      - Structure: {len(structure)} chars")
+
+        final_prompt = base_intro + narrative_elements + strategy_section + comparative_section + structure
+        
+        # Log final prompt summary
+        logger.info(f"   ✅ Final prompt built:")
+        logger.info(f"      - Total length: {len(final_prompt)} characters (~{len(final_prompt) // 4} tokens estimated)")
+        logger.info(f"      - First 200 chars: {final_prompt[:200]}...")
+        logger.info(f"      - Last 200 chars: ...{final_prompt[-200:]}")
+        
+        # Log full prompt content (split into chunks if too long for single log line)
+        logger.info("   📄 Full prompt content:")
+        # Split into chunks of ~8000 chars to avoid CloudWatch log line limits
+        chunk_size = 8000
+        for i in range(0, len(final_prompt), chunk_size):
+            chunk = final_prompt[i:i + chunk_size]
+            chunk_num = (i // chunk_size) + 1
+            total_chunks = (len(final_prompt) + chunk_size - 1) // chunk_size
+            if total_chunks > 1:
+                logger.info(f"      [Chunk {chunk_num}/{total_chunks}]:\n{chunk}")
+            else:
+                logger.info(f"      {chunk}")
+        
+        return final_prompt
     
     def _build_base_prompt_section(self, uncertainty_score: float) -> str:
         """Build the base narrative elements section"""

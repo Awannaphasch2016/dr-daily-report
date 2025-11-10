@@ -1,9 +1,14 @@
 """Context building utilities for LLM report generation"""
 
+import logging
 from typing import Dict, List, Optional
 from src.analysis import MarketAnalyzer
 from src.formatters import DataFormatter
 from src.technical_analysis import TechnicalAnalyzer
+
+# Setup logger
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 
 class ContextBuilder:
@@ -17,6 +22,17 @@ class ContextBuilder:
     
     def prepare_context(self, ticker: str, ticker_data: dict, indicators: dict, percentiles: dict, news: list, news_summary: dict, strategy_performance: dict = None, comparative_insights: dict = None) -> str:
         """Prepare context for LLM with uncertainty components and percentile information"""
+        logger.info("📝 [ContextBuilder] Building context for LLM")
+        logger.info(f"   📊 Input parameters:")
+        logger.info(f"      - Ticker: {ticker}")
+        logger.info(f"      - Ticker data keys: {list(ticker_data.keys()) if ticker_data else 'None'}")
+        logger.info(f"      - Indicators keys: {list(indicators.keys()) if indicators else 'None'}")
+        logger.info(f"      - Percentiles keys: {list(percentiles.keys()) if percentiles else 'None'}")
+        logger.info(f"      - News items: {len(news) if news else 0}")
+        logger.info(f"      - News summary keys: {list(news_summary.keys()) if news_summary else 'None'}")
+        logger.info(f"      - Strategy performance included: {strategy_performance is not None}")
+        logger.info(f"      - Comparative insights included: {comparative_insights is not None}")
+        
         conditions = self.market_analyzer.calculate_market_conditions(indicators)
         current_price = conditions['current_price']
         
@@ -33,6 +49,14 @@ class ContextBuilder:
         comparative_insights = comparative_insights or {}
         comparative_section = self.data_formatter.format_comparative_insights(ticker, comparative_insights)
 
+        # Log section sizes
+        logger.info(f"   📋 Context sections:")
+        logger.info(f"      - Fundamental section: {len(fundamental_section)} chars")
+        logger.info(f"      - Technical section: {len(technical_section)} chars")
+        logger.info(f"      - News section: {len(news_section)} chars")
+        logger.info(f"      - Percentile context: {len(percentile_context)} chars")
+        logger.info(f"      - Comparative section: {len(comparative_section)} chars {'(included)' if comparative_section else '(excluded)'}")
+
         # Calculate ground truth for placeholder reference
         ground_truth = {
             'uncertainty_score': conditions['uncertainty_score'],
@@ -40,6 +64,13 @@ class ContextBuilder:
             'vwap_pct': conditions['price_vs_vwap_pct'],
             'volume_ratio': conditions['volume_ratio'],
         }
+
+        logger.info(f"   🔢 Ground truth values:")
+        logger.info(f"      - Uncertainty: {ground_truth['uncertainty_score']:.2f}/100")
+        logger.info(f"      - ATR %: {ground_truth['atr_pct']:.2f}%")
+        logger.info(f"      - VWAP %: {ground_truth['vwap_pct']:.2f}%")
+        logger.info(f"      - Volume ratio: {ground_truth['volume_ratio']:.2f}x")
+        logger.info(f"      - Current price: ${current_price:.2f}")
 
         context = f"""
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -93,5 +124,24 @@ REMEMBER: Write "{{{{UNCERTAINTY}}}}/100" NOT "{ground_truth['uncertainty_score'
 การวิเคราะห์เปรียบเทียบกับหุ้นอื่น (Comparative Analysis):
 {comparative_section if comparative_section else "- ไม่มีข้อมูลเปรียบเทียบ (ใช้ข้อมูลเดียวกับหุ้นตัวนี้เท่านั้น)"}
 {news_section}"""
+        
+        # Log final context summary
+        logger.info(f"   ✅ Final context built:")
+        logger.info(f"      - Total length: {len(context)} characters (~{len(context) // 4} tokens estimated)")
+        logger.info(f"      - First 200 chars: {context[:200]}...")
+        logger.info(f"      - Last 200 chars: ...{context[-200:]}")
+        
+        # Log full context content (split into chunks if too long for single log line)
+        logger.info("   📄 Full context content:")
+        # Split into chunks of ~8000 chars to avoid CloudWatch log line limits
+        chunk_size = 8000
+        for i in range(0, len(context), chunk_size):
+            chunk = context[i:i + chunk_size]
+            chunk_num = (i // chunk_size) + 1
+            total_chunks = (len(context) + chunk_size - 1) // chunk_size
+            if total_chunks > 1:
+                logger.info(f"      [Chunk {chunk_num}/{total_chunks}]:\n{chunk}")
+            else:
+                logger.info(f"      {chunk}")
         
         return context

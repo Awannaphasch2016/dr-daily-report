@@ -1,5 +1,6 @@
 """Workflow nodes for LangGraph ticker analysis agent"""
 
+import logging
 from typing import TypedDict
 import time
 import json
@@ -8,6 +9,10 @@ import pandas as pd
 from langchain_core.messages import HumanMessage
 
 from src.types import AgentState
+
+# Setup logger
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 
 class WorkflowNodes:
@@ -66,9 +71,138 @@ class WorkflowNodes:
         self.compliance_scorer = compliance_scorer
         self.ticker_map = ticker_map
         self._db_query_count_ref = db_query_count_ref
+        # Track node execution for summary
+        self._node_execution_log = []
+    
+    def _log_node_start(self, node_name: str, state: AgentState):
+        """Log node execution start"""
+        ticker = state.get("ticker", "UNKNOWN")
+        logger.info(f"🟢 [{node_name}] START - Ticker: {ticker}")
+        self._node_execution_log.append({
+            'node': node_name,
+            'ticker': ticker,
+            'status': 'started',
+            'timestamp': datetime.now().isoformat()
+        })
+    
+    def _log_node_success(self, node_name: str, state: AgentState, details: dict = None):
+        """Log node execution success"""
+        ticker = state.get("ticker", "UNKNOWN")
+        details_str = f" - {details}" if details else ""
+        logger.info(f"✅ [{node_name}] SUCCESS - Ticker: {ticker}{details_str}")
+        self._node_execution_log.append({
+            'node': node_name,
+            'ticker': ticker,
+            'status': 'success',
+            'timestamp': datetime.now().isoformat(),
+            'details': details or {}
+        })
+    
+    def _log_node_error(self, node_name: str, state: AgentState, error_msg: str):
+        """Log node execution error"""
+        ticker = state.get("ticker", "UNKNOWN")
+        logger.error(f"❌ [{node_name}] ERROR - Ticker: {ticker} - {error_msg}")
+        self._node_execution_log.append({
+            'node': node_name,
+            'ticker': ticker,
+            'status': 'error',
+            'timestamp': datetime.now().isoformat(),
+            'error': error_msg
+        })
+    
+    def _log_node_skip(self, node_name: str, state: AgentState, reason: str):
+        """Log node execution skip"""
+        ticker = state.get("ticker", "UNKNOWN")
+        logger.warning(f"⏭️  [{node_name}] SKIPPED - Ticker: {ticker} - Reason: {reason}")
+        self._node_execution_log.append({
+            'node': node_name,
+            'ticker': ticker,
+            'status': 'skipped',
+            'timestamp': datetime.now().isoformat(),
+            'reason': reason
+        })
+    
+    def _validate_state_field(self, state: AgentState, field_name: str, node_name: str) -> bool:
+        """Validate that a state field is not None"""
+        value = state.get(field_name)
+        if value is None:
+            logger.warning(f"⚠️  [{node_name}] VALIDATION WARNING - Field '{field_name}' is None")
+            return False
+        return True
+    
+    def _validate_state_fields(self, state: AgentState, required_fields: list, node_name: str) -> dict:
+        """Validate multiple state fields and return validation results"""
+        results = {}
+        for field in required_fields:
+            results[field] = self._validate_state_field(state, field, node_name)
+        return results
+    
+    def get_workflow_summary(self) -> dict:
+        """Get summary of workflow node execution"""
+        summary = {
+            'total_nodes': len(self._node_execution_log),
+            'nodes': self._node_execution_log,
+            'success_count': sum(1 for n in self._node_execution_log if n['status'] == 'success'),
+            'error_count': sum(1 for n in self._node_execution_log if n['status'] == 'error'),
+            'skipped_count': sum(1 for n in self._node_execution_log if n['status'] == 'skipped')
+        }
+        return summary
+    
+    def log_workflow_summary(self, state: AgentState):
+        """Log comprehensive workflow execution summary"""
+        summary = self.get_workflow_summary()
+        ticker = state.get("ticker", "UNKNOWN")
+        
+        logger.info("=" * 80)
+        logger.info(f"📊 WORKFLOW EXECUTION SUMMARY - Ticker: {ticker}")
+        logger.info("=" * 80)
+        
+        for node_log in summary['nodes']:
+            status_emoji = {
+                'started': '🟢',
+                'success': '✅',
+                'error': '❌',
+                'skipped': '⏭️'
+            }.get(node_log['status'], '❓')
+            
+            logger.info(f"{status_emoji} [{node_log['node']}] {node_log['status'].upper()}")
+            if node_log.get('error'):
+                logger.info(f"   Error: {node_log['error']}")
+            if node_log.get('reason'):
+                logger.info(f"   Reason: {node_log['reason']}")
+            if node_log.get('details'):
+                logger.info(f"   Details: {node_log['details']}")
+        
+        logger.info("-" * 80)
+        logger.info(f"Total Nodes: {summary['total_nodes']}")
+        logger.info(f"✅ Success: {summary['success_count']}")
+        logger.info(f"❌ Errors: {summary['error_count']}")
+        logger.info(f"⏭️  Skipped: {summary['skipped_count']}")
+        logger.info("=" * 80)
+        
+        # Validate critical state fields
+        critical_fields = {
+            'fetch_data': ['ticker_data'],
+            'fetch_news': ['news', 'news_summary'],
+            'analyze_technical': ['indicators', 'percentiles'],
+            'generate_chart': ['chart_base64'],
+            'generate_report': ['report']
+        }
+        
+        logger.info("🔍 STATE FIELD VALIDATION:")
+        for node_name, fields in critical_fields.items():
+            node_logs = [n for n in summary['nodes'] if n['node'] == node_name]
+            if node_logs and node_logs[-1]['status'] == 'success':
+                validation = self._validate_state_fields(state, fields, node_name)
+                for field, is_valid in validation.items():
+                    status = "✅" if is_valid else "❌"
+                    logger.info(f"   {status} {node_name}.{field}: {'OK' if is_valid else 'MISSING/NONE'}")
+        
+        logger.info("=" * 80)
     
     def fetch_data(self, state: AgentState) -> AgentState:
         """Fetch ticker data from Yahoo Finance"""
+        self._log_node_start("fetch_data", state)
         start_time = time.perf_counter()
         ticker = state["ticker"]
 
@@ -79,14 +213,20 @@ class WorkflowNodes:
         yahoo_ticker = self.ticker_map.get(ticker.upper())
 
         if not yahoo_ticker:
-            state["error"] = f"ไม่พบข้อมูล ticker สำหรับ {ticker}"
+            error_msg = f"ไม่พบข้อมูล ticker สำหรับ {ticker}"
+            state["error"] = error_msg
+            self._log_node_error("fetch_data", state, error_msg)
             return state
+
+        logger.info(f"   📊 Fetching data for {ticker} -> {yahoo_ticker}")
 
         # Fetch data
         data = self.data_fetcher.fetch_ticker_data(yahoo_ticker)
 
         if not data:
-            state["error"] = f"ไม่สามารถดึงข้อมูลสำหรับ {ticker} ({yahoo_ticker}) ได้"
+            error_msg = f"ไม่สามารถดึงข้อมูลสำหรับ {ticker} ({yahoo_ticker}) ได้"
+            state["error"] = error_msg
+            self._log_node_error("fetch_data", state, error_msg)
             return state
 
         # Get additional info
@@ -117,11 +257,26 @@ class WorkflowNodes:
         state["timing_metrics"] = timing_metrics
 
         state["ticker_data"] = data
+        
+        # Validate output
+        if not self._validate_state_field(state, "ticker_data", "fetch_data"):
+            self._log_node_error("fetch_data", state, "ticker_data is None after fetch")
+        else:
+            details = {
+                'yahoo_ticker': yahoo_ticker,
+                'has_history': 'history' in data and data['history'] is not None,
+                'duration_ms': f"{elapsed*1000:.2f}"
+            }
+            self._log_node_success("fetch_data", state, details)
+        
         return state
 
     def fetch_news(self, state: AgentState) -> AgentState:
         """Fetch high-impact news for the ticker"""
+        self._log_node_start("fetch_news", state)
+        
         if state.get("error"):
+            self._log_node_skip("fetch_news", state, "Previous error in workflow")
             return state
 
         start_time = time.perf_counter()
@@ -129,7 +284,10 @@ class WorkflowNodes:
         if not yahoo_ticker:
             state["news"] = []
             state["news_summary"] = {}
+            self._log_node_skip("fetch_news", state, "No yahoo_ticker found")
             return state
+
+        logger.info(f"   📰 Fetching news for {yahoo_ticker}")
 
         # Fetch high-impact news (min score 40, max 5 items)
         high_impact_news = self.news_fetcher.filter_high_impact_news(
@@ -150,11 +308,28 @@ class WorkflowNodes:
         state["news"] = high_impact_news
         state["news_summary"] = news_summary
 
+        # Validate output
+        validation = self._validate_state_fields(state, ["news", "news_summary"], "fetch_news")
+        if all(validation.values()):
+            details = {
+                'news_count': len(high_impact_news),
+                'positive': news_summary.get('positive_count', 0),
+                'negative': news_summary.get('negative_count', 0),
+                'neutral': news_summary.get('neutral_count', 0),
+                'duration_ms': f"{elapsed*1000:.2f}"
+            }
+            self._log_node_success("fetch_news", state, details)
+        else:
+            self._log_node_error("fetch_news", state, f"Validation failed: {validation}")
+
         return state
 
     def analyze_technical(self, state: AgentState) -> AgentState:
         """Analyze technical indicators with percentile analysis"""
+        self._log_node_start("analyze_technical", state)
+        
         if state.get("error"):
+            self._log_node_skip("analyze_technical", state, "Previous error in workflow")
             return state
 
         start_time = time.perf_counter()
@@ -162,14 +337,20 @@ class WorkflowNodes:
         hist_data = ticker_data.get('history')
 
         if hist_data is None or hist_data.empty:
-            state["error"] = "ไม่มีข้อมูลประวัติสำหรับการวิเคราะห์"
+            error_msg = "ไม่มีข้อมูลประวัติสำหรับการวิเคราะห์"
+            state["error"] = error_msg
+            self._log_node_error("analyze_technical", state, error_msg)
             return state
+
+        logger.info(f"   📈 Analyzing technical indicators (data points: {len(hist_data)})")
 
         # Calculate indicators with percentiles
         result = self.technical_analyzer.calculate_all_indicators_with_percentiles(hist_data)
 
         if not result or not result.get('indicators'):
-            state["error"] = "ไม่สามารถคำนวณ indicators ได้"
+            error_msg = "ไม่สามารถคำนวณ indicators ได้"
+            state["error"] = error_msg
+            self._log_node_error("analyze_technical", state, error_msg)
             return state
 
         indicators = result['indicators']
@@ -192,7 +373,7 @@ class WorkflowNodes:
                         'last_sell_signal': self.strategy_analyzer.get_last_sell_signal(hist_data)
                     }
             except Exception as e:
-                print(f"Error calculating strategy performance: {str(e)}")
+                logger.warning(f"   ⚠️  Error calculating strategy performance: {str(e)}")
                 strategy_performance = {}
 
         # Save indicators to database
@@ -214,11 +395,29 @@ class WorkflowNodes:
         state["chart_patterns"] = chart_patterns
         state["pattern_statistics"] = pattern_statistics
         state["strategy_performance"] = strategy_performance
+        
+        # Validate output
+        validation = self._validate_state_fields(state, ["indicators", "percentiles"], "analyze_technical")
+        if all(validation.values()):
+            details = {
+                'indicators_count': len(indicators),
+                'percentiles_count': len(percentiles),
+                'patterns_count': len(chart_patterns),
+                'has_strategy': bool(strategy_performance),
+                'duration_ms': f"{elapsed*1000:.2f}"
+            }
+            self._log_node_success("analyze_technical", state, details)
+        else:
+            self._log_node_error("analyze_technical", state, f"Validation failed: {validation}")
+        
         return state
 
     def generate_chart(self, state: AgentState) -> AgentState:
         """Generate technical analysis chart"""
+        self._log_node_start("generate_chart", state)
+        
         if state.get("error"):
+            self._log_node_skip("generate_chart", state, "Previous error in workflow")
             return state
 
         start_time = time.perf_counter()
@@ -226,6 +425,8 @@ class WorkflowNodes:
             ticker = state["ticker"]
             ticker_data = state["ticker_data"]
             indicators = state["indicators"]
+
+            logger.info(f"   📊 Generating chart for {ticker}")
 
             # Generate chart (90 days by default)
             chart_base64 = self.chart_generator.generate_chart(
@@ -236,12 +437,23 @@ class WorkflowNodes:
             )
 
             state["chart_base64"] = chart_base64
-            print(f"✅ Chart generated for {ticker}")
+            
+            # Validate output
+            if chart_base64:
+                elapsed = time.perf_counter() - start_time
+                details = {
+                    'chart_size_bytes': len(chart_base64),
+                    'duration_ms': f"{elapsed*1000:.2f}"
+                }
+                self._log_node_success("generate_chart", state, details)
+            else:
+                self._log_node_error("generate_chart", state, "chart_base64 is empty")
 
         except Exception as e:
-            print(f"⚠️  Chart generation failed: {str(e)}")
+            logger.error(f"   ⚠️  Chart generation failed: {str(e)}")
             # Don't set error - chart is optional, continue without it
             state["chart_base64"] = ""
+            self._log_node_error("generate_chart", state, f"Exception: {str(e)}")
 
         # Record timing (even if failed)
         elapsed = time.perf_counter() - start_time
@@ -253,10 +465,14 @@ class WorkflowNodes:
 
     def generate_report(self, state: AgentState) -> AgentState:
         """Generate Thai language report using LLM"""
+        self._log_node_start("generate_report", state)
+        
         if state.get("error"):
+            self._log_node_skip("generate_report", state, "Previous error in workflow")
             return state
 
         llm_start_time = time.perf_counter()
+        logger.info(f"   📝 Generating report with LLM")
         ticker = state["ticker"]
         ticker_data = state["ticker_data"]
         indicators = state["indicators"]
@@ -361,6 +577,26 @@ class WorkflowNodes:
         if percentiles:
             percentile_analysis = self.technical_analyzer.format_percentile_analysis(percentiles)
             report += f"\n\n{percentile_analysis}"
+
+        # Validate report output
+        if not report or len(report.strip()) == 0:
+            error_msg = "Generated report is empty"
+            state["error"] = error_msg
+            self._log_node_error("generate_report", state, error_msg)
+            return state
+        
+        state["report"] = report
+        
+        # Log success with details
+        llm_elapsed = time.perf_counter() - llm_start_time
+        details = {
+            'report_length': len(report),
+            'llm_calls': llm_calls,
+            'input_tokens': total_input_tokens,
+            'output_tokens': total_output_tokens,
+            'duration_ms': f"{llm_elapsed*1000:.2f}"
+        }
+        self._log_node_success("generate_report", state, details)
 
         # Build scoring context for storage and scoring
         # Convert datetime/DataFrame objects to JSON-serializable format
@@ -503,12 +739,18 @@ class WorkflowNodes:
 
         # Reset query count for next run
         self._db_query_count_ref[0] = 0
+        
+        # Log workflow summary
+        self.log_workflow_summary(state)
 
         return state
 
     def fetch_comparative_data(self, state: AgentState) -> AgentState:
         """Fetch historical data for comparative analysis with similar tickers"""
+        self._log_node_start("fetch_comparative_data", state)
+        
         if state.get("error"):
+            self._log_node_skip("fetch_comparative_data", state, "Previous error in workflow")
             return state
         
         start_time = time.perf_counter()
@@ -517,9 +759,12 @@ class WorkflowNodes:
         
         if not yahoo_ticker:
             state["comparative_data"] = {}
+            self._log_node_skip("fetch_comparative_data", state, "No yahoo_ticker found")
             return state
         
         try:
+            logger.info(f"   🔄 Fetching comparative data for {ticker}")
+            
             # Get similar tickers from the same sector or nearby tickers in our list
             # For now, fetch 3-5 other tickers from our ticker list for comparison
             all_tickers = list(self.ticker_map.keys())
@@ -544,15 +789,23 @@ class WorkflowNodes:
                         if hist_data is not None and not hist_data.empty:
                             comparative_data[t] = hist_data
                     except Exception as e:
-                        print(f"⚠️  Failed to fetch comparative data for {t}: {str(e)}")
+                        logger.warning(f"   ⚠️  Failed to fetch comparative data for {t}: {str(e)}")
                         continue
             
             state["comparative_data"] = comparative_data
-            print(f"✅ Fetched comparative data for {len(comparative_data)} tickers")
+            
+            # Validate output
+            elapsed = time.perf_counter() - start_time
+            details = {
+                'tickers_fetched': len(comparative_data),
+                'duration_ms': f"{elapsed*1000:.2f}"
+            }
+            self._log_node_success("fetch_comparative_data", state, details)
             
         except Exception as e:
-            print(f"⚠️  Comparative data fetch failed: {str(e)}")
+            logger.error(f"   ⚠️  Comparative data fetch failed: {str(e)}")
             state["comparative_data"] = {}
+            self._log_node_error("fetch_comparative_data", state, f"Exception: {str(e)}")
         
         # Record timing
         elapsed = time.perf_counter() - start_time
@@ -564,7 +817,10 @@ class WorkflowNodes:
     
     def analyze_comparative_insights(self, state: AgentState) -> AgentState:
         """Perform comparative analysis and extract narrative-ready insights"""
+        self._log_node_start("analyze_comparative_insights", state)
+        
         if state.get("error"):
+            self._log_node_skip("analyze_comparative_insights", state, "Previous error in workflow")
             return state
         
         start_time = time.perf_counter()
@@ -575,9 +831,12 @@ class WorkflowNodes:
         
         if not comparative_data:
             state["comparative_insights"] = {}
+            self._log_node_skip("analyze_comparative_insights", state, "No comparative data available")
             return state
         
         try:
+            logger.info(f"   🔍 Analyzing comparative insights for {ticker}")
+            
             # Add current ticker's data to comparative dataset
             yahoo_ticker = self.ticker_map.get(ticker.upper())
             if yahoo_ticker and ticker_data.get("history") is not None:
@@ -592,13 +851,23 @@ class WorkflowNodes:
                 # Extract narrative-ready insights
                 insights = self._extract_narrative_insights(ticker, indicators, analysis_results, comparative_data)
                 state["comparative_insights"] = insights
-                print(f"✅ Generated comparative insights for {ticker}")
+                
+                # Validate output
+                elapsed = time.perf_counter() - start_time
+                details = {
+                    'insights_count': len(insights),
+                    'comparative_tickers': len(comparative_data),
+                    'duration_ms': f"{elapsed*1000:.2f}"
+                }
+                self._log_node_success("analyze_comparative_insights", state, details)
             else:
                 state["comparative_insights"] = {}
+                self._log_node_skip("analyze_comparative_insights", state, "Insufficient comparative data")
                 
         except Exception as e:
-            print(f"⚠️  Comparative analysis failed: {str(e)}")
+            logger.error(f"   ⚠️  Comparative analysis failed: {str(e)}")
             state["comparative_insights"] = {}
+            self._log_node_error("analyze_comparative_insights", state, f"Exception: {str(e)}")
         
         # Record timing
         elapsed = time.perf_counter() - start_time
