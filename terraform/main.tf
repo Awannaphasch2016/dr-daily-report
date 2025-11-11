@@ -162,7 +162,7 @@ resource "aws_s3_bucket_versioning" "pdf_reports" {
   }
 }
 
-# Lifecycle policy - delete PDFs older than 30 days
+# Lifecycle policy - delete old PDFs and cache
 resource "aws_s3_bucket_lifecycle_configuration" "pdf_reports" {
   bucket = aws_s3_bucket.pdf_reports.id
 
@@ -174,6 +174,17 @@ resource "aws_s3_bucket_lifecycle_configuration" "pdf_reports" {
 
     expiration {
       days = 30
+    }
+  }
+
+  rule {
+    id     = "delete_old_cache"
+    status = "Enabled"
+
+    prefix = "cache/"
+
+    expiration {
+      days = 1  # Cache expires after 24 hours
     }
   }
 }
@@ -287,7 +298,10 @@ resource "aws_lambda_function" "line_bot" {
       LINE_CHANNEL_ACCESS_TOKEN = var.line_channel_access_token
       LINE_CHANNEL_SECRET       = var.line_channel_secret
       PDF_STORAGE_BUCKET        = aws_s3_bucket.pdf_reports.id
+      PDF_BUCKET_NAME           = aws_s3_bucket.pdf_reports.id
       PDF_URL_EXPIRATION_HOURS  = "24"
+      CACHE_BACKEND             = "hybrid"  # hybrid, s3, or sqlite
+      CACHE_TTL_HOURS           = "24"
     }
   }
 

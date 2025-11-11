@@ -12,6 +12,7 @@ from src.ticker_matcher import TickerMatcher
 from src.data_fetcher import DataFetcher
 from src.database import TickerDatabase
 from src.pdf_storage import PDFStorage
+from src.s3_cache import S3Cache
 
 logger = logging.getLogger(__name__)
 
@@ -24,8 +25,25 @@ class LineBot:
         data_fetcher = DataFetcher()
         ticker_map = data_fetcher.load_tickers()
         self.ticker_matcher = TickerMatcher(ticker_map)
-        # Initialize database for caching
-        self.db = TickerDatabase()
+
+        # Initialize S3 cache (if enabled)
+        self.s3_cache = None
+        cache_backend = os.getenv("CACHE_BACKEND", "hybrid")  # hybrid, s3, or sqlite
+        if cache_backend in ("s3", "hybrid"):
+            try:
+                pdf_bucket = os.getenv("PDF_BUCKET_NAME")
+                cache_ttl = int(os.getenv("CACHE_TTL_HOURS", "24"))
+                if pdf_bucket:
+                    self.s3_cache = S3Cache(bucket_name=pdf_bucket, ttl_hours=cache_ttl)
+                    logger.info(f"✅ S3 cache initialized (backend={cache_backend}, TTL={cache_ttl}h)")
+                else:
+                    logger.warning("PDF_BUCKET_NAME not set, S3 cache disabled")
+            except Exception as e:
+                logger.warning(f"Failed to initialize S3 cache: {e}")
+
+        # Initialize database for caching (with S3 cache integration)
+        self.db = TickerDatabase(s3_cache=self.s3_cache)
+
         # Initialize PDF storage (gracefully handle if S3 not available)
         try:
             self.pdf_storage = PDFStorage()
@@ -279,16 +297,26 @@ class LineBot:
                 # Generate PDF and get URL (if PDF storage is available)
                 final_message = report
                 pdf_template_message = None
-                
+                pdf_url = None
+
                 if self.pdf_storage and self.pdf_storage.is_available():
                     try:
-                        logger.info(f"📄 Generating PDF for {matched_ticker}...")
-                        pdf_bytes = self.agent.generate_pdf_report(matched_ticker)
-                        pdf_url = self.pdf_storage.upload_and_get_url(pdf_bytes, matched_ticker)
-                        
+                        # Check if PDF already exists in S3 cache
+                        if self.s3_cache:
+                            pdf_url = self.s3_cache.get_pdf_url(matched_ticker, today)
+                            if pdf_url:
+                                logger.info(f"✅ PDF cache hit for {matched_ticker}, reusing existing PDF")
+
+                        # Generate new PDF if not cached
+                        if not pdf_url:
+                            logger.info(f"📄 Generating PDF for {matched_ticker}...")
+                            pdf_bytes = self.agent.generate_pdf_report(matched_ticker)
+                            pdf_url = self.pdf_storage.upload_and_get_url(pdf_bytes, matched_ticker)
+                            logger.info(f"✅ PDF generated and uploaded: {pdf_url[:50]}...")
+
                         # Format message with PDF link (returns tuple: report_text, template_message)
                         final_message, pdf_template_message = self.format_message_with_pdf_link(report, pdf_url, matched_ticker)
-                        logger.info(f"✅ PDF generated and uploaded: {pdf_url[:50]}...")
+
                     except Exception as pdf_error:
                         # PDF generation failed - fallback to text-only report
                         logger.warning(f"⚠️  PDF generation failed for {matched_ticker}: {str(pdf_error)}")

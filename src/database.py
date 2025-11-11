@@ -2,9 +2,19 @@ import sqlite3
 from datetime import datetime
 import json
 import os
+import logging
+
+logger = logging.getLogger(__name__)
 
 class TickerDatabase:
-    def __init__(self, db_path=None):
+    def __init__(self, db_path=None, s3_cache=None):
+        """
+        Initialize TickerDatabase with optional S3 cache.
+
+        Args:
+            db_path: Path to SQLite database file
+            s3_cache: Optional S3Cache instance for persistent caching
+        """
         # Use /tmp in Lambda environment, otherwise use provided path or default
         if db_path is None:
             if os.environ.get('AWS_LAMBDA_FUNCTION_NAME'):
@@ -14,6 +24,7 @@ class TickerDatabase:
                 # Local environment
                 db_path = "data/ticker_data.db"
         self.db_path = db_path
+        self.s3_cache = s3_cache
         self.init_db()
 
     def init_db(self):
@@ -348,7 +359,15 @@ class TickerDatabase:
         conn.close()
 
     def save_report(self, ticker, date, report_data):
-        """Save generated report"""
+        """
+        Save generated report to both SQLite and S3 cache.
+
+        Args:
+            ticker: Ticker symbol
+            date: Date string
+            report_data: Report data dict with report_text, context_json, etc.
+        """
+        # Save to SQLite (local cache)
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
 
@@ -364,6 +383,11 @@ class TickerDatabase:
 
         conn.commit()
         conn.close()
+
+        # Save to S3 cache (persistent across instances)
+        if self.s3_cache:
+            self.s3_cache.save_report_cache(ticker, date, report_data)
+            logger.info(f"💾 Saved report to S3 cache: {ticker} on {date}")
 
     def get_report_with_context(self, ticker, date):
         """Get report with context data for rescoring"""
@@ -419,7 +443,20 @@ class TickerDatabase:
         return row
 
     def get_cached_report(self, ticker, date):
-        """Get cached report if available"""
+        """
+        Get cached report if available (hybrid SQLite + S3 cache).
+
+        Checks local SQLite first for fast access, then falls back to S3
+        for persistent cross-instance cache.
+
+        Args:
+            ticker: Ticker symbol
+            date: Date string (YYYY-MM-DD)
+
+        Returns:
+            Cached report text or None
+        """
+        # Layer 1: Check local SQLite (fast path ~1ms)
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
 
@@ -430,7 +467,56 @@ class TickerDatabase:
 
         row = cursor.fetchone()
         conn.close()
-        return row[0] if row else None
+
+        if row:
+            logger.info(f"✅ SQLite cache hit for {ticker} on {date}")
+            return row[0]
+
+        # Layer 2: Check S3 cache (persistent, ~100ms)
+        if self.s3_cache:
+            cached_data = self.s3_cache.get_cached_report(ticker, date)
+            if cached_data:
+                report_text = cached_data.get('report_text')
+                if report_text:
+                    # Backfill local SQLite cache for future requests
+                    self._backfill_local_cache(ticker, date, cached_data)
+                    logger.info(f"✅ S3 cache hit for {ticker} on {date} (backfilled to SQLite)")
+                    return report_text
+
+        logger.debug(f"Cache miss for {ticker} on {date}")
+        return None
+
+    def _backfill_local_cache(self, ticker, date, cached_data):
+        """
+        Backfill local SQLite cache with S3 data.
+
+        Args:
+            ticker: Ticker symbol
+            date: Date string
+            cached_data: Complete cached data from S3
+        """
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                INSERT OR REPLACE INTO reports
+                (ticker, date, report_text, context_json, created_at)
+                VALUES (?, ?, ?, ?, ?)
+            """, (
+                ticker,
+                date,
+                cached_data.get('report_text'),
+                cached_data.get('context_json'),
+                datetime.now().isoformat()
+            ))
+
+            conn.commit()
+            conn.close()
+            logger.debug(f"Backfilled SQLite cache for {ticker} on {date}")
+
+        except Exception as e:
+            logger.error(f"Failed to backfill local cache: {e}")
     
     def save_qos_metrics(self, ticker, date, qos_score):
         """
