@@ -48,24 +48,29 @@ def create_tiles_visualization(data, container_width=1600):
     # Prepare data for ColumnDataSource
     tiles_data = prepare_tiles_data(data, container_width)
     
+    # Extract cols for height calculation (not used in ColumnDataSource)
+    cols = tiles_data.pop('cols')
+    tile_width = tiles_data.pop('tile_width')
+    tile_height = tiles_data.pop('tile_height')
+    
     # Create main figure
     p = figure(
         width=container_width,
-        height=math.ceil(len(data) / tiles_data['cols']) * (TILE_HEIGHT + TILE_PADDING) + TILE_PADDING,
+        height=math.ceil(len(data) / cols) * (tile_height + TILE_PADDING) + TILE_PADDING,
         tools="tap,pan,wheel_zoom,reset",
         toolbar_location=None,
         x_range=(0, container_width),
-        y_range=(0, math.ceil(len(data) / tiles_data['cols']) * (TILE_HEIGHT + TILE_PADDING) + TILE_PADDING),
+        y_range=(0, math.ceil(len(data) / cols) * (tile_height + TILE_PADDING) + TILE_PADDING),
         min_border=0,
         outline_line_color=None,
         background_fill_color='white'
     )
     
-    # Create ColumnDataSource
+    # Create ColumnDataSource (without scalar values)
     source = ColumnDataSource(tiles_data)
     
     # Render tile backgrounds
-    render_tile_backgrounds(p, source)
+    render_tile_backgrounds(p, source, tile_width, tile_height)
     
     # Render tile content (text)
     render_tile_content(p, source)
@@ -364,7 +369,7 @@ def prepare_tiles_data(data, container_width):
             tail_opacities.append(0.3 if abs_change > 0.2 else 0.3)
     
     return {
-        'cols': cols,
+        'cols': cols,  # Keep for reference but don't add to ColumnDataSource
         'tile_x': tile_x,
         'tile_y': tile_y,
         'tile_bg_x': tile_bg_x,
@@ -430,26 +435,26 @@ def prepare_tiles_data(data, container_width):
     }
 
 
-def render_tile_backgrounds(p, source):
+def render_tile_backgrounds(p, source, tile_width, tile_height):
     """Render tile backgrounds and borders"""
     # Main tile background
     p.rect(
         'tile_bg_x', 'tile_bg_y',
-        'tile_width', 'tile_height',
+        width=tile_width, height=tile_height,
         source=source,
         fill_color='white',
         line_color='sector_colors',
         line_width=2,
-        radius=6
+        border_radius=6
     )
     
     # Sector color border (left edge)
     p.rect(
         'tile_x', 'sector_border_y',
-        4, 'tile_height',
+        width=4, height=tile_height,
         source=source,
         fill_color='sector_colors',
-        radius=6
+        border_radius=6
     )
     
     # Volatility dots

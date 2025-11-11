@@ -1,0 +1,76 @@
+{
+  "library": "d3",
+  "data": {
+    "source": "/api/tiles-data",
+    "format": "json"
+  },
+  "view": {
+    "mark": "ellipse",
+    "encodings": {
+      "x": {"value": "fixed", "position": "right"},
+      "y": {
+        "field": "week52Position",
+        "type": "quantitative",
+        "scale": {
+          "domain": [0, 100],
+          "range": [0, 40]
+        }
+      },
+      "color": {
+        "field": "changePercent",
+        "type": "quantitative",
+        "scheme": {
+          "positive": "#27ae60",
+          "negative": "#e74c3c",
+          "neutral": "#95a5a6",
+          "threshold": 0.2
+        }
+      },
+      "size": {
+        "field": "changePercent",
+        "type": "quantitative",
+        "scale": {
+          "type": "threshold",
+          "domain": [0.2, 1.5, 3.0],
+          "range": [3, 4, 5]
+        },
+        "accessor": "absolute"
+      },
+      "tooltip": [
+        "ticker",
+        "price",
+        "changePercent",
+        "week52Position",
+        "fifty_two_week_high",
+        "fifty_two_week_low"
+      ]
+    }
+  },
+  "transform": [
+    {
+      "calculate": {
+        "as": "week52Position",
+        "expr": "(d.price - d.fifty_two_week_low) / (d.fifty_two_week_high - d.fifty_two_week_low) * 100"
+      }
+    },
+    {
+      "calculate": {
+        "as": "changePercent",
+        "expr": "d.changePercent || d.change_percent || ((d.price - d.previousClose) / d.previousClose * 100)"
+      }
+    }
+  ],
+  "interactions": {
+    "hover": true,
+    "zoomPan": false
+  },
+  "layout": {
+    "width": 30,
+    "height": 40,
+    "title": "52-Week Relative Price Position with Daily Move Glyph"
+  },
+  "output": {
+    "artifact": "svg",
+    "path": "embedded_in_tile"
+  }
+}

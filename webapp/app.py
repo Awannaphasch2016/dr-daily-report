@@ -12,8 +12,14 @@ from pathlib import Path
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'dev-secret-key-change-in-production')
-# Use webapp/data/ticker_reports.db if it exists, otherwise fall back to data/ticker_reports.db
-if os.path.exists('webapp/data/ticker_reports.db'):
+
+# Determine database path - handle both project root and webapp directory execution
+# If running from webapp/, go up one level to find data/
+if os.path.exists('../data/ticker_reports.db'):
+    app.config['DATABASE'] = os.getenv('DATABASE_PATH', '../data/ticker_reports.db')
+elif os.path.exists('data/ticker_reports.db'):
+    app.config['DATABASE'] = os.getenv('DATABASE_PATH', 'data/ticker_reports.db')
+elif os.path.exists('webapp/data/ticker_reports.db'):
     app.config['DATABASE'] = os.getenv('DATABASE_PATH', 'webapp/data/ticker_reports.db')
 else:
     app.config['DATABASE'] = os.getenv('DATABASE_PATH', 'data/ticker_reports.db')
