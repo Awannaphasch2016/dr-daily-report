@@ -81,15 +81,52 @@ dr-daily-report/
 
 ## Setup
 
-### 1. Install Dependencies
+### 1. Install DR CLI (Recommended)
+
+The DR CLI provides a unified interface for all repository operations with excellent discoverability and help system.
+
+```bash
+# Install the CLI in editable mode
+pip install -e .
+
+# Verify installation
+dr --help
+
+# Or use the justfile
+just setup
+```
+
+**Quick Start:**
+```bash
+# Start development server
+just dev
+
+# Run tests
+just test-changes
+
+# Deploy to production
+just ship-it
+```
+
+See [CLI Documentation](docs/cli.md) for complete guide.
+
+### 2. Install Dependencies (Alternative)
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 2. Configure Environment Variables
+### 3. Configure Environment Variables
 
-Using Doppler:
+The CLI integrates with Doppler via the `--doppler` flag:
+
+```bash
+# Run commands with doppler environment
+dr --doppler dev server
+dr --doppler test
+```
+
+Manual doppler usage:
 ```bash
 doppler run --project rag-chatbot-worktree --config dev_personal --command env
 ```
@@ -99,8 +136,25 @@ Required environment variables:
 - `LINE_CHANNEL_ACCESS_TOKEN`: LINE Messaging API access token
 - `LINE_CHANNEL_SECRET`: LINE channel secret
 
-### 3. Local Testing
+Check environment status:
+```bash
+dr check env
+```
 
+### 4. Local Testing
+
+Using the CLI:
+```bash
+dr dev server           # Start Flask server
+dr --doppler dev server # With environment variables
+```
+
+Or using justfile:
+```bash
+just dev
+```
+
+Legacy method:
 ```bash
 python lambda_handler.py
 ```
@@ -156,6 +210,56 @@ See `tickers.csv` for the full list of supported tickers. Examples:
 - NINTENDO19 -> 7974.T (Nintendo)
 
 ## Development
+
+### DR CLI - Two-Layer System
+
+The repository uses a two-layer command interface:
+
+**Justfile (Intent Layer)**: Intent-based recipes that describe WHEN and WHY to run commands
+- `just dev` - Start development server
+- `just pre-commit` - Run before committing
+- `just ship-it` - Complete deployment workflow
+
+**DR CLI (Syntax Layer)**: Clean, explicit syntax with comprehensive help
+- `dr dev server` - Run development server
+- `dr test` - Run all tests
+- `dr build` - Create Lambda package
+
+This design makes commands:
+- **Discoverable**: `dr --help` and `dr <command> --help` show all options
+- **Explicit**: Clear syntax that both humans and AI agents can use
+- **Composable**: Commands can be chained for custom workflows
+
+See [CLI Documentation](docs/cli.md) for complete reference.
+
+### Common Development Workflows
+
+**First time setup:**
+```bash
+just setup              # Install dependencies
+just dev                # Start server
+```
+
+**Daily development:**
+```bash
+just daily              # Pull, setup, test
+just test-changes       # Test recent changes
+just pre-commit         # Before committing
+```
+
+**Testing:**
+```bash
+dr test                 # All tests
+dr test line follow     # LINE bot tests
+dr test file test_agent.py  # Specific file
+just test-ticker AAPL   # Integration test
+```
+
+**Deployment:**
+```bash
+just pre-deploy         # Pre-deployment checks
+just ship-it            # Build and deploy
+```
 
 ### Adding New Tickers
 

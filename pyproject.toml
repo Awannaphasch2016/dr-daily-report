@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dr-cli"
+version = "0.1.0"
+description = "Unified CLI for Daily Report repository"
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = [
+    "click>=8.0.0",
+]
+
+[project.scripts]
+dr = "dr_cli.main:main"
+
+[tool.setuptools]
+packages = ["dr_cli", "dr_cli.commands"]
