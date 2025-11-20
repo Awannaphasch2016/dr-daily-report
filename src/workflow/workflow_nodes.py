@@ -673,16 +673,17 @@ class WorkflowNodes:
         state["timing_metrics"] = timing_metrics
 
         # Check if LangSmith tracing is enabled and capture run ID
-        langsmith_enabled = os.environ.get('LANGCHAIN_TRACING_V2', 'false').lower() == 'true'
+        langsmith_enabled = os.environ.get('LANGSMITH_TRACING_V2', 'false').lower() == 'true'
         langsmith_run_id = None
 
         if langsmith_enabled:
             try:
-                # Get the current LangSmith run tree to extract run ID
+                # Get the current LangSmith run tree to extract ROOT trace ID
                 run_tree = get_current_run_tree()
-                if run_tree and hasattr(run_tree, 'id'):
-                    langsmith_run_id = str(run_tree.id)
-                    logger.info(f"Captured LangSmith run ID: {langsmith_run_id}")
+                if run_tree and hasattr(run_tree, 'trace_id'):
+                    # Use trace_id to get the ROOT trace, not the current node's ID
+                    langsmith_run_id = str(run_tree.trace_id)
+                    logger.info(f"Captured LangSmith ROOT trace ID: {langsmith_run_id}")
                 else:
                     logger.warning("LangSmith tracing enabled but no run tree available")
             except Exception as e:

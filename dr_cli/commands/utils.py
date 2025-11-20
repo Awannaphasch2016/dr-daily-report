@@ -3,6 +3,7 @@
 import click
 import subprocess
 import sys
+import os
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).parent.parent.parent.absolute()
@@ -112,13 +113,13 @@ def report(ctx, ticker):
         f"from src.agent import TickerAnalysisAgent; agent = TickerAnalysisAgent(); print(agent.analyze_ticker('{ticker}'))"
     ]
 
-    env = {"PYTHONPATH": str(PROJECT_ROOT)}
+    env = {**os.environ, "PYTHONPATH": str(PROJECT_ROOT)}
 
     if use_doppler:
         doppler_cmd = ["doppler", "run", "--project", "rag-chatbot-worktree", "--config", "dev_personal", "--"]
-        result = subprocess.run(doppler_cmd + cmd, cwd=PROJECT_ROOT, env={**env})
+        result = subprocess.run(doppler_cmd + cmd, cwd=PROJECT_ROOT, env=env)
     else:
-        result = subprocess.run(cmd, cwd=PROJECT_ROOT, env={**env})
+        result = subprocess.run(cmd, cwd=PROJECT_ROOT, env=env)
 
     sys.exit(result.returncode)
 

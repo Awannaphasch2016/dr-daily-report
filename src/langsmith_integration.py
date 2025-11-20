@@ -11,6 +11,7 @@ import os
 import logging
 from typing import Dict, Any, Optional
 from datetime import datetime
+from dataclasses import asdict
 from langsmith import Client
 from langsmith.run_helpers import traceable
 
@@ -29,15 +30,15 @@ def get_langsmith_client() -> Optional[Client]:
     """
     try:
         # Check if LangSmith is configured
-        api_key = os.environ.get('LANGCHAIN_API_KEY')
+        api_key = os.environ.get('LANGSMITH_API_KEY')
         if not api_key:
-            logger.warning("LANGCHAIN_API_KEY not set, LangSmith logging disabled")
+            logger.warning("LANGSMITH_API_KEY not set, LangSmith logging disabled")
             return None
 
         # Initialize client
         client = Client(
             api_key=api_key,
-            api_url=os.environ.get('LANGCHAIN_ENDPOINT', 'https://api.smith.langchain.com')
+            api_url=os.environ.get('LANGSMITH_ENDPOINT', 'https://api.smith.langchain.com')
         )
 
         return client
@@ -70,8 +71,11 @@ def log_evaluation_to_langsmith(
         True if logging succeeded, False otherwise
     """
     try:
+        logger.info(f"[LangSmith] Starting feedback logging for {ticker}, run_id={run_id}")
+
         # Convert scores to LangSmith format
         evaluations = LangSmithEvaluators.evaluate_all(quality_scores, performance_scores)
+        logger.info(f"[LangSmith] Converted {len(evaluations)} evaluations")
 
         # Add metadata
         eval_metadata = {
@@ -83,21 +87,27 @@ def log_evaluation_to_langsmith(
             eval_metadata.update(metadata)
 
         # Log each evaluation
-        for evaluation in evaluations:
-            client.create_feedback(
-                run_id=run_id,
-                key=evaluation['key'],
-                score=evaluation['score'],
-                comment=evaluation['comment'],
-                feedback_source_type='app',
-                **eval_metadata
-            )
+        for i, evaluation in enumerate(evaluations, 1):
+            logger.info(f"[LangSmith] Creating feedback {i}/{len(evaluations)}: {evaluation['key']} = {evaluation['score']:.3f}")
+            try:
+                client.create_feedback(
+                    run_id=run_id,
+                    key=evaluation['key'],
+                    score=evaluation['score'],
+                    comment=evaluation['comment']
+                )
+                logger.info(f"[LangSmith] ✅ Created feedback: {evaluation['key']}")
+            except Exception as fb_error:
+                logger.error(f"[LangSmith] ❌ Failed to create feedback {evaluation['key']}: {fb_error}")
+                raise
 
-        logger.info(f"Successfully logged {len(evaluations)} evaluations to LangSmith for {ticker}")
+        logger.info(f"[LangSmith] ✅ Successfully logged {len(evaluations)} evaluations to LangSmith for {ticker}")
         return True
 
     except Exception as e:
-        logger.error(f"Failed to log evaluations to LangSmith: {e}")
+        logger.error(f"[LangSmith] ❌ Failed to log evaluations to LangSmith: {e}")
+        import traceback
+        logger.error(f"[LangSmith] Traceback: {traceback.format_exc()}")
         return False
 
 
@@ -235,12 +245,22 @@ def async_evaluate_and_log(
             try:
                 client = get_langsmith_client()
                 if client:
+                    # Convert score objects to dictionaries
+                    quality_scores_dict = {
+                        key: asdict(score) if hasattr(score, '__dataclass_fields__') else score
+                        for key, score in quality_scores.items()
+                    }
+                    performance_scores_dict = {
+                        key: asdict(score) if hasattr(score, '__dataclass_fields__') else score
+                        for key, score in performance_scores.items()
+                    }
+
                     log_evaluation_to_langsmith(
                         client=client,
                         run_id=langsmith_run_id,
                         ticker=ticker,
-                        quality_scores=quality_scores,
-                        performance_scores=performance_scores,
+                        quality_scores=quality_scores_dict,
+                        performance_scores=performance_scores_dict,
                         metadata={
                             'date': date,
                             'total_latency': timing_metrics.get('total_elapsed', 0),
