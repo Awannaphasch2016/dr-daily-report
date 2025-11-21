@@ -46,7 +46,7 @@ def cli(ctx, doppler):
 
 
 # Import command groups
-from dr_cli.commands import dev, test, build, deploy, clean, check, utils
+from dr_cli.commands import dev, test, build, deploy, clean, check, utils, langsmith
 
 cli.add_command(dev.dev)
 cli.add_command(test.test)
@@ -55,6 +55,7 @@ cli.add_command(deploy.deploy)
 cli.add_command(clean.clean)
 cli.add_command(check.check)
 cli.add_command(utils.utils)
+cli.add_command(langsmith.langsmith_group)
 
 
 def main():

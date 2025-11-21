@@ -261,6 +261,68 @@ just pre-deploy         # Pre-deployment checks
 just ship-it            # Build and deploy
 ```
 
+### LangSmith Integration & Monitoring
+
+The system integrates with LangSmith for trace logging and evaluation monitoring. LangSmith captures detailed execution traces and automatically evaluates report quality across 6 dimensions:
+
+**Quality Metrics:**
+- **Faithfulness**: Accuracy of claims vs. source data
+- **Completeness**: Coverage of required analytical dimensions
+- **Reasoning Quality**: Clarity, specificity, and logical consistency
+- **Compliance**: Adherence to report structure and format requirements
+
+**Performance Metrics:**
+- **QoS (Quality of Service)**: Latency, reliability, resource efficiency
+- **Cost**: API costs, token usage, database queries
+
+**CLI Commands:**
+
+```bash
+# List recent traces with feedback summary
+just langsmith-runs
+dr --doppler langsmith list-runs --limit 10
+
+# Show detailed trace information
+just langsmith-run <RUN_ID>
+dr --doppler langsmith show-run <RUN_ID>
+
+# Display evaluation scores for a trace
+just langsmith-feedback <RUN_ID>
+dr --doppler langsmith show-feedback <RUN_ID>
+
+# View aggregate statistics across traces
+just langsmith-stats
+dr --doppler langsmith stats --limit 50 --hours 24
+
+# List available projects
+just langsmith-projects
+dr --doppler langsmith projects
+```
+
+**Example Output:**
+```bash
+$ just langsmith-feedback 224f0a87-a325-4945-808f-4a8e1c3fa823
+
+📊 Evaluation Scores
+====================================
+✅ 90.0% faithfulness_score: 0.900
+✅ 100.0% completeness_score: 1.000
+⚠️  86.8% reasoning_quality_score: 0.868
+✅ 94.0% compliance_score: 0.940
+⚠️  79.0% qos_score: 0.790
+❌ 0.0% cost_score: 0.000
+```
+
+**Setup:**
+```bash
+# Required environment variables (via Doppler)
+LANGSMITH_API_KEY=<your-api-key>
+LANGSMITH_TRACING_V2=true
+LANGCHAIN_PROJECT=default  # Optional
+```
+
+All traces are automatically logged during report generation. Evaluation scores are computed asynchronously in the background without blocking LINE bot responses.
+
 ### Adding New Tickers
 
 1. Update `tickers.csv` with new ticker mappings

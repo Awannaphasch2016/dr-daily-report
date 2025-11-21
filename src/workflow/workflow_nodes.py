@@ -7,6 +7,7 @@ import time
 import json
 from datetime import datetime
 import pandas as pd
+import numpy as np
 from langchain_core.messages import HumanMessage
 from langsmith import traceable
 from langsmith.run_helpers import get_current_run_tree
@@ -19,6 +20,56 @@ import os
 # Setup logger
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
+
+
+def _filter_state_for_langsmith(state: dict) -> dict:
+    """
+    Filter AgentState for LangSmith tracing.
+
+    Removes non-serializable objects like pandas DataFrames to avoid serialization
+    errors when LangSmith traces workflow execution. This function is used by
+    @traceable decorators via process_inputs and process_outputs parameters.
+
+    LangSmith's tracer cannot handle pandas DataFrames with Timestamp indices,
+    causing errors: "keys must be str, int, float, bool or None, not Timestamp"
+
+    Args:
+        state: Workflow state dictionary (AgentState)
+
+    Returns:
+        Cleaned state dictionary safe for JSON serialization
+
+    Example:
+        @traceable(
+            name="analyze_technical",
+            process_inputs=_filter_state_for_langsmith,
+            process_outputs=_filter_state_for_langsmith
+        )
+        def analyze_technical(self, state: AgentState) -> AgentState:
+            return state  # Filtering happens automatically
+    """
+    if not isinstance(state, dict):
+        return state
+
+    cleaned = state.copy()
+
+    # Remove DataFrame from ticker_data but keep other fields
+    if "ticker_data" in cleaned and isinstance(cleaned.get("ticker_data"), dict):
+        ticker_data_clean = {
+            k: v for k, v in cleaned["ticker_data"].items()
+            if k != "history"  # Remove DataFrame with Timestamp index
+        }
+        cleaned["ticker_data"] = ticker_data_clean
+
+    # Remove comparative_data DataFrames
+    # Keep the keys but replace DataFrame values with placeholders
+    if "comparative_data" in cleaned and isinstance(cleaned.get("comparative_data"), dict):
+        cleaned["comparative_data"] = {
+            k: f"<DataFrame with {len(v)} rows>" if isinstance(v, pd.DataFrame) else v
+            for k, v in cleaned.get("comparative_data", {}).items()
+        }
+
+    return cleaned
 
 
 class WorkflowNodes:
@@ -142,6 +193,22 @@ class WorkflowNodes:
         for field in required_fields:
             results[field] = self._validate_state_field(state, field, node_name)
         return results
+
+    def _prepare_state_for_tracing(self, state: AgentState) -> AgentState:
+        """
+        DEPRECATED: Use module-level _filter_state_for_langsmith() instead.
+
+        This method is kept for backward compatibility but delegates to the
+        module-level function. The @traceable decorator now handles filtering
+        automatically via process_inputs and process_outputs parameters.
+
+        Args:
+            state: Original workflow state
+
+        Returns:
+            Cleaned state copy safe for JSON serialization
+        """
+        return _filter_state_for_langsmith(state)
 
     def get_workflow_summary(self) -> dict:
         """Get summary of workflow node execution"""
@@ -330,7 +397,12 @@ class WorkflowNodes:
 
         return state
 
-    @traceable(name="analyze_technical", tags=["workflow", "analysis"])
+    @traceable(
+        name="analyze_technical",
+        tags=["workflow", "analysis"],
+        process_inputs=_filter_state_for_langsmith,
+        process_outputs=_filter_state_for_langsmith
+    )
     def analyze_technical(self, state: AgentState) -> AgentState:
         """Analyze technical indicators with percentile analysis"""
         self._log_node_start("analyze_technical", state)
@@ -419,7 +491,12 @@ class WorkflowNodes:
 
         return state
 
-    @traceable(name="generate_chart", tags=["workflow", "visualization"])
+    @traceable(
+        name="generate_chart",
+        tags=["workflow", "visualization"],
+        process_inputs=_filter_state_for_langsmith,
+        process_outputs=_filter_state_for_langsmith
+    )
     def generate_chart(self, state: AgentState) -> AgentState:
         """Generate technical analysis chart"""
         self._log_node_start("generate_chart", state)
@@ -471,7 +548,12 @@ class WorkflowNodes:
 
         return state
 
-    @traceable(name="generate_report", tags=["workflow", "llm", "report"])
+    @traceable(
+        name="generate_report",
+        tags=["workflow", "llm", "report"],
+        process_inputs=_filter_state_for_langsmith,
+        process_outputs=_filter_state_for_langsmith
+    )
     def generate_report(self, state: AgentState) -> AgentState:
         """Generate Thai language report using LLM"""
         self._log_node_start("generate_report", state)
@@ -610,7 +692,7 @@ class WorkflowNodes:
         # Build scoring context for storage and scoring
         # Convert datetime/DataFrame objects to JSON-serializable format
         def make_json_serializable(obj):
-            """Recursively convert datetime/date/DataFrame objects to JSON-serializable format"""
+            """Recursively convert datetime/date/DataFrame/numpy objects to JSON-serializable format"""
             from datetime import date
             if isinstance(obj, (datetime, date)):
                 return obj.isoformat()
@@ -620,6 +702,15 @@ class WorkflowNodes:
                 # Convert DataFrame to list of records (handles timestamp indexes)
                 df_copy = obj.reset_index(drop=False)
                 return make_json_serializable(df_copy.to_dict('records'))
+            elif isinstance(obj, np.integer):
+                # Convert numpy integers (int64, int32, etc.) to Python int
+                return int(obj)
+            elif isinstance(obj, np.floating):
+                # Convert numpy floats (float64, float32, etc.) to Python float
+                return float(obj)
+            elif isinstance(obj, np.ndarray):
+                # Convert numpy arrays to lists
+                return make_json_serializable(obj.tolist())
             elif isinstance(obj, dict):
                 # Convert dict keys and values
                 return {str(k) if isinstance(k, (pd.Timestamp, datetime, date)) else k: make_json_serializable(v)
@@ -651,7 +742,7 @@ class WorkflowNodes:
             ticker_data['date'],
             {
                 'report_text': report,
-                'context_json': json.dumps(scoring_context.to_json()),
+                'context_json': json.dumps(make_json_serializable(scoring_context.to_json())),
                 'technical_summary': self.technical_analyzer.analyze_trend(indicators, indicators.get('current_price')),
                 'fundamental_summary': f"P/E: {ticker_data.get('pe_ratio', 'N/A')}",
                 'sector_analysis': ticker_data.get('sector', 'N/A')
@@ -792,7 +883,12 @@ class WorkflowNodes:
 
         return state
 
-    @traceable(name="analyze_comparative_insights", tags=["workflow", "analysis", "comparative"])
+    @traceable(
+        name="analyze_comparative_insights",
+        tags=["workflow", "analysis", "comparative"],
+        process_inputs=_filter_state_for_langsmith,
+        process_outputs=_filter_state_for_langsmith
+    )
     def analyze_comparative_insights(self, state: AgentState) -> AgentState:
         """Perform comparative analysis and extract narrative-ready insights"""
         self._log_node_start("analyze_comparative_insights", state)
@@ -929,7 +1025,12 @@ class WorkflowNodes:
 
         return insights
 
-    @traceable(name="fetch_all_data_parallel", tags=["workflow", "data", "parallel"])
+    @traceable(
+        name="fetch_all_data_parallel",
+        tags=["workflow", "data", "parallel"],
+        process_inputs=_filter_state_for_langsmith,
+        process_outputs=_filter_state_for_langsmith
+    )
     def fetch_all_data_parallel(self, state: AgentState) -> AgentState:
         """
         Fetch all data in parallel (data, news, comparative).

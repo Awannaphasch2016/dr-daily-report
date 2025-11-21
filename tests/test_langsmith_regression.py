@@ -20,6 +20,8 @@ import warnings
 warnings.filterwarnings('ignore')
 
 from src.agent import TickerAnalysisAgent
+from src.workflow.workflow_nodes import WorkflowNodes
+import pandas as pd
 
 
 class TestBackwardCompatibility(unittest.TestCase):
@@ -304,6 +306,262 @@ class TestAsyncEvaluationResilience(unittest.TestCase):
             self.assertIsNotNone(result)
         except Exception as e:
             self.fail(f"async_evaluate_and_log should handle database errors gracefully: {e}")
+
+
+class TestTimestampSerializationFix(unittest.TestCase):
+    """
+    Regression tests for Timestamp serialization fix.
+
+    ISSUE: LangSmith's @traceable decorator cannot serialize pandas DataFrames
+    with Timestamp indices. Error: "keys must be str, int, float, bool or None, not Timestamp"
+
+    FIX: fetch_news and fetch_comparative_data clean their return values using
+    _prepare_state_for_tracing() so downstream @traceable nodes receive clean INPUT.
+
+    CLAIM: After fix, analyze_technical and analyze_comparative_insights receive
+    state without DataFrames, preventing Timestamp serialization errors.
+    """
+
+    def setUp(self):
+        """Create WorkflowNodes instance with mocked dependencies"""
+        # Mock all required dependencies
+        self.nodes = WorkflowNodes(
+            data_fetcher=Mock(),
+            technical_analyzer=Mock(),
+            news_fetcher=Mock(),
+            chart_generator=Mock(),
+            db=Mock(),
+            strategy_backtester=Mock(),
+            strategy_analyzer=Mock(),
+            comparative_analyzer=Mock(),
+            llm=Mock(),
+            context_builder=Mock(),
+            prompt_builder=Mock(),
+            market_analyzer=Mock(),
+            number_injector=Mock(),
+            cost_scorer=Mock(),
+            scoring_service=Mock(),
+            qos_scorer=Mock(),
+            faithfulness_scorer=Mock(),
+            completeness_scorer=Mock(),
+            reasoning_quality_scorer=Mock(),
+            compliance_scorer=Mock(),
+            ticker_map={'TEST19': 'TEST.SI', 'AOT': 'AOT.BK', 'CPALL': 'CPALL.BK'},
+            db_query_count_ref={'count': 0}
+        )
+
+    def test_fetch_news_returns_cleaned_state(self):
+        """
+        Regression test: fetch_news returns state without DataFrame.
+        CLAIM: fetch_news cleans state before return to prevent INPUT serialization errors.
+        """
+        # Create state with DataFrame (simulating fetch_data output)
+        dates = pd.date_range('2025-01-01', periods=5)
+        df = pd.DataFrame({
+            'Close': [100, 101, 102, 103, 104],
+            'Volume': [1000, 1100, 1200, 1300, 1400]
+        }, index=dates)
+
+        state = {
+            'ticker': 'TEST19',
+            'ticker_data': {
+                'history': df,  # DataFrame with Timestamp index
+                'current_price': 104.0
+            },
+            'news': [],
+            'news_summary': {}
+        }
+
+        # Mock news fetcher to avoid actual API calls
+        with patch.object(self.nodes.news_fetcher, 'filter_high_impact_news') as mock_news:
+            mock_news.return_value = []
+
+            # Call fetch_news
+            result = self.nodes.fetch_news(state)
+
+        # CLAIM VALIDATION: DataFrame should be removed from result
+        self.assertIn('ticker_data', result)
+
+        # If ticker_data exists and is a dict, it should not have 'history' field
+        if isinstance(result.get('ticker_data'), dict):
+            self.assertNotIn('history', result['ticker_data'],
+                           "DataFrame should be removed by _prepare_state_for_tracing()")
+
+        # Verify news fields are still present (not accidentally removed)
+        self.assertIn('news', result)
+        self.assertIn('news_summary', result)
+
+    def test_fetch_comparative_data_returns_cleaned_state(self):
+        """
+        Regression test: fetch_comparative_data returns state without DataFrames.
+        CLAIM: fetch_comparative_data cleans state before return.
+        """
+        # Create state with comparative DataFrames
+        dates = pd.date_range('2025-01-01', periods=5)
+        df1 = pd.DataFrame({'Close': [100, 101, 102, 103, 104]}, index=dates)
+        df2 = pd.DataFrame({'Close': [200, 201, 202, 203, 204]}, index=dates)
+
+        state = {
+            'ticker': 'TEST19',
+            'ticker_data': {'current_price': 104.0},
+            'comparative_data': {
+                'AOT': df1,  # DataFrame with Timestamp index
+                'CPALL': df2  # DataFrame with Timestamp index
+            }
+        }
+
+        # Mock data fetcher to avoid actual API calls
+        with patch.object(self.nodes.data_fetcher, 'fetch_historical_data') as mock_fetch:
+            mock_fetch.return_value = df1
+
+            # Call fetch_comparative_data
+            result = self.nodes.fetch_comparative_data(state)
+
+        # CLAIM VALIDATION: comparative_data should not contain DataFrames
+        self.assertIn('comparative_data', result)
+
+        if isinstance(result.get('comparative_data'), dict):
+            for ticker, data in result['comparative_data'].items():
+                self.assertNotIsInstance(data, pd.DataFrame,
+                    f"Comparative data for {ticker} should not be a DataFrame after cleaning")
+
+    def test_analyze_technical_receives_clean_input(self):
+        """
+        Regression test: analyze_technical receives state without DataFrame.
+        CLAIM: fetch_news cleans state, so analyze_technical INPUT has no Timestamp objects.
+        """
+        # Create DataFrame with Timestamp index
+        dates = pd.date_range('2025-01-01', periods=253)
+        df = pd.DataFrame({
+            'Close': [100 + i for i in range(253)],
+            'Volume': [1000 + i*10 for i in range(253)]
+        }, index=dates)
+
+        # Create state with DataFrame (simulating after fetch_data)
+        state = {
+            'ticker': 'TEST19',
+            'ticker_data': {
+                'history': df,  # DataFrame with Timestamp index
+                'company_name': 'Test Company',
+                'current_price': 352.0,
+                'ticker': 'TEST.SI',
+                'date': '2025-11-19',
+                'sector': 'Technology'
+            }
+        }
+
+        # Verify DataFrame exists in initial state
+        self.assertIn('ticker_data', state)
+        self.assertIn('history', state['ticker_data'])
+        self.assertIsInstance(state['ticker_data']['history'], pd.DataFrame)
+
+        # Mock news fetcher
+        with patch.object(self.nodes.news_fetcher, 'filter_high_impact_news') as mock_news:
+            mock_news.return_value = []
+
+            # Call fetch_news (should clean DataFrame)
+            state = self.nodes.fetch_news(state)
+
+        # CLAIM VALIDATION: DataFrame should be removed after fetch_news
+        if isinstance(state.get('ticker_data'), dict):
+            self.assertNotIn('history', state['ticker_data'],
+                "fetch_news should remove DataFrame to prevent INPUT serialization error")
+
+        # The state is now ready for analyze_technical
+        # @traceable would serialize this INPUT without Timestamp errors
+
+    def test_analyze_comparative_insights_receives_clean_input(self):
+        """
+        Regression test: analyze_comparative_insights receives state without DataFrames.
+        CLAIM: fetch_comparative_data cleans state before analyze_comparative_insights runs.
+        """
+        # Create DataFrames for comparative data
+        dates = pd.date_range('2025-01-01', periods=90)
+        df1 = pd.DataFrame({'Close': [100 + i for i in range(90)]}, index=dates)
+        df2 = pd.DataFrame({'Close': [200 + i for i in range(90)]}, index=dates)
+
+        # Setup state with comparative DataFrames (simulating after fetch_comparative_data initial fetch)
+        state = {
+            'ticker': 'TEST19',
+            'ticker_data': {'current_price': 104.0, 'sector': 'Technology'},
+            'comparative_data': {
+                'AOT': df1,  # DataFrame with Timestamp index
+                'CPALL': df2  # DataFrame with Timestamp index
+            }
+        }
+
+        # Verify DataFrames exist in initial state
+        self.assertIsInstance(state['comparative_data']['AOT'], pd.DataFrame)
+        self.assertIsInstance(state['comparative_data']['CPALL'], pd.DataFrame)
+
+        # Mock data fetcher
+        with patch.object(self.nodes.data_fetcher, 'fetch_historical_data') as mock_fetch:
+            mock_fetch.return_value = df1
+
+            # Call fetch_comparative_data (should clean DataFrames)
+            state = self.nodes.fetch_comparative_data(state)
+
+        # CLAIM VALIDATION: comparative_data should not contain DataFrames
+        self.assertIn('comparative_data', state)
+        if isinstance(state.get('comparative_data'), dict):
+            for ticker, data in state['comparative_data'].items():
+                self.assertNotIsInstance(data, pd.DataFrame,
+                    "Comparative DataFrames should be cleaned before analyze_comparative_insights")
+
+        # The state is now ready for analyze_comparative_insights
+        # @traceable would serialize this INPUT without Timestamp errors
+
+    def test_prepare_state_for_tracing_removes_dataframes(self):
+        """
+        Unit test: _prepare_state_for_tracing() removes DataFrames correctly.
+        CLAIM: Helper function removes both ticker_data.history and comparative_data DataFrames.
+        """
+        # Create state with DataFrames
+        dates = pd.date_range('2025-01-01', periods=5)
+        df1 = pd.DataFrame({'Close': [100, 101, 102, 103, 104]}, index=dates)
+        df2 = pd.DataFrame({'Close': [200, 201, 202, 203, 204]}, index=dates)
+
+        state = {
+            'ticker': 'TEST19',
+            'ticker_data': {
+                'history': df1,  # Should be removed
+                'current_price': 104.0  # Should be kept
+            },
+            'comparative_data': {
+                'AOT': df2,  # Should be converted to string
+                'CPALL': df2   # Should be converted to string
+            },
+            'news': [],  # Should be kept
+            'technical_analysis': {}  # Should be kept
+        }
+
+        # Call the helper function
+        cleaned = self.nodes._prepare_state_for_tracing(state)
+
+        # CLAIM VALIDATION: DataFrames removed, other fields preserved
+
+        # 1. ticker_data.history should be removed
+        self.assertIn('ticker_data', cleaned)
+        if isinstance(cleaned.get('ticker_data'), dict):
+            self.assertNotIn('history', cleaned['ticker_data'],
+                "history DataFrame should be removed")
+            self.assertIn('current_price', cleaned['ticker_data'],
+                "Other ticker_data fields should be preserved")
+
+        # 2. comparative_data DataFrames should be converted to strings
+        self.assertIn('comparative_data', cleaned)
+        if isinstance(cleaned.get('comparative_data'), dict):
+            for ticker, data in cleaned['comparative_data'].items():
+                self.assertNotIsInstance(data, pd.DataFrame,
+                    f"DataFrame for {ticker} should be converted")
+                if isinstance(data, str):
+                    self.assertIn('DataFrame', data,
+                        "Should contain 'DataFrame' string representation")
+
+        # 3. Other fields should be preserved
+        self.assertIn('news', cleaned)
+        self.assertIn('technical_analysis', cleaned)
+        self.assertEqual(cleaned['ticker'], 'TEST19')
 
 
 if __name__ == '__main__':

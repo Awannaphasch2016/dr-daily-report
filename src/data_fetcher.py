@@ -58,7 +58,8 @@ class DataFetcher:
                     
                     if df_data:
                         hist = pd.DataFrame(df_data)
-                        hist.index = pd.to_datetime([datetime.fromtimestamp(ts) for ts in timestamps[:len(df_data)]])
+                        # Add Date column for reference but keep integer index to avoid Timestamp serialization issues
+                        hist['Date'] = [datetime.fromtimestamp(ts).strftime('%Y-%m-%d') for ts in timestamps[:len(df_data)]]
                         logger.info(f"   ✅ Direct API fetched {len(hist)} rows")
                         print(f"   ✅ Direct API fetched {len(hist)} rows")
                         return hist
@@ -150,12 +151,19 @@ class DataFetcher:
 
             logger.info(f"✅ Got {len(hist)} days of historical data for {ticker}")
             print(f"✅ Got {len(hist)} days of historical data for {ticker}")
-            
-            # Get latest data
+
+            # Get latest data BEFORE converting index
             latest = hist.iloc[-1]
-            latest_date = hist.index[-1].date()
+            latest_date = hist.index[-1].date() if hasattr(hist.index[-1], 'date') else hist.index[-1]
             logger.info(f"📅 Latest data date: {latest_date}, Close: {latest['Close']:.2f}")
             print(f"📅 Latest data date: {latest_date}, Close: {latest['Close']:.2f}")
+
+            # Convert DatetimeIndex to integer index with Date column to avoid Timestamp serialization issues
+            if isinstance(hist.index, pd.DatetimeIndex):
+                hist = hist.reset_index()
+                hist.rename(columns={'index': 'Date'}, inplace=True)
+                # Convert Date column to strings
+                hist['Date'] = hist['Date'].dt.strftime('%Y-%m-%d')
 
             # Step 2: Get fundamental data (this often fails in Lambda)
             # First, try to get company name from chart API meta (more reliable)
@@ -315,11 +323,18 @@ class DataFetcher:
             start_date = end_date - timedelta(days=days)
 
             hist = stock.history(start=start_date, end=end_date)
-            
+
             if hist.empty:
                 logger.warning(f"⚠️  No historical data found for {ticker}")
                 return None
-                
+
+            # Convert DatetimeIndex to integer index with Date column to avoid Timestamp serialization issues
+            if isinstance(hist.index, pd.DatetimeIndex):
+                hist = hist.reset_index()
+                hist.rename(columns={'index': 'Date'}, inplace=True)
+                # Convert Date column to strings
+                hist['Date'] = hist['Date'].dt.strftime('%Y-%m-%d')
+
             logger.info(f"✅ Got {len(hist)} days of historical data for {ticker}")
             return hist
         except Exception as e:
