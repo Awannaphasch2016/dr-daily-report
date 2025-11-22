@@ -318,6 +318,7 @@ $ just langsmith-feedback 224f0a87-a325-4945-808f-4a8e1c3fa823
 # Required environment variables (via Doppler)
 LANGSMITH_API_KEY=<your-api-key>
 LANGSMITH_TRACING_V2=true
+LANGSMITH_WORKSPACE_ID=<workspace-id>  # Workspace to send traces to (e.g., "dr-report" workspace)
 LANGCHAIN_PROJECT=default  # Optional
 ```
 

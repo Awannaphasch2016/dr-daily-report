@@ -36,10 +36,27 @@ def get_langsmith_client() -> Optional[Client]:
             return None
 
         # Initialize client
-        client = Client(
-            api_key=api_key,
-            api_url=os.environ.get('LANGSMITH_ENDPOINT', 'https://api.smith.langchain.com')
-        )
+        workspace_id = os.environ.get('LANGSMITH_WORKSPACE_ID')
+
+        # Only use workspace_id if it's set AND the API key is org-scoped
+        # Personal API keys will fail with 403 Forbidden if workspace_id is provided
+        if workspace_id and api_key.startswith('lsv2_sk_'):
+            # Org-scoped key - use workspace_id
+            client = Client(
+                api_key=api_key,
+                api_url=os.environ.get('LANGSMITH_ENDPOINT', 'https://api.smith.langchain.com'),
+                workspace_id=workspace_id
+            )
+            logger.info(f"LangSmith client initialized with workspace: {workspace_id}")
+        else:
+            # Personal key or no workspace_id - use default (project-based routing)
+            client = Client(
+                api_key=api_key,
+                api_url=os.environ.get('LANGSMITH_ENDPOINT', 'https://api.smith.langchain.com')
+            )
+            if workspace_id:
+                logger.warning(f"workspace_id set but API key is not org-scoped. Using project-based routing instead.")
+            logger.info("LangSmith client initialized with default workspace")
 
         return client
 

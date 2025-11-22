@@ -631,9 +631,10 @@ LangSmith Logging: ✅ Ready (when API key provided)
 
 **Required for LangSmith**:
 ```bash
-LANGCHAIN_TRACING_V2=true          # Enable tracing
-LANGCHAIN_API_KEY=<your-api-key>   # LangSmith API key
-LANGCHAIN_PROJECT=dr-daily-report-production  # Project name
+LANGCHAIN_TRACING_V2=true                    # Enable tracing
+LANGCHAIN_API_KEY=<your-api-key>             # LangSmith API key
+LANGCHAIN_PROJECT=dr-daily-report-production # Project name
+LANGSMITH_WORKSPACE_ID=<workspace-id>        # Workspace ID (e.g., "dr-report" workspace)
 ```
 
 **Optional**:
@@ -658,6 +659,7 @@ To enable in production Lambda:
    - `LANGCHAIN_TRACING_V2=true`
    - `LANGCHAIN_API_KEY=<key-from-secrets-manager>`
    - `LANGCHAIN_PROJECT=dr-daily-report-production`
+   - `LANGSMITH_WORKSPACE_ID=<workspace-id>` (from "dr-report" workspace)
 
 ---
 
