@@ -570,79 +570,82 @@ class PDFReportGenerator:
 
         return elements
 
-    def _calculate_scores(self, indicators: dict, percentiles: dict, ticker_data: dict) -> dict:
-        """Calculate category scores (0-100)"""
-        scores = {
-            'technical': 50,
-            'fundamental': 50,
-            'momentum': 50,
-            'sentiment': 50
-        }
+    def _calculate_technical_score(self, indicators: dict) -> int:
+        """Calculate technical analysis score based on RSI and MACD"""
+        score = 50
 
-        # Technical Score (based on indicators)
-        tech_score = 50
+        # RSI scoring: Ideal RSI 40-60 (score 100), penalize extremes
         if 'rsi' in indicators:
             rsi = indicators['rsi']
-            # Ideal RSI: 40-60 (score 100), penalize extremes
             if 40 <= rsi <= 60:
-                tech_score += 20
+                score += 20
             elif 30 <= rsi <= 70:
-                tech_score += 10
+                score += 10
             else:
-                tech_score -= 10
+                score -= 10
 
+        # MACD scoring: Bullish crossover adds points
         if 'macd' in indicators and 'macd_signal' in indicators:
             macd = indicators['macd']
             signal = indicators['macd_signal']
-            if macd > signal:
-                tech_score += 15  # Bullish
-            else:
-                tech_score -= 10  # Bearish
+            score += 15 if macd > signal else -10
 
-        scores['technical'] = max(0, min(100, tech_score))
+        return max(0, min(100, score))
 
-        # Fundamental Score (based on fundamentals)
-        fund_score = 50
+    def _calculate_fundamental_score(self, ticker_data: dict) -> int:
+        """Calculate fundamental analysis score based on P/E ratio and profit margin"""
+        score = 50
+
+        # P/E ratio scoring
         pe_ratio = ticker_data.get('pe_ratio')
         if pe_ratio and isinstance(pe_ratio, (int, float)):
             if 10 <= pe_ratio <= 25:
-                fund_score += 20  # Reasonable valuation
+                score += 20  # Reasonable valuation
             elif pe_ratio < 10:
-                fund_score += 10  # Undervalued
+                score += 10  # Undervalued
             elif pe_ratio > 40:
-                fund_score -= 15  # Overvalued
+                score -= 15  # Overvalued
 
+        # Profit margin scoring
         profit_margin = ticker_data.get('profit_margin')
         if profit_margin and isinstance(profit_margin, (int, float)):
             if profit_margin > 0.20:
-                fund_score += 15  # High margin
+                score += 15  # High margin
             elif profit_margin > 0.10:
-                fund_score += 10  # Good margin
+                score += 10  # Good margin
 
-        scores['fundamental'] = max(0, min(100, fund_score))
+        return max(0, min(100, score))
 
-        # Momentum Score (based on percentiles)
-        mom_score = 50
+    def _calculate_momentum_score(self, percentiles: dict) -> int:
+        """Calculate momentum score based on RSI and volume percentiles"""
+        score = 50
+
+        # RSI percentile scoring
         if 'rsi' in percentiles:
             rsi_pct = percentiles['rsi'].get('percentile', 50)
             if 40 <= rsi_pct <= 60:
-                mom_score += 15  # Neutral momentum
+                score += 15  # Neutral momentum
             elif rsi_pct > 70:
-                mom_score += 10  # Strong momentum
+                score += 10  # Strong momentum
             elif rsi_pct < 30:
-                mom_score -= 10  # Weak momentum
+                score -= 10  # Weak momentum
 
+        # Volume ratio percentile scoring
         if 'volume_ratio' in percentiles:
             vol_pct = percentiles['volume_ratio'].get('percentile', 50)
             if vol_pct > 70:
-                mom_score += 10  # High volume interest
+                score += 10  # High volume interest
 
-        scores['momentum'] = max(0, min(100, mom_score))
+        return max(0, min(100, score))
 
-        # Sentiment Score (placeholder - would use news_summary)
-        scores['sentiment'] = 60  # Neutral default
-
-        return scores
+    def _calculate_scores(self, indicators: dict, percentiles: dict, ticker_data: dict) -> dict:
+        """Calculate category scores (0-100)"""
+        return {
+            'technical': self._calculate_technical_score(indicators),
+            'fundamental': self._calculate_fundamental_score(ticker_data),
+            'momentum': self._calculate_momentum_score(percentiles),
+            'sentiment': 60  # Neutral default (placeholder for news_summary)
+        }
 
     def _get_score_color(self, score: float) -> str:
         """Get color based on score"""
