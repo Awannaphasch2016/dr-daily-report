@@ -1,10 +1,10 @@
 """Integrations layer - External service integrations"""
-from .line_bot import app as line_bot_app
-from .api_handler import app as api_app
+from .line_bot import LineBot
+from .api_handler import api_handler
 from .lambda_handler import lambda_handler
 
 __all__ = [
-    'line_bot_app',
-    'api_app',
+    'LineBot',
+    'api_handler',
     'lambda_handler',
 ]

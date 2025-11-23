@@ -13,9 +13,9 @@ from src.evaluation.langsmith_evaluator_adapters import (
     completeness_evaluator,
     reasoning_quality_evaluator,
     compliance_evaluator,
+    consistency_evaluator,
     qos_evaluator,
     cost_evaluator,
-    hallucination_llm_evaluator,
     get_all_evaluators,
     get_quality_evaluators,
     get_performance_evaluators
@@ -170,7 +170,7 @@ class TestEvaluatorAdapters:
         assert isinstance(result.score, float)
         assert "Cost" in result.comment or "THB" in result.comment
 
-    def test_hallucination_llm_evaluator(self):
+    def test_consistency_evaluator(self):
         """Test hallucination LLM evaluator adapter (may skip if no API key)"""
         run = self.create_mock_run(
             outputs={"narrative": "DBS ปิดที่ 53.67 บาท"},
@@ -187,7 +187,7 @@ class TestEvaluatorAdapters:
         )
 
         try:
-            result = hallucination_llm_evaluator(run)
+            result = consistency_evaluator(run)
 
             assert isinstance(result, EvaluationResult)
             assert result.key == "hallucination_llm_score"
@@ -229,7 +229,7 @@ class TestEvaluatorAdapters:
         assert compliance_evaluator in evaluators
         assert qos_evaluator in evaluators
         assert cost_evaluator in evaluators
-        assert hallucination_llm_evaluator in evaluators
+        assert consistency_evaluator in evaluators
 
     def test_get_quality_evaluators(self):
         """Test helper returns 5 quality evaluators"""
@@ -237,7 +237,7 @@ class TestEvaluatorAdapters:
 
         assert len(evaluators) == 5
         assert faithfulness_evaluator in evaluators
-        assert hallucination_llm_evaluator in evaluators
+        assert consistency_evaluator in evaluators
         assert qos_evaluator not in evaluators  # Performance, not quality
 
     def test_get_performance_evaluators(self):

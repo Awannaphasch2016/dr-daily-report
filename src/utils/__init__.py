@@ -1,10 +1,10 @@
 """Utils layer - Shared utilities"""
 from .dependency_loader import load_heavy_dependencies
-from .strategy import Strategy
-from .vector_store import QdrantVectorStore
+from .strategy import SMAStrategyBacktester
+from .vector_store import VectorStore
 
 __all__ = [
     'load_heavy_dependencies',
-    'Strategy',
-    'QdrantVectorStore',
+    'SMAStrategyBacktester',
+    'VectorStore',
 ]

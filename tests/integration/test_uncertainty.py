@@ -2,15 +2,11 @@
 """
 Test script for the new Pricing Uncertainty Score implementation
 """
-import sys
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 
-# Add src directory to path
-sys.path.insert(0, 'src')
-
-from technical_analysis import TechnicalAnalyzer
+from src.analysis.technical_analysis import TechnicalAnalyzer
 
 def generate_sample_data(days=100):
     """Generate sample stock data for testing"""
