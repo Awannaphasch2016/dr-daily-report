@@ -16,7 +16,7 @@ from langsmith import Client
 from langsmith.run_helpers import traceable
 
 from .langsmith_evaluators import LangSmithEvaluators
-from .scoring_service import ScoringContext
+from src.scoring.scoring_service import ScoringContext
 
 logger = logging.getLogger(__name__)
 

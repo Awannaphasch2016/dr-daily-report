@@ -49,13 +49,13 @@ from typing import Optional
 from dataclasses import asdict
 import logging
 
-from .faithfulness_scorer import FaithfulnessScorer
-from .completeness_scorer import CompletenessScorer
-from .reasoning_quality_scorer import ReasoningQualityScorer
-from .compliance_scorer import ComplianceScorer
-from .qos_scorer import QoSScorer
-from .cost_scorer import CostScorer
-from .consistency_scorer import ConsistencyScorer
+from src.scoring.faithfulness_scorer import FaithfulnessScorer
+from src.scoring.completeness_scorer import CompletenessScorer
+from src.scoring.reasoning_quality_scorer import ReasoningQualityScorer
+from src.scoring.compliance_scorer import ComplianceScorer
+from src.scoring.qos_scorer import QoSScorer
+from src.scoring.cost_scorer import CostScorer
+from src.scoring.consistency_scorer import ConsistencyScorer
 
 logger = logging.getLogger(__name__)
 
