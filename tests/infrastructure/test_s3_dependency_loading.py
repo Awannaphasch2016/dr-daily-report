@@ -35,7 +35,7 @@ def test_dependency_loader():
         mock_s3.download_file.side_effect = mock_download_file
         
         # Import and test
-        from src.dependency_loader import load_heavy_dependencies
+        from src.utils.dependency_loader import load_heavy_dependencies
         
         # Clean up any existing /tmp/python-libs
         import shutil

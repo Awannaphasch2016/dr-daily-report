@@ -9,9 +9,9 @@ import os
 # Add src to path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from src.chart_generator import ChartGenerator
-from src.data_fetcher import DataFetcher
-from src.technical_analysis import TechnicalAnalyzer
+from src.formatters.chart_generator import ChartGenerator
+from src.data.data_fetcher import DataFetcher
+from src.analysis.technical_analysis import TechnicalAnalyzer
 import base64
 
 

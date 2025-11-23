@@ -3,10 +3,10 @@ import os
 import logging
 
 # Load heavy dependencies from S3 before importing modules that need them
-from src.dependency_loader import load_heavy_dependencies
+from src.utils.dependency_loader import load_heavy_dependencies
 load_heavy_dependencies()
 
-from src.line_bot import LineBot
+from src.integrations.line_bot import LineBot
 
 # Setup logging
 logger = logging.getLogger(__name__)

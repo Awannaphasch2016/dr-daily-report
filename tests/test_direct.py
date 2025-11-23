@@ -4,9 +4,9 @@ Direct test script that bypasses ticker mapping for testing any ticker
 """
 
 import sys
-from src.data_fetcher import DataFetcher
-from src.technical_analysis import TechnicalAnalyzer
-from src.database import TickerDatabase
+from src.data.data_fetcher import DataFetcher
+from src.analysis.technical_analysis import TechnicalAnalyzer
+from src.data.database import TickerDatabase
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage
 

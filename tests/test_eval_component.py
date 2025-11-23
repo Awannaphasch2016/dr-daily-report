@@ -23,23 +23,23 @@ class TestEvalComponentImports:
         """Test that all required modules can be imported."""
         # These imports should not raise ImportError
         from src.workflow.workflow_nodes import WorkflowNodes
-        from src.database import TickerDatabase
-        from src.data_fetcher import DataFetcher
-        from src.technical_analysis import TechnicalAnalyzer
-        from src.news_fetcher import NewsFetcher
-        from src.chart_generator import ChartGenerator
-        from src.strategy import SMAStrategyBacktester
+        from src.data.database import TickerDatabase
+        from src.data.data_fetcher import DataFetcher
+        from src.analysis.technical_analysis import TechnicalAnalyzer
+        from src.data.news_fetcher import NewsFetcher
+        from src.formatters.chart_generator import ChartGenerator
+        from src.utils.strategy import SMAStrategyBacktester
         from src.analysis import StrategyAnalyzer, MarketAnalyzer
-        from src.comparative_analysis import ComparativeAnalyzer
+        from src.analysis.comparative_analysis import ComparativeAnalyzer
         from src.report import PromptBuilder, ContextBuilder, NumberInjector
-        from src.cost_scorer import CostScorer
+        from src.scoring.cost_scorer import CostScorer
         from langchain_openai import ChatOpenAI
-        from src.scoring_service import ScoringService
-        from src.qos_scorer import QoSScorer
-        from src.faithfulness_scorer import FaithfulnessScorer
-        from src.completeness_scorer import CompletenessScorer
-        from src.reasoning_quality_scorer import ReasoningQualityScorer
-        from src.compliance_scorer import ComplianceScorer
+        from src.scoring.scoring_service import ScoringService
+        from src.scoring.qos_scorer import QoSScorer
+        from src.scoring.faithfulness_scorer import FaithfulnessScorer
+        from src.scoring.completeness_scorer import CompletenessScorer
+        from src.scoring.reasoning_quality_scorer import ReasoningQualityScorer
+        from src.scoring.compliance_scorer import ComplianceScorer
         from src.formatters import DataFormatter
 
         # If we got here, all imports succeeded
@@ -99,14 +99,14 @@ class TestEvalComponentCorrectInitialization:
 
     def test_data_fetcher_no_args(self):
         """DataFetcher should be initialized without arguments."""
-        from src.data_fetcher import DataFetcher
+        from src.data.data_fetcher import DataFetcher
         # Should not raise TypeError
         fetcher = DataFetcher()
         assert fetcher is not None
 
     def test_strategy_analyzer_needs_backtester(self):
         """StrategyAnalyzer requires strategy_backtester argument."""
-        from src.strategy import SMAStrategyBacktester
+        from src.utils.strategy import SMAStrategyBacktester
         from src.analysis import StrategyAnalyzer
 
         backtester = SMAStrategyBacktester()
@@ -116,7 +116,7 @@ class TestEvalComponentCorrectInitialization:
 
     def test_comparative_analyzer_no_args(self):
         """ComparativeAnalyzer should be initialized without arguments."""
-        from src.comparative_analysis import ComparativeAnalyzer
+        from src.analysis.comparative_analysis import ComparativeAnalyzer
         # Should not raise TypeError
         analyzer = ComparativeAnalyzer()
         assert analyzer is not None
@@ -124,7 +124,7 @@ class TestEvalComponentCorrectInitialization:
     @patch.dict(os.environ, {'OPENAI_API_KEY': 'test-key'})
     def test_scoring_service_no_args(self):
         """ScoringService should be initialized without arguments."""
-        from src.scoring_service import ScoringService
+        from src.scoring.scoring_service import ScoringService
         # Should not raise TypeError
         service = ScoringService()
         assert service is not None
@@ -134,7 +134,7 @@ class TestEvalComponentCorrectInitialization:
         from src.report import ContextBuilder
         from src.analysis import MarketAnalyzer
         from src.formatters import DataFormatter
-        from src.technical_analysis import TechnicalAnalyzer
+        from src.analysis.technical_analysis import TechnicalAnalyzer
 
         market_analyzer = MarketAnalyzer()
         data_formatter = DataFormatter()

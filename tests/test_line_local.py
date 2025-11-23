@@ -5,7 +5,7 @@ Run this with: python3 test_line_local.py
 """
 
 from flask import Flask, request, jsonify
-from src.line_bot import LineBot
+from src.integrations.line_bot import LineBot
 import json
 
 app = Flask(__name__)

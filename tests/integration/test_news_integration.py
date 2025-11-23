@@ -2,7 +2,7 @@
 Test script to verify news integration with Yahoo Finance API
 """
 
-from src.news_fetcher import NewsFetcher
+from src.data.news_fetcher import NewsFetcher
 from src.agent import TickerAnalysisAgent
 
 def test_news_fetcher():

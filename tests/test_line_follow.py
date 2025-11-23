@@ -5,7 +5,7 @@ Test LINE bot follow event handling
 
 import json
 from unittest.mock import patch, MagicMock
-from src.line_bot import LineBot
+from src.integrations.line_bot import LineBot
 
 def test_line_follow():
     """Test LINE bot with a follow event"""

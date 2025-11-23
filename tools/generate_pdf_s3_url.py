@@ -156,7 +156,7 @@ def generate_and_upload_pdf(ticker: str = "AAPL19"):
         # Import required modules
         logger.info("📚 Importing modules...")
         from src.agent import TickerAnalysisAgent
-        from src.pdf_storage import PDFStorage
+        from src.formatters.pdf_storage import PDFStorage
         
         # Initialize agent
         logger.info("🔄 Initializing TickerAnalysisAgent...")

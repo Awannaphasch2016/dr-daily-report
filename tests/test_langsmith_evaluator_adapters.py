@@ -8,7 +8,7 @@ from unittest.mock import Mock
 from langsmith.schemas import Run, Example
 from langsmith.evaluation import EvaluationResult
 
-from src.langsmith_evaluator_adapters import (
+from src.evaluation.langsmith_evaluator_adapters import (
     faithfulness_evaluator,
     completeness_evaluator,
     reasoning_quality_evaluator,

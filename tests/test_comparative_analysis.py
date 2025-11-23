@@ -20,7 +20,7 @@ from datetime import datetime, timedelta
 import warnings
 warnings.filterwarnings('ignore')
 
-from src.comparative_analysis import ComparativeAnalyzer
+from src.analysis.comparative_analysis import ComparativeAnalyzer
 
 
 class TestComparativeAnalyzer(unittest.TestCase):

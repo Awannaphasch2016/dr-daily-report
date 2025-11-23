@@ -15,7 +15,7 @@ from typing import Dict, Any
 from langsmith import Client
 from langsmith.evaluation import evaluate
 
-from src.langsmith_evaluator_adapters import get_all_evaluators
+from src.evaluation.langsmith_evaluator_adapters import get_all_evaluators
 
 logger = logging.getLogger(__name__)
 
@@ -43,24 +43,24 @@ def target_report_generation(inputs: Dict[str, Any]) -> Dict[str, Any]:
             - narrative: Generated report text
     """
     from src.workflow.workflow_nodes import WorkflowNodes
-    from src.database import TickerDatabase
-    from src.data_fetcher import DataFetcher
-    from src.technical_analysis import TechnicalAnalyzer
-    from src.news_fetcher import NewsFetcher
-    from src.chart_generator import ChartGenerator
-    from src.strategy import SMAStrategyBacktester
+    from src.data.database import TickerDatabase
+    from src.data.data_fetcher import DataFetcher
+    from src.analysis.technical_analysis import TechnicalAnalyzer
+    from src.data.news_fetcher import NewsFetcher
+    from src.formatters.chart_generator import ChartGenerator
+    from src.utils.strategy import SMAStrategyBacktester
     from src.analysis import StrategyAnalyzer
-    from src.comparative_analysis import ComparativeAnalyzer
+    from src.analysis.comparative_analysis import ComparativeAnalyzer
     from src.report import PromptBuilder, ContextBuilder, NumberInjector
     from src.analysis import MarketAnalyzer
-    from src.cost_scorer import CostScorer
+    from src.scoring.cost_scorer import CostScorer
     from langchain_openai import ChatOpenAI
-    from src.scoring_service import ScoringService
-    from src.qos_scorer import QoSScorer
-    from src.faithfulness_scorer import FaithfulnessScorer
-    from src.completeness_scorer import CompletenessScorer
-    from src.reasoning_quality_scorer import ReasoningQualityScorer
-    from src.compliance_scorer import ComplianceScorer
+    from src.scoring.scoring_service import ScoringService
+    from src.scoring.qos_scorer import QoSScorer
+    from src.scoring.faithfulness_scorer import FaithfulnessScorer
+    from src.scoring.completeness_scorer import CompletenessScorer
+    from src.scoring.reasoning_quality_scorer import ReasoningQualityScorer
+    from src.scoring.compliance_scorer import ComplianceScorer
     ticker = inputs.get("ticker")
     logger.info(f"Running report-generation component for {ticker}")
 
@@ -184,7 +184,7 @@ def run_component_evaluation(
     target_func = COMPONENT_TARGETS[component_name]
 
     # Get LangSmith client
-    from src.langsmith_integration import get_langsmith_client
+    from src.evaluation.langsmith_integration import get_langsmith_client
     client = get_langsmith_client(workspace_id=workspace_id)
 
     # Default experiment name

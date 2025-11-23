@@ -240,7 +240,7 @@ class TestAsyncEvaluationResilience(unittest.TestCase):
 
     def test_async_evaluation_handles_exception(self):
         """Test that background evaluation handles exceptions"""
-        from src.langsmith_integration import async_evaluate_and_log
+        from src.evaluation.langsmith_integration import async_evaluate_and_log
 
         # Mock scoring service that raises exception
         mock_scoring_service = Mock()
@@ -265,8 +265,8 @@ class TestAsyncEvaluationResilience(unittest.TestCase):
 
     def test_database_save_failure_continues(self):
         """Test that LangSmith logging continues even if database save fails"""
-        from src.langsmith_integration import async_evaluate_and_log
-        from src.scoring_service import ScoringContext
+        from src.evaluation.langsmith_integration import async_evaluate_and_log
+        from src.scoring.scoring_service import ScoringContext
 
         # Mock database that fails
         mock_db = Mock()

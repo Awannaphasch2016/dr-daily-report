@@ -20,7 +20,7 @@ import warnings
 warnings.filterwarnings('ignore')
 
 from src.agent import TickerAnalysisAgent
-from src.scoring_service import ScoringContext
+from src.scoring.scoring_service import ScoringContext
 
 
 class TestLangSmithE2EIntegration(unittest.TestCase):
@@ -168,7 +168,7 @@ class TestLangSmithLogging(unittest.TestCase):
 
     def test_log_evaluation_with_run_id(self):
         """Test that evaluation logging requires run ID"""
-        from src.langsmith_integration import log_evaluation_to_langsmith
+        from src.evaluation.langsmith_integration import log_evaluation_to_langsmith
 
         mock_client = Mock()
         quality_scores = {'faithfulness': {'overall_score': 85.0}}
@@ -188,7 +188,7 @@ class TestLangSmithLogging(unittest.TestCase):
 
     def test_create_feedback_format(self):
         """Test that create_feedback is called with correct format"""
-        from src.langsmith_integration import log_evaluation_to_langsmith
+        from src.evaluation.langsmith_integration import log_evaluation_to_langsmith
 
         mock_client = Mock()
         quality_scores = {

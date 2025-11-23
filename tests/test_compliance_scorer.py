@@ -3,7 +3,7 @@ Tests for ComplianceScorer
 """
 
 import pytest
-from src.compliance_scorer import ComplianceScorer, ComplianceScore
+from src.scoring.compliance_scorer import ComplianceScorer, ComplianceScore
 
 
 class TestComplianceScorer:

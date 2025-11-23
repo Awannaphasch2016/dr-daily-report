@@ -5,7 +5,7 @@ Test LINE bot help command handling
 
 import json
 from unittest.mock import patch
-from src.line_bot import LineBot
+from src.integrations.line_bot import LineBot
 
 def test_help_command():
     """Test LINE bot with help command"""

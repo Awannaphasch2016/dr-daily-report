@@ -7,8 +7,8 @@ import sys
 import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from src.data_fetcher import DataFetcher
-from src.technical_analysis import TechnicalAnalyzer
+from src.data.data_fetcher import DataFetcher
+from src.analysis.technical_analysis import TechnicalAnalyzer
 import json
 
 def test_percentile_analysis(ticker_symbol="AAPL"):

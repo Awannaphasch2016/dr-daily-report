@@ -18,7 +18,7 @@ from datetime import datetime
 # Add src to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from src.api_handler import api_handler, sanitize_ticker_data, sanitize_news, sanitize_dict
+from src.integrations.api_handler import api_handler, sanitize_ticker_data, sanitize_news, sanitize_dict
 
 
 def test_missing_ticker_parameter():

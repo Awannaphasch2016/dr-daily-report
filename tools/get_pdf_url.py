@@ -3,7 +3,7 @@
 
 import os
 import subprocess
-from src.pdf_storage import PDFStorage
+from src.formatters.pdf_storage import PDFStorage
 
 # Load Doppler env
 print("📡 Loading environment variables from Doppler...")

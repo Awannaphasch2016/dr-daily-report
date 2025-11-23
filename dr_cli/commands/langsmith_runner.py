@@ -34,7 +34,7 @@ def get_langsmith_client_with_workspace(workspace_id: Optional[str] = None) -> C
     project_root = pathlib.Path(__file__).parent.parent.parent
     sys.path.insert(0, str(project_root))
 
-    from src.langsmith_integration import get_langsmith_client
+    from src.evaluation.langsmith_integration import get_langsmith_client
 
     client = get_langsmith_client(workspace_id=workspace_id)
     if not client:

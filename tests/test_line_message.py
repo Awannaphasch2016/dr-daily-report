@@ -4,7 +4,7 @@ Simple test to simulate LINE message without running a server
 """
 
 import json
-from src.line_bot import LineBot
+from src.integrations.line_bot import LineBot
 
 def test_line_message(ticker):
     """Test LINE bot with a ticker message"""

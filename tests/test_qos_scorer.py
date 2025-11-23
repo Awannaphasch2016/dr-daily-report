@@ -3,7 +3,7 @@ Tests for QoSScorer
 """
 
 import pytest
-from src.qos_scorer import QoSScorer, QoSScore
+from src.scoring.qos_scorer import QoSScorer, QoSScore
 
 
 class TestQoSScorer:

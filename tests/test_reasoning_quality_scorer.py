@@ -3,7 +3,7 @@ Tests for ReasoningQualityScorer
 """
 
 import pytest
-from src.reasoning_quality_scorer import ReasoningQualityScorer, ReasoningQualityScore
+from src.scoring.reasoning_quality_scorer import ReasoningQualityScorer, ReasoningQualityScore
 
 
 class TestReasoningQualityScorer:

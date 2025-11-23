@@ -5,7 +5,7 @@ Test LINE bot fuzzy ticker matching
 
 import json
 from unittest.mock import patch
-from src.line_bot import LineBot
+from src.integrations.line_bot import LineBot
 
 def test_fuzzy_matching():
     """Test fuzzy ticker matching"""

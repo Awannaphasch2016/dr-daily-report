@@ -6,7 +6,7 @@ Test LINE bot caching functionality
 import json
 from datetime import date
 from unittest.mock import patch, MagicMock
-from src.line_bot import LineBot
+from src.integrations.line_bot import LineBot
 
 def test_caching():
     """Test that responses are cached by (ticker, date)"""

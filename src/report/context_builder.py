@@ -5,7 +5,7 @@ import logging
 from typing import Dict, List, Optional
 from src.analysis import MarketAnalyzer
 from src.formatters import DataFormatter
-from src.technical_analysis import TechnicalAnalyzer
+from src.analysis.technical_analysis import TechnicalAnalyzer
 
 # Setup logger
 logger = logging.getLogger(__name__)

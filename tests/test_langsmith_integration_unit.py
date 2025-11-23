@@ -19,8 +19,8 @@ from unittest.mock import Mock, patch, MagicMock
 import warnings
 warnings.filterwarnings('ignore')
 
-from src.langsmith_evaluators import LangSmithEvaluators
-from src.langsmith_integration import get_langsmith_client, log_evaluation_to_langsmith
+from src.evaluation.langsmith_evaluators import LangSmithEvaluators
+from src.evaluation.langsmith_integration import get_langsmith_client, log_evaluation_to_langsmith
 
 
 class TestLangSmithEvaluators(unittest.TestCase):

@@ -19,8 +19,8 @@ load_dotenv()
 # Add src to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 
-from src.s3_cache import S3Cache
-from src.database import TickerDatabase
+from src.data.s3_cache import S3Cache
+from src.data.database import TickerDatabase
 
 def test_s3_cache():
     """Test S3 cache functionality"""

@@ -153,7 +153,7 @@ def list_datasets(local: bool, remote: bool):
         click.echo()
 
         try:
-            from src.langsmith_integration import get_langsmith_client
+            from src.evaluation.langsmith_integration import get_langsmith_client
 
             client = get_langsmith_client()
             if not client:
@@ -256,7 +256,7 @@ def status():
 
     # LangSmith connection
     try:
-        from src.langsmith_integration import get_langsmith_client
+        from src.evaluation.langsmith_integration import get_langsmith_client
 
         client = get_langsmith_client()
         if client:
@@ -428,7 +428,7 @@ def describe(type: str, name: str):
             click.echo()
 
             try:
-                from src.langsmith_integration import get_langsmith_client
+                from src.evaluation.langsmith_integration import get_langsmith_client
 
                 client = get_langsmith_client()
                 if not client:
@@ -504,7 +504,7 @@ def generate_ground_truth(num: int, ticker: str, output_dir: str, quality_tier: 
         dr eval generate-ground-truth --num 5
         dr eval generate-ground-truth --num 10 --ticker PTT
     """
-    from src.database import TickerDatabase
+    from src.data.database import TickerDatabase
     from src.agent import TickerAnalysisAgent
     from dataclasses import asdict
 
@@ -690,7 +690,7 @@ def upload_dataset(from_dir: str, dataset_name: str, dataset_type: str, descript
     click.echo()
 
     # Get LangSmith client using helper that handles personal vs org API keys
-    from src.langsmith_integration import get_langsmith_client
+    from src.evaluation.langsmith_integration import get_langsmith_client
 
     try:
         client = get_langsmith_client()

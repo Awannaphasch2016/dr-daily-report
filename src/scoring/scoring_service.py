@@ -7,13 +7,13 @@ Enables rescoring of historical reports using stored context data.
 
 from dataclasses import dataclass, asdict
 from typing import Dict, List, Optional
-from src.faithfulness_scorer import FaithfulnessScorer
-from src.completeness_scorer import CompletenessScorer
-from src.reasoning_quality_scorer import ReasoningQualityScorer
-from src.compliance_scorer import ComplianceScorer
-from src.qos_scorer import QoSScorer
-from src.cost_scorer import CostScorer
-from src.consistency_scorer import ConsistencyScorer
+from src.scoring.faithfulness_scorer import FaithfulnessScorer
+from src.scoring.completeness_scorer import CompletenessScorer
+from src.scoring.reasoning_quality_scorer import ReasoningQualityScorer
+from src.scoring.compliance_scorer import ComplianceScorer
+from src.scoring.qos_scorer import QoSScorer
+from src.scoring.cost_scorer import CostScorer
+from src.scoring.consistency_scorer import ConsistencyScorer
 
 
 @dataclass

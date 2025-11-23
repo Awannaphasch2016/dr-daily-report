@@ -12,8 +12,8 @@ Useful for:
 import argparse
 import json
 from typing import Optional
-from src.database import TickerDatabase
-from src.scoring_service import ScoringService, ScoringContext
+from src.data.database import TickerDatabase
+from src.scoring.scoring_service import ScoringService, ScoringContext
 
 
 def rescore_report(ticker: str, date: str, verbose: bool = False) -> dict:

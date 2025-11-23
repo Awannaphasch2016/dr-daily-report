@@ -3,7 +3,7 @@ Tests for FaithfulnessScorer
 """
 
 import pytest
-from src.faithfulness_scorer import FaithfulnessScorer, FaithfulnessScore
+from src.scoring.faithfulness_scorer import FaithfulnessScorer, FaithfulnessScore
 
 
 class TestFaithfulnessScorer:

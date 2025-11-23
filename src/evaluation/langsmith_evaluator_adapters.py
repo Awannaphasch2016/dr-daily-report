@@ -18,7 +18,7 @@ Evaluation Framework:
 
 Usage:
     from langsmith import evaluate
-    from src.langsmith_evaluator_adapters import (
+    from src.evaluation.langsmith_evaluator_adapters import (
         faithfulness_evaluator,
         completeness_evaluator,
         reasoning_quality_evaluator,
@@ -449,7 +449,7 @@ def get_all_evaluators():
 
     Usage:
         from langsmith import evaluate
-        from src.langsmith_evaluator_adapters import get_all_evaluators
+        from src.evaluation.langsmith_evaluator_adapters import get_all_evaluators
 
         results = evaluate(
             target=my_function,

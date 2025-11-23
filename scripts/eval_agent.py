@@ -13,7 +13,7 @@ from langsmith import Client
 from langsmith.evaluation import evaluate
 
 from src.agent import TickerAnalysisAgent
-from src.langsmith_evaluator_adapters import get_all_evaluators
+from src.evaluation.langsmith_evaluator_adapters import get_all_evaluators
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +73,7 @@ def run_agent_evaluation(dataset_name: str, experiment_prefix: str = None, works
     logger.info(f"Starting agent evaluation with dataset: {dataset_name}")
 
     # Get LangSmith client
-    from src.langsmith_integration import get_langsmith_client
+    from src.evaluation.langsmith_integration import get_langsmith_client
     client = get_langsmith_client(workspace_id=workspace_id)
 
     # Default experiment name

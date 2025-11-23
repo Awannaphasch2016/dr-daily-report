@@ -2,7 +2,7 @@
 
 from typing import Dict, Optional
 import pandas as pd
-from src.strategy import SMAStrategyBacktester
+from src.utils.strategy import SMAStrategyBacktester
 
 
 class StrategyAnalyzer:

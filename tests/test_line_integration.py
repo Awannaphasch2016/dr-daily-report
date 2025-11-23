@@ -5,7 +5,7 @@ Test LINE integration end-to-end with mock reply
 
 import json
 from unittest.mock import patch, MagicMock
-from src.line_bot import LineBot
+from src.integrations.line_bot import LineBot
 
 def test_line_integration(ticker):
     """Test LINE bot integration with mocked reply"""

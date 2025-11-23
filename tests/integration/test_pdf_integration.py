@@ -51,7 +51,7 @@ def test_code_structure():
             line_bot_code = f.read()
         
         # Check for PDFStorage import
-        if 'from src.pdf_storage import PDFStorage' in line_bot_code:
+        if 'from src.formatters.pdf_storage import PDFStorage' in line_bot_code:
             print("   ✅ PDFStorage import found")
         else:
             print("   ❌ PDFStorage import not found")
@@ -129,7 +129,7 @@ def test_imports():
     
     # Test PDF storage import
     try:
-        from src.pdf_storage import PDFStorage
+        from src.formatters.pdf_storage import PDFStorage
         print("✅ PDFStorage import successful")
         
         # Test initialization (should work without boto3)
@@ -145,7 +145,7 @@ def test_imports():
     
     # Test LINE bot import (will fail on initialization, but import should work)
     try:
-        import src.line_bot
+        import src.integrations.line_bot
         print("✅ line_bot module import successful")
         
         # Check if class has the method

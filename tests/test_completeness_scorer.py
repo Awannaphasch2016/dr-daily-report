@@ -3,7 +3,7 @@ Tests for CompletenessScorer
 """
 
 import pytest
-from src.completeness_scorer import CompletenessScorer, CompletenessScore
+from src.scoring.completeness_scorer import CompletenessScorer, CompletenessScore
 
 
 class TestCompletenessScorer:

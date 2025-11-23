@@ -5,7 +5,7 @@ Run with: python3 run_server.py
 """
 
 from flask import Flask, request, jsonify
-from src.line_bot import LineBot
+from src.integrations.line_bot import LineBot
 import json
 import os
 

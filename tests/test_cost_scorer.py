@@ -3,7 +3,7 @@ Tests for CostScorer
 """
 
 import pytest
-from src.cost_scorer import CostScorer, CostScore
+from src.scoring.cost_scorer import CostScorer, CostScore
 
 
 class TestCostScorer:

@@ -14,7 +14,7 @@ from langsmith.run_helpers import get_current_run_tree
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from src.types import AgentState
-from src.langsmith_integration import async_evaluate_and_log
+from src.evaluation.langsmith_integration import async_evaluate_and_log
 import os
 
 # Setup logger
@@ -720,7 +720,7 @@ class WorkflowNodes:
             return obj
 
         market_conditions = self.market_analyzer.calculate_market_conditions(indicators)
-        from src.scoring_service import ScoringContext
+        from src.scoring.scoring_service import ScoringContext
         scoring_context = ScoringContext(
             indicators=make_json_serializable(indicators),
             percentiles=make_json_serializable(percentiles),

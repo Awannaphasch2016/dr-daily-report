@@ -82,7 +82,7 @@ def test_pdf_storage_init():
     logger.info("="*80)
     
     try:
-        from src.pdf_storage import PDFStorage
+        from src.formatters.pdf_storage import PDFStorage
         
         storage = PDFStorage()
         
@@ -144,7 +144,7 @@ def test_s3_upload(pdf_bytes):
         return None
     
     try:
-        from src.pdf_storage import PDFStorage
+        from src.formatters.pdf_storage import PDFStorage
         
         storage = PDFStorage()
         
@@ -179,7 +179,7 @@ def test_presigned_url(object_key):
         return None
     
     try:
-        from src.pdf_storage import PDFStorage
+        from src.formatters.pdf_storage import PDFStorage
         
         storage = PDFStorage()
         
@@ -205,7 +205,7 @@ def test_line_bot_integration():
     logger.info("="*80)
     
     try:
-        from src.line_bot import LineBot
+        from src.integrations.line_bot import LineBot
         
         # Create instance without full initialization (to avoid OpenAI requirement)
         bot = object.__new__(LineBot)

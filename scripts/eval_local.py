@@ -77,7 +77,7 @@ def run_local_evaluation(
     logger.info(f"Found {len(ground_truth_files)} ground truth examples")
 
     # Get evaluators
-    from src.langsmith_evaluator_adapters import get_all_evaluators
+    from src.evaluation.langsmith_evaluator_adapters import get_all_evaluators
     evaluators = get_all_evaluators()
 
     # Results storage
