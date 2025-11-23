@@ -131,6 +131,11 @@ class WorkflowNodes:
         # Track node execution for summary
         self._node_execution_log = []
 
+        # Initialize multi-stage report generators
+        from src.report import MiniReportGenerator, SynthesisGenerator
+        self.mini_report_generator = MiniReportGenerator(llm)
+        self.synthesis_generator = SynthesisGenerator(llm)
+
     def _log_node_start(self, node_name: str, state: AgentState):
         """Log node execution start"""
         ticker = state.get("ticker", "UNKNOWN")
@@ -555,12 +560,225 @@ class WorkflowNodes:
         process_outputs=_filter_state_for_langsmith
     )
     def generate_report(self, state: AgentState) -> AgentState:
-        """Generate Thai language report using LLM"""
+        """Generate Thai language report using LLM (supports both single-stage and multi-stage strategies)"""
         self._log_node_start("generate_report", state)
 
         if state.get("error"):
             self._log_node_skip("generate_report", state, "Previous error in workflow")
             return state
+
+        # Check strategy: 'single-stage' (default) or 'multi-stage'
+        strategy = state.get("strategy", "single-stage")
+
+        if strategy == "multi-stage":
+            return self._generate_report_multistage(state)
+        else:
+            return self._generate_report_singlestage(state)
+
+    def _generate_report_multistage(self, state: AgentState) -> AgentState:
+        """
+        Generate report using multi-stage approach:
+        1. Generate 6 specialized mini-reports in parallel
+        2. Synthesize mini-reports into comprehensive final report
+        3. Apply number injection and add footnotes
+        """
+        llm_start_time = time.perf_counter()
+        logger.info(f"   📝 Generating multi-stage report (6 mini-reports → synthesis)")
+
+        ticker = state["ticker"]
+        ticker_data = state["ticker_data"]
+        indicators = state["indicators"]
+        percentiles = state.get("percentiles", {})
+        strategy_performance = state.get("strategy_performance", {})
+        news = state.get("news", [])
+        news_summary = state.get("news_summary", {})
+        comparative_insights = state.get("comparative_insights", {})
+
+        # Initialize API costs tracking
+        total_input_tokens = 0
+        total_output_tokens = 0
+        llm_calls = 0
+
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        # STAGE 1: Generate 6 mini-reports in parallel
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        mini_reports = {}
+
+        def generate_mini_report(report_type: str) -> tuple:
+            """Generate a single mini-report and return (type, content, tokens)"""
+            try:
+                if report_type == 'technical':
+                    content = self.mini_report_generator.generate_technical_mini_report(indicators, percentiles)
+                elif report_type == 'fundamental':
+                    content = self.mini_report_generator.generate_fundamental_mini_report(ticker_data)
+                elif report_type == 'market_conditions':
+                    content = self.mini_report_generator.generate_market_conditions_mini_report(indicators, percentiles)
+                elif report_type == 'news':
+                    content = self.mini_report_generator.generate_news_mini_report(news, news_summary)
+                elif report_type == 'comparative':
+                    content = self.mini_report_generator.generate_comparative_mini_report(comparative_insights)
+                elif report_type == 'strategy':
+                    content = self.mini_report_generator.generate_strategy_mini_report(strategy_performance)
+                else:
+                    content = ""
+
+                # Estimate tokens (actual token counting would require response metadata)
+                input_tokens = 500  # Rough estimate for prompt
+                output_tokens = len(content) // 4  # Rough estimate: 4 chars per token
+                return (report_type, content, input_tokens, output_tokens)
+            except Exception as e:
+                logger.warning(f"   ⚠️  Failed to generate {report_type} mini-report: {e}")
+                return (report_type, "", 0, 0)
+
+        # Generate all 6 mini-reports in parallel
+        logger.info(f"   🔄 Generating 6 mini-reports in parallel...")
+        report_types = ['technical', 'fundamental', 'market_conditions', 'news', 'comparative', 'strategy']
+
+        with ThreadPoolExecutor(max_workers=6) as executor:
+            futures = {executor.submit(generate_mini_report, rt): rt for rt in report_types}
+
+            for future in as_completed(futures):
+                report_type, content, input_tokens, output_tokens = future.result()
+                mini_reports[report_type] = content
+                total_input_tokens += input_tokens
+                total_output_tokens += output_tokens
+                llm_calls += 1
+                logger.info(f"   ✅ {report_type} mini-report complete ({len(content)} chars)")
+
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        # STAGE 2: Synthesize all mini-reports into final report
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        logger.info(f"   🔄 Synthesizing mini-reports into final report...")
+        report = self.synthesis_generator.generate_synthesis(mini_reports)
+        llm_calls += 1
+
+        # Estimate synthesis tokens
+        synthesis_input = sum(len(mr) for mr in mini_reports.values()) // 4
+        synthesis_output = len(report) // 4
+        total_input_tokens += synthesis_input
+        total_output_tokens += synthesis_output
+
+        logger.info(f"   ✅ Synthesis complete ({len(report)} chars)")
+
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        # STAGE 3: Apply number injection and formatting
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        conditions = self.market_analyzer.calculate_market_conditions(indicators)
+        ground_truth = {
+            'uncertainty_score': indicators.get('uncertainty_score', 0),
+            'atr_pct': (indicators.get('atr', 0) / indicators.get('current_price', 1)) * 100 if indicators.get('current_price', 0) > 0 else 0,
+            'vwap_pct': conditions.get('price_vs_vwap_pct', 0),
+            'volume_ratio': conditions.get('volume_ratio', 0),
+        }
+
+        report = self.number_injector.inject_deterministic_numbers(
+            report, ground_truth, indicators, percentiles
+        )
+
+        # Add news references
+        if news:
+            news_references = self.news_fetcher.get_news_references(news)
+            report += f"\n\n{news_references}"
+
+        # Add percentile analysis
+        if percentiles:
+            percentile_analysis = self.technical_analyzer.format_percentile_analysis(percentiles)
+            report += f"\n\n{percentile_analysis}"
+
+        # Add transparency footnote
+        from src.report import TransparencyFooter
+        transparency = TransparencyFooter()
+        footnote = transparency.generate_data_usage_footnote(state, strategy='multi-stage')
+        report += footnote
+
+        # Record timing and costs
+        llm_elapsed = time.perf_counter() - llm_start_time
+        timing_metrics = state.get("timing_metrics", {})
+        timing_metrics["llm_generation"] = llm_elapsed
+        state["timing_metrics"] = timing_metrics
+
+        api_costs = self.cost_scorer.calculate_api_cost(
+            total_input_tokens, total_output_tokens, actual_cost_usd=None
+        )
+        state["api_costs"] = api_costs
+
+        # Validate report
+        if not report or len(report.strip()) == 0:
+            error_msg = "Generated multi-stage report is empty"
+            state["error"] = error_msg
+            self._log_node_error("generate_report", state, error_msg)
+            return state
+
+        state["report"] = report
+
+        # Log success
+        details = {
+            'report_length': len(report),
+            'llm_calls': llm_calls,
+            'input_tokens': total_input_tokens,
+            'output_tokens': total_output_tokens,
+            'duration_ms': f"{llm_elapsed*1000:.2f}",
+            'strategy': 'multi-stage'
+        }
+        self._log_node_success("generate_report", state, details)
+
+        # Save to database (same as single-stage)
+        def make_json_serializable(obj):
+            """Recursively convert datetime/date/DataFrame/numpy objects to JSON-serializable format"""
+            from datetime import date
+            if isinstance(obj, (datetime, date)):
+                return obj.isoformat()
+            elif isinstance(obj, pd.Timestamp):
+                return obj.isoformat()
+            elif isinstance(obj, pd.DataFrame):
+                df_copy = obj.reset_index(drop=False)
+                return make_json_serializable(df_copy.to_dict('records'))
+            elif isinstance(obj, np.integer):
+                return int(obj)
+            elif isinstance(obj, np.floating):
+                return float(obj)
+            elif isinstance(obj, np.ndarray):
+                return make_json_serializable(obj.tolist())
+            elif isinstance(obj, dict):
+                return {str(k) if isinstance(k, (pd.Timestamp, datetime, date)) else k: make_json_serializable(v)
+                        for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [make_json_serializable(item) for item in obj]
+            return obj
+
+        market_conditions = self.market_analyzer.calculate_market_conditions(indicators)
+        from src.scoring.scoring_service import ScoringContext
+        scoring_context = ScoringContext(
+            indicators=make_json_serializable(indicators),
+            percentiles=make_json_serializable(percentiles),
+            news=make_json_serializable(news),
+            ticker_data=make_json_serializable(ticker_data),
+            market_conditions={
+                'uncertainty_score': indicators.get('uncertainty_score', 0),
+                'atr_pct': (indicators.get('atr', 0) / indicators.get('current_price', 1)) * 100 if indicators.get('current_price', 0) > 0 else 0,
+                'price_vs_vwap_pct': market_conditions.get('price_vs_vwap_pct', 0),
+                'volume_ratio': market_conditions.get('volume_ratio', 0),
+            },
+            comparative_insights=make_json_serializable(state.get('comparative_insights', {}))
+        )
+
+        yahoo_ticker = self.ticker_map.get(ticker.upper()) or ticker
+        self.db.save_report(
+            yahoo_ticker,
+            ticker_data['date'],
+            {
+                'report_text': report,
+                'context_json': json.dumps(make_json_serializable(scoring_context.to_json())),
+                'technical_summary': self.technical_analyzer.analyze_trend(indicators, indicators.get('current_price')),
+                'fundamental_summary': f"P/E: {ticker_data.get('pe_ratio', 'N/A')}",
+                'sector_analysis': ticker_data.get('sector', 'N/A')
+            }
+        )
+
+        return state
+
+    def _generate_report_singlestage(self, state: AgentState) -> AgentState:
+        """Generate report using traditional single-stage approach (original implementation)"""
 
         llm_start_time = time.perf_counter()
         logger.info(f"   📝 Generating report with LLM")

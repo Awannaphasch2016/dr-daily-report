@@ -31,3 +31,4 @@ class AgentState(TypedDict):
     api_costs: dict  # Add API costs field
     database_metrics: dict  # Add database metrics field
     error: str
+    strategy: str  # Report generation strategy: 'single-stage' or 'multi-stage'

@@ -98,21 +98,24 @@ def list_py():
 
 @utils.command()
 @click.argument('ticker')
+@click.option('--strategy', type=click.Choice(['single-stage', 'multi-stage']), default='single-stage',
+              help='Report generation strategy: single-stage (default) or multi-stage')
 @click.pass_context
-def report(ctx, ticker):
+def report(ctx, ticker, strategy):
     """Generate report for a ticker
 
     Generates a daily report analysis for the specified ticker symbol.
 
-    Example:
-      dr util report AAPL
+    Examples:
+      dr util report DBS19              # Single-stage (default)
+      dr util report DBS19 --strategy multi-stage
     """
     use_doppler = ctx.obj.get('doppler', False)
     trace = ctx.obj.get('trace')
 
     cmd = [
         sys.executable, "-c",
-        f"from src.agent import TickerAnalysisAgent; agent = TickerAnalysisAgent(); print(agent.analyze_ticker('{ticker}'))"
+        f"from src.agent import TickerAnalysisAgent; agent = TickerAnalysisAgent(); print(agent.analyze_ticker('{ticker}', strategy='{strategy}'))"
     ]
 
     env = {**os.environ, "PYTHONPATH": str(PROJECT_ROOT)}

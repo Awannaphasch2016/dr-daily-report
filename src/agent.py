@@ -125,8 +125,17 @@ class TickerAnalysisAgent:
         return workflow.compile()
 
     @traceable(name="analyze_ticker", tags=["agent", "workflow"])
-    def analyze_ticker(self, ticker: str) -> str:
-        """Main entry point to analyze ticker"""
+    def analyze_ticker(self, ticker: str, strategy: str = "single-stage") -> str:
+        """
+        Main entry point to analyze ticker
+
+        Args:
+            ticker: Ticker symbol to analyze
+            strategy: Report generation strategy - 'single-stage' or 'multi-stage' (default: 'single-stage')
+
+        Returns:
+            Generated report text
+        """
         initial_state = {
             "messages": [],
             "ticker": ticker,
@@ -149,7 +158,8 @@ class TickerAnalysisAgent:
             "timing_metrics": {},
             "api_costs": {},
             "database_metrics": {},
-            "error": ""
+            "error": "",
+            "strategy": strategy  # Add strategy to state
         }
 
         # Run the graph
