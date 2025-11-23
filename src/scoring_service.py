@@ -13,6 +13,7 @@ from src.reasoning_quality_scorer import ReasoningQualityScorer
 from src.compliance_scorer import ComplianceScorer
 from src.qos_scorer import QoSScorer
 from src.cost_scorer import CostScorer
+from src.hallucination_scorer import HallucinationScorer
 
 
 @dataclass
@@ -53,13 +54,14 @@ class ScoringService:
     """
 
     def __init__(self):
-        """Initialize all scorers"""
+        """Initialize all scorers (6 rule-based + 1 LLM-as-judge)"""
         self.faithfulness_scorer = FaithfulnessScorer()
         self.completeness_scorer = CompletenessScorer()
         self.reasoning_quality_scorer = ReasoningQualityScorer()
         self.compliance_scorer = ComplianceScorer()
         self.qos_scorer = QoSScorer()
         self.cost_scorer = CostScorer()
+        self.hallucination_scorer = HallucinationScorer()
 
     def compute_all_quality_scores(
         self,
@@ -120,6 +122,53 @@ class ScoringService:
             'reasoning_quality': reasoning_quality_score,
             'compliance': compliance_score
         }
+
+    def compute_hallucination_score(
+        self,
+        report_text: str,
+        context: ScoringContext,
+        ticker: str = None
+    ) -> dict:
+        """
+        Compute hallucination score using LLM-as-judge.
+
+        This is optional and complements the rule-based faithfulness scorer.
+        Provides semantic validation that catches subtle hallucinations.
+
+        Args:
+            report_text: Generated report text (Thai narrative)
+            context: ScoringContext with all required data
+            ticker: Optional ticker symbol for context
+
+        Returns:
+            Dictionary with 'hallucination_llm' score, or empty dict on error
+        """
+        try:
+            # Build complete ground truth context
+            ground_truth_context = {
+                'indicators': context.indicators,
+                'percentiles': context.percentiles,
+                'news': context.news,
+                'ticker_data': context.ticker_data,
+                'market_conditions': context.market_conditions,
+                'comparative_insights': context.comparative_insights
+            }
+
+            # Score using LLM
+            hallucination_score = self.hallucination_scorer.score_narrative(
+                narrative=report_text,
+                ground_truth_context=ground_truth_context,
+                ticker=ticker
+            )
+
+            return {'hallucination_llm': hallucination_score}
+
+        except Exception as e:
+            # Graceful degradation - don't break if LLM scoring fails
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Hallucination scoring failed: {e}")
+            return {}
 
     def compute_performance_scores(
         self,

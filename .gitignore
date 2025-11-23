@@ -81,3 +81,6 @@ test_lambda*.json
 test_dbs*.json
 requirements_lambda.txt
 LAMBDA_DEPLOYMENT_INSTRUCTIONS.md
+ground_truth/*.json
+evaluation_results/*
+ground_truth_dbs/*

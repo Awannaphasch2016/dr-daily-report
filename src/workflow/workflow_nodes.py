@@ -736,7 +736,7 @@ class WorkflowNodes:
         )
 
         # Save report with context to database
-        yahoo_ticker = self.ticker_map.get(ticker.upper())
+        yahoo_ticker = self.ticker_map.get(ticker.upper()) or ticker
         self.db.save_report(
             yahoo_ticker,
             ticker_data['date'],

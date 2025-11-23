@@ -41,12 +41,24 @@ def cli(ctx, doppler):
     A clean, consistent interface for all repository operations.
     Use 'dr <command> --help' to see detailed help for each command.
     """
+    # If --doppler flag is set and we haven't wrapped yet, re-execute via doppler
+    if doppler and not os.environ.get('_DR_DOPPLER_WRAPPED'):
+        # Set marker to prevent infinite recursion
+        os.environ['_DR_DOPPLER_WRAPPED'] = '1'
+
+        # Remove --doppler from arguments (doppler will inject env vars)
+        args = [arg for arg in sys.argv[1:] if arg != '--doppler']
+
+        # Re-execute via doppler
+        result = run_with_doppler([sys.executable, '-m', 'dr_cli.main'] + args)
+        sys.exit(result.returncode)
+
     ctx.ensure_object(dict)
     ctx.obj['doppler'] = doppler
 
 
 # Import command groups
-from dr_cli.commands import dev, test, build, deploy, clean, check, utils, langsmith
+from dr_cli.commands import dev, test, build, deploy, clean, check, utils, langsmith, eval
 
 cli.add_command(dev.dev)
 cli.add_command(test.test)
@@ -56,6 +68,7 @@ cli.add_command(clean.clean)
 cli.add_command(check.check)
 cli.add_command(utils.utils)
 cli.add_command(langsmith.langsmith_group)
+cli.add_command(eval.eval)
 
 
 def main():

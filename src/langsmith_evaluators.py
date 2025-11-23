@@ -3,19 +3,20 @@
 """
 LangSmith Evaluator Wrappers
 
-Wraps existing 6 evaluation scorers to return LangSmith-compatible format.
+Wraps existing 7 evaluation scorers to return LangSmith-compatible format.
 Each evaluator returns: {key, score, comment}
 
 Evaluators:
-1. Faithfulness - Accuracy of LLM narratives
-2. Completeness - Coverage of analytical dimensions
-3. Reasoning Quality - Quality of explanations
-4. Compliance - Format/policy adherence
+1. Faithfulness - Accuracy of LLM narratives (rule-based)
+2. Completeness - Coverage of analytical dimensions (rule-based)
+3. Reasoning Quality - Quality of explanations (rule-based)
+4. Compliance - Format/policy adherence (rule-based)
 5. QoS - System performance metrics
 6. Cost - Operational costs
+7. Hallucination (LLM) - LLM-as-judge hallucination detection (NEW)
 """
 
-from typing import Dict, Any
+from typing import Dict, Any, List
 
 
 class LangSmithEvaluators:
@@ -286,28 +287,68 @@ class LangSmithEvaluators:
             "comment": comment
         }
 
+    @staticmethod
+    def hallucination_llm_evaluator(score_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        LangSmith evaluator for Hallucination (LLM-as-judge) score.
+
+        This is the 7th evaluator that provides semantic validation using
+        an LLM to cross-check the rule-based faithfulness scorer.
+
+        Args:
+            score_data: Dictionary containing hallucination score details
+                - overall_score: Overall hallucination score (0-100, 100=no hallucinations)
+                - confidence: LLM's confidence in assessment (0-100)
+                - hallucinations: List of detected hallucinations
+                - validated_claims: List of verified claims
+                - llm_reasoning: LLM's explanation
+
+        Returns:
+            LangSmith-compatible dict with key, score, comment
+        """
+        overall_score = score_data.get('overall_score', 50)
+        confidence = score_data.get('confidence', 0)
+
+        hallucinations = score_data.get('hallucinations', [])
+        validated_claims = score_data.get('validated_claims', [])
+
+        hallucination_count = len(hallucinations)
+        validated_count = len(validated_claims)
+
+        comment = (
+            f"LLM-as-judge: {overall_score:.1f}/100 (confidence: {confidence:.1f}%) | "
+            f"Hallucinations: {hallucination_count}, Validated: {validated_count}"
+        )
+
+        return {
+            "key": "hallucination_llm_score",
+            "score": overall_score / 100.0,
+            "comment": comment
+        }
+
     @classmethod
     def evaluate_all(cls, quality_scores: Dict[str, Any],
-                    performance_scores: Dict[str, Any]) -> list[Dict[str, Any]]:
+                    performance_scores: Dict[str, Any]) -> List[Dict[str, Any]]:
         """
-        Evaluate all 6 metrics and return LangSmith-compatible results.
+        Evaluate all 7 metrics and return LangSmith-compatible results.
 
         Args:
             quality_scores: Dict containing all quality scores:
-                - faithfulness: Faithfulness score data
-                - completeness: Completeness score data
-                - reasoning_quality: Reasoning quality score data
-                - compliance: Compliance score data
+                - faithfulness: Faithfulness score data (rule-based)
+                - completeness: Completeness score data (rule-based)
+                - reasoning_quality: Reasoning quality score data (rule-based)
+                - compliance: Compliance score data (rule-based)
+                - hallucination_llm: Hallucination score data (LLM-as-judge, optional)
             performance_scores: Dict containing performance scores:
                 - qos: QoS score data
                 - cost: Cost score data
 
         Returns:
-            List of LangSmith-compatible evaluation results
+            List of LangSmith-compatible evaluation results (up to 7 metrics)
         """
         results = []
 
-        # Quality metrics
+        # Quality metrics (rule-based)
         if 'faithfulness' in quality_scores:
             results.append(cls.faithfulness_evaluator(quality_scores['faithfulness']))
 
@@ -319,6 +360,10 @@ class LangSmithEvaluators:
 
         if 'compliance' in quality_scores:
             results.append(cls.compliance_evaluator(quality_scores['compliance']))
+
+        # LLM-as-judge (optional - may not always be computed)
+        if 'hallucination_llm' in quality_scores:
+            results.append(cls.hallucination_llm_evaluator(quality_scores['hallucination_llm']))
 
         # Performance metrics
         if 'qos' in performance_scores:

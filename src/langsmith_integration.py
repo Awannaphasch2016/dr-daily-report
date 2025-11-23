@@ -166,7 +166,7 @@ def async_evaluate_and_log(
         logger.info(f"Background evaluation started for {ticker}")
 
         # ============================================
-        # STEP 1: Compute Quality Scores
+        # STEP 1: Compute Quality Scores (Rule-Based)
         # ============================================
         quality_scores = scoring_service.compute_all_quality_scores(
             report_text=report,
@@ -177,6 +177,28 @@ def async_evaluate_and_log(
         completeness_score = quality_scores.get('completeness', {})
         reasoning_quality_score = quality_scores.get('reasoning_quality', {})
         compliance_score = quality_scores.get('compliance', {})
+
+        # ============================================
+        # STEP 1.5: Compute Hallucination Score (LLM-as-Judge, Optional)
+        # ============================================
+        try:
+            hallucination_scores = scoring_service.compute_hallucination_score(
+                report_text=report,
+                context=scoring_context,
+                ticker=ticker
+            )
+
+            # Add to quality_scores if successful
+            if hallucination_scores:
+                quality_scores.update(hallucination_scores)
+                hallucination_score = hallucination_scores.get('hallucination_llm', {})
+                logger.info(f"Hallucination (LLM) score: {hallucination_score.overall_score:.1f}/100")
+            else:
+                logger.info("Hallucination scoring skipped (optional)")
+
+        except Exception as hall_error:
+            logger.warning(f"Hallucination scoring failed (optional): {hall_error}")
+            # Continue without hallucination score - it's optional
 
         # ============================================
         # STEP 2: Compute Performance Scores
