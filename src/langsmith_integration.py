@@ -21,9 +21,16 @@ from .scoring_service import ScoringContext
 logger = logging.getLogger(__name__)
 
 
-def get_langsmith_client() -> Optional[Client]:
+def get_langsmith_client(workspace_id: Optional[str] = None) -> Optional[Client]:
     """
     Get LangSmith client with proper configuration.
+
+    Args:
+        workspace_id: Optional workspace ID. Priority:
+            1. If workspace_id == "none" → explicitly disable workspace
+            2. If workspace_id provided → use it (CLI override)
+            3. If LANGSMITH_WORKSPACE_ID env var exists → use env var (doppler default)
+            4. Else → None (no workspace)
 
     Returns:
         LangSmith Client instance or None if not configured
@@ -35,27 +42,39 @@ def get_langsmith_client() -> Optional[Client]:
             logger.warning("LANGSMITH_API_KEY not set, LangSmith logging disabled")
             return None
 
-        # Initialize client
-        workspace_id = os.environ.get('LANGSMITH_WORKSPACE_ID')
+        # Determine workspace_id with priority: CLI > env var > None
+        if workspace_id == "none":
+            # Explicit disable via CLI
+            final_workspace_id = None
+            logger.info("LangSmith workspace explicitly disabled via --workspace none")
+        elif workspace_id:
+            # CLI override
+            final_workspace_id = workspace_id
+            logger.info(f"LangSmith workspace set via CLI: {final_workspace_id}")
+        else:
+            # Default to environment variable
+            final_workspace_id = os.environ.get('LANGSMITH_WORKSPACE_ID')
+            if final_workspace_id:
+                logger.info(f"LangSmith workspace from environment: {final_workspace_id}")
 
         # Only use workspace_id if it's set AND the API key is org-scoped
         # Personal API keys will fail with 403 Forbidden if workspace_id is provided
-        if workspace_id and api_key.startswith('lsv2_sk_'):
+        if final_workspace_id and api_key.startswith('lsv2_sk_'):
             # Org-scoped key - use workspace_id
             client = Client(
                 api_key=api_key,
                 api_url=os.environ.get('LANGSMITH_ENDPOINT', 'https://api.smith.langchain.com'),
-                workspace_id=workspace_id
+                workspace_id=final_workspace_id
             )
-            logger.info(f"LangSmith client initialized with workspace: {workspace_id}")
+            logger.info(f"LangSmith client initialized with workspace: {final_workspace_id}")
         else:
             # Personal key or no workspace_id - use default (project-based routing)
             client = Client(
                 api_key=api_key,
                 api_url=os.environ.get('LANGSMITH_ENDPOINT', 'https://api.smith.langchain.com')
             )
-            if workspace_id:
-                logger.warning(f"workspace_id set but API key is not org-scoped. Using project-based routing instead.")
+            if final_workspace_id:
+                logger.debug(f"workspace_id set but API key is not org-scoped. Using project-based routing instead.")
             logger.info("LangSmith client initialized with default workspace")
 
         return client
@@ -177,28 +196,7 @@ def async_evaluate_and_log(
         completeness_score = quality_scores.get('completeness', {})
         reasoning_quality_score = quality_scores.get('reasoning_quality', {})
         compliance_score = quality_scores.get('compliance', {})
-
-        # ============================================
-        # STEP 1.5: Compute Hallucination Score (LLM-as-Judge, Optional)
-        # ============================================
-        try:
-            hallucination_scores = scoring_service.compute_hallucination_score(
-                report_text=report,
-                context=scoring_context,
-                ticker=ticker
-            )
-
-            # Add to quality_scores if successful
-            if hallucination_scores:
-                quality_scores.update(hallucination_scores)
-                hallucination_score = hallucination_scores.get('hallucination_llm', {})
-                logger.info(f"Hallucination (LLM) score: {hallucination_score.overall_score:.1f}/100")
-            else:
-                logger.info("Hallucination scoring skipped (optional)")
-
-        except Exception as hall_error:
-            logger.warning(f"Hallucination scoring failed (optional): {hall_error}")
-            # Continue without hallucination score - it's optional
+        consistency_score = quality_scores.get('consistency', {})
 
         # ============================================
         # STEP 2: Compute Performance Scores

@@ -15,6 +15,7 @@ from typing import Dict, Any, Optional
 from datetime import datetime
 from unittest.mock import Mock
 import uuid
+import click
 
 # IMPORTANT: Disable LangSmith tracing for local evaluation
 # This must be set BEFORE importing any LangSmith modules
@@ -30,7 +31,8 @@ def run_local_evaluation(
     dataset_path: str,
     evaluation_type: str,
     component_name: Optional[str] = None,
-    output_dir: str = "evaluation_results"
+    output_dir: str = "evaluation_results",
+    ticker_filter: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Run evaluation locally without LangSmith.
@@ -40,11 +42,14 @@ def run_local_evaluation(
         evaluation_type: "agent" or "component"
         component_name: Component name (required for component evaluation)
         output_dir: Directory to save results
+        ticker_filter: Optional ticker symbol to filter evaluation (e.g., "D05.SI", "PTT")
 
     Returns:
         Dictionary containing evaluation results
     """
     logger.info(f"Starting local {evaluation_type} evaluation from {dataset_path}")
+    if ticker_filter:
+        logger.info(f"Filtering to ticker: {ticker_filter}")
 
     # Load ground truth files
     dataset_path = Path(dataset_path)
@@ -52,6 +57,22 @@ def run_local_evaluation(
 
     if not ground_truth_files:
         raise ValueError(f"No ground truth files found in {dataset_path}")
+
+    # Apply ticker filtering if specified
+    if ticker_filter:
+        filtered_files = []
+        for gt_file in ground_truth_files:
+            # Parse ticker from filename: ground_truth_TICKER_DATE.json
+            parts = gt_file.stem.split('_')
+            if len(parts) >= 4:  # ground, truth, TICKER, DATE
+                file_ticker = parts[2]
+                if file_ticker == ticker_filter:
+                    filtered_files.append(gt_file)
+
+        ground_truth_files = filtered_files
+
+        if not ground_truth_files:
+            raise ValueError(f"No ground truth files found for ticker '{ticker_filter}' in {dataset_path}")
 
     logger.info(f"Found {len(ground_truth_files)} ground truth examples")
 
@@ -65,17 +86,17 @@ def run_local_evaluation(
         "component_name": component_name if evaluation_type == "component" else None,
         "timestamp": datetime.now().isoformat(),
         "dataset_path": str(dataset_path),
+        "ticker_filter": ticker_filter,
         "examples": [],
         "summary": {
             "total": len(ground_truth_files),
-            "avg_scores": {}
+            "avg_scores": {},
+            "tickers": {}
         }
     }
 
     # Evaluate each example
     for i, gt_file in enumerate(ground_truth_files, 1):
-        logger.info(f"Evaluating example {i}/{len(ground_truth_files)}: {gt_file.name}")
-
         try:
             # Load ground truth
             with open(gt_file, 'r', encoding='utf-8') as f:
@@ -83,6 +104,10 @@ def run_local_evaluation(
 
             ticker = ground_truth['ticker']
             date = ground_truth['date']
+
+            # Display progress with ticker info
+            logger.info(f"Evaluating {ticker} example {i}/{len(ground_truth_files)}: {date}")
+            click.echo(f"[{i}/{len(ground_truth_files)}] Evaluating {ticker} ({date})...")
 
             # Prepare inputs
             inputs = {
@@ -164,6 +189,19 @@ def run_local_evaluation(
 
     for key, scores in all_scores.items():
         results["summary"]["avg_scores"][key] = sum(scores) / len(scores) if scores else 0.0
+
+    # Calculate ticker statistics
+    ticker_stats = {}
+    for example in results["examples"]:
+        if "ticker" in example and example["ticker"] != "unknown":
+            ticker = example["ticker"]
+            if ticker not in ticker_stats:
+                ticker_stats[ticker] = {"count": 0, "dates": []}
+            ticker_stats[ticker]["count"] += 1
+            if "date" in example:
+                ticker_stats[ticker]["dates"].append(example["date"])
+
+    results["summary"]["tickers"] = ticker_stats
 
     # Save results
     os.makedirs(output_dir, exist_ok=True)

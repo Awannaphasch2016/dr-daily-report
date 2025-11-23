@@ -823,7 +823,14 @@ def upload_dataset(from_dir: str, dataset_name: str, dataset_type: str, descript
     default=False,
     help='Run evaluation locally without LangSmith (saves results to JSON)'
 )
-def eval_agent(dataset: str, experiment: str, local: bool):
+@click.option(
+    '--ticker',
+    type=str,
+    default=None,
+    help='Filter evaluation to specific ticker (e.g., D05.SI, PTT). Default: evaluate all tickers'
+)
+@click.pass_context
+def eval_agent(ctx, dataset: str, experiment: str, local: bool, ticker: str):
     """
     Run agent-level evaluation (end-to-end workflow).
 
@@ -843,19 +850,33 @@ def eval_agent(dataset: str, experiment: str, local: bool):
 
         click.echo(f"🚀 Running LOCAL agent-level evaluation...")
         click.echo(f"📁 Dataset path: {dataset}")
+        if ticker:
+            click.echo(f"🎯 Filtering to ticker: {ticker}")
         click.echo()
 
         try:
             results = run_local_evaluation(
                 dataset_path=dataset,
                 evaluation_type="agent",
-                output_dir="evaluation_results"
+                output_dir="evaluation_results",
+                ticker_filter=ticker
             )
 
             click.echo()
             click.echo("=" * 60)
             click.echo("✅ Local evaluation complete!")
             click.echo(f"📊 Evaluated {results['summary']['total']} examples")
+
+            # Show ticker summary
+            ticker_stats = results['summary'].get('tickers', {})
+            if ticker_stats:
+                tickers = sorted(ticker_stats.keys())
+                if len(tickers) == 1:
+                    click.echo(f"🏷️  Ticker: {tickers[0]}")
+                else:
+                    ticker_list = ', '.join(tickers)
+                    click.echo(f"🏷️  Tickers: {ticker_list} ({len(tickers)} total)")
+
             click.echo()
             click.echo("Average Scores:")
             for metric, score in results['summary']['avg_scores'].items():
@@ -874,6 +895,9 @@ def eval_agent(dataset: str, experiment: str, local: bool):
         # Remote evaluation (LangSmith)
         from scripts.eval_agent import run_agent_evaluation
 
+        # Get workspace from context
+        workspace = ctx.obj.get('workspace')
+
         click.echo(f"🚀 Running agent-level evaluation...")
         click.echo(f"📊 Dataset: {dataset}")
 
@@ -886,7 +910,7 @@ def eval_agent(dataset: str, experiment: str, local: bool):
         click.echo()
 
         try:
-            results = run_agent_evaluation(dataset, experiment)
+            results = run_agent_evaluation(dataset, experiment, workspace)
 
             click.echo()
             click.echo("=" * 60)
@@ -921,7 +945,14 @@ def eval_agent(dataset: str, experiment: str, local: bool):
     default=False,
     help='Run evaluation locally without LangSmith (saves results to JSON)'
 )
-def eval_component(component_name: str, dataset: str, experiment: str, local: bool):
+@click.option(
+    '--ticker',
+    type=str,
+    default=None,
+    help='Filter evaluation to specific ticker (e.g., D05.SI, PTT). Default: evaluate all tickers'
+)
+@click.pass_context
+def eval_component(ctx, component_name: str, dataset: str, experiment: str, local: bool, ticker: str):
     """
     Run component-level evaluation (isolated LLM call).
 
@@ -952,6 +983,8 @@ def eval_component(component_name: str, dataset: str, experiment: str, local: bo
         click.echo(f"🚀 Running LOCAL component-level evaluation...")
         click.echo(f"🔧 Component: {component_name}")
         click.echo(f"📁 Dataset path: {dataset}")
+        if ticker:
+            click.echo(f"🎯 Filtering to ticker: {ticker}")
         click.echo()
 
         try:
@@ -959,13 +992,25 @@ def eval_component(component_name: str, dataset: str, experiment: str, local: bo
                 dataset_path=dataset,
                 evaluation_type="component",
                 component_name=component_name,
-                output_dir="evaluation_results"
+                output_dir="evaluation_results",
+                ticker_filter=ticker
             )
 
             click.echo()
             click.echo("=" * 60)
             click.echo("✅ Local evaluation complete!")
             click.echo(f"📊 Evaluated {results['summary']['total']} examples")
+
+            # Show ticker summary
+            ticker_stats = results['summary'].get('tickers', {})
+            if ticker_stats:
+                tickers = sorted(ticker_stats.keys())
+                if len(tickers) == 1:
+                    click.echo(f"🏷️  Ticker: {tickers[0]}")
+                else:
+                    ticker_list = ', '.join(tickers)
+                    click.echo(f"🏷️  Tickers: {ticker_list} ({len(tickers)} total)")
+
             click.echo()
             click.echo("Average Scores:")
             for metric, score in results['summary']['avg_scores'].items():
@@ -984,6 +1029,9 @@ def eval_component(component_name: str, dataset: str, experiment: str, local: bo
         # Remote evaluation (LangSmith)
         from scripts.eval_component import run_component_evaluation
 
+        # Get workspace from context
+        workspace = ctx.obj.get('workspace')
+
         click.echo(f"🚀 Running component-level evaluation...")
         click.echo(f"🔧 Component: {component_name}")
         click.echo(f"📊 Dataset: {dataset}")
@@ -997,7 +1045,7 @@ def eval_component(component_name: str, dataset: str, experiment: str, local: bo
         click.echo()
 
         try:
-            results = run_component_evaluation(component_name, dataset, experiment)
+            results = run_component_evaluation(component_name, dataset, experiment, workspace)
 
             click.echo()
             click.echo("=" * 60)

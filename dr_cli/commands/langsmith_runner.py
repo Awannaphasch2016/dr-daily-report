@@ -15,19 +15,35 @@ import sys
 import os
 import argparse
 from datetime import datetime, timedelta
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from langsmith import Client
 
 
-def get_langsmith_client() -> Client:
-    """Get authenticated LangSmith client"""
-    api_key = os.getenv('LANGSMITH_API_KEY')
-    if not api_key:
-        print("❌ LANGSMITH_API_KEY not set", file=sys.stderr)
+def get_langsmith_client_with_workspace(workspace_id: Optional[str] = None) -> Client:
+    """Get authenticated LangSmith client
+
+    Args:
+        workspace_id: Optional workspace ID (use "none" to disable)
+
+    Returns:
+        LangSmith Client instance
+    """
+    # Import centralized client factory
+    # Add parent directory to path to import src module
+    import pathlib
+    project_root = pathlib.Path(__file__).parent.parent.parent
+    sys.path.insert(0, str(project_root))
+
+    from src.langsmith_integration import get_langsmith_client
+
+    client = get_langsmith_client(workspace_id=workspace_id)
+    if not client:
+        print("❌ Failed to initialize LangSmith client", file=sys.stderr)
+        print("   Make sure LANGSMITH_API_KEY is set", file=sys.stderr)
         print("   Run with --doppler flag: dr --doppler langsmith <command>", file=sys.stderr)
         sys.exit(1)
 
-    return Client(api_key=api_key)
+    return client
 
 
 def format_duration(seconds: float) -> str:
@@ -347,10 +363,13 @@ def main():
     # show-run, show-feedback options
     parser.add_argument('--run-id', help='Run ID for show-run and show-feedback commands')
 
+    # Workspace option
+    parser.add_argument('--workspace', default=None, help='LangSmith workspace ID (use "none" to disable)')
+
     args = parser.parse_args()
 
     # Get client
-    client = get_langsmith_client()
+    client = get_langsmith_client_with_workspace(workspace_id=args.workspace)
 
     # Execute command
     if args.command == 'list-runs':

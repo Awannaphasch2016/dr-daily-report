@@ -7,6 +7,15 @@ Wraps existing 7 scorers to be compatible with LangSmith's evaluate() function.
 These adapters implement the RunEvaluator protocol, allowing scorers to be used
 in offline evaluation with datasets.
 
+Evaluation Framework:
+- FaithfulnessScorer: Factual accuracy (are facts supported by data?)
+- ConsistencyScorer: Logical consistency (do interpretations match data?)
+- CompletenessScorer: Coverage (are all dimensions included?)
+- ReasoningQualityScorer: Explanation quality (how well is it explained?)
+- ComplianceScorer: Format/policy adherence
+- QoSScorer: Performance metrics
+- CostScorer: Operational costs
+
 Usage:
     from langsmith import evaluate
     from src.langsmith_evaluator_adapters import (
@@ -14,9 +23,9 @@ Usage:
         completeness_evaluator,
         reasoning_quality_evaluator,
         compliance_evaluator,
+        consistency_evaluator,  # NEW: LLM-based logical consistency
         qos_evaluator,
-        cost_evaluator,
-        hallucination_llm_evaluator
+        cost_evaluator
     )
 
     results = evaluate(
@@ -27,9 +36,9 @@ Usage:
             completeness_evaluator,
             reasoning_quality_evaluator,
             compliance_evaluator,
+            consistency_evaluator,
             qos_evaluator,
-            cost_evaluator,
-            hallucination_llm_evaluator  # NEW: LLM-as-judge
+            cost_evaluator
         ]
     )
 """
@@ -46,7 +55,7 @@ from .reasoning_quality_scorer import ReasoningQualityScorer
 from .compliance_scorer import ComplianceScorer
 from .qos_scorer import QoSScorer
 from .cost_scorer import CostScorer
-from .hallucination_scorer import HallucinationScorer
+from .consistency_scorer import ConsistencyScorer
 
 logger = logging.getLogger(__name__)
 
@@ -66,28 +75,43 @@ def faithfulness_evaluator(
     Expected Run/Example structure:
         run.outputs: {"narrative": "..."}  or {"output": "..."}
         run.inputs or example.inputs: {
-            "ground_truth": {...},
             "indicators": {...},
             "percentiles": {...},
-            "news_data": [...]
+            "market_conditions": {...},
+            "news_data": [...] or "news": [...]
         }
+
+    Note: ground_truth dict is constructed from indicators and market_conditions
     """
     try:
         # Extract data from Run/Example
         narrative = run.outputs.get("narrative") or run.outputs.get("output", "")
-        ground_truth = run.inputs.get("ground_truth") or (example.inputs.get("ground_truth") if example else {})
+
+        # Get base data sources
         indicators = run.inputs.get("indicators") or (example.inputs.get("indicators") if example else {})
         percentiles = run.inputs.get("percentiles") or (example.inputs.get("percentiles") if example else {})
-        news_data = run.inputs.get("news_data") or (example.inputs.get("news_data") if example else [])
+        news_data = run.inputs.get("news_data") or run.inputs.get("news") or (example.inputs.get("news_data") if example else []) or (example.inputs.get("news") if example else [])
+        market_conditions = run.inputs.get("market_conditions") or (example.inputs.get("market_conditions") if example else {})
+        ticker_data = run.inputs.get("ticker_data") or (example.inputs.get("ticker_data") if example else None)
 
-        # Score using existing scorer (NO CHANGES TO SCORER)
+        # Construct ground_truth dict (same as scoring_service.py)
+        # This dict is needed by faithfulness_scorer but not stored as a single key in datasets
+        ground_truth = {
+            'uncertainty_score': (indicators or {}).get('uncertainty_score', 0) if indicators else 0,
+            'atr_pct': (market_conditions or {}).get('atr_pct', 0) if market_conditions else 0,
+            'vwap_pct': (market_conditions or {}).get('price_vs_vwap_pct', 0) if market_conditions else 0,
+            'volume_ratio': (market_conditions or {}).get('volume_ratio', 0) if market_conditions else 0,
+        }
+
+        # Score using existing scorer
         scorer = FaithfulnessScorer()
         result = scorer.score_narrative(
             narrative=narrative,
             ground_truth=ground_truth,
             indicators=indicators,
             percentiles=percentiles,
-            news_data=news_data
+            news_data=news_data,
+            ticker_data=ticker_data
         )
 
         # Format comment
@@ -95,7 +119,8 @@ def faithfulness_evaluator(
             f"Numeric: {result.metric_scores['numeric_accuracy']:.1f}%, "
             f"Percentile: {result.metric_scores['percentile_accuracy']:.1f}%, "
             f"News: {result.metric_scores['news_citation_accuracy']:.1f}%, "
-            f"Interpretation: {result.metric_scores['interpretation_accuracy']:.1f}% | "
+            f"Factual: {result.metric_scores['factual_correctness']:.1f}%, "
+            f"Claims: {result.metric_scores['claim_support']:.1f}% | "
             f"Violations: {len(result.violations)}"
         )
 
@@ -344,69 +369,71 @@ def cost_evaluator(
 
 
 # ==============================================================================
-# LLM-AS-JUDGE EVALUATOR (NEW)
+# CONSISTENCY EVALUATOR (LLM-based logical consistency)
 # ==============================================================================
 
 @run_evaluator
-def hallucination_llm_evaluator(
+def consistency_evaluator(
     run: Run,
     example: Optional[Example] = None
 ) -> EvaluationResult:
     """
-    LangSmith evaluator adapter for HallucinationScorer (LLM-as-judge).
+    LangSmith evaluator adapter for ConsistencyScorer (LLM-based consistency check).
 
-    This is the 7th evaluator that provides semantic validation using
-    an LLM to cross-check the rule-based faithfulness scorer.
+    Evaluates logical consistency between interpretations and quantitative data.
+    Does NOT re-validate numeric accuracy (FaithfulnessScorer handles that).
 
     Expected Run/Example structure:
         run.outputs: {"narrative": "..."}
         run.inputs or example.inputs: {
-            "ground_truth_context": {...},  # Complete context dict
-            "ticker": "PTT"  # Optional
+            "indicators": {...},
+            "percentiles": {...},
+            "market_conditions": {...},
+            "ticker_data": {...}  # Optional
         }
     """
     try:
         narrative = run.outputs.get("narrative") or run.outputs.get("output", "")
 
-        # Ground truth context should be complete dict with all data
-        ground_truth_context = (
-            run.inputs.get("ground_truth_context") or
-            (example.inputs.get("ground_truth_context") if example else {})
-        )
+        # Get base data sources
+        indicators = run.inputs.get("indicators") or (example.inputs.get("indicators") if example else {})
+        percentiles = run.inputs.get("percentiles") or (example.inputs.get("percentiles") if example else {})
+        market_conditions = run.inputs.get("market_conditions") or (example.inputs.get("market_conditions") if example else {})
+        ticker_data = run.inputs.get("ticker_data") or (example.inputs.get("ticker_data") if example else None)
 
-        ticker = run.inputs.get("ticker") or (example.inputs.get("ticker") if example else None)
-
-        # Score using LLM-as-judge
-        scorer = HallucinationScorer()
+        # Score using LLM-based consistency scorer
+        scorer = ConsistencyScorer()
         result = scorer.score_narrative(
             narrative=narrative,
-            ground_truth_context=ground_truth_context,
-            ticker=ticker
+            indicators=indicators,
+            percentiles=percentiles,
+            market_conditions=market_conditions,
+            ticker_data=ticker_data
         )
 
         comment = (
-            f"LLM-as-judge: {result.overall_score:.1f}/100 "
+            f"Consistency: {result.overall_score:.1f}/100 "
             f"(confidence: {result.confidence:.1f}%) | "
-            f"Hallucinations: {len(result.hallucinations)}, "
-            f"Validated: {len(result.validated_claims)}"
+            f"Inconsistencies: {len(result.inconsistencies)}, "
+            f"Validated: {len(result.validated_alignments)}"
         )
 
         return EvaluationResult(
-            key="hallucination_llm_score",
+            key="consistency_score",
             score=result.overall_score / 100.0,
             comment=comment,
             evaluator_info={
                 "confidence": result.confidence,
-                "hallucination_count": len(result.hallucinations),
-                "validated_count": len(result.validated_claims)
+                "inconsistency_count": len(result.inconsistencies),
+                "validated_count": len(result.validated_alignments)
             },
             extra=asdict(result)
         )
 
     except Exception as e:
-        logger.error(f"Hallucination LLM evaluator error: {e}")
+        logger.error(f"Consistency evaluator error: {e}")
         return EvaluationResult(
-            key="hallucination_llm_score",
+            key="consistency_score",
             score=0.5,  # Conservative middle score on error
             comment=f"Error: {str(e)}"
         )
@@ -435,20 +462,20 @@ def get_all_evaluators():
         completeness_evaluator,
         reasoning_quality_evaluator,
         compliance_evaluator,
+        consistency_evaluator,
         qos_evaluator,
-        cost_evaluator,
-        hallucination_llm_evaluator
+        cost_evaluator
     ]
 
 
 def get_quality_evaluators():
-    """Get only quality evaluators (5 total: 4 rule-based + 1 LLM)"""
+    """Get only quality evaluators (5 total: 4 rule-based + 1 LLM-based)"""
     return [
         faithfulness_evaluator,
         completeness_evaluator,
         reasoning_quality_evaluator,
         compliance_evaluator,
-        hallucination_llm_evaluator
+        consistency_evaluator
     ]
 
 

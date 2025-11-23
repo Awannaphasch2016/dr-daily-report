@@ -58,13 +58,14 @@ def target_agent(inputs: Dict[str, Any]) -> Dict[str, Any]:
         }
 
 
-def run_agent_evaluation(dataset_name: str, experiment_prefix: str = None) -> Any:
+def run_agent_evaluation(dataset_name: str, experiment_prefix: str = None, workspace_id: str = None) -> Any:
     """
     Run agent-level evaluation against a LangSmith dataset.
 
     Args:
         dataset_name: Name of LangSmith dataset to evaluate against
         experiment_prefix: Optional experiment name prefix
+        workspace_id: Optional workspace ID (overrides environment variable)
 
     Returns:
         Evaluation results from LangSmith
@@ -72,7 +73,8 @@ def run_agent_evaluation(dataset_name: str, experiment_prefix: str = None) -> An
     logger.info(f"Starting agent evaluation with dataset: {dataset_name}")
 
     # Get LangSmith client
-    client = Client()
+    from src.langsmith_integration import get_langsmith_client
+    client = get_langsmith_client(workspace_id=workspace_id)
 
     # Default experiment name
     if not experiment_prefix:
@@ -118,12 +120,13 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Run agent-level evaluation')
     parser.add_argument('--dataset', required=True, help='LangSmith dataset name')
     parser.add_argument('--experiment', default=None, help='Experiment name prefix')
+    parser.add_argument('--workspace', default=None, help='LangSmith workspace ID (use "none" to disable)')
 
     args = parser.parse_args()
 
     # Run evaluation
     try:
-        results = run_agent_evaluation(args.dataset, args.experiment)
+        results = run_agent_evaluation(args.dataset, args.experiment, args.workspace)
         print(f"\n✅ Evaluation complete!")
         print(f"Results: {results}")
 

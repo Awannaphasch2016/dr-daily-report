@@ -24,42 +24,17 @@ class FaithfulnessScorer:
     """
     Score narrative faithfulness to ground truth data
 
+    Evaluates factual accuracy: "Are stated facts supported by retrieved info?"
+
     Checks:
-    1. Numeric accuracy - All numbers match source data
+    1. Numeric accuracy - All numbers match source data (with tolerance)
     2. Percentile accuracy - Percentile claims match calculations
     3. News citation accuracy - References match actual news
-    4. Interpretation accuracy - Qualitative claims match quantitative thresholds
-    
-    Note: Completeness (coverage) is now handled by CompletenessScorer
+    4. Factual correctness - Company/sector/business context matches data
+    5. Claim support - All statements backed by provided data (no external knowledge)
+
+    Note: Logical consistency (interpretations matching data) is handled by ConsistencyScorer
     """
-
-    # Interpretation thresholds (from prompt)
-    UNCERTAINTY_THRESHOLDS = {
-        'stable': (0, 25),
-        'moderate': (25, 50),
-        'high': (50, 75),
-        'extreme': (75, 100)
-    }
-
-    ATR_THRESHOLDS = {
-        'low': (0, 2.0),  # Stable movement
-        'moderate': (2.0, 3.5),  # Normal volatility
-        'high': (3.5, 100)  # High volatility
-    }
-
-    VWAP_THRESHOLDS = {
-        'strong_buy': 15.0,  # Strong buying pressure
-        'buy': 5.0,  # Buying pressure
-        'neutral': (-5.0, 5.0),  # Balanced
-        'sell': -5.0,  # Selling pressure
-        'strong_sell': -15.0  # Strong selling pressure
-    }
-
-    VOLUME_THRESHOLDS = {
-        'low': (0, 0.8),  # Low interest
-        'normal': (0.8, 1.2),  # Normal interest
-        'high': (1.2, 100)  # High interest
-    }
 
     def __init__(self):
         """Initialize faithfulness scorer"""
@@ -71,7 +46,8 @@ class FaithfulnessScorer:
         ground_truth: Dict,
         indicators: Dict,
         percentiles: Dict,
-        news_data: List[Dict]
+        news_data: List[Dict],
+        ticker_data: Optional[Dict] = None
     ) -> FaithfulnessScore:
         """
         Score narrative faithfulness against ground truth
@@ -82,6 +58,7 @@ class FaithfulnessScorer:
             indicators: Technical indicators
             percentiles: Percentile data for historical context
             news_data: List of news items with [idx], title, sentiment
+            ticker_data: Optional company data for factual correctness validation
 
         Returns:
             FaithfulnessScore object with detailed scoring
@@ -110,27 +87,36 @@ class FaithfulnessScorer:
         violations.extend(news_violations)
         verified_claims.extend(news_verified)
 
-        # 4. Check interpretation accuracy
-        interpretation_score, interp_violations, interp_verified = self._check_interpretation_accuracy(
-            narrative, ground_truth
+        # 4. Check factual correctness (company/sector/business context)
+        factual_score, factual_violations, factual_verified = self._check_factual_correctness(
+            narrative, ticker_data
         )
-        violations.extend(interp_violations)
-        verified_claims.extend(interp_verified)
+        violations.extend(factual_violations)
+        verified_claims.extend(factual_verified)
+
+        # 5. Check claim support (all statements backed by data)
+        claim_score, claim_violations, claim_verified = self._check_claim_support(
+            narrative, news_data
+        )
+        violations.extend(claim_violations)
+        verified_claims.extend(claim_verified)
 
         # Calculate overall score (weighted average)
-        # Updated weights: Numeric 30%, Percentile 25%, News 20%, Interpretation 25%
+        # Weights: Numeric 35%, Percentile 25%, News 20%, Factual 15%, Claim Support 5%
         overall_score = (
-            numeric_score * 0.30 +
+            numeric_score * 0.35 +
             percentile_score * 0.25 +
             news_score * 0.20 +
-            interpretation_score * 0.25
+            factual_score * 0.15 +
+            claim_score * 0.05
         )
 
         metric_scores = {
             'numeric_accuracy': numeric_score,
             'percentile_accuracy': percentile_score,
             'news_citation_accuracy': news_score,
-            'interpretation_accuracy': interpretation_score
+            'factual_correctness': factual_score,
+            'claim_support': claim_score
         }
 
         return FaithfulnessScore(
@@ -323,80 +309,111 @@ class FaithfulnessScorer:
         return score, violations, verified
 
 
-    def _check_interpretation_accuracy(
+    def _check_factual_correctness(
         self,
         narrative: str,
-        ground_truth: Dict
+        ticker_data: Optional[Dict]
     ) -> Tuple[float, List[str], List[str]]:
-        """Check if qualitative interpretations match quantitative thresholds"""
+        """
+        Check if company/sector/business context matches ticker_data.
+
+        Validates semantic/factual correctness - ensures no external knowledge
+        or incorrect business context is introduced.
+        """
         violations = []
         verified = []
 
-        # Check uncertainty interpretation
-        uncertainty = ground_truth.get('uncertainty_score', 0)
-        uncertainty_interp = self._get_uncertainty_interpretation(uncertainty)
+        if not ticker_data:
+            # No ticker_data to validate against - score as neutral
+            return 100.0, violations, verified
 
-        thai_uncertainty_keywords = {
-            'stable': ['เสถียร', 'มั่นคง'],
-            'moderate': ['ปานกลาง', 'ค่อนข้าง'],
-            'high': ['สูง', 'ผันผวน'],
-            'extreme': ['รุนแรง', 'สูงมาก']
-        }
+        # Check company name if present in narrative
+        company_name = ticker_data.get('name', '')
+        if company_name and company_name in narrative:
+            verified.append(f"✓ Company name '{company_name}' correctly mentioned")
+        elif company_name:
+            # Check for potential wrong company name (difficult to detect, heuristic only)
+            # Look for patterns like "บริษัท [name]" that don't match
+            import re
+            company_patterns = re.findall(r'บริษัท\s+([^\s]+(?:\s+[^\s]+){0,3})', narrative)
+            for pattern in company_patterns:
+                if company_name not in pattern and pattern not in company_name:
+                    violations.append(f"❌ Mentioned company '{pattern}' but ticker data shows '{company_name}'")
 
-        keywords = thai_uncertainty_keywords.get(uncertainty_interp, [])
-        if any(kw in narrative for kw in keywords):
-            verified.append(f"Uncertainty interpretation '{uncertainty_interp}' matches {uncertainty:.1f}")
-        else:
-            # Check if wrong interpretation used
-            for interp, kws in thai_uncertainty_keywords.items():
-                if interp != uncertainty_interp and any(kw in narrative for kw in kws):
-                    violations.append(
-                        f"❌ Uncertainty {uncertainty:.1f} interpreted as '{interp}' but should be '{uncertainty_interp}'"
-                    )
-                    break
+        # Check sector/industry if present
+        sector = ticker_data.get('sector', '')
+        industry = ticker_data.get('industry', '')
 
-        # Check VWAP interpretation
-        vwap_pct = ground_truth.get('vwap_pct', 0)
-        vwap_interp = self._get_vwap_interpretation(vwap_pct)
+        # Simple check: if narrative mentions sector/industry keywords, verify they're consistent
+        # This is a basic heuristic - can be enhanced
+        if sector:
+            if sector.lower() in narrative.lower():
+                verified.append(f"✓ Sector '{sector}' mentioned")
 
-        thai_vwap_keywords = {
-            'strong_buy': ['แรงซื้อแรงมาก', 'แรงซื้อสูงมาก'],
-            'buy': ['แรงซื้อ'],
-            'neutral': ['สมดุล', 'ปกติ'],
-            'sell': ['แรงขาย'],
-            'strong_sell': ['แรงขายแรงมาก', 'แรงขายสูงมาก']
-        }
-
-        keywords = thai_vwap_keywords.get(vwap_interp, [])
-        if any(kw in narrative for kw in keywords):
-            verified.append(f"VWAP interpretation '{vwap_interp}' matches {vwap_pct:.1f}%")
+        if industry:
+            if industry.lower() in narrative.lower():
+                verified.append(f"✓ Industry '{industry}' mentioned")
 
         # Calculate score
-        total_checks = 2  # uncertainty + vwap
-        accurate = len(verified)
-        score = (accurate / total_checks * 100) if total_checks > 0 else 100
+        # If we have ticker_data and found violations, penalize
+        if ticker_data and violations:
+            score = max(0, 100 - len(violations) * 30)
+        else:
+            # No violations found, or no ticker_data to check
+            score = 100.0
 
         return score, violations, verified
 
-    def _get_uncertainty_interpretation(self, uncertainty: float) -> str:
-        """Get interpretation category for uncertainty score"""
-        for category, (low, high) in self.UNCERTAINTY_THRESHOLDS.items():
-            if low <= uncertainty < high:
-                return category
-        return 'extreme'
+    def _check_claim_support(
+        self,
+        narrative: str,
+        news_data: List[Dict]
+    ) -> Tuple[float, List[str], List[str]]:
+        """
+        Check if all claims are backed by provided data (no external knowledge).
 
-    def _get_vwap_interpretation(self, vwap_pct: float) -> str:
-        """Get interpretation category for VWAP percentage"""
-        if vwap_pct >= self.VWAP_THRESHOLDS['strong_buy']:
-            return 'strong_buy'
-        elif vwap_pct >= self.VWAP_THRESHOLDS['buy']:
-            return 'buy'
-        elif vwap_pct <= self.VWAP_THRESHOLDS['strong_sell']:
-            return 'strong_sell'
-        elif vwap_pct <= self.VWAP_THRESHOLDS['sell']:
-            return 'sell'
+        Looks for unsupported claims like:
+        - "Management announced..." without news backing it
+        - "Company will expand to X countries" without data
+        - External events not in news (e.g., "Following Fed rate cut")
+        """
+        violations = []
+        verified = []
+
+        # Keywords indicating potentially unsupported claims
+        unsupported_keywords = [
+            ('ประกาศ', 'announcement'),
+            ('เปิดตัว', 'launch'),
+            ('ควบรวม', 'merger'),
+            ('เข้าซื้อ', 'acquisition'),
+            ('ขยายไป', 'expansion'),
+            ('เปิดสาขา', 'new branch'),
+            ('Fed', 'Federal Reserve'),
+            ('ธนาคารกลาง', 'central bank policy')
+        ]
+
+        # Check if narrative contains these keywords
+        for thai_kw, eng_desc in unsupported_keywords:
+            if thai_kw.lower() in narrative.lower():
+                # Check if news_data supports this claim
+                if news_data:
+                    # Look for related keywords in news titles
+                    supported = any(thai_kw.lower() in news.get('title', '').lower() for news in news_data)
+                    if not supported:
+                        violations.append(f"❌ Claim about '{eng_desc}' ('{thai_kw}') not backed by news data")
+                    else:
+                        verified.append(f"✓ Claim about '{eng_desc}' supported by news")
+                else:
+                    violations.append(f"❌ Claim about '{eng_desc}' ('{thai_kw}') but no news data provided")
+
+        # Calculate score
+        # High weight on violations - external knowledge is serious
+        if violations:
+            score = max(0, 100 - len(violations) * 40)
         else:
-            return 'neutral'
+            score = 100.0
+
+        return score, violations, verified
 
     def format_score_report(self, score: FaithfulnessScore) -> str:
         """Format faithfulness score as human-readable report"""

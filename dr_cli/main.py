@@ -34,8 +34,9 @@ def run_command(cmd: list[str], use_doppler: bool = False):
 
 @click.group()
 @click.option('--doppler', is_flag=True, help='Run command with doppler environment variables')
+@click.option('--workspace', default=None, help='LangSmith workspace ID (use "none" to disable, overrides LANGSMITH_WORKSPACE_ID env var)')
 @click.pass_context
-def cli(ctx, doppler):
+def cli(ctx, doppler, workspace):
     """DR CLI - Daily Report unified command interface
 
     A clean, consistent interface for all repository operations.
@@ -55,6 +56,7 @@ def cli(ctx, doppler):
 
     ctx.ensure_object(dict)
     ctx.obj['doppler'] = doppler
+    ctx.obj['workspace'] = workspace
 
 
 # Import command groups

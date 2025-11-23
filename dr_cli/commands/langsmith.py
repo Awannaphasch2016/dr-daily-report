@@ -22,6 +22,7 @@ def run_langsmith_command(ctx, command: str, extra_args: list = None) -> int:
         Exit code
     """
     use_doppler = ctx.obj.get('doppler', False)
+    workspace = ctx.obj.get('workspace')
 
     # Build command list
     cmd = [
@@ -31,6 +32,10 @@ def run_langsmith_command(ctx, command: str, extra_args: list = None) -> int:
         '--command',
         command
     ]
+
+    # Add workspace argument if provided
+    if workspace:
+        cmd.extend(['--workspace', workspace])
 
     # Add extra arguments
     if extra_args:

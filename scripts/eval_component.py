@@ -156,7 +156,8 @@ COMPONENT_TARGETS = {
 def run_component_evaluation(
     component_name: str,
     dataset_name: str,
-    experiment_prefix: str = None
+    experiment_prefix: str = None,
+    workspace_id: str = None
 ) -> Any:
     """
     Run component-level evaluation against a LangSmith dataset.
@@ -165,6 +166,7 @@ def run_component_evaluation(
         component_name: Name of component to evaluate (e.g., "report-generation")
         dataset_name: Name of LangSmith dataset to evaluate against
         experiment_prefix: Optional experiment name prefix
+        workspace_id: Optional workspace ID (overrides environment variable)
 
     Returns:
         Evaluation results from LangSmith
@@ -182,7 +184,8 @@ def run_component_evaluation(
     target_func = COMPONENT_TARGETS[component_name]
 
     # Get LangSmith client
-    client = Client()
+    from src.langsmith_integration import get_langsmith_client
+    client = get_langsmith_client(workspace_id=workspace_id)
 
     # Default experiment name
     if not experiment_prefix:
@@ -229,12 +232,13 @@ if __name__ == '__main__':
     parser.add_argument('component', help='Component name (e.g., report-generation)')
     parser.add_argument('--dataset', required=True, help='LangSmith dataset name')
     parser.add_argument('--experiment', default=None, help='Experiment name prefix')
+    parser.add_argument('--workspace', default=None, help='LangSmith workspace ID (use "none" to disable)')
 
     args = parser.parse_args()
 
     # Run evaluation
     try:
-        results = run_component_evaluation(args.component, args.dataset, args.experiment)
+        results = run_component_evaluation(args.component, args.dataset, args.experiment, args.workspace)
         print(f"\n✅ Evaluation complete!")
         print(f"Results: {results}")
 

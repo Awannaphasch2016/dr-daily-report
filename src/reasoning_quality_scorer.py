@@ -23,14 +23,16 @@ class ReasoningQualityScore:
 class ReasoningQualityScorer:
     """
     Score reasoning quality of narrative explanations
-    
+
+    Evaluates HOW explanations are structured, not IF they're correct/consistent.
+
     Checks:
-    1. Clarity - Are explanations clear and easy to understand?
-    2. Coverage - Does reasoning cover all relevant aspects?
-    3. Specificity - Are explanations specific rather than generic?
-    4. Alignment - Do explanations align with data/claims?
-    5. Minimality - Is reasoning concise without being incomplete?
-    6. Consistency - Are explanations internally consistent?
+    1. Clarity (25%) - Are explanations clear and easy to understand?
+    2. Coverage (25%) - Does reasoning cover all relevant aspects?
+    3. Specificity (25%) - Are explanations specific rather than generic?
+    4. Minimality (25%) - Is reasoning concise without being incomplete?
+
+    Note: Logical consistency (interpretations matching data) is handled by ConsistencyScorer
     """
     
     def __init__(self):
@@ -73,51 +75,34 @@ class ReasoningQualityScorer:
         issues.extend(coverage_issues)
         strengths.extend(coverage_strengths)
         
-        # 3. Specificity (20%)
+        # 3. Specificity (25%)
         specificity_score, specificity_issues, specificity_strengths = self._check_specificity(
             narrative
         )
         issues.extend(specificity_issues)
         strengths.extend(specificity_strengths)
-        
-        # 4. Alignment (15%)
-        alignment_score, alignment_issues, alignment_strengths = self._check_alignment(
-            narrative, indicators, percentiles
-        )
-        issues.extend(alignment_issues)
-        strengths.extend(alignment_strengths)
-        
-        # 5. Minimality (15%)
+
+        # 4. Minimality (25%)
         minimality_score, minimality_issues, minimality_strengths = self._check_minimality(
             narrative
         )
         issues.extend(minimality_issues)
         strengths.extend(minimality_strengths)
-        
-        # 6. Consistency (10%)
-        consistency_score, consistency_issues, consistency_strengths = self._check_consistency(
-            narrative
-        )
-        issues.extend(consistency_issues)
-        strengths.extend(consistency_strengths)
-        
+
         # Calculate overall score (weighted average)
+        # Weights: Clarity 25%, Coverage 25%, Specificity 25%, Minimality 25%
         overall_score = (
-            clarity_score * 0.20 +
-            coverage_score * 0.20 +
-            specificity_score * 0.20 +
-            alignment_score * 0.15 +
-            minimality_score * 0.15 +
-            consistency_score * 0.10
+            clarity_score * 0.25 +
+            coverage_score * 0.25 +
+            specificity_score * 0.25 +
+            minimality_score * 0.25
         )
-        
+
         dimension_scores = {
             'clarity': clarity_score,
             'coverage': coverage_score,
             'specificity': specificity_score,
-            'alignment': alignment_score,
-            'minimality': minimality_score,
-            'consistency': consistency_score
+            'minimality': minimality_score
         }
         
         return ReasoningQualityScore(
@@ -343,103 +328,6 @@ class ReasoningQualityScorer:
         
         return max(0, min(100, score)), issues, strengths
     
-    def _check_alignment(self, narrative: str, indicators: Dict, percentiles: Dict) -> Tuple[float, List[str], List[str]]:
-        """Check if explanations align with data/claims"""
-        issues = []
-        strengths = []
-        
-        narrative_lower = narrative.lower()
-        
-        # Check if percentile claims align with percentile data
-        percentile_mentions = re.findall(r'เปอร์เซ็นไทล์\s*(\d+\.?\d*)%', narrative)
-        percentile_aligned = 0
-        percentile_total = 0
-        
-        if percentile_mentions:
-            for claimed_pct in percentile_mentions:
-                percentile_total += 1
-                claimed_value = float(claimed_pct)
-                # Check if it matches any actual percentile (within 5%)
-                aligned = False
-                for metric, metric_data in percentiles.items():
-                    if isinstance(metric_data, dict):
-                        actual_pct = metric_data.get('percentile', 0)
-                    else:
-                        actual_pct = metric_data
-                    
-                    if abs(claimed_value - actual_pct) <= 5:
-                        aligned = True
-                        break
-                
-                if aligned:
-                    percentile_aligned += 1
-        
-        # Check if uncertainty interpretations align with thresholds
-        uncertainty_score = indicators.get('uncertainty_score', 0)
-        uncertainty_aligned = False
-        
-        if uncertainty_score < 25:
-            expected_terms = ['เสถียร', 'stable', 'มั่นคง']
-        elif uncertainty_score < 50:
-            expected_terms = ['ปานกลาง', 'moderate', 'ค่อนข้าง']
-        elif uncertainty_score < 75:
-            expected_terms = ['สูง', 'high', 'ผันผวน']
-        else:
-            expected_terms = ['รุนแรง', 'extreme', 'สูงมาก']
-        
-        if any(term in narrative_lower for term in expected_terms):
-            uncertainty_aligned = True
-        
-        # Check if VWAP interpretations align
-        # Calculate VWAP percentage from indicators
-        current_price = indicators.get('current_price', 0)
-        vwap = indicators.get('vwap', 0)
-        vwap_pct = ((current_price - vwap) / vwap * 100) if vwap and vwap > 0 else 0
-        
-        vwap_aligned = False
-        
-        if vwap_pct >= 15:
-            expected_terms = ['แรงซื้อแรงมาก', 'strong buying']
-        elif vwap_pct >= 5:
-            expected_terms = ['แรงซื้อ', 'buying pressure']
-        elif vwap_pct <= -15:
-            expected_terms = ['แรงขายแรงมาก', 'strong selling']
-        elif vwap_pct <= -5:
-            expected_terms = ['แรงขาย', 'selling pressure']
-        else:
-            expected_terms = ['สมดุล', 'balanced', 'neutral']
-        
-        if any(term in narrative_lower for term in expected_terms):
-            vwap_aligned = True
-        
-        # Scoring
-        score = 100.0
-        
-        # Percentile alignment
-        if percentile_total > 0:
-            alignment_ratio = percentile_aligned / percentile_total
-            if alignment_ratio >= 0.8:
-                strengths.append(f"✅ {percentile_aligned}/{percentile_total} percentile claims aligned")
-            else:
-                score -= 30 * (1 - alignment_ratio)
-                issues.append(f"❌ Only {percentile_aligned}/{percentile_total} percentile claims aligned")
-        
-        # Uncertainty alignment
-        if uncertainty_aligned:
-            strengths.append("✅ Uncertainty interpretation aligns with data")
-        else:
-            score -= 25
-            issues.append("❌ Uncertainty interpretation doesn't align with score")
-        
-        # VWAP alignment
-        if vwap_aligned:
-            strengths.append("✅ VWAP interpretation aligns with data")
-        else:
-            score -= 25
-            issues.append("❌ VWAP interpretation doesn't align with data")
-        
-        return max(0, min(100, score)), issues, strengths
-    
     def _check_minimality(self, narrative: str) -> Tuple[float, List[str], List[str]]:
         """Check if reasoning is concise without being incomplete"""
         issues = []
@@ -509,74 +397,7 @@ class ReasoningQualityScorer:
             issues.append(f"⚠️ {filler_count} filler words found")
         
         return max(0, min(100, score)), issues, strengths
-    
-    def _check_consistency(self, narrative: str) -> Tuple[float, List[str], List[str]]:
-        """Check if explanations are internally consistent"""
-        issues = []
-        strengths = []
-        
-        narrative_lower = narrative.lower()
-        
-        # Check for contradictory statements
-        contradictions = []
-        
-        # Check for conflicting recommendations
-        has_buy = any(term in narrative_lower for term in ['buy', 'ซื้อ', 'แนะนำซื้อ'])
-        has_sell = any(term in narrative_lower for term in ['sell', 'ขาย', 'แนะนำขาย'])
-        has_hold = any(term in narrative_lower for term in ['hold', 'ถือ', 'แนะนำถือ'])
-        
-        # Count distinct recommendations
-        recommendations = sum([has_buy, has_sell, has_hold])
-        if recommendations > 1:
-            contradictions.append("Multiple conflicting recommendations (BUY/SELL/HOLD)")
-        
-        # Check for conflicting risk assessments
-        risk_terms_high = ['high risk', 'high risk', 'risky', 'dangerous', 'ความเสี่ยงสูง', 'เสี่ยงมาก']
-        risk_terms_low = ['low risk', 'safe', 'stable', 'ความเสี่ยงต่ำ', 'ปลอดภัย']
-        
-        has_high_risk = any(term in narrative_lower for term in risk_terms_high)
-        has_low_risk = any(term in narrative_lower for term in risk_terms_low)
-        
-        if has_high_risk and has_low_risk:
-            # Check context - if they're in different sections, it's OK
-            risk_sections = narrative.split('⚠️')
-            if len(risk_sections) > 1:
-                # OK - risk section can mention both
-                pass
-            else:
-                contradictions.append("Conflicting risk assessments (high and low)")
-        
-        # Check for number consistency
-        # Extract all numbers and check if same metric has different values
-        numbers = re.findall(r'\d+\.?\d*', narrative)
-        # This is a simple check - more sophisticated would require semantic understanding
-        
-        # Check for consistent terminology
-        # Check if same concept is referred to differently (e.g., "uncertainty" vs "ความไม่แน่นอน")
-        # This is OK - actually good for bilingual content
-        
-        # Scoring
-        score = 100.0
-        
-        if contradictions:
-            score -= len(contradictions) * 30
-            for contradiction in contradictions:
-                issues.append(f"❌ {contradiction}")
-        else:
-            strengths.append("✅ No internal contradictions found")
-        
-        # Check for consistent recommendation
-        if recommendations == 1:
-            strengths.append("✅ Single clear recommendation (no conflicts)")
-        elif recommendations == 0:
-            score -= 20
-            issues.append("❌ No clear recommendation")
-        else:
-            score -= 25
-            issues.append("⚠️ Multiple or conflicting recommendations")
-        
-        return max(0, min(100, score)), issues, strengths
-    
+
     def format_score_report(self, score: ReasoningQualityScore) -> str:
         """Format reasoning quality score as human-readable report"""
         report_lines = [
