@@ -669,6 +669,12 @@ class WorkflowNodes:
             percentile_analysis = self.technical_analyzer.format_percentile_analysis(percentiles)
             report += f"\n\n{percentile_analysis}"
 
+        # Add transparency footnote showing data sources used
+        from src.report import TransparencyFooter
+        transparency = TransparencyFooter()
+        footnote = transparency.generate_data_usage_footnote(state, strategy='single-stage')
+        report += footnote
+
         # Validate report output
         if not report or len(report.strip()) == 0:
             error_msg = "Generated report is empty"
