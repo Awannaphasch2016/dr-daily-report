@@ -4,6 +4,7 @@ Direct test script that bypasses ticker mapping for testing any ticker
 """
 
 import sys
+import os
 from src.data.data_fetcher import DataFetcher
 from src.analysis.technical_analysis import TechnicalAnalyzer
 from src.data.database import TickerDatabase
@@ -21,7 +22,12 @@ def test_ticker_direct(ticker_symbol):
     print("🔧 Initializing components...")
     fetcher = DataFetcher()
     analyzer = TechnicalAnalyzer()
-    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.7)
+    llm = ChatOpenAI(
+        model="openai/gpt-4o-mini",
+        temperature=0.7,
+        base_url="https://openrouter.ai/api/v1",
+        api_key=os.getenv("OPENROUTER_API_KEY")
+    )
 
     # Fetch data
     print(f"📊 Fetching data for {ticker_symbol}...")

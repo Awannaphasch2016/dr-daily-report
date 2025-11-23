@@ -17,6 +17,7 @@ Note: Does NOT validate numeric accuracy (FaithfulnessScorer handles that).
 """
 
 import logging
+import os
 from dataclasses import dataclass, field
 from typing import Dict, Any, List, Optional
 from langchain_openai import ChatOpenAI
@@ -106,9 +107,16 @@ class ConsistencyScorer:
             model: OpenAI model to use (default: gpt-4o-mini for cost efficiency)
             temperature: LLM temperature (default: 0.0 for deterministic output)
         """
-        self.llm = ChatOpenAI(model=model, temperature=temperature)
+        # Ensure model has openai/ prefix for OpenRouter
+        model_name = f"openai/{model}" if not model.startswith("openai/") else model
+        self.llm = ChatOpenAI(
+            model=model_name,
+            temperature=temperature,
+            base_url="https://openrouter.ai/api/v1",
+            api_key=os.getenv("OPENROUTER_API_KEY")
+        )
         self.model = model
-        logger.info(f"ConsistencyScorer initialized with model={model}, temperature={temperature}")
+        logger.info(f"ConsistencyScorer initialized with model={model_name}, temperature={temperature}")
 
     def score_narrative(
         self,

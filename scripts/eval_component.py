@@ -11,6 +11,7 @@ Currently supported components:
 """
 
 import logging
+import os
 from typing import Dict, Any
 from langsmith import Client
 from langsmith.evaluation import evaluate
@@ -74,7 +75,12 @@ def target_report_generation(inputs: Dict[str, Any]) -> Dict[str, Any]:
     strategy_backtester = SMAStrategyBacktester()
     strategy_analyzer = StrategyAnalyzer(strategy_backtester)
     comparative_analyzer = ComparativeAnalyzer()
-    llm = ChatOpenAI(model="gpt-4o", temperature=0.8)
+    llm = ChatOpenAI(
+        model="openai/gpt-4o",
+        temperature=0.8,
+        base_url="https://openrouter.ai/api/v1",
+        api_key=os.getenv("OPENROUTER_API_KEY")
+    )
     from src.formatters import DataFormatter
     data_formatter = DataFormatter()
     market_analyzer = MarketAnalyzer()

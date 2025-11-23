@@ -9,6 +9,7 @@ from datetime import datetime
 import re
 import pandas as pd
 import time
+import os
 from src.data.data_fetcher import DataFetcher
 from src.analysis.technical_analysis import TechnicalAnalyzer
 from src.data.database import TickerDatabase
@@ -33,7 +34,12 @@ import json
 
 class TickerAnalysisAgent:
     def __init__(self):
-        self.llm = ChatOpenAI(model="gpt-4o", temperature=0.8)
+        self.llm = ChatOpenAI(
+            model="openai/gpt-4o",
+            temperature=0.8,
+            base_url="https://openrouter.ai/api/v1",
+            api_key=os.getenv("OPENROUTER_API_KEY")
+        )
         self.data_fetcher = DataFetcher()
         self.technical_analyzer = TechnicalAnalyzer()
         self.news_fetcher = NewsFetcher()
