@@ -108,12 +108,21 @@ def report(ctx, ticker):
       dr util report AAPL
     """
     use_doppler = ctx.obj.get('doppler', False)
+    trace = ctx.obj.get('trace')
+
     cmd = [
         sys.executable, "-c",
         f"from src.agent import TickerAnalysisAgent; agent = TickerAnalysisAgent(); print(agent.analyze_ticker('{ticker}'))"
     ]
 
     env = {**os.environ, "PYTHONPATH": str(PROJECT_ROOT)}
+
+    # Control LangSmith tracing via CLI flag (overrides environment variable)
+    if trace is True:
+        env['LANGSMITH_TRACING_V2'] = 'true'
+    elif trace is False:
+        env['LANGSMITH_TRACING_V2'] = 'false'
+    # If trace is None, use existing environment variable value
 
     if use_doppler:
         doppler_cmd = ["doppler", "run", "--project", "rag-chatbot-worktree", "--config", "dev_personal", "--"]
