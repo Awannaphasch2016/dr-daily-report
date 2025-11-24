@@ -22,3 +22,5 @@ pytest>=7.0.0
 fastapi>=0.109.0
 uvicorn>=0.27.0
 pydantic>=2.5.0
+boto3>=1.34.0
+mangum>=0.17.0

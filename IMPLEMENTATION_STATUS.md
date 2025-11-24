@@ -223,6 +223,8 @@ Then access:
 
 ## 🚀 Quick Start for Development
 
+### Option 1: FastAPI Only (No Watchlist)
+
 ```bash
 # 1. Clone/navigate to project
 cd /home/anak/dev/dr-daily-report_telegram
@@ -230,19 +232,51 @@ cd /home/anak/dev/dr-daily-report_telegram
 # 2. Install dependencies
 pip install -r requirements.txt
 
-# 3. Set environment variables
-export OPENROUTER_API_KEY="your_key"
-export LANGSMITH_API_KEY="your_key"
+# 3. Run API server with Doppler
+doppler run -- python -m uvicorn src.api.app:app --reload
 
-# 4. Run API server
-python -m uvicorn src.api.app:app --reload
-
-# 5. Test endpoints
+# 4. Test endpoints
 curl http://localhost:8000/api/v1/search?q=NVDA
 curl http://localhost:8000/api/v1/report/NVDA19
 
-# 6. View API docs
+# 5. View API docs
 open http://localhost:8000/docs
+```
+
+### Option 2: FastAPI + Local DynamoDB (Full Features)
+
+```bash
+# 1. Setup local DynamoDB (one-time)
+just setup-local-db
+
+# This will:
+# - Start DynamoDB Local in Docker
+# - Create watchlist and cache tables
+
+# 2. Start FastAPI with local DynamoDB
+just dev-api
+
+# 3. In another terminal, test watchlist
+just test-watchlist
+
+# 4. Stop local DynamoDB when done
+just stop-local-db
+```
+
+### Manual Setup (Without Justfile)
+
+```bash
+# 1. Start DynamoDB Local
+docker run -d -p 8000:8000 --name dynamodb-local amazon/dynamodb-local
+
+# 2. Create tables
+python scripts/create_local_dynamodb_tables.py
+
+# 3. Start API with local DynamoDB
+./scripts/start_local_api.sh
+
+# 4. Test watchlist
+./scripts/test_watchlist.sh
 ```
 
 ---

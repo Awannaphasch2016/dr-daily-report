@@ -32,6 +32,45 @@ setup:
 shell:
     dr --doppler dev shell
 
+# === TELEGRAM MINI APP DEVELOPMENT ===
+
+# Start FastAPI server with local DynamoDB (for Telegram Mini App development)
+dev-api:
+    @echo "🚀 Starting FastAPI with local DynamoDB..."
+    ./scripts/start_local_api.sh
+
+# Create DynamoDB tables in local DynamoDB (run once before dev-api)
+setup-local-db:
+    @echo "🔧 Creating local DynamoDB tables..."
+    @echo "Checking if Docker is running..."
+    @if ! docker ps > /dev/null 2>&1; then \
+        echo "❌ Docker is not running. Please start Docker first."; \
+        exit 1; \
+    fi
+    @echo "Checking if DynamoDB Local container exists..."
+    @if ! docker ps -a | grep -q dynamodb-local; then \
+        echo "📦 Starting DynamoDB Local container..."; \
+        docker run -d -p 8000:8000 --name dynamodb-local amazon/dynamodb-local; \
+    elif ! docker ps | grep -q dynamodb-local; then \
+        echo "▶️  Starting existing DynamoDB Local container..."; \
+        docker start dynamodb-local; \
+    else \
+        echo "✅ DynamoDB Local is already running"; \
+    fi
+    @sleep 2
+    @echo "Creating tables..."
+    python scripts/create_local_dynamodb_tables.py
+
+# Test watchlist endpoints (requires dev-api running in another terminal)
+test-watchlist:
+    @echo "🧪 Testing watchlist endpoints..."
+    ./scripts/test_watchlist.sh
+
+# Stop local DynamoDB container
+stop-local-db:
+    @echo "🛑 Stopping DynamoDB Local..."
+    docker stop dynamodb-local || true
+
 # === TESTING WORKFLOWS ===
 
 # Run this when you want to test your recent changes

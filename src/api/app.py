@@ -21,6 +21,7 @@ from .errors import (
     api_exception_handler
 )
 from .ticker_service import get_ticker_service
+from .watchlist_service import get_watchlist_service
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -44,6 +45,35 @@ app.add_middleware(
 
 # Register error handlers
 app.add_exception_handler(APIError, api_exception_handler)
+
+
+# ============================================================================
+# Helper Functions
+# ============================================================================
+
+def get_user_id_from_header(x_telegram_user_id: str | None = None) -> str:
+    """Extract user ID from Telegram WebApp initData header
+
+    For now, accepts a simple user_id from header for testing.
+    In production, would parse and validate Telegram's initData.
+
+    Args:
+        x_telegram_user_id: User ID from X-Telegram-User-Id header
+
+    Returns:
+        User ID string
+
+    Raises:
+        InvalidRequestError: If user ID is missing
+    """
+    # TODO: In production, extract and validate from X-Telegram-Init-Data
+    # For now, use simple header for testing
+    if not x_telegram_user_id:
+        raise InvalidRequestError(
+            "Missing user authentication. Please provide X-Telegram-User-Id header for testing."
+        )
+
+    return x_telegram_user_id
 
 
 # ============================================================================
@@ -202,67 +232,100 @@ async def get_rankings(
 
 
 @app.get("/api/v1/watchlist", response_model=WatchlistResponse)
-async def get_watchlist():
+async def get_watchlist(x_telegram_user_id: str | None = Query(None, alias="X-Telegram-User-Id")):
     """Get user's watchlist
+
+    Args:
+        x_telegram_user_id: Telegram user ID from header (for testing)
 
     Returns:
         WatchlistResponse with list of watched tickers
     """
     try:
-        # TODO: Implement watchlist retrieval
-        # For now, return empty list
-        return WatchlistResponse(tickers=[])
+        user_id = get_user_id_from_header(x_telegram_user_id)
+        watchlist_service = get_watchlist_service()
 
+        tickers = watchlist_service.get_watchlist(user_id)
+
+        logger.info(f"Retrieved watchlist for user {user_id}: {len(tickers)} items")
+
+        return WatchlistResponse(tickers=tickers)
+
+    except APIError:
+        raise
     except Exception as e:
         logger.error(f"Watchlist GET error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/api/v1/watchlist", response_model=WatchlistOperationResponse)
-async def add_to_watchlist(request: WatchlistAddRequest):
+async def add_to_watchlist(
+    request: WatchlistAddRequest,
+    x_telegram_user_id: str | None = Query(None, alias="X-Telegram-User-Id")
+):
     """Add ticker to watchlist
 
     Args:
         request: Ticker to add
+        x_telegram_user_id: Telegram user ID from header (for testing)
 
     Returns:
         WatchlistOperationResponse confirming addition
     """
     try:
+        user_id = get_user_id_from_header(x_telegram_user_id)
         ticker_service = get_ticker_service()
+        watchlist_service = get_watchlist_service()
 
         # Validate ticker is supported
         if not ticker_service.is_supported(request.ticker):
             raise TickerNotSupportedError(request.ticker)
 
-        # TODO: Implement watchlist addition
-        raise HTTPException(
-            status_code=501,
-            detail="Watchlist addition not yet implemented"
+        # Add to watchlist
+        result = watchlist_service.add_ticker(user_id, request.ticker)
+
+        logger.info(f"Added {request.ticker} to watchlist for user {user_id}")
+
+        return WatchlistOperationResponse(
+            status="ok",
+            ticker=result['ticker']
         )
 
     except APIError:
         raise
+    except ValueError as e:
+        raise TickerNotSupportedError(str(e))
     except Exception as e:
         logger.error(f"Watchlist POST error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.delete("/api/v1/watchlist/{ticker}", response_model=WatchlistOperationResponse)
-async def remove_from_watchlist(ticker: str):
+async def remove_from_watchlist(
+    ticker: str,
+    x_telegram_user_id: str | None = Query(None, alias="X-Telegram-User-Id")
+):
     """Remove ticker from watchlist
 
     Args:
         ticker: Ticker symbol to remove
+        x_telegram_user_id: Telegram user ID from header (for testing)
 
     Returns:
         WatchlistOperationResponse confirming removal
     """
     try:
-        # TODO: Implement watchlist removal
-        raise HTTPException(
-            status_code=501,
-            detail="Watchlist removal not yet implemented"
+        user_id = get_user_id_from_header(x_telegram_user_id)
+        watchlist_service = get_watchlist_service()
+
+        # Remove from watchlist
+        result = watchlist_service.remove_ticker(user_id, ticker)
+
+        logger.info(f"Removed {ticker} from watchlist for user {user_id}")
+
+        return WatchlistOperationResponse(
+            status="ok",
+            ticker=result['ticker']
         )
 
     except APIError:
