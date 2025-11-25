@@ -19,6 +19,7 @@ from .models import (
     Peer,
     GenerationMetadata
 )
+from .peer_selector import get_peer_selector_service
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +30,7 @@ class ResponseTransformer:
     def __init__(self):
         pass
 
-    def transform_report(self, state: AgentState, ticker_info: dict) -> ReportResponse:
+    async def transform_report(self, state: AgentState, ticker_info: dict) -> ReportResponse:
         """Transform AgentState to ReportResponse
 
         Args:
@@ -78,8 +79,21 @@ class ResponseTransformer:
         # Build risk assessment
         risk = self._build_risk(indicators, percentiles, report_text)
 
-        # Build peers (TODO: implement peer comparison)
+        # Build peers with correlation analysis
         peers = []
+        try:
+            peer_service = get_peer_selector_service()
+            peer_infos = await peer_service.find_peers_async(
+                target_ticker=ticker,
+                limit=5,
+                period='3mo',
+                min_correlation=0.3
+            )
+            peers = [peer_service.to_api_peer(p) for p in peer_infos]
+            logger.info(f"Found {len(peers)} peers for {ticker}")
+        except Exception as e:
+            logger.warning(f"Failed to fetch peers for {ticker}: {e}")
+            peers = []
 
         # Data sources
         data_sources = [

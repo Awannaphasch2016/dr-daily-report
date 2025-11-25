@@ -1,0 +1,184 @@
+# Telegram Mini App API Infrastructure
+# Separate Lambda function and resources for Telegram Mini App REST API
+
+###############################################################################
+# IAM Role for Telegram API Lambda
+###############################################################################
+
+resource "aws_iam_role" "telegram_lambda_role" {
+  name = "${var.project_name}-telegram-api-role-${var.environment}"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Action = "sts:AssumeRole"
+      Effect = "Allow"
+      Principal = {
+        Service = "lambda.amazonaws.com"
+      }
+    }]
+  })
+
+  tags = merge(local.common_tags, {
+    Name      = "${var.project_name}-telegram-api-role-${var.environment}"
+    App       = "telegram-api"
+    Component = "iam-role"
+  })
+}
+
+# Attach basic Lambda execution policy
+resource "aws_iam_role_policy_attachment" "telegram_lambda_basic" {
+  role       = aws_iam_role.telegram_lambda_role.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}
+
+# Attach DynamoDB access policy (already created in dynamodb.tf)
+resource "aws_iam_role_policy_attachment" "telegram_lambda_dynamodb" {
+  role       = aws_iam_role.telegram_lambda_role.name
+  policy_arn = aws_iam_policy.dynamodb_access.arn
+}
+
+# Custom policy for S3 PDF storage access and ECR access
+resource "aws_iam_role_policy" "telegram_lambda_custom" {
+  name = "${var.project_name}-telegram-api-custom-policy-${var.environment}"
+  role = aws_iam_role.telegram_lambda_role.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "logs:CreateLogGroup",
+          "logs:CreateLogStream",
+          "logs:PutLogEvents"
+        ]
+        Resource = "arn:aws:logs:*:*:*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:PutObject",
+          "s3:GetObject",
+          "s3:DeleteObject"
+        ]
+        Resource = "${aws_s3_bucket.pdf_reports.arn}/*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:ListBucket"
+        ]
+        Resource = aws_s3_bucket.pdf_reports.arn
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "ecr:GetAuthorizationToken",
+          "ecr:BatchCheckLayerAvailability",
+          "ecr:GetDownloadUrlForLayer",
+          "ecr:BatchGetImage"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+}
+
+###############################################################################
+# Lambda Function for Telegram API
+###############################################################################
+
+resource "aws_lambda_function" "telegram_api" {
+  function_name = "${var.project_name}-telegram-api-${var.environment}"
+  role          = aws_iam_role.telegram_lambda_role.arn
+
+  # Container image deployment from ECR
+  package_type = "Image"
+  image_uri    = "${aws_ecr_repository.lambda.repository_url}:latest"
+
+  image_config {
+    command = ["telegram_lambda_handler.handler"]
+  }
+
+  memory_size = var.lambda_memory
+  timeout     = var.lambda_timeout
+
+  environment {
+    variables = {
+      # OpenRouter API (shared)
+      OPENAI_API_KEY = var.openai_api_key
+
+      # S3 Storage (shared)
+      PDF_STORAGE_BUCKET       = aws_s3_bucket.pdf_reports.id
+      PDF_BUCKET_NAME          = aws_s3_bucket.pdf_reports.id
+      PDF_URL_EXPIRATION_HOURS = "24"
+
+      # Cache Configuration
+      CACHE_BACKEND  = "hybrid" # hybrid, s3, or sqlite
+      CACHE_TTL_HOURS = "24"
+
+      # DynamoDB Tables
+      DYNAMODB_WATCHLIST_TABLE = aws_dynamodb_table.telegram_watchlist.name
+      DYNAMODB_CACHE_TABLE     = aws_dynamodb_table.telegram_cache.name
+
+      # Telegram Configuration
+      TELEGRAM_BOT_TOKEN  = var.telegram_bot_token
+      TELEGRAM_APP_ID     = var.telegram_app_id
+      TELEGRAM_APP_HASH   = var.telegram_app_hash
+      TELEGRAM_WEBAPP_URL = var.telegram_webapp_url
+
+      # LangSmith Tracing
+      LANGSMITH_TRACING_V2 = var.langsmith_tracing_enabled ? "true" : "false"
+      LANGSMITH_API_KEY    = var.langsmith_api_key
+
+      # Environment
+      ENVIRONMENT = var.environment
+      LOG_LEVEL   = "INFO"
+    }
+  }
+
+  tags = merge(local.common_tags, {
+    Name      = "${var.project_name}-telegram-api-${var.environment}"
+    App       = "telegram-api"
+    Component = "rest-api"
+    Interface = "api-gateway"
+  })
+
+  depends_on = [
+    aws_ecr_repository.lambda,
+    aws_iam_role_policy_attachment.telegram_lambda_basic,
+    aws_iam_role_policy_attachment.telegram_lambda_dynamodb
+  ]
+}
+
+# CloudWatch Log Group with retention
+resource "aws_cloudwatch_log_group" "telegram_api_logs" {
+  name              = "/aws/lambda/${aws_lambda_function.telegram_api.function_name}"
+  retention_in_days = var.log_retention_days
+
+  tags = merge(local.common_tags, {
+    Name      = "${var.project_name}-telegram-api-logs-${var.environment}"
+    App       = "telegram-api"
+    Component = "logging"
+  })
+}
+
+###############################################################################
+# Outputs
+###############################################################################
+
+output "telegram_lambda_function_arn" {
+  value       = aws_lambda_function.telegram_api.arn
+  description = "ARN of the Telegram API Lambda function"
+}
+
+output "telegram_lambda_function_name" {
+  value       = aws_lambda_function.telegram_api.function_name
+  description = "Name of the Telegram API Lambda function"
+}
+
+output "telegram_lambda_role_arn" {
+  value       = aws_iam_role.telegram_lambda_role.arn
+  description = "ARN of the Telegram API Lambda IAM role"
+}

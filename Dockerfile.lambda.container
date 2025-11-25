@@ -1,27 +1,29 @@
-# Lambda Container Image Dockerfile
-# This builds a container image that runs directly in AWS Lambda
-
+# Use AWS Lambda Python 3.11 base image (pre-cached by Lambda service)
 FROM public.ecr.aws/lambda/python:3.11
 
-# Upgrade pip and install build tools
-RUN pip install --upgrade pip setuptools wheel
+# Set working directory
+WORKDIR ${LAMBDA_TASK_ROOT}
 
-# Copy requirements file
-COPY requirements_lambda.txt ${LAMBDA_TASK_ROOT}/
+# Copy requirements files first for better layer caching
+COPY requirements_minimal.txt requirements_heavy.txt requirements_nodeps.txt ./
 
-# Install Python dependencies
-# Install tiktoken first with prebuilt wheel to avoid compilation issues
-RUN pip install --no-cache-dir --prefer-binary tiktoken
+# Install dependencies in order (minimal -> heavy -> nodeps)
+# Use --no-cache-dir to reduce image size
+RUN pip install --no-cache-dir --prefer-binary -r requirements_minimal.txt && \
+    pip install --no-cache-dir --prefer-binary -r requirements_heavy.txt && \
+    pip install --no-deps --no-cache-dir -r requirements_nodeps.txt
 
-# Install all other dependencies
-RUN pip install --no-cache-dir --prefer-binary -r ${LAMBDA_TASK_ROOT}/requirements_lambda.txt
-
-# Copy application code
+# Copy application code (changes most frequently, so placed last)
 COPY src/ ${LAMBDA_TASK_ROOT}/src/
+COPY data/tickers.csv ${LAMBDA_TASK_ROOT}/data/tickers.csv
+COPY fonts/ ${LAMBDA_TASK_ROOT}/fonts/
 
-# Copy data files
-COPY data/tickers.csv ${LAMBDA_TASK_ROOT}/
+# Copy Lambda handlers to root
+COPY src/lambda_handler.py ${LAMBDA_TASK_ROOT}/lambda_handler.py
+COPY src/telegram_lambda_handler.py ${LAMBDA_TASK_ROOT}/telegram_lambda_handler.py
 
-# Set the CMD to your handler (could also be done in Dockerfile or Lambda configuration)
-# Format: module_name.handler_function_name
-CMD ["src.lambda_handler.lambda_handler"]
+# Fix file permissions for Lambda runtime
+RUN chmod -R 755 ${LAMBDA_TASK_ROOT}
+
+# Default handler (can be overridden in Lambda config)
+CMD ["telegram_lambda_handler.handler"]

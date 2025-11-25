@@ -4,12 +4,14 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from typing import Literal
+from datetime import datetime
 import logging
 
 from .models import (
     SearchResponse,
     ReportResponse,
     RankingsResponse,
+    RankedTicker,
     WatchlistResponse,
     WatchlistAddRequest,
     WatchlistOperationResponse
@@ -22,6 +24,7 @@ from .errors import (
 )
 from .ticker_service import get_ticker_service
 from .watchlist_service import get_watchlist_service
+from .rankings_service import get_rankings_service
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -190,7 +193,7 @@ async def get_report(
 
         # Transform to API response format
         transformer = get_transformer()
-        response = transformer.transform_report(final_state, ticker_info)
+        response = await transformer.transform_report(final_state, ticker_info)
 
         logger.info(f"Successfully generated report for {ticker}")
 
@@ -210,24 +213,50 @@ async def get_rankings(
 ):
     """Get market movers / ranked tickers
 
+    Fetches real-time market data for all 47 supported tickers and returns ranked results
+    based on the selected category. Results are cached for 5 minutes to reduce API calls.
+
     Args:
         category: Ranking type (top_gainers, top_losers, volume_surge, trending)
         limit: Maximum results (default 10, max 50)
 
     Returns:
         RankingsResponse with ranked tickers
+
+    Example:
+        GET /api/v1/rankings?category=top_gainers&limit=10
     """
     try:
-        # TODO: Implement rankings logic
-        raise HTTPException(
-            status_code=501,
-            detail="Rankings not yet implemented"
+        rankings_service = get_rankings_service()
+        ranking_items = await rankings_service.get_rankings(category, limit=limit)
+
+        logger.info(f"Rankings {category}: {len(ranking_items)} results")
+
+        # Transform RankingItem to RankedTicker (remove volume_ratio, add optional fields as None)
+        tickers = [
+            RankedTicker(
+                ticker=item.ticker,
+                company_name=item.company_name,
+                price=item.price,
+                price_change_pct=item.price_change_pct,
+                currency=item.currency,
+                stance=None,  # Not available for rankings
+                estimated_upside_pct=None,  # Not available for rankings
+                risk_level=None  # Not available for rankings
+            )
+            for item in ranking_items
+        ]
+
+        return RankingsResponse(
+            category=category,
+            as_of=datetime.now(),
+            tickers=tickers
         )
 
     except APIError:
         raise
     except Exception as e:
-        logger.error(f"Rankings error: {str(e)}")
+        logger.error(f"Rankings error: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 

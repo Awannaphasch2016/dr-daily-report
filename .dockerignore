@@ -1,0 +1,55 @@
+# Python cache
+**/__pycache__
+**/*.pyc
+**/*.pyo
+**/*.pyd
+**.pytest_cache
+
+# Tests
+**/tests
+**/test
+**/*_test.py
+
+# Documentation
+**/*.md
+**/docs
+**/doc
+README.md
+
+# Git
+.git
+.gitignore
+.gitattributes
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# Build artifacts
+build/
+dist/
+*.egg-info
+.eggs/
+
+# Environment
+.env
+.env.*
+**/.venv
+**/venv
+
+# Terraform
+terraform/
+**.tfstate
+**.tfstate.*
+**.terraform/
+tfplan
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+
+# Other
+.DS_Store
+Thumbs.db

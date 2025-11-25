@@ -32,7 +32,17 @@ setup:
 shell:
     dr --doppler dev shell
 
+# Verify development environment (run when setting up or debugging issues)
+verify:
+    @echo "🔍 Verifying development environment..."
+    dr dev verify
+
 # === TELEGRAM MINI APP DEVELOPMENT ===
+
+# Verify Telegram Mini App development setup
+verify-telegram:
+    @echo "🔍 Verifying Telegram Mini App setup..."
+    dr dev verify telegram
 
 # Start FastAPI server with local DynamoDB (for Telegram Mini App development)
 dev-api:
@@ -65,6 +75,11 @@ setup-local-db:
 test-watchlist:
     @echo "🧪 Testing watchlist endpoints..."
     ./scripts/test_watchlist.sh
+
+# Test rankings endpoints (requires dev-api running in another terminal)
+test-rankings:
+    @echo "🧪 Testing rankings endpoints..."
+    ./scripts/test_rankings.sh
 
 # Stop local DynamoDB container
 stop-local-db:

@@ -1,23 +1,59 @@
-# DynamoDB tables for Telegram Mini App
+# Layer 01: Data Persistence
+# DynamoDB tables for application data storage
+# Can be developed/deployed independently from app layers
 
-# Watchlist table - stores user watchlists
+terraform {
+  required_version = ">= 1.0"
+
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.0"
+    }
+  }
+
+  backend "s3" {
+    bucket         = "dr-daily-report-tf-state"
+    key            = "layers/01-data/terraform.tfstate"
+    region         = "ap-southeast-1"
+    dynamodb_table = "dr-daily-report-tf-locks"
+    encrypt        = true
+  }
+}
+
+provider "aws" {
+  region = var.aws_region
+}
+
+locals {
+  common_tags = {
+    Project     = var.project_name
+    ManagedBy   = "Terraform"
+    Environment = var.environment
+    Layer       = "01-data"
+  }
+}
+
+###############################################################################
+# Watchlist Table - User watchlist storage
+###############################################################################
+
 resource "aws_dynamodb_table" "telegram_watchlist" {
   name           = "${var.project_name}-telegram-watchlist-${var.environment}"
-  billing_mode   = "PAY_PER_REQUEST" # On-demand pricing
+  billing_mode   = "PAY_PER_REQUEST"
   hash_key       = "user_id"
   range_key      = "ticker"
 
   attribute {
     name = "user_id"
-    type = "S" # String - Telegram user ID
+    type = "S"
   }
 
   attribute {
     name = "ticker"
-    type = "S" # String - Ticker symbol (e.g., NVDA19)
+    type = "S"
   }
 
-  # TTL for automatic cleanup of old watchlist items (optional)
   ttl {
     attribute_name = "ttl"
     enabled        = true
@@ -31,7 +67,10 @@ resource "aws_dynamodb_table" "telegram_watchlist" {
   })
 }
 
-# Cache table - stores API response cache
+###############################################################################
+# Cache Table - API response caching
+###############################################################################
+
 resource "aws_dynamodb_table" "telegram_cache" {
   name           = "${var.project_name}-telegram-cache-${var.environment}"
   billing_mode   = "PAY_PER_REQUEST"
@@ -39,10 +78,9 @@ resource "aws_dynamodb_table" "telegram_cache" {
 
   attribute {
     name = "cache_key"
-    type = "S" # String - e.g., "report:NVDA19" or "rankings:top_gainers"
+    type = "S"
   }
 
-  # TTL for automatic cache expiration
   ttl {
     attribute_name = "expires_at"
     enabled        = true
@@ -56,14 +94,16 @@ resource "aws_dynamodb_table" "telegram_cache" {
   })
 }
 
-# IAM policy for Lambda to access DynamoDB tables
+###############################################################################
+# IAM Policy for DynamoDB Access (attached by app layer)
+###############################################################################
+
 resource "aws_iam_policy" "dynamodb_access" {
   name        = "${var.project_name}-dynamodb-access-${var.environment}"
   description = "Allow Lambda to access DynamoDB tables for Telegram Mini App"
 
   tags = merge(local.common_tags, {
     Name      = "${var.project_name}-dynamodb-access-${var.environment}"
-    App       = "telegram-api"
     Component = "iam-policy"
   })
 
@@ -87,31 +127,4 @@ resource "aws_iam_policy" "dynamodb_access" {
       }
     ]
   })
-}
-
-# Attach policy to Lambda role for DynamoDB access
-resource "aws_iam_role_policy_attachment" "lambda_dynamodb" {
-  role       = aws_iam_role.lambda_role.name
-  policy_arn = aws_iam_policy.dynamodb_access.arn
-}
-
-# Outputs for use in application
-output "watchlist_table_name" {
-  value       = aws_dynamodb_table.telegram_watchlist.name
-  description = "Name of the watchlist DynamoDB table"
-}
-
-output "cache_table_name" {
-  value       = aws_dynamodb_table.telegram_cache.name
-  description = "Name of the cache DynamoDB table"
-}
-
-output "watchlist_table_arn" {
-  value       = aws_dynamodb_table.telegram_watchlist.arn
-  description = "ARN of the watchlist DynamoDB table"
-}
-
-output "cache_table_arn" {
-  value       = aws_dynamodb_table.telegram_cache.arn
-  description = "ARN of the cache DynamoDB table"
 }

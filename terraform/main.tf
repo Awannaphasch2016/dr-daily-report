@@ -20,6 +20,20 @@ provider "aws" {
   region = var.aws_region
 }
 
+###############################################################################
+# Common Tags for All Resources
+###############################################################################
+
+locals {
+  common_tags = {
+    Project     = var.project_name
+    ManagedBy   = "Terraform"
+    Environment = var.environment
+    Owner       = var.owner
+    CostCenter  = var.cost_center
+  }
+}
+
 # Data source: Get current AWS account ID
 data "aws_caller_identity" "current" {}
 
@@ -62,12 +76,14 @@ resource "null_resource" "zip_build" {
         public.ecr.aws/lambda/python:3.11 \
         -c "pip install --upgrade pip && \
             pip install -r requirements_minimal.txt -t /var/task/build/deployment_package/ --prefer-binary && \
+            pip install -r requirements_heavy.txt -t /var/task/build/deployment_package/ --prefer-binary && \
             pip install --no-deps -r requirements_nodeps.txt -t /var/task/build/deployment_package/ --prefer-binary"
       
       # Copy application files
       echo "📋 Copying application files..."
       cp -r src build/deployment_package/src
       cp src/lambda_handler.py build/deployment_package/lambda_handler.py
+      cp src/telegram_lambda_handler.py build/deployment_package/telegram_lambda_handler.py
       cp data/tickers.csv build/deployment_package/
       
       # Copy fonts directory for Thai character support in PDFs
@@ -146,11 +162,12 @@ resource "aws_s3_object" "lambda_zip" {
 resource "aws_s3_bucket" "pdf_reports" {
   bucket = "line-bot-pdf-reports-${data.aws_caller_identity.current.account_id}"
 
-  tags = {
-    Name        = "line-bot-pdf-reports"
-    Environment = var.environment
-    Project     = "LineBot"
-  }
+  tags = merge(local.common_tags, {
+    Name      = "line-bot-pdf-reports"
+    App       = "shared"
+    Component = "pdf-storage"
+    SharedBy  = "line-bot_telegram-api"
+  })
 }
 
 # Bucket versioning (optional, for recovery)
@@ -217,10 +234,11 @@ resource "aws_iam_role" "lambda_role" {
     }]
   })
 
-  tags = {
-    Name        = "${var.function_name}-role"
-    Environment = var.environment
-  }
+  tags = merge(local.common_tags, {
+    Name      = "${var.function_name}-role"
+    App       = "line-bot"
+    Component = "iam-role"
+  })
 }
 
 # Attach basic Lambda execution policy
@@ -268,6 +286,16 @@ resource "aws_iam_role_policy" "lambda_custom" {
           "s3:ListBucket"
         ]
         Resource = aws_s3_bucket.pdf_reports.arn
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "ecr:GetAuthorizationToken",
+          "ecr:BatchCheckLayerAvailability",
+          "ecr:GetDownloadUrlForLayer",
+          "ecr:BatchGetImage"
+        ]
+        Resource = "*"
       }
     ]
   })
@@ -280,17 +308,17 @@ resource "aws_iam_role_policy" "lambda_custom" {
 resource "aws_lambda_function" "line_bot" {
   function_name = var.function_name
   role          = aws_iam_role.lambda_role.arn
-  handler       = "lambda_handler.lambda_handler"
 
-  # ZIP deployment configuration via S3
-  s3_bucket = aws_s3_object.lambda_zip.bucket
-  s3_key    = aws_s3_object.lambda_zip.key
+  # Container image deployment from ECR
+  package_type = "Image"
+  image_uri    = "${aws_ecr_repository.lambda.repository_url}:latest"
 
-  runtime     = "python3.11"
+  image_config {
+    command = ["lambda_handler.lambda_handler"]
+  }
+
   memory_size = var.lambda_memory
   timeout     = var.lambda_timeout
-
-  # Heavy dependencies loaded from S3 at runtime (no layer needed)
 
   environment {
     variables = {
@@ -305,15 +333,15 @@ resource "aws_lambda_function" "line_bot" {
     }
   }
 
-  tags = {
-    Name        = var.function_name
-    Environment = var.environment
-    Project     = "LineBot"
-  }
+  tags = merge(local.common_tags, {
+    Name      = var.function_name
+    App       = "line-bot"
+    Component = "webhook-handler"
+    Interface = "function-url"
+  })
 
   depends_on = [
-    null_resource.zip_build,
-    aws_s3_object.lambda_zip,
+    aws_ecr_repository.lambda,
     aws_iam_role_policy_attachment.lambda_basic
   ]
 }

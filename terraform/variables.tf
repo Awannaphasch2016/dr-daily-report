@@ -10,6 +10,29 @@ variable "environment" {
   description = "Environment name (dev, staging, prod)"
   type        = string
   default     = "prod"
+
+  validation {
+    condition     = contains(["dev", "staging", "prod"], var.environment)
+    error_message = "Environment must be dev, staging, or prod"
+  }
+}
+
+variable "project_name" {
+  description = "Project name for resource naming and tagging"
+  type        = string
+  default     = "dr-daily-report"
+}
+
+variable "owner" {
+  description = "Team or individual responsible for the resources"
+  type        = string
+  default     = "data-team"
+}
+
+variable "cost_center" {
+  description = "Cost center for billing attribution"
+  type        = string
+  default     = "engineering"
 }
 
 variable "function_name" {
@@ -62,4 +85,52 @@ variable "line_channel_secret" {
   description = "LINE channel secret"
   type        = string
   sensitive   = true
+}
+
+###############################################################################
+# Telegram Mini App Variables
+###############################################################################
+
+variable "telegram_bot_token" {
+  description = "Telegram Bot Token for Mini App"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "telegram_app_id" {
+  description = "Telegram App ID"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "telegram_app_hash" {
+  description = "Telegram App Hash"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "telegram_webapp_url" {
+  description = "Telegram Mini App WebApp URL"
+  type        = string
+  default     = ""
+}
+
+###############################################################################
+# LangSmith Tracing Variables
+###############################################################################
+
+variable "langsmith_tracing_enabled" {
+  description = "Enable LangSmith tracing"
+  type        = bool
+  default     = false
+}
+
+variable "langsmith_api_key" {
+  description = "LangSmith API key for tracing"
+  type        = string
+  sensitive   = true
+  default     = ""
 }
