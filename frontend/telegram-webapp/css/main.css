@@ -1,0 +1,298 @@
+/* Main CSS - App Layout and Specific Styles */
+
+/* App Container */
+#app {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* Header */
+.app-header {
+    padding: var(--spacing-md);
+    text-align: center;
+    background-color: var(--tg-theme-bg-color);
+    border-bottom: 1px solid var(--tg-theme-secondary-bg-color);
+}
+
+.app-title {
+    font-size: var(--font-xl);
+    font-weight: 700;
+    margin-bottom: var(--spacing-xs);
+}
+
+.app-subtitle {
+    font-size: var(--font-sm);
+    color: var(--tg-theme-hint-color);
+}
+
+/* Search Section */
+.search-section {
+    padding: var(--spacing-md);
+    background-color: var(--tg-theme-bg-color);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+}
+
+.search-container {
+    display: flex;
+    gap: var(--spacing-sm);
+    background-color: var(--tg-theme-secondary-bg-color);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-sm) var(--spacing-md);
+}
+
+.search-input {
+    flex: 1;
+    padding: var(--spacing-sm);
+    font-size: var(--font-md);
+    color: var(--tg-theme-text-color);
+}
+
+.search-input::placeholder {
+    color: var(--tg-theme-hint-color);
+}
+
+.search-btn {
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: var(--tg-theme-button-color);
+    color: var(--tg-theme-button-text-color);
+    border-radius: var(--radius-md);
+    font-size: var(--font-lg);
+}
+
+.search-results {
+    position: absolute;
+    top: 100%;
+    left: var(--spacing-md);
+    right: var(--spacing-md);
+    background-color: var(--tg-theme-bg-color);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-lg);
+    max-height: 300px;
+    overflow-y: auto;
+    z-index: 101;
+}
+
+.search-result-item {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-md);
+    padding: var(--spacing-md);
+    cursor: pointer;
+    border-bottom: 1px solid var(--tg-theme-secondary-bg-color);
+}
+
+.search-result-item:last-child {
+    border-bottom: none;
+}
+
+.search-result-item:hover {
+    background-color: var(--tg-theme-secondary-bg-color);
+}
+
+/* Tab Navigation */
+.tab-nav {
+    display: flex;
+    padding: var(--spacing-sm) var(--spacing-md);
+    gap: var(--spacing-sm);
+    background-color: var(--tg-theme-bg-color);
+    border-bottom: 1px solid var(--tg-theme-secondary-bg-color);
+}
+
+.tab-btn {
+    flex: 1;
+    padding: var(--spacing-sm) var(--spacing-md);
+    border-radius: var(--radius-md);
+    font-weight: 500;
+    font-size: var(--font-sm);
+    color: var(--tg-theme-hint-color);
+    background-color: transparent;
+    transition: all var(--transition-fast);
+}
+
+.tab-btn.active {
+    background-color: var(--tg-theme-button-color);
+    color: var(--tg-theme-button-text-color);
+}
+
+/* Tab Content */
+.tab-content {
+    flex: 1;
+    overflow-y: auto;
+}
+
+.tab-panel {
+    padding: var(--spacing-md);
+}
+
+.tab-panel.hidden {
+    display: none;
+}
+
+/* Category Selector */
+.category-selector {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--spacing-xs);
+    margin-bottom: var(--spacing-md);
+}
+
+.category-btn {
+    padding: var(--spacing-xs) var(--spacing-sm);
+    border-radius: var(--radius-full);
+    font-size: var(--font-xs);
+    font-weight: 500;
+    color: var(--tg-theme-hint-color);
+    background-color: var(--tg-theme-secondary-bg-color);
+    transition: all var(--transition-fast);
+}
+
+.category-btn.active {
+    background-color: var(--tg-theme-button-color);
+    color: var(--tg-theme-button-text-color);
+}
+
+/* Ticker List */
+.ticker-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-sm);
+}
+
+/* Report Modal Content */
+.report-header {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-md);
+    margin-bottom: var(--spacing-md);
+}
+
+.report-company-name {
+    font-size: var(--font-md);
+    color: var(--tg-theme-hint-color);
+}
+
+.report-stance {
+    margin-bottom: var(--spacing-md);
+}
+
+.report-stance-label {
+    font-size: var(--font-sm);
+    color: var(--tg-theme-hint-color);
+    margin-bottom: var(--spacing-xs);
+}
+
+.report-stance-value {
+    font-size: var(--font-lg);
+    font-weight: 600;
+}
+
+.report-section {
+    margin-bottom: var(--spacing-lg);
+}
+
+.report-section-title {
+    font-size: var(--font-md);
+    font-weight: 600;
+    margin-bottom: var(--spacing-sm);
+    padding-bottom: var(--spacing-xs);
+    border-bottom: 1px solid var(--tg-theme-secondary-bg-color);
+}
+
+.report-section-content {
+    font-size: var(--font-sm);
+    line-height: 1.6;
+}
+
+.report-metric {
+    display: flex;
+    justify-content: space-between;
+    padding: var(--spacing-sm) 0;
+    border-bottom: 1px solid var(--tg-theme-secondary-bg-color);
+}
+
+.report-metric:last-child {
+    border-bottom: none;
+}
+
+.report-metric-name {
+    color: var(--tg-theme-hint-color);
+}
+
+.report-metric-value {
+    font-weight: 500;
+}
+
+.report-bullet {
+    display: flex;
+    gap: var(--spacing-sm);
+    margin-bottom: var(--spacing-sm);
+}
+
+.report-bullet::before {
+    content: '•';
+    color: var(--tg-theme-button-color);
+}
+
+/* Peers Section */
+.peers-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--spacing-sm);
+}
+
+.peer-chip {
+    padding: var(--spacing-xs) var(--spacing-sm);
+    background-color: var(--tg-theme-secondary-bg-color);
+    border-radius: var(--radius-full);
+    font-size: var(--font-xs);
+    cursor: pointer;
+}
+
+.peer-chip:hover {
+    background-color: var(--tg-theme-button-color);
+    color: var(--tg-theme-button-text-color);
+}
+
+/* News Section */
+.news-item {
+    padding: var(--spacing-sm) 0;
+    border-bottom: 1px solid var(--tg-theme-secondary-bg-color);
+}
+
+.news-item:last-child {
+    border-bottom: none;
+}
+
+.news-title {
+    font-size: var(--font-sm);
+    font-weight: 500;
+    margin-bottom: var(--spacing-xs);
+}
+
+.news-meta {
+    display: flex;
+    gap: var(--spacing-sm);
+    font-size: var(--font-xs);
+    color: var(--tg-theme-hint-color);
+}
+
+/* Hidden utility */
+.hidden {
+    display: none !important;
+}
+
+/* Utilities */
+.text-bullish { color: var(--color-bullish); }
+.text-bearish { color: var(--color-bearish); }
+.text-neutral { color: var(--color-neutral); }
+.text-hint { color: var(--tg-theme-hint-color); }
+.text-center { text-align: center; }
+.font-bold { font-weight: 600; }

@@ -2,10 +2,11 @@
 
 import re
 from datetime import datetime
-from typing import Literal
+from typing import Literal, Optional
 import logging
 
 from src.types import AgentState
+from src.formatters.pdf_storage import PDFStorage
 from .models import (
     ReportResponse,
     SummarySections,
@@ -23,12 +24,58 @@ from .peer_selector import get_peer_selector_service
 
 logger = logging.getLogger(__name__)
 
+# PDF storage singleton
+_pdf_storage: Optional[PDFStorage] = None
+
+
+def get_pdf_storage() -> PDFStorage:
+    """Get or create PDFStorage singleton"""
+    global _pdf_storage
+    if _pdf_storage is None:
+        _pdf_storage = PDFStorage()
+    return _pdf_storage
+
 
 class ResponseTransformer:
     """Transform AgentState to spec-compliant API responses"""
 
     def __init__(self):
-        pass
+        self.pdf_storage = get_pdf_storage()
+
+    def _get_pdf_url(self, state: AgentState, ticker: str) -> Optional[str]:
+        """Generate S3 presigned URL for PDF report if available
+
+        Checks for PDF object key in state or constructs expected key.
+
+        Args:
+            state: AgentState that may contain pdf_object_key
+            ticker: Ticker symbol for constructing key
+
+        Returns:
+            Presigned URL string or None if PDF not available
+        """
+        if not self.pdf_storage.is_available():
+            logger.debug("PDF storage not available - skipping presigned URL")
+            return None
+
+        try:
+            # Check if PDF key is in state (from workflow that generated PDF)
+            pdf_key = state.get("pdf_object_key")
+
+            if pdf_key:
+                # Generate presigned URL for existing PDF
+                url = self.pdf_storage.get_presigned_url(pdf_key)
+                logger.info(f"Generated presigned URL for existing PDF: {pdf_key}")
+                return url
+
+            # No PDF in state - could optionally generate one here
+            # For now, return None (PDF generation happens in workflow)
+            logger.debug(f"No PDF object key in state for {ticker}")
+            return None
+
+        except Exception as e:
+            logger.warning(f"Failed to generate PDF presigned URL for {ticker}: {e}")
+            return None
 
     async def transform_report(self, state: AgentState, ticker_info: dict) -> ReportResponse:
         """Transform AgentState to ReportResponse
@@ -56,7 +103,21 @@ class ResponseTransformer:
         price_change_pct = ((price - open_price) / open_price * 100) if open_price > 0 else 0.0
 
         currency = ticker_info.get("currency", "USD")
-        as_of = datetime.now()  # TODO: Use actual timestamp from ticker_data
+
+        # Extract timestamp from ticker_data if available
+        ticker_timestamp = ticker_data.get("timestamp") or ticker_data.get("date")
+        if ticker_timestamp:
+            if isinstance(ticker_timestamp, str):
+                try:
+                    as_of = datetime.fromisoformat(ticker_timestamp.replace("Z", "+00:00"))
+                except ValueError:
+                    as_of = datetime.now()
+            elif isinstance(ticker_timestamp, datetime):
+                as_of = ticker_timestamp
+            else:
+                as_of = datetime.now()
+        else:
+            as_of = datetime.now()
 
         # Extract stance and confidence from report
         stance_info = self._extract_stance(report_text, indicators, percentiles)
@@ -102,15 +163,15 @@ class ResponseTransformer:
             "News - curated feeds with impact scoring"
         ]
 
-        # PDF report URL (TODO: implement S3 presigned URL)
-        pdf_report_url = None
+        # PDF report URL - generate presigned URL if PDF exists
+        pdf_report_url = self._get_pdf_url(state, ticker)
 
         # Generation metadata
         generation_metadata = GenerationMetadata(
             agent_version="v1.0.0",
             strategy=state.get("strategy", "multi_stage_analysis"),
             generated_at=datetime.now(),
-            cache_hit=False  # TODO: track cache hits
+            cache_hit=state.get("cache_hit", False)  # Track if report was from cache
         )
 
         return ReportResponse(
@@ -176,8 +237,8 @@ class ResponseTransformer:
         else:
             confidence = "low"
 
-        # Extract investment horizon (default to medium-term)
-        horizon = "6-12 months"  # TODO: extract from report if available
+        # Extract investment horizon from report text
+        horizon = self._extract_horizon(report_text)
 
         # Estimated upside (placeholder - needs price target model)
         upside_pct = None
@@ -188,6 +249,50 @@ class ResponseTransformer:
             "horizon": horizon,
             "upside_pct": upside_pct
         }
+
+    def _extract_horizon(self, report_text: str) -> str:
+        """Extract investment horizon from report text
+
+        Looks for Thai keywords indicating short, medium, or long-term outlook.
+
+        Args:
+            report_text: Report text in Thai
+
+        Returns:
+            Investment horizon string (e.g., "1-3 months", "6-12 months", "1-2 years")
+        """
+        # Short-term indicators (1-3 months)
+        short_term_keywords = [
+            "ระยะสั้น", "1-3 เดือน", "สัปดาห์", "เดือนหน้า",
+            "short term", "short-term", "เทรดรายวัน", "swing trade"
+        ]
+
+        # Medium-term indicators (6-12 months)
+        medium_term_keywords = [
+            "ระยะกลาง", "6-12 เดือน", "ครึ่งปี", "medium term",
+            "mid-term", "ไตรมาส", "Q1", "Q2", "Q3", "Q4"
+        ]
+
+        # Long-term indicators (1-2+ years)
+        long_term_keywords = [
+            "ระยะยาว", "1-2 ปี", "หลายปี", "long term", "long-term",
+            "ลงทุนยาว", "ถือยาว", "dividend", "ปันผล"
+        ]
+
+        report_lower = report_text.lower()
+
+        short_count = sum(1 for kw in short_term_keywords if kw in report_lower)
+        medium_count = sum(1 for kw in medium_term_keywords if kw in report_lower)
+        long_count = sum(1 for kw in long_term_keywords if kw in report_lower)
+
+        # Determine horizon based on keyword matches
+        if short_count > medium_count and short_count > long_count:
+            return "1-3 months"
+        elif long_count > medium_count and long_count > short_count:
+            return "1-2 years"
+        else:
+            # Default to medium-term
+            return "6-12 months"
 
     def _extract_summary_sections(self, report_text: str) -> SummarySections:
         """Extract summary bullets from report text"""
@@ -378,7 +483,7 @@ class ResponseTransformer:
             valuation.append(FundamentalMetric(
                 name="P/E Ratio",
                 value=float(pe_ratio),
-                percentile=None,  # TODO: calculate percentile vs peers
+                percentile=None,  # Requires sector peer data for comparison
                 comment="Price to earnings ratio"
             ))
 
@@ -391,8 +496,24 @@ class ResponseTransformer:
                 comment=f"Market capitalization"
             ))
 
-        # Growth metrics
-        # TODO: Add revenue growth, earnings growth when available
+        # Growth metrics (from yfinance if available)
+        revenue_growth = ticker_data.get("revenue_growth") or ticker_data.get("revenueGrowth")
+        if revenue_growth is not None:
+            growth.append(FundamentalMetric(
+                name="Revenue Growth",
+                value=float(revenue_growth) * 100,  # Convert to percentage
+                percentile=None,
+                comment=f"{float(revenue_growth) * 100:.1f}% YoY revenue growth"
+            ))
+
+        earnings_growth = ticker_data.get("earnings_growth") or ticker_data.get("earningsGrowth")
+        if earnings_growth is not None:
+            growth.append(FundamentalMetric(
+                name="Earnings Growth",
+                value=float(earnings_growth) * 100,  # Convert to percentage
+                percentile=None,
+                comment=f"{float(earnings_growth) * 100:.1f}% YoY earnings growth"
+            ))
 
         # Profitability metrics
         eps = ticker_data.get("eps")

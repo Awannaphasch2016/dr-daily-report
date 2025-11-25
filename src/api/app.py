@@ -1,6 +1,6 @@
 """FastAPI application for Telegram Mini App backend"""
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from typing import Literal
@@ -25,6 +25,7 @@ from .errors import (
 from .ticker_service import get_ticker_service
 from .watchlist_service import get_watchlist_service
 from .rankings_service import get_rankings_service
+from .telegram_auth import get_telegram_auth, TelegramAuthError
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -54,29 +55,46 @@ app.add_exception_handler(APIError, api_exception_handler)
 # Helper Functions
 # ============================================================================
 
-def get_user_id_from_header(x_telegram_user_id: str | None = None) -> str:
-    """Extract user ID from Telegram WebApp initData header
+def get_user_id_from_header(
+    x_telegram_init_data: str | None = None,
+    x_telegram_user_id: str | None = None
+) -> str:
+    """Extract and validate user ID from Telegram WebApp headers
 
-    For now, accepts a simple user_id from header for testing.
-    In production, would parse and validate Telegram's initData.
+    Supports two authentication modes:
+    1. Production: X-Telegram-Init-Data header with HMAC validation
+    2. Development: X-Telegram-User-Id header for testing
 
     Args:
-        x_telegram_user_id: User ID from X-Telegram-User-Id header
+        x_telegram_init_data: Full initData string from Telegram WebApp (production)
+        x_telegram_user_id: Simple user ID for testing (development)
 
     Returns:
-        User ID string
+        Validated user ID string
 
     Raises:
-        InvalidRequestError: If user ID is missing
+        InvalidRequestError: If authentication fails
     """
-    # TODO: In production, extract and validate from X-Telegram-Init-Data
-    # For now, use simple header for testing
-    if not x_telegram_user_id:
-        raise InvalidRequestError(
-            "Missing user authentication. Please provide X-Telegram-User-Id header for testing."
-        )
+    # Try production auth first (initData with HMAC validation)
+    if x_telegram_init_data:
+        try:
+            auth = get_telegram_auth()
+            user_id = auth.get_user_id(x_telegram_init_data)
+            logger.info(f"✅ Authenticated user via initData: {user_id}")
+            return user_id
+        except TelegramAuthError as e:
+            logger.warning(f"initData validation failed: {e}")
+            raise InvalidRequestError(f"Telegram authentication failed: {e}")
 
-    return x_telegram_user_id
+    # Fallback to simple header for development/testing
+    if x_telegram_user_id:
+        logger.info(f"⚠️ Using development auth for user: {x_telegram_user_id}")
+        return x_telegram_user_id
+
+    raise InvalidRequestError(
+        "Missing user authentication. Provide X-Telegram-Init-Data (production) "
+        "or X-Telegram-User-Id (development) header."
+    )
 
 
 # ============================================================================
@@ -261,17 +279,21 @@ async def get_rankings(
 
 
 @app.get("/api/v1/watchlist", response_model=WatchlistResponse)
-async def get_watchlist(x_telegram_user_id: str | None = Query(None, alias="X-Telegram-User-Id")):
+async def get_watchlist(
+    x_telegram_init_data: str | None = Header(None, alias="X-Telegram-Init-Data"),
+    x_telegram_user_id: str | None = Header(None, alias="X-Telegram-User-Id")
+):
     """Get user's watchlist
 
     Args:
-        x_telegram_user_id: Telegram user ID from header (for testing)
+        x_telegram_init_data: Full initData from Telegram WebApp (production auth)
+        x_telegram_user_id: Simple user ID (development auth)
 
     Returns:
         WatchlistResponse with list of watched tickers
     """
     try:
-        user_id = get_user_id_from_header(x_telegram_user_id)
+        user_id = get_user_id_from_header(x_telegram_init_data, x_telegram_user_id)
         watchlist_service = get_watchlist_service()
 
         tickers = watchlist_service.get_watchlist(user_id)
@@ -290,19 +312,21 @@ async def get_watchlist(x_telegram_user_id: str | None = Query(None, alias="X-Te
 @app.post("/api/v1/watchlist", response_model=WatchlistOperationResponse)
 async def add_to_watchlist(
     request: WatchlistAddRequest,
-    x_telegram_user_id: str | None = Query(None, alias="X-Telegram-User-Id")
+    x_telegram_init_data: str | None = Header(None, alias="X-Telegram-Init-Data"),
+    x_telegram_user_id: str | None = Header(None, alias="X-Telegram-User-Id")
 ):
     """Add ticker to watchlist
 
     Args:
         request: Ticker to add
-        x_telegram_user_id: Telegram user ID from header (for testing)
+        x_telegram_init_data: Full initData from Telegram WebApp (production auth)
+        x_telegram_user_id: Simple user ID (development auth)
 
     Returns:
         WatchlistOperationResponse confirming addition
     """
     try:
-        user_id = get_user_id_from_header(x_telegram_user_id)
+        user_id = get_user_id_from_header(x_telegram_init_data, x_telegram_user_id)
         ticker_service = get_ticker_service()
         watchlist_service = get_watchlist_service()
 
@@ -332,19 +356,21 @@ async def add_to_watchlist(
 @app.delete("/api/v1/watchlist/{ticker}", response_model=WatchlistOperationResponse)
 async def remove_from_watchlist(
     ticker: str,
-    x_telegram_user_id: str | None = Query(None, alias="X-Telegram-User-Id")
+    x_telegram_init_data: str | None = Header(None, alias="X-Telegram-Init-Data"),
+    x_telegram_user_id: str | None = Header(None, alias="X-Telegram-User-Id")
 ):
     """Remove ticker from watchlist
 
     Args:
         ticker: Ticker symbol to remove
-        x_telegram_user_id: Telegram user ID from header (for testing)
+        x_telegram_init_data: Full initData from Telegram WebApp (production auth)
+        x_telegram_user_id: Simple user ID (development auth)
 
     Returns:
         WatchlistOperationResponse confirming removal
     """
     try:
-        user_id = get_user_id_from_header(x_telegram_user_id)
+        user_id = get_user_id_from_header(x_telegram_init_data, x_telegram_user_id)
         watchlist_service = get_watchlist_service()
 
         # Remove from watchlist
