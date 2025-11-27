@@ -101,6 +101,9 @@ resource "aws_lambda_function" "telegram_api" {
     command = ["telegram_lambda_handler.handler"]
   }
 
+  # Enable versioning for safe rollbacks
+  publish = true
+
   memory_size = var.lambda_memory
   timeout     = var.lambda_timeout
 
@@ -121,6 +124,10 @@ resource "aws_lambda_function" "telegram_api" {
       # DynamoDB Tables
       DYNAMODB_WATCHLIST_TABLE = aws_dynamodb_table.telegram_watchlist.name
       DYNAMODB_CACHE_TABLE     = aws_dynamodb_table.telegram_cache.name
+      JOBS_TABLE_NAME          = aws_dynamodb_table.report_jobs.name
+
+      # SQS Queue for Async Reports
+      REPORT_JOBS_QUEUE_URL = aws_sqs_queue.report_jobs.url
 
       # Telegram Configuration
       TELEGRAM_BOT_TOKEN  = var.telegram_bot_token
@@ -152,6 +159,22 @@ resource "aws_lambda_function" "telegram_api" {
   ]
 }
 
+###############################################################################
+# Lambda Alias for Production Traffic
+###############################################################################
+
+resource "aws_lambda_alias" "telegram_api_live" {
+  name             = "live"
+  description      = "Production traffic alias - update to rollback"
+  function_name    = aws_lambda_function.telegram_api.function_name
+  function_version = aws_lambda_function.telegram_api.version
+
+  lifecycle {
+    # Allow external updates (from CI/CD) without Terraform drift
+    ignore_changes = [function_version]
+  }
+}
+
 # CloudWatch Log Group with retention
 resource "aws_cloudwatch_log_group" "telegram_api_logs" {
   name              = "/aws/lambda/${aws_lambda_function.telegram_api.function_name}"
@@ -181,4 +204,14 @@ output "telegram_lambda_function_name" {
 output "telegram_lambda_role_arn" {
   value       = aws_iam_role.telegram_lambda_role.arn
   description = "ARN of the Telegram API Lambda IAM role"
+}
+
+output "telegram_lambda_alias_arn" {
+  value       = aws_lambda_alias.telegram_api_live.arn
+  description = "ARN of the Telegram API Lambda 'live' alias"
+}
+
+output "telegram_lambda_version" {
+  value       = aws_lambda_function.telegram_api.version
+  description = "Current published version of the Telegram API Lambda"
 }

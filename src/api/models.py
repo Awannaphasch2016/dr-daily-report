@@ -208,3 +208,25 @@ class ErrorResponse(BaseModel):
 class ErrorEnvelope(BaseModel):
     """Error response envelope"""
     error: ErrorResponse = Field(..., description="Error details")
+
+
+# ============================================================================
+# Async Job Models
+# ============================================================================
+
+class JobSubmitResponse(BaseModel):
+    """Response for POST /report/{ticker} - job submission"""
+    job_id: str = Field(..., description="Unique job identifier")
+    status: Literal["pending"] = Field(default="pending", description="Initial job status")
+
+
+class JobStatusResponse(BaseModel):
+    """Response for GET /report/status/{job_id} - job status check"""
+    job_id: str = Field(..., description="Unique job identifier")
+    ticker: str = Field(..., description="Ticker symbol")
+    status: Literal["pending", "in_progress", "completed", "failed"] = Field(..., description="Current job status")
+    created_at: datetime = Field(..., description="Job creation timestamp")
+    started_at: Optional[datetime] = Field(None, description="Processing start timestamp")
+    finished_at: Optional[datetime] = Field(None, description="Processing end timestamp")
+    result: Optional[dict] = Field(None, description="Report result when completed")
+    error: Optional[str] = Field(None, description="Error message when failed")

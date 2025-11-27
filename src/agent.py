@@ -34,11 +34,13 @@ import json
 
 class TickerAnalysisAgent:
     def __init__(self):
+        # Support both OPENROUTER_API_KEY and OPENAI_API_KEY env vars
+        api_key = os.getenv("OPENROUTER_API_KEY") or os.getenv("OPENAI_API_KEY")
         self.llm = ChatOpenAI(
             model="openai/gpt-4o",
             temperature=0.8,
             base_url="https://openrouter.ai/api/v1",
-            api_key=os.getenv("OPENROUTER_API_KEY")
+            api_key=api_key
         )
         self.data_fetcher = DataFetcher()
         self.technical_analyzer = TechnicalAnalyzer()

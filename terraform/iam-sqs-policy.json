@@ -1,0 +1,22 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "SQSFullAccessForProject",
+      "Effect": "Allow",
+      "Action": [
+        "sqs:CreateQueue",
+        "sqs:DeleteQueue",
+        "sqs:GetQueueAttributes",
+        "sqs:GetQueueUrl",
+        "sqs:SetQueueAttributes",
+        "sqs:TagQueue",
+        "sqs:UntagQueue",
+        "sqs:TagResource",
+        "sqs:UntagResource",
+        "sqs:ListQueueTags"
+      ],
+      "Resource": "arn:aws:sqs:ap-southeast-1:755283537543:dr-daily-report-*"
+    }
+  ]
+}

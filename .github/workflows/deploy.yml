@@ -1,0 +1,347 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [main, telegram]
+  pull_request:
+    branches: [main, telegram]
+
+env:
+  AWS_REGION: ap-southeast-1
+  ECR_REPOSITORY: dr-daily-report-lambda-dev
+  PYTHON_VERSION: '3.11'
+
+jobs:
+  ###############################################################################
+  # Stage 1: Quality Gates (Blocking)
+  ###############################################################################
+  test:
+    name: Quality Gates
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements_minimal.txt
+          pip install pytest pytest-asyncio pip-audit
+
+      - name: Syntax check
+        run: |
+          echo "🔍 Checking Python syntax..."
+          python -m py_compile src/**/*.py src/api/*.py dr_cli/**/*.py
+          echo "✅ Syntax check passed"
+
+      - name: Unit tests
+        run: |
+          echo "🧪 Running unit tests..."
+          pytest tests/ -k "not integration" -v --tb=short --ignore=tests/test_smoke.py
+          echo "✅ Unit tests passed"
+
+      - name: Security audit
+        run: |
+          echo "🔒 Running security audit..."
+          pip-audit --strict --desc || echo "⚠️ Security warnings found (non-blocking)"
+        continue-on-error: true  # Don't fail on vulnerabilities in dependencies
+
+  ###############################################################################
+  # Stage 2: Build & Push to ECR
+  ###############################################################################
+  build:
+    name: Build & Push
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'  # Only build on push, not PR
+
+    outputs:
+      image_tag: ${{ steps.build.outputs.image_tag }}
+      image_uri: ${{ steps.build.outputs.image_uri }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build, tag, and push image to ECR
+        id: build
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          # Generate tags
+          SHA_SHORT=$(git rev-parse --short HEAD)
+          TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+          IMAGE_TAG="sha-${SHA_SHORT}-${TIMESTAMP}"
+          IMAGE_URI="${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}"
+
+          echo "📦 Building Docker image..."
+          echo "   Tag: ${IMAGE_TAG}"
+
+          # Build with Lambda container image
+          docker build \
+            -f Dockerfile.lambda.container \
+            -t ${IMAGE_URI} \
+            -t ${ECR_REGISTRY}/${ECR_REPOSITORY}:sha-${SHA_SHORT} \
+            .
+
+          echo "🚀 Pushing to ECR..."
+          docker push ${IMAGE_URI}
+          docker push ${ECR_REGISTRY}/${ECR_REPOSITORY}:sha-${SHA_SHORT}
+
+          echo "✅ Image pushed: ${IMAGE_URI}"
+
+          # Output for next job
+          echo "image_tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
+          echo "image_uri=${IMAGE_URI}" >> $GITHUB_OUTPUT
+
+      - name: Scan image for vulnerabilities
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ steps.build.outputs.image_uri }}
+          format: 'table'
+          exit-code: '0'  # Don't fail on vulnerabilities (informational)
+          severity: 'CRITICAL,HIGH'
+
+  ###############################################################################
+  # Stage 3: Deploy to Lambda
+  ###############################################################################
+  deploy:
+    name: Deploy
+    needs: build
+    runs-on: ubuntu-latest
+    environment: production  # Requires approval for production deployments
+
+    outputs:
+      telegram_api_version: ${{ steps.deploy-telegram.outputs.version }}
+      worker_version: ${{ steps.deploy-worker.outputs.version }}
+      previous_telegram_version: ${{ steps.get-current.outputs.telegram_version }}
+      previous_worker_version: ${{ steps.get-current.outputs.worker_version }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Get current versions (for rollback)
+        id: get-current
+        run: |
+          # Get current "live" alias versions
+          TELEGRAM_VERSION=$(aws lambda get-alias \
+            --function-name dr-daily-report-telegram-api-dev \
+            --name live \
+            --query 'FunctionVersion' \
+            --output text 2>/dev/null || echo "1")
+
+          WORKER_VERSION=$(aws lambda get-alias \
+            --function-name dr-daily-report-report-worker-dev \
+            --name live \
+            --query 'FunctionVersion' \
+            --output text 2>/dev/null || echo "1")
+
+          echo "📌 Current versions:"
+          echo "   Telegram API: ${TELEGRAM_VERSION}"
+          echo "   Report Worker: ${WORKER_VERSION}"
+
+          echo "telegram_version=${TELEGRAM_VERSION}" >> $GITHUB_OUTPUT
+          echo "worker_version=${WORKER_VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Deploy Telegram API Lambda
+        id: deploy-telegram
+        env:
+          IMAGE_URI: ${{ needs.build.outputs.image_uri }}
+        run: |
+          FUNCTION_NAME="dr-daily-report-telegram-api-dev"
+
+          echo "🔄 Updating ${FUNCTION_NAME}..."
+
+          # Update function code
+          aws lambda update-function-code \
+            --function-name ${FUNCTION_NAME} \
+            --image-uri ${IMAGE_URI} \
+            --publish \
+            --query 'Version' \
+            --output text > version.txt
+
+          # Wait for update to complete
+          aws lambda wait function-updated --function-name ${FUNCTION_NAME}
+
+          NEW_VERSION=$(cat version.txt)
+          echo "✅ Published version: ${NEW_VERSION}"
+
+          # Update "live" alias to new version
+          aws lambda update-alias \
+            --function-name ${FUNCTION_NAME} \
+            --name live \
+            --function-version ${NEW_VERSION}
+
+          echo "✅ Alias 'live' now points to version ${NEW_VERSION}"
+          echo "version=${NEW_VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Deploy Report Worker Lambda
+        id: deploy-worker
+        env:
+          IMAGE_URI: ${{ needs.build.outputs.image_uri }}
+        run: |
+          FUNCTION_NAME="dr-daily-report-report-worker-dev"
+
+          echo "🔄 Updating ${FUNCTION_NAME}..."
+
+          # Update function code
+          aws lambda update-function-code \
+            --function-name ${FUNCTION_NAME} \
+            --image-uri ${IMAGE_URI} \
+            --publish \
+            --query 'Version' \
+            --output text > version.txt
+
+          # Wait for update to complete
+          aws lambda wait function-updated --function-name ${FUNCTION_NAME}
+
+          NEW_VERSION=$(cat version.txt)
+          echo "✅ Published version: ${NEW_VERSION}"
+
+          # Update "live" alias to new version
+          aws lambda update-alias \
+            --function-name ${FUNCTION_NAME} \
+            --name live \
+            --function-version ${NEW_VERSION}
+
+          echo "✅ Alias 'live' now points to version ${NEW_VERSION}"
+          echo "version=${NEW_VERSION}" >> $GITHUB_OUTPUT
+
+  ###############################################################################
+  # Stage 4: Smoke Tests & Rollback
+  ###############################################################################
+  smoke-test:
+    name: Smoke Test
+    needs: [build, deploy]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install test dependencies
+        run: |
+          pip install requests pytest
+
+      - name: Run smoke tests
+        id: smoke
+        env:
+          API_URL: ${{ secrets.TELEGRAM_API_URL }}  # e.g., https://xxx.execute-api.ap-southeast-1.amazonaws.com
+        run: |
+          echo "🔥 Running smoke tests against ${API_URL}..."
+
+          # Test 1: Health endpoint
+          echo "Testing /api/v1/health..."
+          HEALTH_RESPONSE=$(curl -s -w "\n%{http_code}" "${API_URL}/api/v1/health")
+          HEALTH_CODE=$(echo "$HEALTH_RESPONSE" | tail -n1)
+
+          if [ "$HEALTH_CODE" != "200" ]; then
+            echo "❌ Health check failed with status ${HEALTH_CODE}"
+            exit 1
+          fi
+          echo "✅ Health check passed"
+
+          # Test 2: Search endpoint
+          echo "Testing /api/v1/search?q=NVDA..."
+          SEARCH_RESPONSE=$(curl -s -w "\n%{http_code}" "${API_URL}/api/v1/search?q=NVDA")
+          SEARCH_CODE=$(echo "$SEARCH_RESPONSE" | tail -n1)
+
+          if [ "$SEARCH_CODE" != "200" ]; then
+            echo "❌ Search endpoint failed with status ${SEARCH_CODE}"
+            exit 1
+          fi
+          echo "✅ Search endpoint passed"
+
+          # Test 3: Rankings endpoint
+          echo "Testing /api/v1/rankings..."
+          RANKINGS_RESPONSE=$(curl -s -w "\n%{http_code}" "${API_URL}/api/v1/rankings?category=top_gainers&limit=5")
+          RANKINGS_CODE=$(echo "$RANKINGS_RESPONSE" | tail -n1)
+
+          if [ "$RANKINGS_CODE" != "200" ]; then
+            echo "❌ Rankings endpoint failed with status ${RANKINGS_CODE}"
+            exit 1
+          fi
+          echo "✅ Rankings endpoint passed"
+
+          echo "🎉 All smoke tests passed!"
+
+      - name: Rollback on failure
+        if: failure()
+        env:
+          PREV_TELEGRAM_VERSION: ${{ needs.deploy.outputs.previous_telegram_version }}
+          PREV_WORKER_VERSION: ${{ needs.deploy.outputs.previous_worker_version }}
+        run: |
+          echo "🚨 Smoke tests failed! Rolling back..."
+
+          # Configure AWS (need to re-configure in this step)
+          # Note: In production, use OIDC instead of access keys
+
+          # Rollback Telegram API
+          echo "Rolling back Telegram API to version ${PREV_TELEGRAM_VERSION}..."
+          aws lambda update-alias \
+            --function-name dr-daily-report-telegram-api-dev \
+            --name live \
+            --function-version ${PREV_TELEGRAM_VERSION}
+
+          # Rollback Worker
+          echo "Rolling back Report Worker to version ${PREV_WORKER_VERSION}..."
+          aws lambda update-alias \
+            --function-name dr-daily-report-report-worker-dev \
+            --name live \
+            --function-version ${PREV_WORKER_VERSION}
+
+          echo "✅ Rollback complete"
+          exit 1  # Fail the workflow
+
+  ###############################################################################
+  # Notify on Success
+  ###############################################################################
+  notify:
+    name: Notify Success
+    needs: [build, deploy, smoke-test]
+    runs-on: ubuntu-latest
+    if: success()
+
+    steps:
+      - name: Deployment Summary
+        run: |
+          echo "🎉 Deployment Successful!"
+          echo ""
+          echo "📦 Image: ${{ needs.build.outputs.image_tag }}"
+          echo "🔧 Telegram API Version: ${{ needs.deploy.outputs.telegram_api_version }}"
+          echo "⚙️ Report Worker Version: ${{ needs.deploy.outputs.worker_version }}"
+          echo ""
+          echo "Rollback commands (if needed):"
+          echo "  aws lambda update-alias --function-name dr-daily-report-telegram-api-dev --name live --function-version ${{ needs.deploy.outputs.previous_telegram_version }}"
+          echo "  aws lambda update-alias --function-name dr-daily-report-report-worker-dev --name live --function-version ${{ needs.deploy.outputs.previous_worker_version }}"

@@ -4,7 +4,7 @@
 
 resource "aws_ecr_repository" "lambda" {
   name                 = "${var.project_name}-lambda-${var.environment}"
-  image_tag_mutability = "MUTABLE"
+  image_tag_mutability = "IMMUTABLE"  # Prevent overwriting tags for safe rollbacks
 
   image_scanning_configuration {
     scan_on_push = true
@@ -16,7 +16,7 @@ resource "aws_ecr_repository" "lambda" {
   })
 }
 
-# Lifecycle policy to keep only recent images
+# Lifecycle policy to keep recent images for rollback support
 resource "aws_ecr_lifecycle_policy" "lambda" {
   repository = aws_ecr_repository.lambda.name
 
@@ -24,11 +24,25 @@ resource "aws_ecr_lifecycle_policy" "lambda" {
     rules = [
       {
         rulePriority = 1
-        description  = "Keep last 10 images"
+        description  = "Keep last 20 versioned images for rollback"
         selection = {
-          tagStatus   = "any"
-          countType   = "imageCountMoreThan"
-          countNumber = 10
+          tagStatus     = "tagged"
+          tagPrefixList = ["v", "sha-"]
+          countType     = "imageCountMoreThan"
+          countNumber   = 20
+        }
+        action = {
+          type = "expire"
+        }
+      },
+      {
+        rulePriority = 2
+        description  = "Expire untagged images after 1 day"
+        selection = {
+          tagStatus   = "untagged"
+          countType   = "sinceImagePushed"
+          countUnit   = "days"
+          countNumber = 1
         }
         action = {
           type = "expire"

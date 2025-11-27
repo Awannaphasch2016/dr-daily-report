@@ -6,6 +6,9 @@ from fastapi.responses import JSONResponse
 from typing import Literal
 from datetime import datetime
 import logging
+import os
+import json
+import boto3
 
 from .models import (
     SearchResponse,
@@ -14,7 +17,9 @@ from .models import (
     RankedTicker,
     WatchlistResponse,
     WatchlistAddRequest,
-    WatchlistOperationResponse
+    WatchlistOperationResponse,
+    JobSubmitResponse,
+    JobStatusResponse
 )
 from .errors import (
     APIError,
@@ -25,6 +30,7 @@ from .errors import (
 from .ticker_service import get_ticker_service
 from .watchlist_service import get_watchlist_service
 from .rankings_service import get_rankings_service
+from .job_service import get_job_service, JobNotFoundError
 from .telegram_auth import get_telegram_auth, TelegramAuthError
 
 # Configure logging
@@ -95,6 +101,48 @@ def get_user_id_from_header(
         "Missing user authentication. Provide X-Telegram-Init-Data (production) "
         "or X-Telegram-User-Id (development) header."
     )
+
+
+def send_to_sqs(job_id: str, ticker: str) -> None:
+    """Send job to SQS queue for async processing
+
+    Args:
+        job_id: Unique job identifier
+        ticker: Ticker symbol to analyze
+    """
+    queue_url = os.getenv(
+        "REPORT_JOBS_QUEUE_URL",
+        "https://sqs.ap-southeast-1.amazonaws.com/123456789/dr-report-jobs-dev"
+    )
+
+    try:
+        sqs = boto3.client('sqs')
+        message_body = json.dumps({
+            'job_id': job_id,
+            'ticker': ticker
+        })
+
+        sqs.send_message(
+            QueueUrl=queue_url,
+            MessageBody=message_body
+        )
+
+        logger.info(f"Sent job {job_id} to SQS queue for ticker {ticker}")
+
+    except Exception as e:
+        logger.error(f"Failed to send job {job_id} to SQS: {e}")
+        raise
+
+
+# Custom error handler for JobNotFoundError
+class JobNotFoundAPIError(APIError):
+    """Job not found error"""
+    def __init__(self, job_id: str):
+        super().__init__(
+            code="JOB_NOT_FOUND",
+            message=f"Job not found: {job_id}",
+            status_code=404
+        )
 
 
 # ============================================================================
@@ -221,6 +269,88 @@ async def get_report(
         raise
     except Exception as e:
         logger.error(f"Report error for {ticker}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# Async Report Endpoints
+# ============================================================================
+
+@app.post("/api/v1/report/{ticker}", response_model=JobSubmitResponse)
+async def submit_report_async(ticker: str):
+    """Submit async report generation job
+
+    Creates a job for async report generation and sends it to SQS queue.
+    Returns immediately with job_id for status polling.
+
+    Args:
+        ticker: Ticker symbol (e.g., NVDA19)
+
+    Returns:
+        JobSubmitResponse with job_id and pending status
+    """
+    try:
+        ticker_upper = ticker.upper()
+        ticker_service = get_ticker_service()
+
+        # Validate ticker is supported
+        if not ticker_service.is_supported(ticker_upper):
+            raise TickerNotSupportedError(ticker)
+
+        # Create job in DynamoDB
+        job_service = get_job_service()
+        job = job_service.create_job(ticker=ticker_upper)
+
+        # Send to SQS queue for async processing
+        send_to_sqs(job.job_id, ticker_upper)
+
+        logger.info(f"Submitted async report job {job.job_id} for {ticker_upper}")
+
+        return JobSubmitResponse(
+            job_id=job.job_id,
+            status="pending"
+        )
+
+    except APIError:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to submit report job for {ticker}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/v1/report/status/{job_id}", response_model=JobStatusResponse)
+async def get_job_status(job_id: str):
+    """Get status of async report job
+
+    Polls job status from DynamoDB. Returns result when completed.
+
+    Args:
+        job_id: Job identifier from submit_report_async
+
+    Returns:
+        JobStatusResponse with current status and result (if completed)
+    """
+    try:
+        job_service = get_job_service()
+        job = job_service.get_job(job_id)
+
+        return JobStatusResponse(
+            job_id=job.job_id,
+            ticker=job.ticker,
+            status=job.status,
+            created_at=job.created_at,
+            started_at=job.started_at,
+            finished_at=job.finished_at,
+            result=job.result,
+            error=job.error
+        )
+
+    except JobNotFoundError:
+        raise JobNotFoundAPIError(job_id)
+    except APIError:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get job status for {job_id}: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 

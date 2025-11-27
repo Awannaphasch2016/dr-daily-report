@@ -1,0 +1,27 @@
+# Development dependencies for dr-daily-report
+# Install with: pip install -r requirements-dev.txt
+
+# Include production dependencies
+-r requirements_minimal.txt
+
+# Testing
+pytest>=7.0.0
+pytest-asyncio>=0.21.0
+pytest-cov>=4.0.0
+pytest-xdist>=3.0.0    # Parallel test execution
+
+# Security
+pip-audit>=2.0.0
+
+# Type checking
+mypy>=1.0.0
+types-requests>=2.31.0
+
+# Code quality
+black>=23.0.0
+isort>=5.12.0
+flake8>=6.0.0
+
+# Local development
+ipython>=8.0.0
+httpie>=3.0.0          # For API testing
