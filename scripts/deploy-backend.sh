@@ -81,6 +81,87 @@ aws lambda wait function-updated \
     --function-name ${REPORT_WORKER_FUNCTION} \
     --region ${AWS_REGION}
 
+# ============================================================================
+# SMOKE TESTS - Test $LATEST before promoting to live
+# ============================================================================
+echo ""
+echo "🧪 Running smoke tests on \$LATEST..."
+
+# Test Telegram API health endpoint
+echo "  Testing Telegram API health..."
+HEALTH_RESPONSE=$(aws lambda invoke \
+    --function-name ${TELEGRAM_API_FUNCTION} \
+    --payload '{"rawPath": "/api/v1/health", "requestContext": {"http": {"method": "GET"}}}' \
+    --region ${AWS_REGION} \
+    /tmp/health_response.json \
+    --query 'StatusCode' \
+    --output text 2>/dev/null)
+
+if [ "$HEALTH_RESPONSE" != "200" ]; then
+    echo "  ❌ Health check failed (status: $HEALTH_RESPONSE)"
+    echo "  Response: $(cat /tmp/health_response.json)"
+    echo ""
+    echo "⚠️  Deployment stopped. $LATEST updated but alias NOT moved."
+    echo "   Users still see previous version."
+    exit 1
+fi
+
+# Check response body
+HEALTH_BODY=$(cat /tmp/health_response.json | jq -r '.body' 2>/dev/null | jq -r '.status' 2>/dev/null)
+if [ "$HEALTH_BODY" != "healthy" ]; then
+    echo "  ❌ Health check returned unexpected status: $HEALTH_BODY"
+    echo "  Response: $(cat /tmp/health_response.json)"
+    echo ""
+    echo "⚠️  Deployment stopped. $LATEST updated but alias NOT moved."
+    exit 1
+fi
+
+echo "  ✅ Telegram API health check passed"
+
+# ============================================================================
+# PUBLISH & PROMOTE - Only after smoke tests pass
+# ============================================================================
+echo ""
+echo "📸 Publishing new versions..."
+
+# Publish Telegram API version
+TELEGRAM_VERSION=$(aws lambda publish-version \
+    --function-name ${TELEGRAM_API_FUNCTION} \
+    --description "Deployed $(date +%Y-%m-%d\ %H:%M:%S)" \
+    --region ${AWS_REGION} \
+    --query 'Version' \
+    --output text)
+echo "  Telegram API: Version ${TELEGRAM_VERSION}"
+
+# Publish Report Worker version
+WORKER_VERSION=$(aws lambda publish-version \
+    --function-name ${REPORT_WORKER_FUNCTION} \
+    --description "Deployed $(date +%Y-%m-%d\ %H:%M:%S)" \
+    --region ${AWS_REGION} \
+    --query 'Version' \
+    --output text)
+echo "  Report Worker: Version ${WORKER_VERSION}"
+
+# Update aliases to point to new versions
+echo ""
+echo "🔄 Updating 'live' aliases..."
+
+aws lambda update-alias \
+    --function-name ${TELEGRAM_API_FUNCTION} \
+    --name live \
+    --function-version ${TELEGRAM_VERSION} \
+    --region ${AWS_REGION} \
+    --output text > /dev/null
+echo "  Telegram API: live → v${TELEGRAM_VERSION}"
+
+aws lambda update-alias \
+    --function-name ${REPORT_WORKER_FUNCTION} \
+    --name live \
+    --function-version ${WORKER_VERSION} \
+    --region ${AWS_REGION} \
+    --output text > /dev/null
+echo "  Report Worker: live → v${WORKER_VERSION}"
+
 echo ""
 echo "🎉 Backend deployed successfully!"
 echo ""
@@ -96,4 +177,12 @@ cd ..
 echo ""
 echo "🔗 API URL: ${API_URL}"
 echo ""
-echo "💡 Tip: Run 'aws logs tail /aws/lambda/${TELEGRAM_API_FUNCTION} --follow' to watch logs"
+echo "📊 Versions deployed:"
+echo "   Telegram API: v${TELEGRAM_VERSION}"
+echo "   Report Worker: v${WORKER_VERSION}"
+echo ""
+echo "💡 Tips:"
+echo "   Watch logs: aws logs tail /aws/lambda/${TELEGRAM_API_FUNCTION} --follow"
+echo ""
+echo "   Rollback:   aws lambda update-alias --function-name ${TELEGRAM_API_FUNCTION} --name live --function-version <prev>"
+echo "               aws lambda update-alias --function-name ${REPORT_WORKER_FUNCTION} --name live --function-version <prev>"
