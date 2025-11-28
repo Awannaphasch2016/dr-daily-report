@@ -11,6 +11,7 @@
 |-------|---------|---------------|
 | Local | `just setup-local-dynamodb && just dev-api` | Health returns `{"status": "ok"}` |
 | Dev | `./scripts/deploy-backend.sh dev` | Smoke tests pass, alias updated |
+| E2E | `pytest tests/test_e2e_frontend.py -k "not slow" -v` | 12 tests pass |
 | Staging | `./scripts/deploy-backend.sh staging` | Same as dev |
 | Prod | `./scripts/deploy-backend.sh prod` | Same as dev |
 
@@ -505,11 +506,69 @@ cd terraform && doppler run -- terraform apply -var-file=terraform.tfvars
 
 ---
 
+## Phase 5: E2E Frontend Testing
+
+### 5.1 Prerequisites
+
+```bash
+# Ensure Playwright browsers are installed
+playwright install chromium
+
+# Verify pytest-playwright is installed
+pip show pytest-playwright
+```
+
+### 5.2 Run E2E Tests Against Dev
+
+```bash
+# Quick tests (30 seconds) - homepage, search, tabs
+pytest tests/test_e2e_frontend.py -k "not slow" -v
+
+# All tests including full report generation (2+ minutes)
+pytest tests/test_e2e_frontend.py -v
+
+# Watch browser during tests (debugging)
+pytest tests/test_e2e_frontend.py -v --headed
+
+# Test against local frontend
+FRONTEND_URL=http://localhost:5500 pytest tests/test_e2e_frontend.py -k "not slow" -v
+```
+
+### 5.3 E2E Test Coverage
+
+| Test Class | Tests | What's Verified |
+|------------|-------|-----------------|
+| `TestHomePage` | 3 | Page loads, tabs visible, ranking buttons |
+| `TestSearchFlow` | 3 | Search input, autocomplete, ticker info |
+| `TestReportGeneration` | 4 | Modal opens, loading state, report completes, close |
+| `TestRankingsTab` | 2 | Category switching, empty state handling |
+| `TestWatchlistTab` | 1 | Tab switching |
+| `TestResponsiveness` | 2 | Mobile (375px) and tablet (768px) viewports |
+
+### 5.4 E2E Testing Checklist
+
+| Test | Command | Pass? |
+|------|---------|-------|
+| Quick tests pass | `pytest tests/test_e2e_frontend.py -k "not slow" -v` | [ ] |
+| Full report generation | `pytest tests/test_e2e_frontend.py::TestReportGeneration::test_report_generation_completes -v` | [ ] |
+| Mobile viewport works | `pytest tests/test_e2e_frontend.py::TestResponsiveness -v` | [ ] |
+
+### 5.5 Common E2E Test Failures
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| `playwright._impl._errors.Error: Browser closed` | Browser not installed | `playwright install chromium` |
+| `TimeoutError` on report test | API slow or failing | Check API Gateway logs |
+| `strict mode violation` | Multiple elements match selector | Use more specific CSS selector |
+| `element not found` | UI changed | Update test selectors in `test_e2e_frontend.py` |
+
+---
+
 ## Environment URLs
 
-| Environment | API Gateway URL | Status |
-|-------------|-----------------|--------|
-| Local | `http://localhost:8001/api/v1` | Development |
-| Dev | `https://ou0ivives1.execute-api.ap-southeast-1.amazonaws.com/api/v1` | Deployed |
-| Staging | TBD | Not deployed |
-| Prod | TBD | Not deployed |
+| Environment | API Gateway URL | Frontend URL | Status |
+|-------------|-----------------|--------------|--------|
+| Local | `http://localhost:8001/api/v1` | `http://localhost:5500` | Development |
+| Dev | `https://ou0ivives1.execute-api.ap-southeast-1.amazonaws.com/api/v1` | `https://demjoigiw6myp.cloudfront.net` | Deployed |
+| Staging | TBD | TBD | Not deployed |
+| Prod | TBD | TBD | Not deployed |

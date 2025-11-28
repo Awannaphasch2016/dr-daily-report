@@ -33,6 +33,7 @@ def pytest_configure(config):
     config.addinivalue_line("markers", "smoke: mark test as a smoke test (post-deployment)")
     config.addinivalue_line("markers", "slow: mark test as slow (may take >10 seconds)")
     config.addinivalue_line("markers", "asyncio: mark test as async")
+    config.addinivalue_line("markers", "e2e: mark test as end-to-end browser test (requires playwright)")
 
 
 @pytest.fixture(scope="session")
