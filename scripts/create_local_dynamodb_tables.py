@@ -3,11 +3,12 @@
 Create DynamoDB tables in local DynamoDB for development/testing
 
 Usage:
-    python scripts/create_local_dynamodb_tables.py
+    doppler run -- python scripts/create_local_dynamodb_tables.py
 
 Prerequisites:
     - Docker running with DynamoDB Local:
       docker run -d -p 8000:8000 --name dynamodb-local amazon/dynamodb-local
+    - Run with doppler to use consistent AWS credentials
 """
 
 import boto3
@@ -18,12 +19,11 @@ def create_local_tables():
     """Create DynamoDB tables in local DynamoDB"""
 
     # Connect to local DynamoDB
+    # Uses credentials from environment (doppler provides these)
     dynamodb = boto3.resource(
         'dynamodb',
         endpoint_url='http://localhost:8000',
-        region_name='us-east-1',
-        aws_access_key_id='fake',
-        aws_secret_access_key='fake'
+        region_name='ap-southeast-1'
     )
 
     print("🔧 Creating local DynamoDB tables...")
@@ -55,7 +55,31 @@ def create_local_tables():
 
     print()
 
-    # Table 2: Cache
+    # Table 2: Jobs (for async report generation)
+    try:
+        jobs_table = dynamodb.create_table(
+            TableName='dr-daily-report-telegram-jobs-dev',
+            KeySchema=[
+                {'AttributeName': 'job_id', 'KeyType': 'HASH'}  # Partition key
+            ],
+            AttributeDefinitions=[
+                {'AttributeName': 'job_id', 'AttributeType': 'S'}
+            ],
+            BillingMode='PAY_PER_REQUEST'
+        )
+        print(f"✅ Created table: {jobs_table.table_name}")
+        print(f"   - Hash key: job_id (e.g., 'rpt_abc123def456')")
+        print(f"   - Billing: On-demand")
+        print(f"   - TTL: 24 hours (auto-expire old jobs)")
+    except ClientError as e:
+        if e.response['Error']['Code'] == 'ResourceInUseException':
+            print(f"⚠️  Table 'dr-daily-report-telegram-jobs-dev' already exists")
+        else:
+            raise
+
+    print()
+
+    # Table 3: Cache
     try:
         cache_table = dynamodb.create_table(
             TableName='dr-daily-report-telegram-cache-dev',
@@ -86,7 +110,12 @@ def create_local_tables():
     print("To start API with local DynamoDB:")
     print("  export USE_LOCAL_DYNAMODB=true")
     print("  export WATCHLIST_TABLE_NAME=dr-daily-report-telegram-watchlist-dev")
+    print("  export JOBS_TABLE_NAME=dr-daily-report-telegram-jobs-dev")
+    print("  export CACHE_TABLE_NAME=dr-daily-report-telegram-cache-dev")
     print("  doppler run -- python -m uvicorn src.api.app:app --reload")
+    print()
+    print("Or use the start script (recommended):")
+    print("  ./scripts/start_local_api.sh")
 
 
 def list_tables():
@@ -94,9 +123,7 @@ def list_tables():
     dynamodb = boto3.client(
         'dynamodb',
         endpoint_url='http://localhost:8000',
-        region_name='us-east-1',
-        aws_access_key_id='fake',
-        aws_secret_access_key='fake'
+        region_name='ap-southeast-1'
     )
 
     response = dynamodb.list_tables()

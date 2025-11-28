@@ -24,7 +24,7 @@ ECR_REPO=$(terraform output -raw ecr_repository_url 2>/dev/null) || {
     echo "Make sure terraform has been applied first"
     exit 1
 }
-TELEGRAM_API_FUNCTION=$(terraform output -raw telegram_api_function_name 2>/dev/null) || {
+TELEGRAM_API_FUNCTION=$(terraform output -raw telegram_lambda_function_name 2>/dev/null) || {
     echo "❌ Failed to get Telegram API function name from Terraform"
     exit 1
 }
@@ -43,9 +43,10 @@ echo "🔐 Logging in to ECR..."
 aws ecr get-login-password --region ${AWS_REGION} | \
     docker login --username AWS --password-stdin ${ECR_REPO%%/*}
 
-# Build Docker image
-echo "🔨 Building Docker image..."
-IMAGE_TAG="${ECR_REPO}:latest"
+# Build Docker image with versioned tag
+VERSION_TAG="v$(date +%Y%m%d%H%M%S)"
+echo "🔨 Building Docker image (${VERSION_TAG})..."
+IMAGE_TAG="${ECR_REPO}:${VERSION_TAG}"
 docker build -t ${IMAGE_TAG} -f Dockerfile.lambda.container .
 
 # Push to ECR
@@ -106,9 +107,9 @@ if [ "$HEALTH_RESPONSE" != "200" ]; then
     exit 1
 fi
 
-# Check response body
+# Check response body - API returns {"status": "ok"} wrapped in Lambda response body
 HEALTH_BODY=$(cat /tmp/health_response.json | jq -r '.body' 2>/dev/null | jq -r '.status' 2>/dev/null)
-if [ "$HEALTH_BODY" != "healthy" ]; then
+if [ "$HEALTH_BODY" != "ok" ]; then
     echo "  ❌ Health check returned unexpected status: $HEALTH_BODY"
     echo "  Response: $(cat /tmp/health_response.json)"
     echo ""

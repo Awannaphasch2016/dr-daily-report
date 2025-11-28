@@ -33,12 +33,11 @@ class WatchlistService:
         # Configure DynamoDB client
         if use_local:
             # For local testing with DynamoDB Local
+            # Uses credentials from environment (doppler provides these)
             self.dynamodb = boto3.resource(
                 'dynamodb',
                 endpoint_url='http://localhost:8000',
-                region_name='us-east-1',
-                aws_access_key_id='fake',
-                aws_secret_access_key='fake'
+                region_name='ap-southeast-1'
             )
         else:
             # Production AWS DynamoDB

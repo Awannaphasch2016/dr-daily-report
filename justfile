@@ -68,8 +68,11 @@ setup-local-db:
         echo "✅ DynamoDB Local is already running"; \
     fi
     @sleep 2
-    @echo "Creating tables..."
-    python scripts/create_local_dynamodb_tables.py
+    @echo "Creating tables (using doppler for consistent credentials)..."
+    doppler run -- python scripts/create_local_dynamodb_tables.py
+    @echo ""
+    @echo "Verifying tables..."
+    @doppler run -- aws dynamodb list-tables --endpoint-url http://localhost:8000 --region ap-southeast-1 | jq -r '.TableNames[]'
 
 # Test watchlist endpoints (requires dev-api running in another terminal)
 test-watchlist:
@@ -80,6 +83,9 @@ test-watchlist:
 test-rankings:
     @echo "🧪 Testing rankings endpoints..."
     ./scripts/test_rankings.sh
+
+# Alias for setup-local-db (clearer naming)
+setup-local-dynamodb: setup-local-db
 
 # Stop local DynamoDB container
 stop-local-db:

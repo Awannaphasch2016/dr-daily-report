@@ -15,6 +15,8 @@ echo ""
 echo "Configuration:"
 echo "  - USE_LOCAL_DYNAMODB=true"
 echo "  - WATCHLIST_TABLE_NAME=dr-daily-report-telegram-watchlist-dev"
+echo "  - JOBS_TABLE_NAME=dr-daily-report-telegram-jobs-dev"
+echo "  - CACHE_TABLE_NAME=dr-daily-report-telegram-cache-dev"
 echo "  - DynamoDB Local: http://localhost:8000"
 echo "  - FastAPI Server: http://localhost:8001"
 echo ""
@@ -22,6 +24,7 @@ echo ""
 # Set environment variables for local DynamoDB
 export USE_LOCAL_DYNAMODB=true
 export WATCHLIST_TABLE_NAME=dr-daily-report-telegram-watchlist-dev
+export JOBS_TABLE_NAME=dr-daily-report-telegram-jobs-dev
 export CACHE_TABLE_NAME=dr-daily-report-telegram-cache-dev
 
 # Check if DynamoDB Local is running
