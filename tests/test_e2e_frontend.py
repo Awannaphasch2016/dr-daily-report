@@ -199,16 +199,16 @@ class TestRankingsTab:
             page.wait_for_timeout(500)
 
     @pytest.mark.e2e
-    def test_rankings_show_empty_state_outside_market(self, page: Page):
-        """Rankings show appropriate message outside market hours"""
+    def test_rankings_show_data_or_empty_state(self, page: Page):
+        """Rankings show either data or appropriate empty state"""
         page.goto(FRONTEND_URL)
 
-        # Wait for rankings to load (either data or empty state)
+        # Wait for rankings to load
         page.wait_for_timeout(3000)
 
-        # The rankings area should show either data or empty state
-        rankings_area = page.locator(".rankings-list, .empty-state").first
-        expect(rankings_area).to_be_visible(timeout=5000)
+        # rankings-list is an ID, not a class
+        rankings_container = page.locator("#rankings-list")
+        expect(rankings_container).to_be_visible(timeout=5000)
 
 
 class TestWatchlistTab:

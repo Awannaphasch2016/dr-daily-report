@@ -1346,6 +1346,51 @@ aws lambda update-alias \
 
 No rebuild needed - previous versions are immutable snapshots.
 
+#### When to Deploy vs When NOT to Deploy
+
+**Critical Rule: Match the action to the change type.**
+
+There are THREE separate concerns that should NEVER be conflated:
+
+| Concern | Trigger | Action | What Changes |
+|---------|---------|--------|--------------|
+| **Code/Test/Doc** | `tests/*.py`, `docs/*.md` | `git commit` only | Git history |
+| **Infrastructure** | `terraform/*.tf` | `terraform apply` | AWS resources |
+| **Application** | `src/*.py`, `frontend/*.js` | Deploy script | Running code |
+
+**Decision Matrix:**
+
+| If You Changed... | You Should... | You Should NOT... |
+|-------------------|---------------|-------------------|
+| `tests/*.py` | `git commit` | terraform apply, deploy script |
+| `docs/*.md` | `git commit` | terraform apply, deploy script |
+| `requirements*.txt` | `git commit` + rebuild image + deploy | terraform apply |
+| `src/*.py` | `git commit` + deploy script | terraform apply (unless new AWS resources) |
+| `terraform/*.tf` | `terraform plan/apply` | deploy script (unless code also changed) |
+| `frontend/*.js` | `git commit` + `deploy-frontend.sh` | terraform apply |
+
+**Anti-Pattern (Workflow Smell):**
+```bash
+# WRONG: Running terraform after editing tests
+vim tests/test_e2e_frontend.py   # Only edited test file
+terraform apply                   # Why? Tests don't affect infrastructure!
+```
+
+**Correct Pattern:**
+```bash
+# RIGHT: Just commit test changes
+vim tests/test_e2e_frontend.py
+git add tests/
+git commit -m "Add E2E frontend tests"
+# Done. No deployment needed.
+```
+
+**Why This Matters:**
+- **Speed**: Don't wait for terraform apply when only tests changed
+- **Safety**: Unnecessary deployments risk production incidents
+- **Clarity**: Each action should have clear intent
+- **Auditability**: Git history shows code changes, Terraform state shows infra changes
+
 ### AWS Infrastructure & Tagging Strategy
 
 **Multi-App Resource Organization:**

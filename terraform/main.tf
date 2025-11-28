@@ -41,123 +41,11 @@ data "aws_caller_identity" "current" {}
 data "aws_region" "current" {}
 
 ###############################################################################
-# ZIP Deployment Package Build
-###############################################################################
-
-# Build ZIP deployment package
-resource "null_resource" "zip_build" {
-  # Trigger rebuild when source code or requirements change
-  triggers = {
-    requirements_hash        = filemd5("${path.module}/../requirements_minimal.txt")
-    requirements_nodeps_hash = filemd5("${path.module}/../requirements_nodeps.txt")
-    requirements_heavy_hash  = filemd5("${path.module}/../requirements_heavy.txt")
-    src_hash                 = sha256(join("", [for f in fileset("${path.module}/../src", "**") : filemd5("${path.module}/../src/${f}")]))
-    tickers_hash             = filemd5("${path.module}/../data/tickers.csv")
-    fonts_hash               = sha256(join("", [for f in fileset("${path.module}/../fonts", "**") : filemd5("${path.module}/../fonts/${f}")]))
-  }
-
-  provisioner "local-exec" {
-    command = <<-EOT
-      set -e
-      
-      # Create build directory
-      echo "📦 Creating deployment package..."
-      # Clean using Docker to handle permission issues
-      if [ -d "build/deployment_package" ]; then
-        docker run --rm -v "$(pwd)/build":/build alpine sh -c "rm -rf /build/deployment_package"
-      fi
-      mkdir -p build/deployment_package
-      
-      # Install dependencies using Lambda's Docker image for compatibility
-      echo "📥 Installing dependencies (using Lambda Docker environment)..."
-      docker run --rm --platform linux/amd64 \
-        --entrypoint /bin/bash \
-        -v "$(pwd)":/var/task \
-        public.ecr.aws/lambda/python:3.11 \
-        -c "pip install --upgrade pip && \
-            pip install -r requirements_minimal.txt -t /var/task/build/deployment_package/ --prefer-binary && \
-            pip install -r requirements_heavy.txt -t /var/task/build/deployment_package/ --prefer-binary && \
-            pip install --no-deps -r requirements_nodeps.txt -t /var/task/build/deployment_package/ --prefer-binary"
-      
-      # Copy application files
-      echo "📋 Copying application files..."
-      cp -r src build/deployment_package/src
-      cp src/lambda_handler.py build/deployment_package/lambda_handler.py
-      cp src/telegram_lambda_handler.py build/deployment_package/telegram_lambda_handler.py
-      cp data/tickers.csv build/deployment_package/
-      
-      # Copy fonts directory for Thai character support in PDFs
-      if [ -d "fonts" ]; then
-        cp -r fonts build/deployment_package/fonts
-        echo "✅ Copied fonts directory for Thai character support"
-      else
-        echo "⚠️  Warning: fonts directory not found - Thai characters may not display correctly in PDFs"
-      fi
-      
-      # Create deployment package using Python
-      echo "📦 Creating ZIP file..."
-      python3 << 'PYTHON'
-import os
-import zipfile
-import shutil
-
-# Change to deployment package directory
-os.chdir('build/deployment_package')
-
-# Exclude patterns
-exclude_dirs = {'__pycache__', '.pytest_cache', 'tests', 'test', 'docs', 'doc', '.git'}
-exclude_extensions = {'.pyc', '.pyo', '.pyd', '.so.dbg', '.dist-info'}
-
-# Create ZIP file
-with zipfile.ZipFile('../lambda_deployment.zip', 'w', zipfile.ZIP_DEFLATED) as zipf:
-    for root, dirs, files in os.walk('.'):
-        # Remove excluded directories from dirs list to prevent traversal
-        dirs[:] = [d for d in dirs if d not in exclude_dirs]
-        
-        for file in files:
-            # Skip excluded files
-            if any(file.endswith(ext) for ext in exclude_extensions):
-                continue
-            
-            file_path = os.path.join(root, file)
-            # Skip if in excluded directory
-            if any(excluded in file_path.split(os.sep) for excluded in exclude_dirs):
-                continue
-            
-            arcname = os.path.relpath(file_path, '.')
-            zipf.write(file_path, arcname)
-
-print("✅ ZIP file created successfully")
-PYTHON
-      
-      echo "✅ Deployment package created: build/lambda_deployment.zip"
-    EOT
-
-    working_dir = "${path.module}/.."
-  }
-}
-
-###############################################################################
-# S3 Bucket for Lambda Deployment Package
-###############################################################################
-
-# Use existing bucket
-data "aws_s3_bucket" "deployment" {
-  bucket = "line-bot-ticker-deploy-20251030"
-}
-
-# Upload ZIP to S3
-resource "aws_s3_object" "lambda_zip" {
-  bucket = data.aws_s3_bucket.deployment.id
-  key    = "lambda_deployment_${null_resource.zip_build.id}.zip"
-  source = "${path.module}/../build/lambda_deployment.zip"
-
-  depends_on = [null_resource.zip_build]
-}
-
-###############################################################################
 # S3 Bucket for PDF Reports Storage
 ###############################################################################
+# NOTE: ZIP deployment removed - all Lambda functions now use container images
+# from ECR (see ecr.tf). The old null_resource.zip_build and aws_s3_object.lambda_zip
+# were legacy from before container migration.
 
 resource "aws_s3_bucket" "pdf_reports" {
   bucket = "line-bot-pdf-reports-${data.aws_caller_identity.current.account_id}"
@@ -187,7 +75,9 @@ resource "aws_s3_bucket_lifecycle_configuration" "pdf_reports" {
     id     = "delete_old_pdfs"
     status = "Enabled"
 
-    prefix = "reports/"
+    filter {
+      prefix = "reports/"
+    }
 
     expiration {
       days = 30
@@ -198,7 +88,9 @@ resource "aws_s3_bucket_lifecycle_configuration" "pdf_reports" {
     id     = "delete_old_cache"
     status = "Enabled"
 
-    prefix = "cache/"
+    filter {
+      prefix = "cache/"
+    }
 
     expiration {
       days = 1  # Cache expires after 24 hours
