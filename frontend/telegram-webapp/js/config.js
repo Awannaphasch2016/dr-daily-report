@@ -3,8 +3,9 @@
  */
 
 const Config = {
-    // API Base URL - set via environment or defaults
-    API_BASE_URL: 'https://ou0ivives1.execute-api.ap-southeast-1.amazonaws.com/api/v1',
+    // API Base URL - configurable via window.TELEGRAM_API_URL (set by deployment)
+    // Falls back to dev API if not set
+    API_BASE_URL: window.TELEGRAM_API_URL || 'https://ou0ivives1.execute-api.ap-southeast-1.amazonaws.com/api/v1',
 
     // Telegram WebApp instance
     tg: window.Telegram?.WebApp,

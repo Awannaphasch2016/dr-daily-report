@@ -33,7 +33,7 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     Environment Variables:
         LINE_CHANNEL_ACCESS_TOKEN: LINE channel access token
         LINE_CHANNEL_SECRET: LINE channel secret
-        OPENAI_API_KEY: OpenRouter API key
+        OPENROUTER_API_KEY: OpenRouter API key
         PDF_STORAGE_BUCKET: S3 bucket for PDFs
     """
     # Log request
@@ -58,7 +58,7 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         }
 
     # Validate environment variables
-    required_vars = ['LINE_CHANNEL_ACCESS_TOKEN', 'LINE_CHANNEL_SECRET', 'OPENAI_API_KEY']
+    required_vars = ['LINE_CHANNEL_ACCESS_TOKEN', 'LINE_CHANNEL_SECRET', 'OPENROUTER_API_KEY']
     missing_vars = [var for var in required_vars if not os.environ.get(var)]
 
     if missing_vars:

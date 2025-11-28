@@ -54,7 +54,7 @@ def env(ctx):
     Verifies that required environment variables are set.
     """
     required_vars = [
-        "OPENAI_API_KEY",
+        "OPENROUTER_API_KEY",
         "LINE_CHANNEL_ACCESS_TOKEN",
         "LINE_CHANNEL_SECRET"
     ]

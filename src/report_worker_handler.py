@@ -11,6 +11,7 @@ Flow:
 5. Mark job as completed (or failed)
 """
 
+import asyncio
 import json
 import logging
 from typing import Any
@@ -55,12 +56,13 @@ def handler(event: dict, context: Any) -> dict:
     logger.info(f"Processing {len(records)} SQS records")
 
     for record in records:
-        process_record(record)
+        # Use asyncio.run() for async transformer.transform_report()
+        asyncio.run(process_record(record))
 
     return {'statusCode': 200, 'body': f'Processed {len(records)} records'}
 
 
-def process_record(record: dict) -> None:
+async def process_record(record: dict) -> None:
     """Process a single SQS record
 
     Args:
@@ -137,8 +139,8 @@ def process_record(record: dict) -> None:
             # Raise with special marker to avoid double fail_job call
             raise AgentError(error_msg)
 
-        # Transform to API response format
-        response = transformer.transform_report(final_state, ticker_info)
+        # Transform to API response format (async method)
+        response = await transformer.transform_report(final_state, ticker_info)
         result = response.model_dump()
 
         # Mark job as completed

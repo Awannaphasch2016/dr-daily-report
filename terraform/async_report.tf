@@ -175,7 +175,7 @@ resource "aws_lambda_function" "report_worker" {
 
   environment {
     variables = {
-      OPENAI_API_KEY           = var.openai_api_key
+      OPENROUTER_API_KEY       = var.OPENROUTER_API_KEY
       JOBS_TABLE_NAME          = aws_dynamodb_table.report_jobs.name
       PDF_STORAGE_BUCKET       = aws_s3_bucket.pdf_reports.id
       PDF_BUCKET_NAME          = aws_s3_bucket.pdf_reports.id
@@ -211,6 +211,19 @@ resource "aws_lambda_alias" "report_worker_live" {
     # Allow external updates (from CI/CD) without Terraform drift
     ignore_changes = [function_version]
   }
+}
+
+###############################################################################
+# Lambda Permission for SQS to invoke Report Worker
+###############################################################################
+
+resource "aws_lambda_permission" "report_worker_sqs" {
+  statement_id  = "AllowSQSInvoke"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.report_worker.function_name
+  qualifier     = aws_lambda_alias.report_worker_live.name
+  principal     = "sqs.amazonaws.com"
+  source_arn    = aws_sqs_queue.report_jobs.arn
 }
 
 ###############################################################################

@@ -8,7 +8,7 @@ TDD: Tests for async report generation worker that processes SQS messages.
 import pytest
 import json
 from datetime import datetime
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch, MagicMock, AsyncMock
 
 from src.api.job_service import Job, JobStatus
 
@@ -47,7 +47,8 @@ class TestReportWorkerHandler:
         """Mock response transformer"""
         with patch('src.report_worker_handler.get_transformer') as mock:
             transformer = Mock()
-            transformer.transform_report = Mock(return_value=Mock(
+            # IMPORTANT: Use AsyncMock for async methods to properly detect await bugs
+            transformer.transform_report = AsyncMock(return_value=Mock(
                 model_dump=Mock(return_value={
                     'ticker': 'NVDA19',
                     'company_name': 'NVIDIA',
@@ -209,7 +210,8 @@ class TestSQSMessageParsing:
             mock_agent.return_value = agent
 
             transformer = Mock()
-            transformer.transform_report = Mock(return_value=Mock(
+            # IMPORTANT: Use AsyncMock for async methods
+            transformer.transform_report = AsyncMock(return_value=Mock(
                 model_dump=Mock(return_value={'ticker': 'NVDA19'})
             ))
             mock_transformer.return_value = transformer

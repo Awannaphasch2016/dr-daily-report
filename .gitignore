@@ -84,3 +84,5 @@ LAMBDA_DEPLOYMENT_INSTRUCTIONS.md
 ground_truth/*.json
 evaluation_results/*
 ground_truth_dbs/*
+
+venv

@@ -23,10 +23,12 @@ urllib3>=2.0.0
 requests>=2.31.0
 
 # Packages that don't require numpy/pandas
-langgraph>=0.2.0
-langchain>=0.2.0
-langchain-openai>=0.1.0
-langchain-core>=0.2.0
+# Pin versions to avoid major version jumps (langchain 1.x has breaking changes)
+langgraph>=0.2.0,<1.0.0
+langchain>=0.2.0,<1.0.0
+langchain-openai>=0.1.0,<1.0.0
+langchain-core>=0.2.0,<1.0.0
+openai>=1.0.0,<2.0.0
 reportlab>=4.0.0
 python-dotenv>=1.0.0
 networkx>=3.0.0
@@ -35,3 +37,4 @@ networkx>=3.0.0
 fastapi>=0.109.0
 uvicorn>=0.27.0
 mangum>=0.17.0
+slowapi>=0.1.9

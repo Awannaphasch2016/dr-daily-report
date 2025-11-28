@@ -51,7 +51,7 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         API Gateway response (HTTP response data)
 
     Environment Variables:
-        OPENAI_API_KEY: OpenRouter API key
+        OPENROUTER_API_KEY: OpenRouter API key
         TELEGRAM_BOT_TOKEN: Telegram Bot Token
         TELEGRAM_APP_ID: Telegram App ID
         TELEGRAM_APP_HASH: Telegram App Hash
@@ -76,7 +76,7 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
 
     # Validate required environment variables
     required_vars = [
-        'OPENAI_API_KEY',
+        'OPENROUTER_API_KEY',
         'DYNAMODB_WATCHLIST_TABLE',
         'DYNAMODB_CACHE_TABLE',
         'PDF_STORAGE_BUCKET'

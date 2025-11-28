@@ -27,7 +27,7 @@ def lambda_handler(event, context):
     AWS Lambda handler for LINE bot webhook
 
     Expected environment variables:
-    - OPENAI_API_KEY: OpenAI API key
+    - OPENROUTER_API_KEY: OpenRouter API key
     - LINE_CHANNEL_ACCESS_TOKEN: LINE channel access token
     - LINE_CHANNEL_SECRET: LINE channel secret
     """

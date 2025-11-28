@@ -234,11 +234,90 @@ jobs:
           echo "version=${NEW_VERSION}" >> $GITHUB_OUTPUT
 
   ###############################################################################
-  # Stage 4: Smoke Tests & Rollback
+  # Stage 4: Deploy Frontend
+  ###############################################################################
+  deploy-frontend:
+    name: Deploy Frontend
+    needs: deploy
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Get infrastructure outputs
+        id: terraform
+        run: |
+          # Get values from Terraform (or use secrets)
+          BUCKET_NAME="${{ secrets.WEBAPP_BUCKET_NAME }}"
+          API_URL="${{ secrets.TELEGRAM_API_URL }}"
+          DIST_ID="${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }}"
+
+          echo "bucket_name=${BUCKET_NAME}" >> $GITHUB_OUTPUT
+          echo "api_url=${API_URL}" >> $GITHUB_OUTPUT
+          echo "dist_id=${DIST_ID}" >> $GITHUB_OUTPUT
+
+      - name: Prepare frontend files
+        env:
+          API_URL: ${{ steps.terraform.outputs.api_url }}
+        run: |
+          # Create build directory
+          mkdir -p build
+
+          # Copy files
+          cp -r frontend/telegram-webapp/* build/
+
+          # Inject API URL
+          sed -i "s|window.TELEGRAM_API_URL = '{{API_URL}}'|window.TELEGRAM_API_URL = '${API_URL}'|g" build/index.html
+
+          echo "✅ Frontend files prepared"
+
+      - name: Upload to S3
+        env:
+          BUCKET_NAME: ${{ steps.terraform.outputs.bucket_name }}
+        run: |
+          echo "📤 Uploading to S3..."
+
+          # Upload all files with default cache
+          aws s3 sync build/ s3://${BUCKET_NAME}/ \
+            --delete \
+            --cache-control "max-age=3600" \
+            --exclude "*.html"
+
+          # Upload HTML with shorter cache
+          aws s3 sync build/ s3://${BUCKET_NAME}/ \
+            --exclude "*" \
+            --include "*.html" \
+            --cache-control "max-age=300"
+
+          echo "✅ Files uploaded to S3"
+
+      - name: Invalidate CloudFront
+        env:
+          DIST_ID: ${{ steps.terraform.outputs.dist_id }}
+        if: ${{ steps.terraform.outputs.dist_id != '' }}
+        run: |
+          echo "🔄 Invalidating CloudFront cache..."
+          aws cloudfront create-invalidation \
+            --distribution-id ${DIST_ID} \
+            --paths "/*" \
+            --output text > /dev/null
+          echo "✅ CloudFront cache invalidation initiated"
+
+  ###############################################################################
+  # Stage 5: Smoke Tests & Rollback
   ###############################################################################
   smoke-test:
     name: Smoke Test
-    needs: [build, deploy]
+    needs: [build, deploy, deploy-frontend]
     runs-on: ubuntu-latest
 
     steps:
@@ -329,19 +408,26 @@ jobs:
   ###############################################################################
   notify:
     name: Notify Success
-    needs: [build, deploy, smoke-test]
+    needs: [build, deploy, deploy-frontend, smoke-test]
     runs-on: ubuntu-latest
     if: success()
 
     steps:
       - name: Deployment Summary
         run: |
-          echo "🎉 Deployment Successful!"
+          echo "🎉 Telegram Mini App Deployment Successful!"
           echo ""
-          echo "📦 Image: ${{ needs.build.outputs.image_tag }}"
-          echo "🔧 Telegram API Version: ${{ needs.deploy.outputs.telegram_api_version }}"
-          echo "⚙️ Report Worker Version: ${{ needs.deploy.outputs.worker_version }}"
+          echo "📦 Backend:"
+          echo "   Image: ${{ needs.build.outputs.image_tag }}"
+          echo "   Telegram API Version: ${{ needs.deploy.outputs.telegram_api_version }}"
+          echo "   Report Worker Version: ${{ needs.deploy.outputs.worker_version }}"
+          echo ""
+          echo "🌐 Frontend:"
+          echo "   Deployed to S3 + CloudFront"
           echo ""
           echo "Rollback commands (if needed):"
-          echo "  aws lambda update-alias --function-name dr-daily-report-telegram-api-dev --name live --function-version ${{ needs.deploy.outputs.previous_telegram_version }}"
-          echo "  aws lambda update-alias --function-name dr-daily-report-report-worker-dev --name live --function-version ${{ needs.deploy.outputs.previous_worker_version }}"
+          echo "  Backend:"
+          echo "    aws lambda update-alias --function-name dr-daily-report-telegram-api-dev --name live --function-version ${{ needs.deploy.outputs.previous_telegram_version }}"
+          echo "    aws lambda update-alias --function-name dr-daily-report-report-worker-dev --name live --function-version ${{ needs.deploy.outputs.previous_worker_version }}"
+          echo "  Frontend:"
+          echo "    git checkout HEAD~1 -- frontend/telegram-webapp && ./scripts/deploy-frontend.sh"

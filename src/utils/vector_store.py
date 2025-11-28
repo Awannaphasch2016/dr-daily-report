@@ -9,7 +9,7 @@ class VectorStore:
         # For Lambda, use in-memory mode
         self.client = QdrantClient(":memory:")
         self.embeddings = OpenAIEmbeddings(
-            openai_api_key=os.getenv("OPENAI_API_KEY")
+            openai_api_key=os.getenv("OPENROUTER_API_KEY")
         )
         self.initialize_collection()
 

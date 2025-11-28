@@ -322,9 +322,9 @@ resource "aws_lambda_function" "line_bot" {
 
   environment {
     variables = {
-      OPENAI_API_KEY            = var.openai_api_key
-      LINE_CHANNEL_ACCESS_TOKEN = var.line_channel_access_token
-      LINE_CHANNEL_SECRET       = var.line_channel_secret
+      OPENROUTER_API_KEY        = var.OPENROUTER_API_KEY
+      LINE_CHANNEL_ACCESS_TOKEN = var.LINE_CHANNEL_ACCESS_TOKEN
+      LINE_CHANNEL_SECRET       = var.LINE_CHANNEL_SECRET
       PDF_STORAGE_BUCKET        = aws_s3_bucket.pdf_reports.id
       PDF_BUCKET_NAME           = aws_s3_bucket.pdf_reports.id
       PDF_URL_EXPIRATION_HOURS  = "24"

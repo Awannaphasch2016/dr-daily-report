@@ -239,6 +239,112 @@ class TestPeerSelectorService:
             assert 'JPMUS19' in result
             assert result['JPMUS19']['price_change_pct'] == 2.5
 
+    # Test 14: Calculate estimated upside from analyst targets
+    def test_calculate_upside_with_target(self, service):
+        """Test calculating estimated upside when target price available"""
+        mock_info = {
+            'regularMarketPrice': 100.0,
+            'targetMeanPrice': 120.0  # 20% upside
+        }
+
+        upside = service._calculate_upside(mock_info)
+
+        assert upside is not None
+        assert upside == 20.0  # (120 - 100) / 100 * 100 = 20%
+
+    def test_calculate_upside_no_target(self, service):
+        """Test upside calculation when no target price available"""
+        mock_info = {
+            'regularMarketPrice': 100.0,
+            # No targetMeanPrice
+        }
+
+        upside = service._calculate_upside(mock_info)
+
+        assert upside is None
+
+    def test_calculate_upside_downside(self, service):
+        """Test negative upside (downside) calculation"""
+        mock_info = {
+            'regularMarketPrice': 150.0,
+            'targetMeanPrice': 120.0  # 20% downside
+        }
+
+        upside = service._calculate_upside(mock_info)
+
+        assert upside is not None
+        assert upside == -20.0
+
+    # Test 15: Get valuation label from P/E ratio
+    def test_valuation_label_cheap(self, service):
+        """Test valuation label for cheap stock (low P/E)"""
+        mock_info = {
+            'trailingPE': 10.0,
+            'forwardPE': 8.0
+        }
+
+        label = service._get_valuation_label(mock_info)
+
+        assert label == "cheap"
+
+    def test_valuation_label_expensive(self, service):
+        """Test valuation label for expensive stock (high P/E)"""
+        mock_info = {
+            'trailingPE': 50.0,
+            'forwardPE': 45.0
+        }
+
+        label = service._get_valuation_label(mock_info)
+
+        assert label == "expensive"
+
+    def test_valuation_label_fair(self, service):
+        """Test valuation label for fair-valued stock (moderate P/E)"""
+        mock_info = {
+            'trailingPE': 20.0,  # Around market average
+            'forwardPE': 18.0
+        }
+
+        label = service._get_valuation_label(mock_info)
+
+        assert label == "fair"
+
+    def test_valuation_label_no_pe(self, service):
+        """Test valuation label when P/E not available defaults to fair"""
+        mock_info = {
+            # No PE ratios
+        }
+
+        label = service._get_valuation_label(mock_info)
+
+        assert label == "fair"
+
+    # Test 16: Full peer data fetch includes upside and valuation
+    @pytest.mark.asyncio
+    async def test_fetch_single_ticker_includes_upside_valuation(self, service):
+        """Test that single ticker fetch includes upside and valuation"""
+        mock_info = {
+            'regularMarketPrice': 100.0,
+            'regularMarketPreviousClose': 98.0,
+            'targetMeanPrice': 115.0,
+            'trailingPE': 15.0,
+            'forwardPE': 12.0
+        }
+
+        with patch('yfinance.Ticker') as mock_yf:
+            mock_ticker = MagicMock()
+            mock_ticker.info = mock_info
+            mock_yf.return_value = mock_ticker
+
+            result = await service._fetch_single_ticker_data('NVDA19')
+
+            assert result is not None
+            assert 'price_change_pct' in result
+            assert 'estimated_upside_pct' in result
+            assert 'valuation_label' in result
+            assert result['estimated_upside_pct'] == 15.0
+            assert result['valuation_label'] == "cheap"
+
 
 if __name__ == '__main__':
     pytest.main([__file__, '-v', '--asyncio-mode=auto'])

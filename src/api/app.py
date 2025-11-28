@@ -1,6 +1,6 @@
 """FastAPI application for Telegram Mini App backend"""
 
-from fastapi import FastAPI, HTTPException, Query, Header
+from fastapi import FastAPI, HTTPException, Query, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from typing import Literal
@@ -9,6 +9,10 @@ import logging
 import os
 import json
 import boto3
+
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 from .models import (
     SearchResponse,
@@ -37,12 +41,19 @@ from .telegram_auth import get_telegram_auth, TelegramAuthError
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Rate limiting configuration
+limiter = Limiter(key_func=get_remote_address)
+
 # Create FastAPI app
 app = FastAPI(
     title="Financial Securities AI Report API",
     description="API for Telegram Mini App",
     version="1.0.0"
 )
+
+# Configure rate limiter
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # Add CORS middleware for Telegram WebApp
 app.add_middleware(
@@ -156,7 +167,9 @@ async def health_check():
 
 
 @app.get("/api/v1/search", response_model=SearchResponse)
+@limiter.limit("60/minute")  # 60 search requests per minute per IP
 async def search_tickers(
+    request: Request,
     q: str = Query(..., min_length=1, description="Search query (ticker or company name)"),
     limit: int = Query(10, ge=1, le=50, description="Maximum results to return")
 ):
@@ -183,7 +196,9 @@ async def search_tickers(
 
 
 @app.get("/api/v1/report/{ticker}", response_model=ReportResponse)
+@limiter.limit("10/minute")  # 10 report requests per minute per IP (expensive LLM calls)
 async def get_report(
+    request: Request,
     ticker: str,
     force_refresh: bool = Query(False, description="Force report regeneration"),
     lang: str | None = Query(None, description="Language code (future use)")
@@ -277,7 +292,8 @@ async def get_report(
 # ============================================================================
 
 @app.post("/api/v1/report/{ticker}", response_model=JobSubmitResponse)
-async def submit_report_async(ticker: str):
+@limiter.limit("20/minute")  # 20 async job submissions per minute per IP
+async def submit_report_async(request: Request, ticker: str):
     """Submit async report generation job
 
     Creates a job for async report generation and sends it to SQS queue.
@@ -355,7 +371,9 @@ async def get_job_status(job_id: str):
 
 
 @app.get("/api/v1/rankings", response_model=RankingsResponse)
+@limiter.limit("60/minute")  # 60 ranking requests per minute per IP
 async def get_rankings(
+    request: Request,
     category: Literal["top_gainers", "top_losers", "volume_surge", "trending"] = Query(..., description="Ranking category"),
     limit: int = Query(10, ge=1, le=50, description="Maximum results")
 ):

@@ -10,6 +10,16 @@ import re
 import pandas as pd
 import time
 import os
+import logging
+
+# Debug logging for package versions
+logger = logging.getLogger(__name__)
+try:
+    import langchain_openai as _lc_openai
+    import openai as _openai
+    logger.info(f"📦 Package versions: langchain_openai={_lc_openai.__version__}, openai={_openai.__version__}")
+except Exception as e:
+    logger.warning(f"⚠️ Could not get package versions: {e}")
 from src.data.data_fetcher import DataFetcher
 from src.analysis.technical_analysis import TechnicalAnalyzer
 from src.data.database import TickerDatabase
@@ -34,8 +44,13 @@ import json
 
 class TickerAnalysisAgent:
     def __init__(self):
-        # Support both OPENROUTER_API_KEY and OPENAI_API_KEY env vars
-        api_key = os.getenv("OPENROUTER_API_KEY") or os.getenv("OPENAI_API_KEY")
+        api_key = os.getenv("OPENROUTER_API_KEY")
+        # Debug logging for API key
+        if api_key:
+            logger.info(f"🔑 API key loaded: {api_key[:20]}... (length={len(api_key)})")
+        else:
+            logger.error("❌ OPENROUTER_API_KEY is None or empty!")
+
         self.llm = ChatOpenAI(
             model="openai/gpt-4o",
             temperature=0.8,

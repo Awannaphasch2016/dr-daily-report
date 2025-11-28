@@ -11,7 +11,12 @@ resource "aws_apigatewayv2_api" "telegram_api" {
   description   = "REST API for Telegram Mini App - ticker analysis and reports"
 
   cors_configuration {
-    allow_origins = ["*"] # Telegram WebApp origin - should be restricted in production
+    # Restrict to Telegram WebApp origins for security
+    allow_origins = compact([
+      "https://web.telegram.org",
+      "https://t.me",
+      var.telegram_webapp_url != "" ? var.telegram_webapp_url : null
+    ])
     allow_methods = ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
     allow_headers = [
       "Content-Type",
@@ -42,7 +47,7 @@ resource "aws_apigatewayv2_integration" "telegram_lambda" {
   integration_uri    = aws_lambda_alias.telegram_api_live.invoke_arn
 
   payload_format_version = "2.0"
-  timeout_milliseconds   = 30000 # 30 seconds (Lambda timeout is 60s)
+  timeout_milliseconds   = 30000 # 30 seconds - AWS HTTP API max limit. Use async endpoints for long tasks.
 
   description = "Lambda integration for Telegram Mini App API (via 'live' alias)"
 }
@@ -101,6 +106,20 @@ resource "aws_apigatewayv2_route" "watchlist_delete" {
   target    = "integrations/${aws_apigatewayv2_integration.telegram_lambda.id}"
 }
 
+# Async report generation routes (for long-running report generation)
+# Note: POST to same path as sync GET report - FastAPI differentiates by method
+resource "aws_apigatewayv2_route" "report_async" {
+  api_id    = aws_apigatewayv2_api.telegram_api.id
+  route_key = "POST /api/v1/report/{ticker}"
+  target    = "integrations/${aws_apigatewayv2_integration.telegram_lambda.id}"
+}
+
+resource "aws_apigatewayv2_route" "report_status" {
+  api_id    = aws_apigatewayv2_api.telegram_api.id
+  route_key = "GET /api/v1/report/status/{job_id}"
+  target    = "integrations/${aws_apigatewayv2_integration.telegram_lambda.id}"
+}
+
 ###############################################################################
 # Stage (Deployment)
 ###############################################################################
@@ -110,21 +129,20 @@ resource "aws_apigatewayv2_stage" "telegram_default" {
   name        = "$default"
   auto_deploy = true
 
-  # Temporarily disabled - requires additional IAM service-linked role permissions
+  # TODO: Re-enable after fixing API Gateway CloudWatch role propagation
   # access_log_settings {
   #   destination_arn = aws_cloudwatch_log_group.telegram_api_gateway_logs.arn
   #   format = jsonencode({
-  #     requestId      = "$context.requestId"
-  #     ip             = "$context.identity.sourceIp"
-  #     caller         = "$context.identity.caller"
-  #     user           = "$context.identity.user"
-  #     requestTime    = "$context.requestTime"
-  #     httpMethod     = "$context.httpMethod"
-  #     resourcePath   = "$context.resourcePath"
-  #     status         = "$context.status"
-  #     protocol       = "$context.protocol"
-  #     responseLength = "$context.responseLength"
-  #     errorMessage   = "$context.error.message"
+  #     requestId               = "$context.requestId"
+  #     ip                      = "$context.identity.sourceIp"
+  #     requestTime             = "$context.requestTime"
+  #     httpMethod              = "$context.httpMethod"
+  #     routeKey                = "$context.routeKey"
+  #     status                  = "$context.status"
+  #     protocol                = "$context.protocol"
+  #     responseLength          = "$context.responseLength"
+  #     integrationLatency      = "$context.integrationLatency"
+  #     errorMessage            = "$context.error.message"
   #     integrationErrorMessage = "$context.integrationErrorMessage"
   #   })
   # }
@@ -140,6 +158,8 @@ resource "aws_apigatewayv2_stage" "telegram_default" {
     App       = "telegram-api"
     Component = "api-gateway-stage"
   })
+
+  depends_on = [aws_cloudwatch_log_group.telegram_api_gateway_logs]
 }
 
 # CloudWatch Log Group for API Gateway Access Logs

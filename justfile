@@ -142,6 +142,52 @@ setup-webhook:
     @echo "🔗 Setting up LINE webhook..."
     dr --doppler deploy webhook
 
+# === TELEGRAM MINI APP DEPLOYMENT ===
+
+# Deploy Telegram backend Lambda functions
+deploy-telegram-backend ENV="dev":
+    @echo "🚀 Deploying Telegram backend to {{ENV}}..."
+    ./scripts/deploy-backend.sh {{ENV}}
+
+# Deploy Telegram frontend to S3/CloudFront
+deploy-telegram-frontend ENV="dev":
+    @echo "🚀 Deploying Telegram frontend to {{ENV}}..."
+    ./scripts/deploy-frontend.sh {{ENV}}
+
+# Deploy full Telegram Mini App (backend + frontend)
+deploy-telegram ENV="dev":
+    @echo "🚀 Deploying full Telegram Mini App to {{ENV}}..."
+    just deploy-telegram-backend {{ENV}}
+    just deploy-telegram-frontend {{ENV}}
+    @echo "✅ Telegram Mini App deployed!"
+
+# Run Terraform plan for Telegram infrastructure (with Doppler secrets)
+# Validates that placeholder values are overridden by Doppler TF_VAR_* env vars
+tf-plan:
+    @echo "📋 Running Terraform plan with Doppler..."
+    cd terraform && doppler run -- terraform plan -var-file=terraform.tfvars -out=tfplan
+    @echo "✅ Plan saved to terraform/tfplan. Review and run 'just tf-apply' to apply."
+
+# Apply Terraform changes (requires tf-plan to be run first)
+tf-apply:
+    @test -f terraform/tfplan || (echo "❌ Run 'just tf-plan' first to create a plan" && exit 1)
+    @echo "🔧 Applying Terraform plan..."
+    cd terraform && doppler run -- terraform apply tfplan
+    @rm -f terraform/tfplan
+    @echo "✅ Terraform applied successfully!"
+
+# Verify Lambda has no placeholder values after deployment
+tf-verify-lambda FUNCTION="dr-daily-report-telegram-api-dev":
+    @echo "🔍 Verifying Lambda environment variables..."
+    @aws lambda get-function-configuration --function-name {{FUNCTION}} \
+        --query 'Environment.Variables' | grep -q "placeholder" && \
+        (echo "❌ ERROR: Placeholder found in Lambda!" && exit 1) || \
+        echo "✅ No placeholders found in Lambda"
+
+# Legacy aliases (for backwards compatibility)
+terraform-plan: tf-plan
+terraform-apply: tf-apply
+
 # === CLEANUP ===
 
 # Quick cleanup (remove build artifacts only)

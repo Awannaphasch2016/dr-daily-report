@@ -67,24 +67,41 @@ variable "log_retention_days" {
 
 ###############################################################################
 # Environment Variables for Lambda
+# NOTE: Variable names are UPPERCASE to match Doppler's TF_VAR_* naming
+# (Doppler requires UPPER_SNAKE_CASE for secret names)
 ###############################################################################
 
-variable "openai_api_key" {
-  description = "OpenAI API key for the Lambda function"
+variable "OPENROUTER_API_KEY" {
+  description = "OpenRouter API key for the Lambda function (provides access to OpenAI models)"
   type        = string
   sensitive   = true
+
+  validation {
+    condition     = !can(regex("placeholder", var.OPENROUTER_API_KEY))
+    error_message = "OPENROUTER_API_KEY contains 'placeholder' - Doppler value not injected. Run with: doppler run -- terraform plan"
+  }
 }
 
-variable "line_channel_access_token" {
+variable "LINE_CHANNEL_ACCESS_TOKEN" {
   description = "LINE channel access token"
   type        = string
   sensitive   = true
+
+  validation {
+    condition     = !can(regex("placeholder", var.LINE_CHANNEL_ACCESS_TOKEN))
+    error_message = "LINE_CHANNEL_ACCESS_TOKEN contains 'placeholder' - Doppler value not injected. Run with: doppler run -- terraform plan"
+  }
 }
 
-variable "line_channel_secret" {
+variable "LINE_CHANNEL_SECRET" {
   description = "LINE channel secret"
   type        = string
   sensitive   = true
+
+  validation {
+    condition     = !can(regex("placeholder", var.LINE_CHANNEL_SECRET))
+    error_message = "LINE_CHANNEL_SECRET contains 'placeholder' - Doppler value not injected. Run with: doppler run -- terraform plan"
+  }
 }
 
 ###############################################################################

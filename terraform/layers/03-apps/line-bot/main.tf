@@ -178,9 +178,9 @@ resource "aws_lambda_function" "line_bot" {
 
   environment {
     variables = {
-      LINE_CHANNEL_ACCESS_TOKEN = var.line_channel_access_token
-      LINE_CHANNEL_SECRET       = var.line_channel_secret
-      OPENAI_API_KEY            = var.openai_api_key
+      LINE_CHANNEL_ACCESS_TOKEN = var.LINE_CHANNEL_ACCESS_TOKEN
+      LINE_CHANNEL_SECRET       = var.LINE_CHANNEL_SECRET
+      OPENROUTER_API_KEY        = var.OPENROUTER_API_KEY
       PDF_STORAGE_BUCKET        = local.pdf_bucket_name
       PDF_BUCKET_NAME           = local.pdf_bucket_name
       PDF_URL_EXPIRATION_HOURS  = "24"

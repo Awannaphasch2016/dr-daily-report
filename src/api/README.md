@@ -111,7 +111,7 @@ aws lambda update-function-code --function-name dr-daily-report-telegram-api-dev
 
 | Variable | Description | Required |
 |----------|-------------|----------|
-| `OPENAI_API_KEY` | OpenRouter API key | Yes |
+| `OPENROUTER_API_KEY` | OpenRouter API key | Yes |
 | `TELEGRAM_BOT_TOKEN` | Telegram bot token from @BotFather | Yes |
 | `DYNAMODB_WATCHLIST_TABLE` | DynamoDB table name | Yes |
 | `DYNAMODB_CACHE_TABLE` | Cache table name | Yes |

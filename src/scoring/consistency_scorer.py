@@ -109,8 +109,7 @@ class ConsistencyScorer:
         """
         # Ensure model has openai/ prefix for OpenRouter
         model_name = f"openai/{model}" if not model.startswith("openai/") else model
-        # Support both OPENROUTER_API_KEY and OPENAI_API_KEY env vars
-        api_key = os.getenv("OPENROUTER_API_KEY") or os.getenv("OPENAI_API_KEY")
+        api_key = os.getenv("OPENROUTER_API_KEY")
         self.llm = ChatOpenAI(
             model=model_name,
             temperature=temperature,

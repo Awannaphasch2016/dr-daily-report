@@ -33,6 +33,22 @@ LINE bot generates comprehensive Thai language financial reports for day traders
 - **Doppler**: Environment variable/secrets management
 - **AWS Lambda**: Serverless deployment target
 
+### AWS Permissions
+**IMPORTANT:** The user has full AWS IAM permissions and can create/modify IAM policies. When encountering AWS permission errors:
+1. **Do NOT ask** if the user wants to fix permissions - just fix them
+2. Create the necessary IAM policy with required permissions
+3. Attach the policy to the appropriate IAM user/role
+4. Re-run the failed operation
+
+Common permission patterns:
+```bash
+# Create IAM policy for missing permissions
+aws iam create-policy --policy-name <name> --policy-document file://policy.json
+
+# Attach to user
+aws iam attach-user-policy --user-name <user> --policy-arn <arn>
+```
+
 ---
 
 ## Testing Guidelines
@@ -291,9 +307,27 @@ def get_service_name() -> ServiceClass:
 
 **Endpoints:**
 - `GET /api/v1/search?q=NVDA` - Ticker search with autocomplete
-- `GET /api/v1/report/{ticker}` - Full AI analysis report with peers
+- `POST /api/v1/report/{ticker}` - Start async report generation (returns job_id)
+- `GET /api/v1/report/status/{job_id}` - Poll for report completion
 - `GET /api/v1/rankings?category=top_gainers` - Market movers (4 categories)
 - `GET /api/v1/watchlist/{user_id}` - User watchlist CRUD
+
+**⚠️ Sync Report Endpoint Limitation:**
+The sync `GET /api/v1/report/{ticker}` endpoint **will timeout** in production because:
+- Report generation takes ~50-60s
+- API Gateway HTTP API max timeout is 30s (AWS hard limit)
+- Lambda timeout is 120s but API Gateway cuts connection at 30s
+
+**Always use the async pattern:**
+```bash
+# 1. Start report generation (returns immediately)
+curl -X POST "https://api.../api/v1/report/DBS19"
+# → {"job_id": "rpt_xxx", "status": "pending"}
+
+# 2. Poll for completion (every 5-10s)
+curl "https://api.../api/v1/report/status/rpt_xxx"
+# → {"status": "completed", "result": {...}}
+```
 
 **Running Telegram API:**
 ```bash
@@ -1181,6 +1215,137 @@ LANGSMITH_TRACING_V2    # 'true' or 'false'
 LANGSMITH_API_KEY
 ```
 
+### Production-Grade Deployment Conventions
+
+#### Mental Model: Separation of Concerns
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    TERRAFORM                                     │
+│                 "State Management"                               │
+├─────────────────────────────────────────────────────────────────┤
+│ Declares WHAT infrastructure should exist:                       │
+│   • ECR repository, Lambda function, API Gateway, DynamoDB      │
+│ Idempotent: run 10 times → same result                          │
+│ Question answered: "Does this infrastructure exist?"             │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    DOCKER PUSH                                   │
+│                 "Code Availability"                              │
+├─────────────────────────────────────────────────────────────────┤
+│ Puts code somewhere it CAN be used (image in ECR with tag)      │
+│ Question answered: "Is this code available to deploy?"           │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                  DEPLOY SCRIPT                                   │
+│                "Pointer Management"                              │
+├─────────────────────────────────────────────────────────────────┤
+│ Controls WHICH code is active:                                   │
+│   1. update-function-code → moves $LATEST pointer               │
+│   2. smoke test → validates new code works                       │
+│   3. publish-version → creates immutable snapshot                │
+│   4. update-alias → moves "live" pointer (users see new code)   │
+│ Question answered: "Which code should users get?"                │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Key Principle:** "Not moving pointer = no conflict"
+- The `live` alias is the contract with API Gateway
+- Until you move that pointer, users get the old code
+- New code can exist in $LATEST without affecting production
+
+#### Lambda Versioning & Alias Strategy
+
+```
+$LATEST (mutable)          ← New code lands here first
+    │
+    │ test passes?
+    ▼
+Version N (immutable)      ← Snapshot created via publish-version
+    │
+    ▼
+"live" alias               ← API Gateway invokes this
+```
+
+**Why this matters:**
+- `$LATEST` is a staging area for testing
+- Versions are immutable snapshots (can't be changed)
+- Alias is the pointer that controls production traffic
+- Terraform uses `ignore_changes = [function_version]` to let deploy scripts control the alias
+
+#### Deploy Script with Built-in Testing
+
+```bash
+# scripts/deploy-backend.sh - single source of truth for deployments
+#!/bin/bash
+FUNCTION_NAME="dr-daily-report-telegram-api-$ENV"
+
+# Step 1: Update $LATEST (code available but not live)
+aws lambda update-function-code --function-name $FUNCTION_NAME --image-uri $IMAGE_URI
+aws lambda wait function-updated --function-name $FUNCTION_NAME
+
+# Step 2: Smoke test $LATEST directly (not through alias)
+RESPONSE=$(aws lambda invoke --function-name $FUNCTION_NAME \
+  --payload '{"path":"/api/v1/health"}' /tmp/response.json \
+  --query 'StatusCode' --output text)
+
+if [ "$RESPONSE" != "200" ]; then
+  echo "❌ Smoke test failed! NOT updating alias."
+  exit 1
+fi
+
+# Step 3: Only if tests pass - promote to live
+NEW_VERSION=$(aws lambda publish-version --function-name $FUNCTION_NAME \
+  --query 'Version' --output text)
+
+aws lambda update-alias --function-name $FUNCTION_NAME \
+  --name live --function-version $NEW_VERSION
+
+echo "✅ Deployed version $NEW_VERSION to live!"
+```
+
+**Both justfile and GitHub Actions call this script** (DRY - single source of truth).
+
+#### CI/CD Strategy: Path-Based Triggers
+
+**Decision:** Use path-based triggers, not environment branches.
+
+```yaml
+# Code changes trigger app deployment
+on:
+  push:
+    branches: [main, telegram]
+    paths: ['src/**', 'frontend/**', 'Dockerfile*']
+
+# Infrastructure changes trigger Terraform
+on:
+  push:
+    branches: [main, telegram]
+    paths: ['terraform/**']
+```
+
+**Rationale:**
+- `terraform/environments/{env}/` naturally separates state by environment
+- Changing `terraform/environments/prod/` clearly means "I'm touching prod"
+- No branch renaming needed - keep `main` and `telegram`
+- Can escalate to environment branches later if needed
+
+#### Rollback Strategy
+
+```bash
+# Instant rollback - just move the alias pointer
+aws lambda update-alias \
+  --function-name dr-daily-report-telegram-api-dev \
+  --name live \
+  --function-version <previous-version-number>
+```
+
+No rebuild needed - previous versions are immutable snapshots.
+
 ### AWS Infrastructure & Tagging Strategy
 
 **Multi-App Resource Organization:**
@@ -1257,6 +1422,82 @@ locals {
 **Per-Layer Workflow:** `cd terraform/layers/XX-layer && terraform init && terraform plan && terraform apply`
 
 **Deploy Order:** 01-data → 02-platform → 03-apps/* (respect dependencies)
+
+### Multi-Environment Deployment
+
+#### Environment Directory Structure
+
+```
+terraform/
+├── modules/                # Reusable modules (shared code)
+│   ├── telegram-api/       # Lambda + API Gateway + DynamoDB
+│   └── async-worker/       # SQS + Worker Lambda
+│
+├── envs/                   # Environment-specific configs
+│   ├── dev/
+│   │   ├── main.tf         # Calls modules with dev config
+│   │   ├── backend.tf      # S3 state: s3://bucket/dev/terraform.tfstate
+│   │   └── terraform.tfvars
+│   ├── staging/
+│   └── prod/
+│
+└── shared/                 # Cross-env resources (ECR, S3 buckets)
+```
+
+#### S3 Remote Backend with State Locking
+
+```hcl
+# envs/dev/backend.tf
+terraform {
+  backend "s3" {
+    bucket         = "dr-daily-report-terraform-state"
+    key            = "dev/terraform.tfstate"
+    region         = "ap-southeast-1"
+    dynamodb_table = "dr-daily-report-tf-locks"
+    encrypt        = true
+  }
+}
+```
+
+**Why S3 backend:**
+- Team collaboration (no local state conflicts)
+- State locking via DynamoDB (prevents concurrent applies)
+- Versioning for state recovery
+- Encryption at rest
+
+#### Environment Configuration Differences
+
+| Config | Dev | Staging | Prod |
+|--------|-----|---------|------|
+| Lambda Memory | 512 MB | 1024 MB | 1024 MB |
+| Log Retention | 7 days | 14 days | 30 days |
+| API Throttling | 10 req/s | 50 req/s | 100 req/s |
+| Alarms | Disabled | Warning only | PagerDuty |
+
+#### Branch → Environment Mapping
+
+```
+feature/*  ──▶  PR to main  ──▶  main  ──▶  Auto-deploy to DEV
+                                  │
+                                  ▼
+                        release/* or tag  ──▶  Deploy to STAGING
+                                  │
+                                  ▼
+                        Manual approval  ──▶  Deploy to PROD
+```
+
+#### Deployment Commands
+
+```bash
+# Dev (from main branch merge)
+cd terraform/envs/dev && terraform apply -var="lambda_image_uri=sha-xxx"
+
+# Staging (from release tag)
+cd terraform/envs/staging && terraform apply -var="lambda_image_uri=sha-xxx"
+
+# Prod (after manual approval)
+cd terraform/envs/prod && terraform apply -var="lambda_image_uri=sha-xxx"
+```
 
 ---
 
@@ -1579,6 +1820,78 @@ import {
 
 **Historical Context:** Migrated from flat structure after hitting state lock contention with 40+ resources in single state file.
 
+### Why Directory Structure Over Terraform Workspaces
+
+**Decision:** Use environment directories (`envs/dev/`, `envs/staging/`, `envs/prod/`) instead of Terraform workspaces.
+
+| Workspaces | Directory Structure |
+|------------|---------------------|
+| `terraform workspace select prod` accidents | Explicit `cd envs/prod` |
+| Same backend, easy cross-contamination | Separate backends per env |
+| Can't require PR for prod only | Different directories = different PRs |
+| Must share provider versions | Can differ per env |
+| Good for: ephemeral/identical envs | Good for: long-lived envs with different configs |
+
+**Rationale:**
+- ✅ **Safety**: Can't accidentally destroy prod from dev terminal
+- ✅ **Code Review**: prod changes get separate PRs with different reviewers
+- ✅ **Flexibility**: Each env can have different resource sizes, retention, etc.
+- ✅ **State Isolation**: Separate S3 keys prevent cross-env state corruption
+
+**Trade-offs:**
+- ❌ More files: 3x directory duplication
+- ❌ Module updates: Must update all envs (use shared modules to minimize)
+- ✅ Overall: Safety > DRY for infrastructure
+
+**Historical Context:** Chose directories after evaluating workspace accidents in other projects where `terraform destroy` in wrong workspace deleted production.
+
+### Why Artifact Promotion Over Per-Env Builds
+
+**Decision:** Build container images once, promote same image through environments.
+
+```
+Build Once:  sha-abc123-20251127  (IMMUTABLE)
+     │
+     ├──▶  DEV:     lambda_image_uri = "sha-abc123-20251127"
+     │              (auto on merge to main)
+     │
+     ├──▶  STAGING: lambda_image_uri = "sha-abc123-20251127"
+     │              (same image, promoted after dev tests pass)
+     │
+     └──▶  PROD:    lambda_image_uri = "sha-abc123-20251127"
+                    (same image, promoted after staging + approval)
+```
+
+**Rationale:**
+- ✅ **Reproducibility**: What you test in staging is exactly what deploys to prod
+- ✅ **Speed**: No rebuild per environment (save 5-10 min per deploy)
+- ✅ **Rollback**: Can instantly revert to any previous image tag
+- ✅ **Audit Trail**: SHA-based tags link deployments to exact commits
+
+**Implementation:**
+```hcl
+# envs/dev/main.tf
+variable "lambda_image_uri" {
+  description = "ECR image URI from CI build step"
+}
+
+module "telegram_api" {
+  source           = "../../modules/telegram-api"
+  lambda_image_uri = var.lambda_image_uri  # Passed from CI
+}
+```
+
+**CI Pattern:**
+```yaml
+# CI passes same image to each environment
+terraform apply -var="lambda_image_uri=${{ needs.build.outputs.image_uri }}"
+```
+
+**Trade-offs:**
+- ❌ Requires immutable tags (can't use `latest`)
+- ❌ More complex CI (must pass image URI between jobs)
+- ✅ Overall: Reproducibility > simplicity
+
 ---
 
 ## Reference Examples
@@ -1674,6 +1987,10 @@ analyze TICKER FORMAT="text":
 | Clean artifacts | `just clean` |
 | View project structure | `just tree` |
 | LangSmith traces | `dr --doppler langsmith list-runs` |
+| Deploy to dev | `cd terraform/envs/dev && terraform apply` |
+| Deploy to staging | `cd terraform/envs/staging && terraform apply` |
+| Deploy to prod | `cd terraform/envs/prod && terraform apply` |
+| Check TF state | `terraform state list` |
 
 **Key Files to Know:**
 - `src/agent.py` - Main LangGraph agent

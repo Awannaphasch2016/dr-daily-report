@@ -110,7 +110,7 @@ resource "aws_lambda_function" "telegram_api" {
   environment {
     variables = {
       # OpenRouter API (shared)
-      OPENAI_API_KEY = var.openai_api_key
+      OPENROUTER_API_KEY = var.OPENROUTER_API_KEY
 
       # S3 Storage (shared)
       PDF_STORAGE_BUCKET       = aws_s3_bucket.pdf_reports.id

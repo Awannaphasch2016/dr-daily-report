@@ -172,7 +172,9 @@ class PeerSelectorService:
                         # Generate stance based on price change (simple heuristic)
                         peer.stance = self._calculate_stance(peer.price_change_pct)
 
-                        # Valuation stays as "fair" (default) - would need P/E ratio for better assessment
+                        # Update upside and valuation from real data
+                        peer.estimated_upside_pct = data.get('estimated_upside_pct')
+                        peer.valuation_label = data.get('valuation_label', 'unknown')
 
             return peers
 
@@ -282,7 +284,7 @@ class PeerSelectorService:
             return {}
 
     async def _fetch_single_ticker_data(self, symbol: str) -> Optional[Dict]:
-        """Fetch current data for a single ticker"""
+        """Fetch current data for a single ticker including upside and valuation"""
         try:
             yahoo_ticker = self._ticker_map.get(symbol)
             if not yahoo_ticker:
@@ -300,8 +302,14 @@ class PeerSelectorService:
 
             price_change_pct = ((price - prev_close) / prev_close) * 100
 
+            # Calculate upside and valuation from info
+            estimated_upside = self._calculate_upside(info)
+            valuation_label = self._get_valuation_label(info)
+
             return {
-                'price_change_pct': round(price_change_pct, 2)
+                'price_change_pct': round(price_change_pct, 2),
+                'estimated_upside_pct': estimated_upside,
+                'valuation_label': valuation_label
             }
 
         except Exception as e:
@@ -329,6 +337,66 @@ class PeerSelectorService:
             return "bearish"
         else:
             return "neutral"
+
+    def _calculate_upside(self, info: Dict) -> Optional[float]:
+        """
+        Calculate estimated upside based on analyst target price
+
+        Args:
+            info: yfinance ticker info dict
+
+        Returns:
+            Upside percentage (positive) or downside (negative), or None if unavailable
+        """
+        try:
+            current_price = info.get('regularMarketPrice') or info.get('currentPrice')
+            target_price = info.get('targetMeanPrice')
+
+            if current_price and target_price and current_price > 0:
+                upside = ((target_price - current_price) / current_price) * 100
+                return round(upside, 1)
+
+            return None
+        except Exception as e:
+            logger.debug(f"Error calculating upside: {e}")
+            return None
+
+    def _get_valuation_label(self, info: Dict) -> str:
+        """
+        Determine valuation label based on P/E ratio
+
+        Uses forward P/E if available, falls back to trailing P/E.
+        Market average P/E ~20 used as benchmark.
+
+        Thresholds:
+        - P/E < 15: cheap
+        - P/E 15-30: fair
+        - P/E > 30: expensive
+
+        Args:
+            info: yfinance ticker info dict
+
+        Returns:
+            Valuation label ('cheap', 'fair', 'expensive')
+        """
+        try:
+            # Prefer forward P/E, fall back to trailing
+            pe_ratio = info.get('forwardPE') or info.get('trailingPE')
+
+            if pe_ratio is None:
+                return "fair"
+
+            # Simple thresholds based on market averages
+            if pe_ratio < 15:
+                return "cheap"
+            elif pe_ratio > 30:
+                return "expensive"
+            else:
+                return "fair"
+
+        except Exception as e:
+            logger.debug(f"Error determining valuation label: {e}")
+            return "fair"
 
     def _get_company_name(self, symbol: str) -> str:
         """Get company name for a ticker symbol"""

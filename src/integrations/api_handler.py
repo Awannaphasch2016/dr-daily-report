@@ -119,7 +119,7 @@ def api_handler(event: "LambdaEvent", context: "LambdaContext | None") -> dict[s
     - ticker: Ticker symbol (e.g., 'AAPL', 'DBS19')
 
     Expected environment variables:
-    - OPENAI_API_KEY: OpenAI API key
+    - OPENROUTER_API_KEY: OpenRouter API key
 
     Returns:
         JSON response with ticker analysis data including percentiles

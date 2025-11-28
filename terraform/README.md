@@ -77,7 +77,7 @@ terraform output
 Secrets are configured in `terraform.tfvars`:
 
 ```hcl
-openai_api_key            = "sk-proj-..."
+openrouter_api_key        = "sk-or-v1-..."
 line_channel_access_token = "..."
 line_channel_secret       = "..."
 ```

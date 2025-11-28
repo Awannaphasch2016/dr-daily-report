@@ -14,6 +14,6 @@ lambda_timeout      = 60
 log_retention_days  = 7
 
 # Secrets (FILL THESE IN)
-openai_api_key            = "sk-proj-YOUR_OPENAI_KEY_HERE"
+openrouter_api_key        = "sk-or-v1-YOUR_OPENROUTER_KEY_HERE"
 line_channel_access_token = "YOUR_LINE_ACCESS_TOKEN_HERE"
 line_channel_secret       = "YOUR_LINE_CHANNEL_SECRET_HERE"

@@ -36,22 +36,28 @@ variable "log_retention_days" {
 
 ###############################################################################
 # Sensitive Variables (passed from tfvars or environment)
+# NOTE: Variable names are UPPERCASE to match Doppler's TF_VAR_* naming
 ###############################################################################
 
-variable "openai_api_key" {
-  description = "OpenAI/OpenRouter API key"
+variable "OPENROUTER_API_KEY" {
+  description = "OpenRouter API key (provides access to OpenAI models)"
   type        = string
   sensitive   = true
+
+  validation {
+    condition     = !can(regex("placeholder", var.OPENROUTER_API_KEY))
+    error_message = "OPENROUTER_API_KEY contains 'placeholder' - Doppler value not injected"
+  }
 }
 
-variable "line_channel_access_token" {
+variable "LINE_CHANNEL_ACCESS_TOKEN" {
   description = "LINE Channel Access Token"
   type        = string
   sensitive   = true
   default     = ""
 }
 
-variable "line_channel_secret" {
+variable "LINE_CHANNEL_SECRET" {
   description = "LINE Channel Secret"
   type        = string
   sensitive   = true
