@@ -291,14 +291,26 @@ const App = {
         UI.elements.searchInput.value = '';
 
         UI.elements.reportTicker.textContent = ticker;
-        UI.showLoading(UI.elements.reportBody, 'Generating AI analysis...');
+        UI.showLoading(UI.elements.reportBody, 'Starting AI analysis...');
         UI.showModal();
 
         Config.haptic('medium');
 
         try {
-            const report = await API.getReport(ticker);
+            // Use async report generation with progress callback
+            const report = await API.getReport(ticker, (status, message) => {
+                // Update loading message based on progress
+                if (status === 'submitted') {
+                    UI.showLoading(UI.elements.reportBody, 'Report job submitted...');
+                } else if (status === 'processing') {
+                    UI.showLoading(UI.elements.reportBody, message);
+                } else if (status === 'completed') {
+                    UI.showLoading(UI.elements.reportBody, 'Rendering report...');
+                }
+            });
+
             UI.elements.reportBody.innerHTML = UI.renderReport(report);
+            Config.haptic('success');
 
         } catch (error) {
             console.error('Failed to load report:', error);

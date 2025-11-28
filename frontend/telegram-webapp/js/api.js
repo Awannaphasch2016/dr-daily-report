@@ -63,10 +63,67 @@ const API = {
     },
 
     /**
-     * Get ticker report
+     * Get ticker report using async job pattern
+     * Submits job, then polls for completion
      */
-    async getReport(ticker) {
-        return this.request(`/report/${encodeURIComponent(ticker)}`);
+    async getReport(ticker, onProgress = null) {
+        // Step 1: Submit async job
+        const submitResponse = await this.request(`/report/${encodeURIComponent(ticker)}`, {
+            method: 'POST'
+        });
+
+        const jobId = submitResponse.job_id;
+        if (!jobId) {
+            throw new APIError('NO_JOB_ID', 'Failed to create report job', 500);
+        }
+
+        Config.debug('Report job submitted:', { jobId, ticker });
+        if (onProgress) onProgress('submitted', 'Report generation started...');
+
+        // Step 2: Poll for completion
+        const maxAttempts = 60; // 60 * 2s = 120 seconds max
+        const pollInterval = 2000; // 2 seconds
+
+        for (let attempt = 0; attempt < maxAttempts; attempt++) {
+            await this._sleep(pollInterval);
+
+            try {
+                const statusResponse = await this.request(`/report/status/${jobId}`);
+
+                Config.debug('Job status:', statusResponse);
+
+                if (statusResponse.status === 'completed') {
+                    if (onProgress) onProgress('completed', 'Report ready!');
+                    return statusResponse.result;
+                } else if (statusResponse.status === 'failed') {
+                    throw new APIError(
+                        'JOB_FAILED',
+                        statusResponse.error || 'Report generation failed',
+                        500
+                    );
+                } else if (statusResponse.status === 'processing') {
+                    if (onProgress) {
+                        const elapsed = Math.round((attempt + 1) * pollInterval / 1000);
+                        onProgress('processing', `Analyzing... (${elapsed}s)`);
+                    }
+                }
+                // Continue polling for 'pending' or 'processing' status
+            } catch (error) {
+                // If it's a 404, job might not be created yet - continue polling
+                if (error.statusCode !== 404) {
+                    throw error;
+                }
+            }
+        }
+
+        throw new APIError('TIMEOUT', 'Report generation timed out', 504);
+    },
+
+    /**
+     * Helper: sleep for ms milliseconds
+     */
+    _sleep(ms) {
+        return new Promise(resolve => setTimeout(resolve, ms));
     },
 
     /**
