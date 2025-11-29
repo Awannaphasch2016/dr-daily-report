@@ -190,6 +190,37 @@ tf-verify-lambda FUNCTION="dr-daily-report-telegram-api-dev":
         (echo "❌ ERROR: Placeholder found in Lambda!" && exit 1) || \
         echo "✅ No placeholders found in Lambda"
 
+# === GITHUB ACTIONS LOCAL TESTING (TDD) ===
+
+# Validate GitHub Actions workflows (static analysis - fast)
+ci-lint:
+    @echo "🔍 Running actionlint on workflows..."
+    ~/.local/bin/actionlint .github/workflows/deploy.yml
+    ~/.local/bin/actionlint .github/workflows/pr-check.yml
+    @echo "✅ All workflows pass actionlint"
+
+# Dry-run GitHub Actions locally (test without executing)
+ci-dryrun JOB="environment":
+    @echo "🔄 Dry-running job: {{JOB}}..."
+    ~/.local/bin/act push -j {{JOB}} --dryrun
+
+# Run GitHub Actions job locally (requires Docker)
+ci-run JOB="test":
+    @echo "🚀 Running job: {{JOB}} locally..."
+    ~/.local/bin/act push -j {{JOB}}
+
+# List all jobs in workflows
+ci-list:
+    @~/.local/bin/act --list
+
+# Full CI/CD TDD workflow (lint → dryrun → run test job)
+ci-test:
+    @echo "🧪 Running CI/CD TDD workflow..."
+    just ci-lint
+    just ci-dryrun environment
+    just ci-dryrun test
+    @echo "✅ CI/CD validation complete!"
+
 # Legacy aliases (for backwards compatibility)
 terraform-plan: tf-plan
 terraform-apply: tf-apply
