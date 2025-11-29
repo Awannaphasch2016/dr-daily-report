@@ -38,8 +38,9 @@ def get_api_url() -> str:
     return API_URL.rstrip("/")
 
 
+@pytest.mark.readonly
 class TestHealthEndpoints:
-    """Smoke tests for health/readiness endpoints"""
+    """Smoke tests for health/readiness endpoints (safe for production)"""
 
     @pytest.mark.smoke
     def test_health_endpoint_returns_200(self):
@@ -59,8 +60,9 @@ class TestHealthEndpoints:
         assert "status" in data or "healthy" in data, f"Unexpected health response: {data}"
 
 
+@pytest.mark.readonly
 class TestSearchEndpoint:
-    """Smoke tests for ticker search functionality"""
+    """Smoke tests for ticker search functionality (safe for production)"""
 
     @pytest.mark.smoke
     def test_search_returns_200(self):
@@ -94,8 +96,9 @@ class TestSearchEndpoint:
         assert response.status_code in [200, 400], f"Empty search failed badly: {response.text}"
 
 
+@pytest.mark.readonly
 class TestRankingsEndpoint:
-    """Smoke tests for market rankings functionality"""
+    """Smoke tests for market rankings functionality (safe for production)"""
 
     @pytest.mark.smoke
     def test_rankings_returns_200(self):
@@ -180,8 +183,9 @@ class TestWatchlistEndpoint:
         assert response.status_code in [400, 401, 422, 200], f"Watchlist error: {response.status_code}"
 
 
+@pytest.mark.readonly
 class TestErrorHandling:
-    """Smoke tests for error handling"""
+    """Smoke tests for error handling (safe for production)"""
 
     @pytest.mark.smoke
     def test_404_returns_json(self):

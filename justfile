@@ -172,6 +172,50 @@ test-tier4:
     pytest --tier=4 tests/e2e -v --tb=short
     @echo "✅ Tier 4 tests passed!"
 
+# === PROMOTION PIPELINE ===
+# Validates tests pass in order: local → dev → staging → prod
+# Each stage must pass before promoting to the next environment
+
+# Full promotion validation pipeline (all 4 stages)
+promote:
+    @echo "🚀 Running full promotion validation pipeline..."
+    @echo "   local → dev → staging → prod"
+    @echo ""
+    just promote-local
+    just promote-dev
+    just promote-staging
+    just promote-prod
+    @echo ""
+    @echo "✅ All promotion gates passed! Ready to deploy."
+
+# Stage 1: Local (no external resources, fastest)
+promote-local:
+    @echo "📍 Stage 1: Local validation (tier 1)..."
+    pytest --tier=1 tests/shared tests/telegram -v --tb=short
+    @echo "✅ Local tests passed!"
+
+# Stage 2: Dev (requires API keys from Doppler dev_personal)
+promote-dev:
+    @echo "📍 Stage 2: Dev validation (tier 2 + integration)..."
+    @echo "   Using Doppler config: dev_personal"
+    doppler run -c dev_personal -- pytest --tier=2 tests/shared tests/telegram -v --tb=short
+    @echo "✅ Dev integration tests passed!"
+
+# Stage 3: Staging (smoke tests against staging API)
+promote-staging:
+    @echo "📍 Stage 3: Staging validation (tier 3 + smoke)..."
+    @echo "   Using Doppler config: stg"
+    doppler run -c stg -- pytest --tier=3 tests/telegram/test_smoke.py -v
+    @echo "✅ Staging smoke tests passed!"
+
+# Stage 4: Prod (read-only smoke tests against prod API)
+promote-prod:
+    @echo "📍 Stage 4: Production validation (read-only smoke)..."
+    @echo "   Using Doppler config: prd"
+    @echo "   ⚠️  Running only read-only tests (health, search, rankings)"
+    doppler run -c prd -- pytest --tier=3 tests/telegram/test_smoke.py -v -m "readonly"
+    @echo "✅ Production smoke tests passed!"
+
 # === BUILD & DEPLOYMENT ===
 
 # Build deployment package (when preparing to deploy)
