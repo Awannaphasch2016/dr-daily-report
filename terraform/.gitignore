@@ -1,7 +1,12 @@
 # Terraform files
 *.tfstate
 *.tfstate.*
-*.tfvars
+
+# Allow environment-specific tfvars (no secrets - those are in Doppler)
+# *.tfvars  # Commented out - we track terraform.{dev,staging,prod}.tfvars
+!terraform.dev.tfvars
+!terraform.staging.tfvars
+!terraform.prod.tfvars
 !terraform.tfvars.example
 
 # Terraform directories

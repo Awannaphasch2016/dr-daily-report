@@ -1,17 +1,87 @@
 name: CI/CD Pipeline
 
+# ============================================================================
+# Branch + Path Triggers
+# Environment branches: telegram (dev) → telegram-staging → telegram-prod
+# NOTE: main branch is NOT included - see .claude/CLAUDE.md MAIN BRANCH PROTECTION
+# ============================================================================
 on:
   push:
-    branches: [main, telegram]
+    branches:
+      - telegram           # → Dev environment
+      - telegram-staging   # → Staging environment
+      - telegram-prod      # → Production environment
+    paths:
+      - 'src/**'
+      - 'frontend/telegram-webapp/**'
+      - 'Dockerfile*'
+      - 'requirements*.txt'
+      - 'terraform/**'
+      - '.github/workflows/**'
   pull_request:
-    branches: [main, telegram]
+    branches:
+      - telegram
+      - telegram-staging
+      - telegram-prod
+    paths:
+      - 'src/**'
+      - 'frontend/telegram-webapp/**'
+      - 'Dockerfile*'
+      - 'requirements*.txt'
 
 env:
   AWS_REGION: ap-southeast-1
-  ECR_REPOSITORY: dr-daily-report-lambda-dev
   PYTHON_VERSION: '3.11'
 
 jobs:
+  ###############################################################################
+  # Stage 0: Determine Environment from Branch
+  ###############################################################################
+  environment:
+    name: Determine Environment
+    runs-on: ubuntu-latest
+    outputs:
+      env_name: ${{ steps.set-env.outputs.env_name }}
+      ecr_repository: ${{ steps.set-env.outputs.ecr_repository }}
+      telegram_function: ${{ steps.set-env.outputs.telegram_function }}
+      worker_function: ${{ steps.set-env.outputs.worker_function }}
+      tfvars_file: ${{ steps.set-env.outputs.tfvars_file }}
+      github_environment: ${{ steps.set-env.outputs.github_environment }}
+
+    steps:
+      - name: Set environment based on branch
+        id: set-env
+        run: |
+          BRANCH="${GITHUB_REF_NAME}"
+          echo "Branch: ${BRANCH}"
+
+          case "${BRANCH}" in
+            telegram)
+              ENV_NAME="dev"
+              GITHUB_ENV="development"
+              ;;
+            telegram-staging)
+              ENV_NAME="staging"
+              GITHUB_ENV="staging"
+              ;;
+            telegram-prod)
+              ENV_NAME="prod"
+              GITHUB_ENV="production"
+              ;;
+            *)
+              echo "❌ Unknown branch: ${BRANCH}"
+              exit 1
+              ;;
+          esac
+
+          echo "📋 Environment: ${ENV_NAME}"
+          echo "env_name=${ENV_NAME}" >> $GITHUB_OUTPUT
+          echo "ecr_repository=dr-daily-report-lambda-${ENV_NAME}" >> $GITHUB_OUTPUT
+          echo "telegram_function=dr-daily-report-telegram-api-${ENV_NAME}" >> $GITHUB_OUTPUT
+          echo "worker_function=dr-daily-report-report-worker-${ENV_NAME}" >> $GITHUB_OUTPUT
+          echo "tfvars_file=terraform.${ENV_NAME}.tfvars" >> $GITHUB_OUTPUT
+          echo "github_environment=${GITHUB_ENV}" >> $GITHUB_OUTPUT
+
   ###############################################################################
   # Stage 1: Quality Gates (Blocking)
   ###############################################################################
@@ -57,8 +127,8 @@ jobs:
   # Stage 2: Build & Push to ECR
   ###############################################################################
   build:
-    name: Build & Push
-    needs: test
+    name: Build & Push (${{ needs.environment.outputs.env_name }})
+    needs: [environment, test]
     runs-on: ubuntu-latest
     if: github.event_name == 'push'  # Only build on push, not PR
 
@@ -85,26 +155,32 @@ jobs:
         id: build
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: ${{ needs.environment.outputs.ecr_repository }}
+          ENV_NAME: ${{ needs.environment.outputs.env_name }}
         run: |
           # Generate tags
           SHA_SHORT=$(git rev-parse --short HEAD)
           TIMESTAMP=$(date +%Y%m%d-%H%M%S)
-          IMAGE_TAG="sha-${SHA_SHORT}-${TIMESTAMP}"
+          IMAGE_TAG="${ENV_NAME}-sha-${SHA_SHORT}-${TIMESTAMP}"
           IMAGE_URI="${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}"
 
           echo "📦 Building Docker image..."
+          echo "   Environment: ${ENV_NAME}"
+          echo "   Repository: ${ECR_REPOSITORY}"
           echo "   Tag: ${IMAGE_TAG}"
 
           # Build with Lambda container image
           docker build \
             -f Dockerfile.lambda.container \
             -t ${IMAGE_URI} \
-            -t ${ECR_REGISTRY}/${ECR_REPOSITORY}:sha-${SHA_SHORT} \
+            -t ${ECR_REGISTRY}/${ECR_REPOSITORY}:${ENV_NAME}-sha-${SHA_SHORT} \
+            -t ${ECR_REGISTRY}/${ECR_REPOSITORY}:${ENV_NAME}-latest \
             .
 
           echo "🚀 Pushing to ECR..."
           docker push ${IMAGE_URI}
-          docker push ${ECR_REGISTRY}/${ECR_REPOSITORY}:sha-${SHA_SHORT}
+          docker push ${ECR_REGISTRY}/${ECR_REPOSITORY}:${ENV_NAME}-sha-${SHA_SHORT}
+          docker push ${ECR_REGISTRY}/${ECR_REPOSITORY}:${ENV_NAME}-latest
 
           echo "✅ Image pushed: ${IMAGE_URI}"
 
@@ -124,10 +200,10 @@ jobs:
   # Stage 3: Deploy to Lambda
   ###############################################################################
   deploy:
-    name: Deploy
-    needs: build
+    name: Deploy (${{ needs.environment.outputs.env_name }})
+    needs: [environment, build]
     runs-on: ubuntu-latest
-    environment: production  # Requires approval for production deployments
+    environment: ${{ needs.environment.outputs.github_environment }}
 
     outputs:
       telegram_api_version: ${{ steps.deploy-telegram.outputs.version }}
@@ -148,16 +224,19 @@ jobs:
 
       - name: Get current versions (for rollback)
         id: get-current
+        env:
+          TELEGRAM_FUNCTION: ${{ needs.environment.outputs.telegram_function }}
+          WORKER_FUNCTION: ${{ needs.environment.outputs.worker_function }}
         run: |
           # Get current "live" alias versions
           TELEGRAM_VERSION=$(aws lambda get-alias \
-            --function-name dr-daily-report-telegram-api-dev \
+            --function-name ${TELEGRAM_FUNCTION} \
             --name live \
             --query 'FunctionVersion' \
             --output text 2>/dev/null || echo "1")
 
           WORKER_VERSION=$(aws lambda get-alias \
-            --function-name dr-daily-report-report-worker-dev \
+            --function-name ${WORKER_FUNCTION} \
             --name live \
             --query 'FunctionVersion' \
             --output text 2>/dev/null || echo "1")
@@ -173,9 +252,8 @@ jobs:
         id: deploy-telegram
         env:
           IMAGE_URI: ${{ needs.build.outputs.image_uri }}
+          FUNCTION_NAME: ${{ needs.environment.outputs.telegram_function }}
         run: |
-          FUNCTION_NAME="dr-daily-report-telegram-api-dev"
-
           echo "🔄 Updating ${FUNCTION_NAME}..."
 
           # Update function code
@@ -205,9 +283,8 @@ jobs:
         id: deploy-worker
         env:
           IMAGE_URI: ${{ needs.build.outputs.image_uri }}
+          FUNCTION_NAME: ${{ needs.environment.outputs.worker_function }}
         run: |
-          FUNCTION_NAME="dr-daily-report-report-worker-dev"
-
           echo "🔄 Updating ${FUNCTION_NAME}..."
 
           # Update function code
@@ -237,10 +314,10 @@ jobs:
   # Stage 4: Deploy Frontend
   ###############################################################################
   deploy-frontend:
-    name: Deploy Frontend
-    needs: deploy
+    name: Deploy Frontend (${{ needs.environment.outputs.env_name }})
+    needs: [environment, deploy]
     runs-on: ubuntu-latest
-    environment: production
+    environment: ${{ needs.environment.outputs.github_environment }}
 
     steps:
       - name: Checkout code
@@ -255,11 +332,19 @@ jobs:
 
       - name: Get infrastructure outputs
         id: terraform
+        env:
+          ENV_NAME: ${{ needs.environment.outputs.env_name }}
         run: |
-          # Get values from Terraform (or use secrets)
+          # Get values from environment-specific secrets
+          # Secret names follow pattern: {SECRET_NAME}_{ENV} (e.g., WEBAPP_BUCKET_NAME_DEV)
+          # Or use GitHub Environments with the same secret names
           BUCKET_NAME="${{ secrets.WEBAPP_BUCKET_NAME }}"
           API_URL="${{ secrets.TELEGRAM_API_URL }}"
           DIST_ID="${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }}"
+
+          echo "📋 Frontend config for ${ENV_NAME}:"
+          echo "   Bucket: ${BUCKET_NAME}"
+          echo "   API URL: ${API_URL}"
 
           echo "bucket_name=${BUCKET_NAME}" >> $GITHUB_OUTPUT
           echo "api_url=${API_URL}" >> $GITHUB_OUTPUT
@@ -316,13 +401,21 @@ jobs:
   # Stage 5: Smoke Tests & Rollback
   ###############################################################################
   smoke-test:
-    name: Smoke Test
-    needs: [build, deploy, deploy-frontend]
+    name: Smoke Test (${{ needs.environment.outputs.env_name }})
+    needs: [environment, build, deploy, deploy-frontend]
     runs-on: ubuntu-latest
+    environment: ${{ needs.environment.outputs.github_environment }}
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -336,9 +429,11 @@ jobs:
       - name: Run smoke tests
         id: smoke
         env:
-          API_URL: ${{ secrets.TELEGRAM_API_URL }}  # e.g., https://xxx.execute-api.ap-southeast-1.amazonaws.com
+          API_URL: ${{ secrets.TELEGRAM_API_URL }}
+          ENV_NAME: ${{ needs.environment.outputs.env_name }}
         run: |
-          echo "🔥 Running smoke tests against ${API_URL}..."
+          echo "🔥 Running smoke tests for ${ENV_NAME} environment..."
+          echo "   API URL: ${API_URL}"
 
           # Test 1: Health endpoint
           echo "Testing /api/v1/health..."
@@ -373,49 +468,55 @@ jobs:
           fi
           echo "✅ Rankings endpoint passed"
 
-          echo "🎉 All smoke tests passed!"
+          echo "🎉 All smoke tests passed for ${ENV_NAME}!"
 
       - name: Rollback on failure
         if: failure()
         env:
           PREV_TELEGRAM_VERSION: ${{ needs.deploy.outputs.previous_telegram_version }}
           PREV_WORKER_VERSION: ${{ needs.deploy.outputs.previous_worker_version }}
+          TELEGRAM_FUNCTION: ${{ needs.environment.outputs.telegram_function }}
+          WORKER_FUNCTION: ${{ needs.environment.outputs.worker_function }}
+          ENV_NAME: ${{ needs.environment.outputs.env_name }}
         run: |
-          echo "🚨 Smoke tests failed! Rolling back..."
-
-          # Configure AWS (need to re-configure in this step)
-          # Note: In production, use OIDC instead of access keys
+          echo "🚨 Smoke tests failed for ${ENV_NAME}! Rolling back..."
 
           # Rollback Telegram API
           echo "Rolling back Telegram API to version ${PREV_TELEGRAM_VERSION}..."
           aws lambda update-alias \
-            --function-name dr-daily-report-telegram-api-dev \
+            --function-name ${TELEGRAM_FUNCTION} \
             --name live \
             --function-version ${PREV_TELEGRAM_VERSION}
 
           # Rollback Worker
           echo "Rolling back Report Worker to version ${PREV_WORKER_VERSION}..."
           aws lambda update-alias \
-            --function-name dr-daily-report-report-worker-dev \
+            --function-name ${WORKER_FUNCTION} \
             --name live \
             --function-version ${PREV_WORKER_VERSION}
 
-          echo "✅ Rollback complete"
+          echo "✅ Rollback complete for ${ENV_NAME}"
           exit 1  # Fail the workflow
 
   ###############################################################################
   # Notify on Success
   ###############################################################################
   notify:
-    name: Notify Success
-    needs: [build, deploy, deploy-frontend, smoke-test]
+    name: Notify Success (${{ needs.environment.outputs.env_name }})
+    needs: [environment, build, deploy, deploy-frontend, smoke-test]
     runs-on: ubuntu-latest
     if: success()
 
     steps:
       - name: Deployment Summary
+        env:
+          ENV_NAME: ${{ needs.environment.outputs.env_name }}
+          TELEGRAM_FUNCTION: ${{ needs.environment.outputs.telegram_function }}
+          WORKER_FUNCTION: ${{ needs.environment.outputs.worker_function }}
         run: |
           echo "🎉 Telegram Mini App Deployment Successful!"
+          echo ""
+          echo "🏷️  Environment: ${ENV_NAME}"
           echo ""
           echo "📦 Backend:"
           echo "   Image: ${{ needs.build.outputs.image_tag }}"
@@ -427,7 +528,7 @@ jobs:
           echo ""
           echo "Rollback commands (if needed):"
           echo "  Backend:"
-          echo "    aws lambda update-alias --function-name dr-daily-report-telegram-api-dev --name live --function-version ${{ needs.deploy.outputs.previous_telegram_version }}"
-          echo "    aws lambda update-alias --function-name dr-daily-report-report-worker-dev --name live --function-version ${{ needs.deploy.outputs.previous_worker_version }}"
+          echo "    aws lambda update-alias --function-name ${TELEGRAM_FUNCTION} --name live --function-version ${{ needs.deploy.outputs.previous_telegram_version }}"
+          echo "    aws lambda update-alias --function-name ${WORKER_FUNCTION} --name live --function-version ${{ needs.deploy.outputs.previous_worker_version }}"
           echo "  Frontend:"
-          echo "    git checkout HEAD~1 -- frontend/telegram-webapp && ./scripts/deploy-frontend.sh"
+          echo "    git checkout HEAD~1 -- frontend/telegram-webapp && ./scripts/deploy-frontend.sh ${ENV_NAME}"

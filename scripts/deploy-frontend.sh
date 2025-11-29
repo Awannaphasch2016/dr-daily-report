@@ -23,6 +23,14 @@ if [[ ! -d "$WEBAPP_DIR" ]]; then
     exit 1
 fi
 
+# Select tfvars file based on environment
+TFVARS_FILE="terraform.${ENV}.tfvars"
+if [ ! -f "terraform/${TFVARS_FILE}" ]; then
+    echo "❌ tfvars file not found: terraform/${TFVARS_FILE}"
+    exit 1
+fi
+echo "📋 Using tfvars: ${TFVARS_FILE}"
+
 # Get bucket name and API URL from Terraform outputs
 cd terraform
 BUCKET=$(terraform output -raw webapp_bucket_name 2>/dev/null) || {

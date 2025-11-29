@@ -17,11 +17,19 @@ if [[ ! "$ENV" =~ ^(dev|staging|prod)$ ]]; then
     exit 1
 fi
 
+# Select tfvars file based on environment
+TFVARS_FILE="terraform.${ENV}.tfvars"
+if [ ! -f "terraform/${TFVARS_FILE}" ]; then
+    echo "❌ tfvars file not found: terraform/${TFVARS_FILE}"
+    exit 1
+fi
+echo "📋 Using tfvars: ${TFVARS_FILE}"
+
 # Get ECR repository URL from Terraform
 cd terraform
 ECR_REPO=$(terraform output -raw ecr_repository_url 2>/dev/null) || {
     echo "❌ Failed to get ECR repository URL from Terraform"
-    echo "Make sure terraform has been applied first"
+    echo "Make sure terraform has been applied with -var-file=${TFVARS_FILE}"
     exit 1
 }
 TELEGRAM_API_FUNCTION=$(terraform output -raw telegram_lambda_function_name 2>/dev/null) || {

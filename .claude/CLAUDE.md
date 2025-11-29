@@ -49,6 +49,30 @@ aws iam create-policy --policy-name <name> --policy-document file://policy.json
 aws iam attach-user-policy --user-name <user> --policy-arn <arn>
 ```
 
+### ⚠️ MAIN BRANCH PROTECTION - CRITICAL
+
+**DO NOT touch the `main` branch.** The project is temporarily using environment-based branches:
+
+| Branch | Environment | Deploys To |
+|--------|-------------|------------|
+| `telegram` | Dev | Auto-deploy on push |
+| `telegram-staging` | Staging | Auto-deploy on push |
+| `telegram-prod` | Production | Auto-deploy on push |
+
+**NEVER do any of the following:**
+- ❌ `git checkout main` followed by changes
+- ❌ `git merge <anything> main`
+- ❌ `git push origin main`
+- ❌ Create PRs targeting `main`
+- ❌ Deploy from `main` branch
+- ❌ Reference `main` in GitHub Actions workflows
+
+**Why:** Main branch contains legacy/unclean code. All Telegram Mini App development happens on `telegram` branch. Main will be cleaned up in the future when ready to follow standard CI/CD conventions.
+
+**Future migration path:** When main is ready, `telegram-prod` → `main`
+
+**If asked to use main branch:** REFUSE and explain this policy. Suggest using `telegram`, `telegram-staging`, or `telegram-prod` instead.
+
 ---
 
 ## Testing Guidelines
@@ -1310,29 +1334,44 @@ echo "✅ Deployed version $NEW_VERSION to live!"
 
 **Both justfile and GitHub Actions call this script** (DRY - single source of truth).
 
-#### CI/CD Strategy: Path-Based Triggers
+#### CI/CD Strategy: Branch + Path Triggers
 
-**Decision:** Use path-based triggers, not environment branches.
+**Decision:** Use environment branches combined with path filtering.
 
 ```yaml
-# Code changes trigger app deployment
+# Branch determines environment, path determines if deploy is needed
 on:
   push:
-    branches: [main, telegram]
-    paths: ['src/**', 'frontend/**', 'Dockerfile*']
+    branches:
+      - telegram          # → Dev environment
+      - telegram-staging  # → Staging environment
+      - telegram-prod     # → Production environment
+    paths:
+      - 'src/**'
+      - 'frontend/telegram-webapp/**'
+      - 'Dockerfile*'
+      - 'requirements*.txt'
+  # NOTE: main branch is NOT included - see MAIN BRANCH PROTECTION section
+```
 
-# Infrastructure changes trigger Terraform
-on:
-  push:
-    branches: [main, telegram]
-    paths: ['terraform/**']
+**Branch → Environment Mapping:**
+| Branch | Environment | Deploy Trigger |
+|--------|-------------|----------------|
+| `telegram` | Dev | Auto on push (if paths match) |
+| `telegram-staging` | Staging | Auto on push (if paths match) |
+| `telegram-prod` | Prod | Auto on push (if paths match) |
+
+**Promotion Flow:**
+```
+telegram → telegram-staging → telegram-prod
+   (merge)        (merge)
 ```
 
 **Rationale:**
-- `terraform/environments/{env}/` naturally separates state by environment
-- Changing `terraform/environments/prod/` clearly means "I'm touching prod"
-- No branch renaming needed - keep `main` and `telegram`
-- Can escalate to environment branches later if needed
+- **Safety**: Branch isolation prevents accidental prod deploys
+- **Efficiency**: Path filtering skips deploys for doc/test-only changes
+- **Explicit**: Each merge is an intentional promotion decision
+- **Audit trail**: Branch history = deployment history
 
 #### Rollback Strategy
 
