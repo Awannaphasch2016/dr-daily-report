@@ -62,8 +62,8 @@ class TestComparativeAnalyzer:
     def test_init(self):
         """Test analyzer initialization"""
         analyzer = ComparativeAnalyzer()
-        assert analyzer is not None
-        assert analyzer.scaler is not None
+        assert isinstance(analyzer, ComparativeAnalyzer), f"Expected ComparativeAnalyzer, got {type(analyzer)}"
+        assert hasattr(analyzer, 'scaler'), "Analyzer should have scaler attribute"
 
     def test_prepare_ticker_features(self):
         """Test feature extraction from ticker data"""
@@ -161,7 +161,7 @@ class TestComparativeAnalyzer:
 
         graph = self.analyzer.build_similarity_graph(correlation_matrix, threshold=0.5)
 
-        assert graph is not None
+        assert hasattr(graph, 'number_of_nodes'), "Should return a networkx graph"
         assert graph.number_of_nodes() > 0
 
         # Check edges have weights
@@ -180,7 +180,7 @@ class TestComparativeAnalyzer:
         # High threshold should result in fewer edges
         graph = self.analyzer.build_similarity_graph(correlation_matrix, threshold=0.9)
 
-        assert graph is not None
+        assert hasattr(graph, 'number_of_nodes'), "Should return a networkx graph"
         assert graph.number_of_nodes() >= 0
 
     def test_analyze_graph_properties(self):

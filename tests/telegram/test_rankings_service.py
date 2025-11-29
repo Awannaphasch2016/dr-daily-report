@@ -56,7 +56,7 @@ class TestRankingsService:
     # Test 1: Service initialization
     def test_service_initialization(self, service):
         """Test that service initializes with correct defaults"""
-        assert service is not None
+        assert isinstance(service, RankingsService), f"Expected RankingsService, got {type(service)}"
         assert service.cache_ttl_seconds == 300
         assert service._cache == {}
         assert service._cache_timestamp is None

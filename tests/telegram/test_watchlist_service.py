@@ -55,9 +55,9 @@ class TestWatchlistService:
     # Test 1: Service initialization
     def test_service_initialization(self, service):
         """Test that service initializes correctly"""
-        assert service is not None
+        assert isinstance(service, WatchlistService), f"Expected WatchlistService, got {type(service)}"
         assert service.table_name == 'test-table'
-        assert service.ticker_service is not None
+        assert hasattr(service, 'ticker_service'), "Service should have ticker_service attribute"
 
     # Test 2: Add ticker to watchlist
     def test_add_ticker_success(self, service):

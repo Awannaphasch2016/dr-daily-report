@@ -85,21 +85,64 @@ Tests are separated by app for independent CI/CD pipelines:
 tests/
 ├── conftest.py              # Shared fixtures ONLY
 ├── shared/                  # Shared code tests (agent, workflow, data)
-│   ├── test_agent.py
 │   ├── test_transformer.py
-│   └── test_scoring/
+│   └── scoring/             # Scorer tests
 ├── telegram/                # Telegram Mini App tests
-│   ├── conftest.py          # Telegram-specific fixtures
 │   ├── test_api_endpoints.py
 │   ├── test_rankings_service.py
-│   ├── test_watchlist_service.py
-│   └── test_job_service.py
+│   └── test_watchlist_service.py
 ├── line_bot/                # LINE Bot tests (skip in Telegram CI)
-│   ├── conftest.py
-│   ├── test_line_follow.py
+│   ├── test_line_local.py
 │   └── test_fuzzy_matching.py
-├── cli/                     # CLI command tests
-└── integration/             # E2E tests (requires external services)
+├── e2e/                     # Browser tests (Playwright)
+│   └── test_telegram_webapp.py
+├── integration/             # External API tests (LangSmith, etc.)
+└── infrastructure/          # S3, DynamoDB tests
+```
+
+### Test Tiers (Layered Scoping)
+
+Tests are organized into tiers based on external dependencies:
+
+```
+Layer 2 (Tiers):     --tier=0   --tier=1   --tier=2      --tier=3   --tier=4
+                        ↓          ↓          ↓             ↓          ↓
+Layer 1 (Markers):   (none)    (none)    integration     smoke       e2e
+                                              ↓             ↓          ↓
+Layer 0 (Fixtures):                    requires_llm  requires_server requires_browser
+```
+
+| Tier | Command | Includes | Use Case |
+|------|---------|----------|----------|
+| 0 | `pytest --tier=0` | Unit only | Fastest local check |
+| 1 | `pytest` (default) | Unit + mocked | PR check, deploy gate |
+| 2 | `pytest --tier=2` | + integration | Nightly (needs API keys) |
+| 3 | `pytest --tier=3` | + smoke | Local pre-deploy (needs server) |
+| 4 | `pytest --tier=4` | + e2e | Release (needs browser) |
+
+**Tier + path are orthogonal:**
+```bash
+pytest --tier=2 tests/telegram  # Tier 2 for Telegram tests only
+pytest --tier=1 tests/line_bot  # Tier 1 for LINE bot tests only
+```
+
+**Marker primitives still work:**
+```bash
+pytest -m smoke          # Just smoke tests
+pytest -m integration    # Just integration tests
+pytest -m "not legacy"   # Skip LINE bot tests
+```
+
+**Requirement fixtures (Layer 0):**
+```python
+def test_llm_call(self, requires_llm):
+    # Skips if OPENROUTER_API_KEY not set
+
+def test_health(self, requires_live_server):
+    # Skips if API server not responding
+
+def test_browser(self, requires_browser):
+    # Skips if Playwright not installed
 ```
 
 ### Mandatory Conventions
@@ -111,6 +154,7 @@ tests/
 | Strong assertions | `assert isinstance(r, dict)` | `assert r is not None` |
 | No debug output | Remove `print()` | `print(f"Debug: {x}")` |
 | Centralized mocks | Define in `conftest.py` | Duplicate mocks per file |
+| File = Component | `test_<component>.py` tests one component | Cross-component testing |
 
 ### Anti-Patterns (DO NOT USE)
 
@@ -191,44 +235,38 @@ assert all(isinstance(r, RankingItem) for r in results)
 ### Pytest Markers
 
 ```python
-@pytest.mark.unit          # Fast, isolated (default)
-@pytest.mark.integration   # Requires external services
-@pytest.mark.legacy        # LINE bot (skip in Telegram CI)
-@pytest.mark.e2e           # Browser tests
-@pytest.mark.slow          # >10 seconds
-@pytest.mark.deployment    # Must pass before deploy
-@pytest.mark.ratelimited   # Paused due to API rate limits (see below)
+# Tier-controlled markers (what the test needs)
+@pytest.mark.integration   # External APIs (LLM, yfinance, LangSmith)
+@pytest.mark.smoke         # Requires live API server
+@pytest.mark.e2e           # Requires Playwright browser
 
-# Mark entire file as legacy
+# Other markers
+@pytest.mark.legacy        # LINE bot (skip in Telegram CI)
+@pytest.mark.slow          # Takes >10 seconds
+@pytest.mark.ratelimited   # Paused due to API rate limits
+
+# Mark entire file
 pytestmark = pytest.mark.legacy
+pytestmark = pytest.mark.e2e
 ```
 
 ### Rate-Limited Tests
 
-For tests hitting external API rate limits that you want to temporarily pause:
+For tests hitting external API rate limits:
 
 ```python
 @pytest.mark.ratelimited
 def test_yfinance_heavy_fetch():
     """Test paused due to yfinance rate limits"""
     ...
-
-@pytest.mark.ratelimited
-class TestExternalAPIIntegration:
-    """All tests in this class are paused"""
-    ...
 ```
 
-**Running rate-limited tests:**
 ```bash
 # Normal run - ratelimited tests are skipped
 pytest tests/
 
 # When you have API quota again
 pytest tests/ --run-ratelimited
-
-# Run ONLY the ratelimited tests
-pytest tests/ -m ratelimited --run-ratelimited
 ```
 
 ### Mocking Conventions
@@ -244,14 +282,6 @@ def mock_dynamodb_table():
     table.get_item = Mock(return_value={'Item': {}})
     table.query = Mock(return_value={'Items': []})
     return table
-
-@pytest.fixture
-def mock_ticker_data():
-    """Standard ticker data for all tests"""
-    return {
-        'NVDA19': {'regularMarketPrice': 150.0, 'shortName': 'NVIDIA'},
-        'DBS19': {'regularMarketPrice': 25.0, 'shortName': 'DBS Bank'},
-    }
 ```
 
 **Patch location rules:**
@@ -277,17 +307,6 @@ with patch.object(service, 'fetch_async', new_callable=AsyncMock) as mock:
     mock.return_value = expected_data
 ```
 
-**Avoid duplicate mocks** - If a mock exists in `conftest.py`, use it:
-```python
-# GOOD: Use fixture from conftest.py
-def test_watchlist(mock_dynamodb_table):
-    service = WatchlistService(table=mock_dynamodb_table)
-
-# BAD: Redefine the same mock locally
-def test_watchlist():
-    mock_table = MagicMock()  # Duplicate!
-```
-
 ### Async Testing
 
 ```python
@@ -308,35 +327,37 @@ class TestAsyncService:
             assert isinstance(result, list)
 ```
 
-**Async Rules:**
-- Use `@pytest.mark.asyncio` on all async test functions
-- Use `AsyncMock` (not `Mock`) for async methods
-- Use `new_callable=AsyncMock` in `patch()` for async patches
-
 ### CI Pipeline Commands
 
 ```bash
-# Telegram deploy gate (fast, no --ignore flags)
+# Telegram deploy gate (tier 1, default)
 pytest tests/shared tests/telegram -m "not e2e"
+
+# Or using tier flag (equivalent)
+pytest --tier=1 tests/shared tests/telegram
 
 # LINE bot tests
 pytest tests/shared tests/line_bot -m "not e2e"
 
-# Full suite
-pytest tests/
+# Integration tests (nightly, needs secrets)
+pytest --tier=2 tests/shared tests/telegram
 
-# With coverage
+# Full suite with coverage
 pytest --cov=src --cov-fail-under=50
 ```
 
-### Running Tests
+### Running Tests (Justfile)
 
 ```bash
+# Tier-based commands
+just test-tier0          # Unit only (fastest)
+just test-tier1          # Unit + mocked (default)
+just test-tier2          # + integration (needs API keys)
+just test-tier3          # + smoke (needs running server)
+just test-tier4          # + e2e (needs browser)
+
 # Deployment gate
 just test-deploy
-
-# All tests (excluding legacy)
-pytest -m "not legacy and not e2e"
 
 # Specific file
 dr test file test_rankings_service.py

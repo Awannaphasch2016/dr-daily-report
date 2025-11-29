@@ -21,7 +21,7 @@ class TestTickerService:
     # Test 1: Service initialization
     def test_service_initialization(self, service):
         """Test that service initializes and loads ticker data"""
-        assert service is not None
+        assert isinstance(service, TickerService), f"Expected TickerService, got {type(service)}"
         assert len(service.ticker_map) > 0
         assert isinstance(service.ticker_map, dict)
         assert isinstance(service.ticker_info, dict)
