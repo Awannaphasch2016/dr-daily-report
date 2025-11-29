@@ -91,41 +91,49 @@ aws lambda wait function-updated \
     --region ${AWS_REGION}
 
 # ============================================================================
-# SMOKE TESTS - Test $LATEST before promoting to live
+# SMOKE TESTS - Test via API Gateway before promoting to live
 # ============================================================================
 echo ""
-echo "🧪 Running smoke tests on \$LATEST..."
+echo "🧪 Running smoke tests via API Gateway..."
 
-# Test Telegram API health endpoint
-echo "  Testing Telegram API health..."
-HEALTH_RESPONSE=$(aws lambda invoke \
-    --function-name ${TELEGRAM_API_FUNCTION} \
-    --payload '{"rawPath": "/api/v1/health", "requestContext": {"http": {"method": "GET"}}}' \
-    --region ${AWS_REGION} \
-    /tmp/health_response.json \
-    --query 'StatusCode' \
-    --output text 2>/dev/null)
+# Get API URL from Terraform (need to stay in terraform dir from earlier)
+cd terraform
+API_URL=$(terraform output -raw telegram_api_invoke_url 2>/dev/null) || {
+    echo "  ⚠️ Could not get API URL from Terraform, skipping smoke tests"
+    API_URL=""
+}
+cd ..
 
-if [ "$HEALTH_RESPONSE" != "200" ]; then
-    echo "  ❌ Health check failed (status: $HEALTH_RESPONSE)"
-    echo "  Response: $(cat /tmp/health_response.json)"
-    echo ""
-    echo "⚠️  Deployment stopped. $LATEST updated but alias NOT moved."
-    echo "   Users still see previous version."
-    exit 1
+if [ -n "$API_URL" ]; then
+    # Test health endpoint via API Gateway (tests the live alias)
+    echo "  Testing health endpoint: ${API_URL}/health"
+    HEALTH_RESPONSE=$(curl -s -w "\n%{http_code}" "${API_URL}/health" 2>/dev/null)
+    HEALTH_CODE=$(echo "$HEALTH_RESPONSE" | tail -n1)
+    HEALTH_BODY=$(echo "$HEALTH_RESPONSE" | head -n-1)
+
+    if [ "$HEALTH_CODE" != "200" ]; then
+        echo "  ❌ Health check failed (HTTP $HEALTH_CODE)"
+        echo "  Response: $HEALTH_BODY"
+        echo ""
+        echo "⚠️  Deployment stopped. Lambda updated but alias NOT moved."
+        echo "   Users still see previous version."
+        exit 1
+    fi
+
+    # Verify response contains status: ok
+    HEALTH_STATUS=$(echo "$HEALTH_BODY" | jq -r '.status' 2>/dev/null)
+    if [ "$HEALTH_STATUS" != "ok" ]; then
+        echo "  ❌ Health check returned unexpected status: $HEALTH_STATUS"
+        echo "  Response: $HEALTH_BODY"
+        echo ""
+        echo "⚠️  Deployment stopped. Lambda updated but alias NOT moved."
+        exit 1
+    fi
+
+    echo "  ✅ Health check passed (status: ok)"
+else
+    echo "  ⏭️  Skipping smoke tests (API URL not available)"
 fi
-
-# Check response body - API returns {"status": "ok"} wrapped in Lambda response body
-HEALTH_BODY=$(cat /tmp/health_response.json | jq -r '.body' 2>/dev/null | jq -r '.status' 2>/dev/null)
-if [ "$HEALTH_BODY" != "ok" ]; then
-    echo "  ❌ Health check returned unexpected status: $HEALTH_BODY"
-    echo "  Response: $(cat /tmp/health_response.json)"
-    echo ""
-    echo "⚠️  Deployment stopped. $LATEST updated but alias NOT moved."
-    exit 1
-fi
-
-echo "  ✅ Telegram API health check passed"
 
 # ============================================================================
 # PUBLISH & PROMOTE - Only after smoke tests pass

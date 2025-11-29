@@ -77,193 +77,270 @@ aws iam attach-user-policy --user-name <user> --policy-arn <arn>
 
 ## Testing Guidelines
 
-### Test Organization
+### Test Organization (App-Separated)
+
+Tests are separated by app for independent CI/CD pipelines:
+
 ```
 tests/
-├── test_<component>.py      # Unit tests for src components
-├── test_cli/                 # CLI command tests
-├── test_line_*.py           # LINE bot integration tests
-└── test_*_integration.py    # Integration/E2E tests
+├── conftest.py              # Shared fixtures ONLY
+├── shared/                  # Shared code tests (agent, workflow, data)
+│   ├── test_agent.py
+│   ├── test_transformer.py
+│   └── test_scoring/
+├── telegram/                # Telegram Mini App tests
+│   ├── conftest.py          # Telegram-specific fixtures
+│   ├── test_api_endpoints.py
+│   ├── test_rankings_service.py
+│   ├── test_watchlist_service.py
+│   └── test_job_service.py
+├── line_bot/                # LINE Bot tests (skip in Telegram CI)
+│   ├── conftest.py
+│   ├── test_line_follow.py
+│   └── test_fuzzy_matching.py
+├── cli/                     # CLI command tests
+└── integration/             # E2E tests (requires external services)
 ```
 
-### Testing Framework
-- **Framework**: pytest (no explicit config, using defaults)
-- **Mocking**: `unittest.mock.Mock` for LLM responses, external APIs
-- **Fixtures**: Use `@pytest.fixture` for reusable test setup
-- **Assertions**: Prefer explicit checks over broad assertions
+### Mandatory Conventions
 
-### Test Structure Pattern
+| Rule | Requirement | Anti-Pattern |
+|------|-------------|--------------|
+| Class-based | `class Test<Component>:` | `def test_foo()` at module level |
+| Proper assertions | `assert x == expected` | `return True/False` (pytest ignores) |
+| Strong assertions | `assert isinstance(r, dict)` | `assert r is not None` |
+| No debug output | Remove `print()` | `print(f"Debug: {x}")` |
+| Centralized mocks | Define in `conftest.py` | Duplicate mocks per file |
+
+### Anti-Patterns (DO NOT USE)
+
+```python
+# BROKEN: pytest ignores return values - test ALWAYS passes
+def test_api_handler():
+    response = handler(event, context)
+    if response['statusCode'] == 200:
+        return True   # <- pytest ignores this!
+    return False
+
+# WRONG: Module-level function (not in class)
+def test_something():
+    assert True
+
+# WEAK: Only checks existence, not correctness
+assert result is not None
+
+# NOISY: Print statements in tests
+print(f"Debug: {result}")
+```
+
+### Required Test Pattern
+
 ```python
 # -*- coding: utf-8 -*-
-"""
-Tests for <Component>
-
-Brief description of what's being tested.
-"""
+"""Tests for <Component>"""
 
 import pytest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch, AsyncMock
 from src.module import Component
 
 
 class TestComponent:
     """Test suite for Component"""
 
-    @pytest.fixture
-    def mock_dependency(self):
-        """Create mock dependency"""
-        dependency = Mock()
-        dependency.method = Mock(return_value="expected")
-        return dependency
+    def setup_method(self):
+        """Set up test fixtures"""
+        self.component = Component()
 
-    def test_<functionality>_<scenario>(self, mock_dependency):
-        """Test that <functionality> works when <scenario>"""
+    def test_success_scenario(self, mock_ticker_data):
+        """Test that <action> succeeds when <condition>"""
         # Arrange
-        component = Component(mock_dependency)
-        input_data = {'key': 'value'}
+        input_data = {'ticker': 'NVDA19'}
 
         # Act
-        result = component.method(input_data)
+        result = self.component.process(input_data)
 
-        # Assert
-        assert isinstance(result, str)
-        assert len(result) > 0
-        mock_dependency.method.assert_called_once()
-```
-
-### Testing Scope
-- **Unit Tests**: All src/ components (generators, analyzers, scorers)
-- **Integration Tests**: Workflow nodes, end-to-end ticker analysis
-- **CLI Tests**: Command parsing, flag handling
-- **LINE Tests**: Message handling, follow/unfollow, fuzzy matching
-
-### TDD Approach
-1. Write test first for new functionality
-2. Implement minimal code to pass test
-3. Refactor while keeping tests green
-4. Add edge case tests
-
-### Running Tests
-```bash
-# All tests
-dr test
-just test-changes
-
-# Specific file
-dr test file test_multistage_generation.py
-
-# Specific test type
-dr test line follow
-dr test integration DBS19
-
-# Pre-commit checks
-just pre-commit
-```
-
-### Async Testing Patterns
-
-For testing async services (Telegram API, rankings, peer selector):
-
-#### pytest-asyncio Setup
-
-```python
-# tests/test_rankings_service.py
-import pytest
-from unittest.mock import Mock, patch, AsyncMock
-
-class TestRankingsService:
-    """Test async rankings service"""
-
-    @pytest.fixture
-    def service(self):
-        """Create service instance for testing"""
-        return RankingsService(cache_ttl_seconds=300)
-
-    @pytest.mark.asyncio  # Required for async tests
-    async def test_fetch_rankings(self, service):
-        """Test async ranking fetch"""
-        # Arrange
-        with patch('yfinance.Ticker') as mock_yf:
-            mock_ticker = Mock()
-            mock_ticker.info = {'regularMarketPrice': 150.0}
-            mock_yf.return_value = mock_ticker
-
-            # Act
-            results = await service.get_rankings('top_gainers', limit=10)
-
-            # Assert
-            assert len(results) <= 10
-            assert all(isinstance(r, RankingItem) for r in results)
-```
-
-#### Async Fixture Pattern
-
-```python
-@pytest.fixture
-async def async_service():
-    """Async fixture with setup/teardown"""
-    service = WatchlistService(use_local=True)
-    await service.initialize()  # Async setup
-
-    yield service
-
-    await service.cleanup()  # Async teardown
-```
-
-#### Mocking Async Functions
-
-```python
-# Pattern 1: Mock async method with AsyncMock
-async def test_with_async_mock(service):
-    with patch.object(service, 'fetch_data_async', new_callable=AsyncMock) as mock_fetch:
-        mock_fetch.return_value = {'ticker': 'NVDA19', 'price': 150.0}
-
-        result = await service.process_ticker('NVDA19')
-
-        mock_fetch.assert_called_once_with('NVDA19')
+        # Assert - STRONG assertions
+        assert isinstance(result, dict), f"Expected dict, got {type(result)}"
+        assert 'ticker' in result, f"Missing 'ticker' key in {result.keys()}"
         assert result['ticker'] == 'NVDA19'
 
-# Pattern 2: Mock blocking I/O in executor
-@patch('yfinance.download')
-async def test_with_executor(mock_download, service):
-    """Mock blocking yfinance call"""
-    mock_download.return_value = pd.DataFrame({'Close': [100, 101, 102]})
-
-    # Service uses loop.run_in_executor() internally
-    result = await service.fetch_data_async('NVDA19')
-
-    assert not result.empty
-    mock_download.assert_called_once()
+    def test_invalid_input_raises_error(self):
+        """Test that invalid input raises ValueError"""
+        with pytest.raises(ValueError, match="Invalid ticker"):
+            self.component.process({'ticker': ''})
 ```
 
-#### Testing asyncio.gather() Patterns
+### Assertion Hierarchy
 
 ```python
-@pytest.mark.asyncio
-async def test_parallel_fetching(service):
-    """Test parallel ticker fetching with gather()"""
-    tickers = ['NVDA19', 'JPMUS19', 'DBS19']
+# Level 1: Type check
+assert isinstance(result, dict), f"Expected dict, got {type(result)}"
 
-    with patch.object(service, '_fetch_ticker_data', new_callable=AsyncMock) as mock_fetch:
-        # Mock returns different values for each ticker
-        mock_fetch.side_effect = [
-            {'ticker': 'NVDA19', 'price': 150},
-            {'ticker': 'JPMUS19', 'price': 50},
-            {'ticker': 'DBS19', 'price': 25}
-        ]
+# Level 2: Structure check
+assert 'ticker' in result, f"Missing 'ticker' in {result.keys()}"
 
-        # Service internally uses: await asyncio.gather(*tasks)
-        results = await service.fetch_all(tickers)
+# Level 3: Value check
+assert result['ticker'] == 'NVDA19'
+assert result['price'] > 0, f"Invalid price: {result['price']}"
 
-        assert len(results) == 3
-        assert mock_fetch.call_count == 3
+# Level 4: Collection check
+assert len(results) == 3
+assert all(isinstance(r, RankingItem) for r in results)
 ```
 
-**Key Patterns:**
-- Use `@pytest.mark.asyncio` for all async test functions
+### Pytest Markers
+
+```python
+@pytest.mark.unit          # Fast, isolated (default)
+@pytest.mark.integration   # Requires external services
+@pytest.mark.legacy        # LINE bot (skip in Telegram CI)
+@pytest.mark.e2e           # Browser tests
+@pytest.mark.slow          # >10 seconds
+@pytest.mark.deployment    # Must pass before deploy
+@pytest.mark.ratelimited   # Paused due to API rate limits (see below)
+
+# Mark entire file as legacy
+pytestmark = pytest.mark.legacy
+```
+
+### Rate-Limited Tests
+
+For tests hitting external API rate limits that you want to temporarily pause:
+
+```python
+@pytest.mark.ratelimited
+def test_yfinance_heavy_fetch():
+    """Test paused due to yfinance rate limits"""
+    ...
+
+@pytest.mark.ratelimited
+class TestExternalAPIIntegration:
+    """All tests in this class are paused"""
+    ...
+```
+
+**Running rate-limited tests:**
+```bash
+# Normal run - ratelimited tests are skipped
+pytest tests/
+
+# When you have API quota again
+pytest tests/ --run-ratelimited
+
+# Run ONLY the ratelimited tests
+pytest tests/ -m ratelimited --run-ratelimited
+```
+
+### Mocking Conventions
+
+**Centralize in conftest.py:**
+```python
+# tests/conftest.py - SINGLE SOURCE for shared mocks
+@pytest.fixture
+def mock_dynamodb_table():
+    """Mock DynamoDB table with all CRUD operations"""
+    table = MagicMock()
+    table.put_item = Mock(return_value={})
+    table.get_item = Mock(return_value={'Item': {}})
+    table.query = Mock(return_value={'Items': []})
+    return table
+
+@pytest.fixture
+def mock_ticker_data():
+    """Standard ticker data for all tests"""
+    return {
+        'NVDA19': {'regularMarketPrice': 150.0, 'shortName': 'NVIDIA'},
+        'DBS19': {'regularMarketPrice': 25.0, 'shortName': 'DBS Bank'},
+    }
+```
+
+**Patch location rules:**
+```python
+# Patch where it's USED, not where it's DEFINED
+@patch('src.api.rankings_service.yfinance.Ticker')  # Used in rankings_service
+def test_rankings(mock_yf):
+    pass
+
+# NOT: @patch('yfinance.Ticker')  # Where it's defined
+```
+
+**Sync vs Async mocking:**
+```python
+# Sync methods: use Mock
+mock_service.get_data = Mock(return_value={'ticker': 'NVDA19'})
+
+# Async methods: use AsyncMock
+mock_service.fetch_async = AsyncMock(return_value={'ticker': 'NVDA19'})
+
+# In patch(): use new_callable
+with patch.object(service, 'fetch_async', new_callable=AsyncMock) as mock:
+    mock.return_value = expected_data
+```
+
+**Avoid duplicate mocks** - If a mock exists in `conftest.py`, use it:
+```python
+# GOOD: Use fixture from conftest.py
+def test_watchlist(mock_dynamodb_table):
+    service = WatchlistService(table=mock_dynamodb_table)
+
+# BAD: Redefine the same mock locally
+def test_watchlist():
+    mock_table = MagicMock()  # Duplicate!
+```
+
+### Async Testing
+
+```python
+class TestAsyncService:
+    """Test async service methods"""
+
+    @pytest.mark.asyncio
+    async def test_async_method(self, mock_ticker_data):
+        """Test async data fetching"""
+        service = RankingsService()
+
+        with patch.object(service, 'fetch_async', new_callable=AsyncMock) as mock:
+            mock.return_value = mock_ticker_data
+
+            result = await service.get_rankings('top_gainers')
+
+            mock.assert_called_once()
+            assert isinstance(result, list)
+```
+
+**Async Rules:**
+- Use `@pytest.mark.asyncio` on all async test functions
 - Use `AsyncMock` (not `Mock`) for async methods
 - Use `new_callable=AsyncMock` in `patch()` for async patches
-- Mock executor-based I/O at the blocking function level (e.g., `yf.download`)
+
+### CI Pipeline Commands
+
+```bash
+# Telegram deploy gate (fast, no --ignore flags)
+pytest tests/shared tests/telegram -m "not e2e"
+
+# LINE bot tests
+pytest tests/shared tests/line_bot -m "not e2e"
+
+# Full suite
+pytest tests/
+
+# With coverage
+pytest --cov=src --cov-fail-under=50
+```
+
+### Running Tests
+
+```bash
+# Deployment gate
+just test-deploy
+
+# All tests (excluding legacy)
+pytest -m "not legacy and not e2e"
+
+# Specific file
+dr test file test_rankings_service.py
+```
 
 ---
 

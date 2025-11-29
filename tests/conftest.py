@@ -26,23 +26,84 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 pytest_plugins = ['pytest_asyncio']
 
 
+def pytest_addoption(parser):
+    """Add custom CLI options"""
+    parser.addoption(
+        "--run-ratelimited",
+        action="store_true",
+        default=False,
+        help="Run tests that are paused due to API rate limits"
+    )
+    parser.addoption(
+        "--tier",
+        action="store",
+        default=None,
+        type=int,
+        choices=[0, 1, 2, 3, 4],
+        help="Test tier: 0=unit, 1=mocked (default), 2=+integration, 3=+smoke, 4=+e2e"
+    )
+
+
 def pytest_configure(config):
-    """Configure custom markers"""
-    config.addinivalue_line("markers", "unit: mark test as a unit test")
-    config.addinivalue_line("markers", "integration: mark test as an integration test")
-    config.addinivalue_line("markers", "smoke: mark test as a smoke test (post-deployment)")
-    config.addinivalue_line("markers", "slow: mark test as slow (may take >10 seconds)")
-    config.addinivalue_line("markers", "asyncio: mark test as async")
-    config.addinivalue_line("markers", "e2e: mark test as end-to-end browser test (requires playwright)")
+    """Configure custom markers and handle --tier override.
+
+    Markers defined here are for documentation only (actual markers defined in pytest.ini).
+    The main purpose is to handle --tier flag which needs to override addopts marker filter.
+    """
+    # If --tier is provided, override the marker filter from addopts
+    tier_opt = config.getoption("--tier", default=None)
+    if tier_opt is not None:
+        # Clear the marker expression set by addopts
+        # This allows --tier to take full control
+        config.option.markexpr = ""
 
 
-@pytest.fixture(scope="session")
-def event_loop():
-    """Create an instance of the default event loop for the test session."""
-    import asyncio
-    loop = asyncio.get_event_loop_policy().new_event_loop()
-    yield loop
-    loop.close()
+def pytest_collection_modifyitems(config, items):
+    """Handle --run-ratelimited and --tier flags.
+
+    Tier System (Layer 2 - Compositions of markers):
+    - Tier 0: Unit tests only (no external dependencies)
+    - Tier 1: Unit + mocked tests (default, same as addopts)
+    - Tier 2: + integration tests (real APIs)
+    - Tier 3: + smoke tests (requires live server)
+    - Tier 4: + e2e tests (requires browser)
+    """
+    # Handle --run-ratelimited (existing behavior)
+    if not config.getoption("--run-ratelimited"):
+        skip_ratelimited = pytest.mark.skip(
+            reason="Skipped: API rate limit (use --run-ratelimited to run)"
+        )
+        for item in items:
+            if "ratelimited" in item.keywords:
+                item.add_marker(skip_ratelimited)
+
+    # Handle --tier flag
+    tier_opt = config.getoption("--tier")
+    if tier_opt is None:
+        return  # Use addopts default behavior (pytest.ini)
+
+    # Tier determines which markers to INCLUDE
+    # Each tier builds on the previous (cumulative)
+    tier_includes = {
+        0: set(),                           # Unit only
+        1: set(),                           # + mocked (same as 0)
+        2: {'integration'},                 # + real APIs
+        3: {'integration', 'smoke'},        # + live server
+        4: {'integration', 'smoke', 'e2e'}, # + browser
+    }
+
+    included_markers = tier_includes.get(tier_opt, set())
+
+    for item in items:
+        item_markers = {m.name for m in item.iter_markers()}
+
+        # Skip if test has markers not included in this tier
+        excluded = {'integration', 'smoke', 'e2e'} - included_markers
+        markers_to_skip = item_markers & excluded
+        if markers_to_skip:
+            item.add_marker(pytest.mark.skip(
+                reason=f"Tier {tier_opt} excludes markers: {markers_to_skip}"
+            ))
 
 
 ###############################################################################
@@ -235,6 +296,146 @@ def _create_mock_history():
         'Close': prices,
         'Volume': np.random.randint(1000000, 10000000, 252)
     }, index=dates)
+
+
+###############################################################################
+# Event Loop Handling for Async Tests
+###############################################################################
+
+@pytest.fixture(scope='function')
+def event_loop():
+    """
+    Create a new event loop for each test function.
+
+    This avoids the "Cannot close a running event loop" error when tests
+    use asyncio.run() (e.g., report_worker_handler tests) alongside
+    pytest-asyncio tests.
+    """
+    import asyncio
+    loop = asyncio.new_event_loop()
+    yield loop
+    loop.close()
+
+
+###############################################################################
+# Singleton Reset Fixtures (Test Isolation)
+###############################################################################
+
+@pytest.fixture(autouse=True, scope='function')
+def reset_api_singletons():
+    """
+    Reset module-level singleton instances before each test.
+
+    This ensures test isolation by preventing singleton state from
+    leaking between tests. Without this, tests may fail when run
+    as a suite but pass when run individually.
+    """
+    # Store original values
+    import importlib
+
+    modules_to_reset = [
+        ('src.api.rankings_service', '_rankings_service'),
+        ('src.api.peer_selector', '_peer_selector_service'),
+        ('src.api.watchlist_service', '_watchlist_service'),
+        ('src.api.job_service', '_job_service'),
+        ('src.api.ticker_service', '_ticker_service'),
+        ('src.api.transformer', '_transformer'),
+        ('src.api.transformer', '_pdf_storage'),
+        ('src.api.telegram_auth', '_auth_instance'),
+    ]
+
+    original_values = {}
+
+    for module_name, attr_name in modules_to_reset:
+        try:
+            module = importlib.import_module(module_name)
+            if hasattr(module, attr_name):
+                original_values[(module_name, attr_name)] = getattr(module, attr_name)
+                setattr(module, attr_name, None)
+        except ImportError:
+            # Module not available, skip
+            pass
+
+    yield
+
+    # Restore original values after test
+    for (module_name, attr_name), original_value in original_values.items():
+        try:
+            module = importlib.import_module(module_name)
+            setattr(module, attr_name, original_value)
+        except ImportError:
+            pass
+
+
+###############################################################################
+# Requirement Fixtures (Layer 0 - Runtime Dependency Checks)
+###############################################################################
+
+@pytest.fixture
+def requires_llm():
+    """Skip if OPENROUTER_API_KEY not available.
+
+    Use this fixture for integration tests that make real LLM API calls.
+
+    Example:
+        def test_llm_generation(self, requires_llm):
+            # This test will skip if no API key
+            result = agent.generate_report(ticker)
+    """
+    if not os.environ.get('OPENROUTER_API_KEY'):
+        pytest.skip("Requires OPENROUTER_API_KEY")
+
+
+@pytest.fixture
+def requires_live_server():
+    """Skip if API server not responding.
+
+    Use this fixture for smoke tests that need a running API server.
+
+    Example:
+        def test_health_endpoint(self, requires_live_server):
+            # This test will skip if server not running
+            response = requests.get(f"{API_URL}/health")
+    """
+    import requests
+    api_url = os.environ.get('API_URL', 'http://localhost:8001')
+    try:
+        requests.get(f"{api_url}/api/v1/health", timeout=2)
+    except Exception:
+        pytest.skip(f"Requires running API server at {api_url}")
+
+
+@pytest.fixture
+def requires_browser():
+    """Skip if Playwright not installed.
+
+    Use this fixture for e2e browser tests.
+
+    Example:
+        def test_ui_interaction(self, requires_browser):
+            # This test will skip if Playwright not available
+            with sync_playwright() as p:
+                browser = p.chromium.launch()
+    """
+    try:
+        from playwright.sync_api import sync_playwright  # noqa: F401
+    except ImportError:
+        pytest.skip("Requires Playwright: pip install playwright && playwright install")
+
+
+@pytest.fixture
+def requires_langsmith():
+    """Skip if LANGCHAIN_API_KEY not available.
+
+    Use this fixture for tests that interact with LangSmith.
+
+    Example:
+        def test_langsmith_logging(self, requires_langsmith):
+            # This test will skip if no LangSmith API key
+            client = get_langsmith_client()
+    """
+    if not os.environ.get('LANGCHAIN_API_KEY'):
+        pytest.skip("Requires LANGCHAIN_API_KEY for LangSmith")
 
 
 ###############################################################################

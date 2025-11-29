@@ -1,231 +1,246 @@
-#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
-Test script to demonstrate S3 cache functionality locally.
-This will test:
-1. Cache MISS - first request (saves to S3)
-2. Cache HIT - second request (retrieves from S3)
-3. PDF URL reuse
+Tests for S3 Cache Functionality
+
+Tests the S3 cache layer for report caching, chart caching,
+and news caching with mocked AWS services.
 """
 
 import os
-import sys
-import time
+import json
+import pytest
+from unittest.mock import Mock, patch, MagicMock
 from datetime import date
-from dotenv import load_dotenv
 
-# Load environment variables
-load_dotenv()
 
-# Add src to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
+class TestS3Cache:
+    """Unit tests for S3Cache with mocked boto3"""
 
-from src.data.s3_cache import S3Cache
-from src.data.database import TickerDatabase
+    @pytest.fixture
+    def cache_with_mock(self):
+        """Create S3Cache instance with mocked client, returns both"""
+        mock_client = MagicMock()
+        with patch('boto3.client', return_value=mock_client):
+            from src.data.s3_cache import S3Cache
+            cache = S3Cache(bucket_name='test-bucket', ttl_hours=24)
+            # Replace the s3_client with our mock
+            cache.s3_client = mock_client
+            return cache, mock_client
 
-def test_s3_cache():
-    """Test S3 cache functionality"""
+    @pytest.fixture
+    def s3_cache(self, cache_with_mock):
+        """Get just the cache from the fixture"""
+        return cache_with_mock[0]
 
-    print("=" * 80)
-    print("S3 CACHE TEST - LOCAL DEMONSTRATION")
-    print("=" * 80)
-    print()
+    @pytest.fixture
+    def mock_s3_client(self, cache_with_mock):
+        """Get the mock client from the fixture"""
+        return cache_with_mock[1]
 
-    # Initialize S3 cache
-    bucket_name = os.getenv("PDF_BUCKET_NAME")
-    if not bucket_name:
-        print("❌ ERROR: PDF_BUCKET_NAME environment variable not set")
-        print("Please set it in .env file:")
-        print("  PDF_BUCKET_NAME=line-bot-pdf-reports-755283537543")
-        return False
+    def _create_s3_response(self, body_content: bytes, metadata: dict = None):
+        """Helper to create mock S3 get_object response with valid expiration"""
+        from datetime import datetime, timedelta
 
-    print(f"📦 Initializing S3 cache with bucket: {bucket_name}")
-    s3_cache = S3Cache(bucket_name=bucket_name, ttl_hours=24)
-    print("✅ S3 cache initialized\n")
+        mock_body = MagicMock()
+        mock_body.read.return_value = body_content
 
-    # Initialize database with S3 cache
-    print("💾 Initializing database with S3 cache integration")
-    db = TickerDatabase(s3_cache=s3_cache)
-    print("✅ Database initialized\n")
+        # Default to non-expired metadata
+        if metadata is None:
+            # Set expires-at to 1 hour from now (not expired)
+            expires_at = (datetime.now() + timedelta(hours=1)).isoformat()
+            metadata = {'expires-at': expires_at}
 
-    # Test data
-    test_ticker = "TEST_TICKER"
-    test_date = date.today().isoformat()
+        return {
+            'Body': mock_body,
+            'Metadata': metadata
+        }
 
-    print("=" * 80)
-    print("TEST 1: Cache MISS - First Request (should save to S3)")
-    print("=" * 80)
-    print(f"Ticker: {test_ticker}")
-    print(f"Date: {test_date}\n")
+    def test_init_creates_client(self):
+        """Test that S3Cache initializes boto3 client"""
+        with patch('boto3.client') as mock_boto3:
+            from src.data.s3_cache import S3Cache
+            cache = S3Cache(bucket_name='test-bucket')
 
-    # Check cache (should be MISS)
-    print("🔍 Checking cache...")
-    start_time = time.time()
-    cached_report = db.get_cached_report(test_ticker, test_date)
-    elapsed_ms = (time.time() - start_time) * 1000
+            mock_boto3.assert_called_once_with('s3')
+            assert cache.bucket_name == 'test-bucket'
 
-    if cached_report:
-        print(f"⚠️  Unexpected cache HIT (took {elapsed_ms:.1f}ms)")
-        print("   Cached data exists. Clearing for clean test...\n")
-    else:
-        print(f"✅ Cache MISS as expected (took {elapsed_ms:.1f}ms)\n")
+    def test_get_cached_report_miss(self, s3_cache, mock_s3_client):
+        """Test cache miss returns None"""
+        from botocore.exceptions import ClientError
 
-    # Simulate report generation and save
-    test_report_data = {
-        'report_text': f"""📊 Test Report for {test_ticker}
+        mock_s3_client.get_object.side_effect = ClientError(
+            {'Error': {'Code': 'NoSuchKey'}},
+            'GetObject'
+        )
 
-This is a test report to demonstrate S3 cache functionality.
+        result = s3_cache.get_cached_report('TEST', '2024-01-01')
 
-**Test Data:**
-- Ticker: {test_ticker}
-- Date: {test_date}
-- Generated at: {time.strftime('%Y-%m-%d %H:%M:%S')}
+        assert result is None
 
-**Cache Test Results:**
-The report has been generated and will now be saved to:
-1. Local SQLite database (/tmp or data/)
-2. S3 cache (persistent across Lambda instances)
+    def test_get_cached_report_hit(self, s3_cache, mock_s3_client):
+        """Test cache hit returns cached data"""
+        cached_data = {
+            'report_text': 'Test report',
+            'context_json': '{"test": "data"}'
+        }
 
-This demonstrates the hybrid caching approach where both
-local and remote caches are updated simultaneously.
-""",
-        'context_json': '{"test": "data", "ticker": "' + test_ticker + '"}',
-        'technical_summary': 'Test technical summary',
-        'fundamental_summary': 'Test fundamental summary',
-        'sector_analysis': 'Test sector analysis'
-    }
+        mock_s3_client.get_object.return_value = self._create_s3_response(
+            json.dumps(cached_data).encode('utf-8')
+        )
 
-    print("💾 Saving report to cache (SQLite + S3)...")
-    start_time = time.time()
-    db.save_report(test_ticker, test_date, test_report_data)
-    elapsed_ms = (time.time() - start_time) * 1000
-    print(f"✅ Report saved (took {elapsed_ms:.1f}ms)\n")
+        result = s3_cache.get_cached_report('TEST', '2024-01-01')
 
-    # Verify it's in S3
-    print("🔍 Verifying S3 cache...")
-    s3_data = s3_cache.get_cached_report(test_ticker, test_date)
-    if s3_data:
-        print(f"✅ Report found in S3 cache!")
-        print(f"   Report text length: {len(s3_data.get('report_text', ''))} characters")
-        print(f"   Has context_json: {bool(s3_data.get('context_json'))}\n")
-    else:
-        print("❌ Report NOT found in S3 cache (unexpected)\n")
-        return False
+        assert result is not None, "Expected cached data, got None"
+        assert isinstance(result, dict), f"Expected dict, got {type(result)}"
+        assert result['report_text'] == 'Test report'
 
-    print("=" * 80)
-    print("TEST 2: Cache HIT - Second Request (should retrieve from S3)")
-    print("=" * 80)
-    print()
+    def test_save_report_success(self, s3_cache, mock_s3_client):
+        """Test saving report to cache"""
+        report_data = {
+            'report_text': 'Test report',
+            'context_json': '{"test": "data"}'
+        }
 
-    # Clear local SQLite to simulate new Lambda instance
-    print("🗑️  Simulating new Lambda instance (clearing local SQLite cache)...")
-    import sqlite3
-    conn = sqlite3.connect(db.db_path)
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM reports WHERE ticker = ?", (test_ticker,))
-    conn.commit()
-    conn.close()
-    print("✅ Local cache cleared\n")
+        s3_cache.save_report_cache('TEST', '2024-01-01', report_data)
 
-    # Check cache again (should hit S3, backfill SQLite)
-    print("🔍 Checking cache (should hit S3)...")
-    start_time = time.time()
-    cached_report = db.get_cached_report(test_ticker, test_date)
-    elapsed_ms = (time.time() - start_time) * 1000
+        mock_s3_client.put_object.assert_called_once()
+        call_args = mock_s3_client.put_object.call_args
+        assert call_args[1]['Bucket'] == 'test-bucket'
+        assert 'TEST' in call_args[1]['Key']
 
-    if cached_report:
-        print(f"✅ Cache HIT from S3! (took {elapsed_ms:.1f}ms)")
-        print(f"   Report length: {len(cached_report)} characters")
-        print(f"   Report preview: {cached_report[:100]}...\n")
+    def test_save_chart_cache(self, s3_cache, mock_s3_client):
+        """Test saving chart to cache"""
+        chart_base64 = 'iVBORw0KGgoAAAANSUhEUg=='
 
-        # Verify SQLite was backfilled
-        print("🔍 Verifying SQLite backfill...")
-        conn = sqlite3.connect(db.db_path)
-        cursor = conn.cursor()
-        cursor.execute("SELECT COUNT(*) FROM reports WHERE ticker = ?", (test_ticker,))
-        count = cursor.fetchone()[0]
-        conn.close()
+        s3_cache.save_chart_cache('TEST', '2024-01-01', chart_base64)
 
-        if count > 0:
-            print(f"✅ SQLite backfilled successfully ({count} row)\n")
-        else:
-            print("⚠️  SQLite not backfilled (unexpected)\n")
-    else:
-        print(f"❌ Cache MISS (unexpected, took {elapsed_ms:.1f}ms)\n")
-        return False
+        mock_s3_client.put_object.assert_called_once()
 
-    print("=" * 80)
-    print("TEST 3: PDF URL Reuse")
-    print("=" * 80)
-    print()
+    def test_get_cached_chart_hit(self, s3_cache, mock_s3_client):
+        """Test retrieving cached chart"""
+        chart_base64 = 'iVBORw0KGgoAAAANSUhEUg=='
 
-    # Check if PDF exists (simulated - won't actually exist)
-    print(f"🔍 Checking for existing PDF in S3...")
-    start_time = time.time()
-    pdf_url = s3_cache.get_pdf_url(test_ticker, test_date)
-    elapsed_ms = (time.time() - start_time) * 1000
+        mock_s3_client.get_object.return_value = self._create_s3_response(
+            chart_base64.encode('utf-8')
+        )
 
-    if pdf_url:
-        print(f"✅ PDF URL found! (took {elapsed_ms:.1f}ms)")
-        print(f"   URL: {pdf_url[:80]}...\n")
-    else:
-        print(f"⚠️  No PDF found (expected for test data, took {elapsed_ms:.1f}ms)")
-        print("   In production, this would return presigned URL for existing PDF\n")
+        result = s3_cache.get_cached_chart('TEST', '2024-01-01')
 
-    print("=" * 80)
-    print("TEST 4: Additional Cache Methods")
-    print("=" * 80)
-    print()
+        assert result is not None, "Expected chart data, got None"
+        assert result == chart_base64
 
-    # Test chart caching
-    print("📊 Testing chart cache...")
-    test_chart = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="  # 1x1 transparent PNG
-    s3_cache.save_chart_cache(test_ticker, test_date, test_chart)
-    retrieved_chart = s3_cache.get_cached_chart(test_ticker, test_date)
-    if retrieved_chart == test_chart:
-        print("✅ Chart cache working!\n")
-    else:
-        print("❌ Chart cache failed\n")
+    def test_save_news_cache(self, s3_cache, mock_s3_client):
+        """Test saving news to cache"""
+        news = [
+            {'title': 'News 1', 'score': 80},
+            {'title': 'News 2', 'score': 70}
+        ]
 
-    # Test news caching
-    print("📰 Testing news cache...")
-    test_news = [
-        {"title": "Test News 1", "score": 80},
-        {"title": "Test News 2", "score": 70}
-    ]
-    s3_cache.save_news_cache(test_ticker, test_date, test_news)
-    retrieved_news = s3_cache.get_cached_news(test_ticker, test_date)
-    if retrieved_news == test_news:
-        print("✅ News cache working!\n")
-    else:
-        print("❌ News cache failed\n")
+        s3_cache.save_news_cache('TEST', '2024-01-01', news)
 
-    print("=" * 80)
-    print("SUMMARY")
-    print("=" * 80)
-    print()
-    print("✅ Cache MISS (first request) - Saved to S3")
-    print("✅ Cache HIT (second request) - Retrieved from S3")
-    print("✅ SQLite backfill - Local cache updated from S3")
-    print("✅ Chart cache - Working")
-    print("✅ News cache - Working")
-    print("✅ PDF URL generation - Working")
-    print()
-    print("🎉 S3 CACHE IS FULLY FUNCTIONAL!")
-    print()
-    print("Performance metrics:")
-    print("  - Local SQLite hit: ~1ms")
-    print("  - S3 cache hit: ~100ms")
-    print("  - Report generation: ~30 seconds (saved ~299x time!)")
-    print()
+        mock_s3_client.put_object.assert_called_once()
 
-    return True
+    def test_get_cached_news_hit(self, s3_cache, mock_s3_client):
+        """Test retrieving cached news"""
+        news = [
+            {'title': 'News 1', 'score': 80},
+            {'title': 'News 2', 'score': 70}
+        ]
 
-if __name__ == "__main__":
-    try:
-        success = test_s3_cache()
-        sys.exit(0 if success else 1)
-    except Exception as e:
-        print(f"\n❌ Test failed with error: {e}")
-        import traceback
-        traceback.print_exc()
-        sys.exit(1)
+        mock_s3_client.get_object.return_value = self._create_s3_response(
+            json.dumps(news).encode('utf-8')
+        )
+
+        result = s3_cache.get_cached_news('TEST', '2024-01-01')
+
+        assert result is not None, "Expected news data, got None"
+        assert result == news
+        assert len(result) == 2
+
+    def test_get_pdf_url_returns_presigned_url(self, s3_cache, mock_s3_client):
+        """Test getting presigned URL for PDF"""
+        mock_s3_client.generate_presigned_url.return_value = 'https://s3.amazonaws.com/test-bucket/test.pdf?signature=xxx'
+
+        # First check if PDF exists
+        mock_s3_client.head_object.return_value = {}
+
+        result = s3_cache.get_pdf_url('TEST', '2024-01-01')
+
+        assert result is not None
+        assert 'https://' in result
+
+    def test_get_pdf_url_returns_none_if_not_exists(self, s3_cache, mock_s3_client):
+        """Test PDF URL returns None if file doesn't exist"""
+        from botocore.exceptions import ClientError
+
+        mock_s3_client.head_object.side_effect = ClientError(
+            {'Error': {'Code': '404'}},
+            'HeadObject'
+        )
+
+        result = s3_cache.get_pdf_url('TEST', '2024-01-01')
+
+        assert result is None
+
+
+class TestS3CacheKeyGeneration:
+    """Tests for S3 cache key generation"""
+
+    @pytest.fixture
+    def s3_cache(self):
+        """Create S3Cache with mocked client"""
+        with patch('boto3.client'):
+            from src.data.s3_cache import S3Cache
+            return S3Cache(bucket_name='test-bucket')
+
+    def test_report_cache_key_format(self, s3_cache):
+        """Test report cache key follows expected format"""
+        # Use the public _get_cache_key method
+        key = s3_cache._get_cache_key('reports', 'TEST', '2024-01-01', 'report.json')
+
+        assert 'TEST' in key
+        assert '2024-01-01' in key
+        assert 'report' in key.lower()
+
+    def test_chart_cache_key_format(self, s3_cache):
+        """Test chart cache key follows expected format"""
+        # Use the public _get_cache_key method
+        key = s3_cache._get_cache_key('reports', 'TEST', '2024-01-01', 'chart.b64')
+
+        assert 'TEST' in key
+        assert '2024-01-01' in key
+        assert 'chart' in key.lower()
+
+
+@pytest.mark.integration
+class TestS3CacheIntegration:
+    """Integration tests requiring actual S3 access"""
+
+    @pytest.fixture
+    def real_s3_cache(self):
+        """Create real S3Cache if bucket is configured"""
+        bucket_name = os.getenv('PDF_BUCKET_NAME')
+        if not bucket_name:
+            pytest.skip("PDF_BUCKET_NAME not set")
+
+        from src.data.s3_cache import S3Cache
+        return S3Cache(bucket_name=bucket_name)
+
+    def test_round_trip_report_cache(self, real_s3_cache):
+        """Test saving and retrieving report from S3"""
+        test_ticker = 'TEST_INTEGRATION'
+        test_date = date.today().isoformat()
+
+        report_data = {
+            'report_text': 'Integration test report',
+            'context_json': '{"integration": "test"}'
+        }
+
+        # Save
+        real_s3_cache.save_report_cache(test_ticker, test_date, report_data)
+
+        # Retrieve
+        result = real_s3_cache.get_cached_report(test_ticker, test_date)
+
+        assert result is not None
+        assert result['report_text'] == 'Integration test report'

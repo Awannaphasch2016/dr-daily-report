@@ -16,7 +16,11 @@ import pandas as pd
 import numpy as np
 import networkx as nx
 from typing import Dict, List, Tuple, Optional, Any
-# sklearn removed to reduce Lambda deployment size - clustering/PCA features disabled
+from sklearn.preprocessing import StandardScaler
+from sklearn.cluster import KMeans, AgglomerativeClustering
+from sklearn.decomposition import PCA
+from sklearn.metrics import silhouette_score
+from scipy.spatial.distance import pdist, squareform
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -31,7 +35,7 @@ class ComparativeAnalyzer:
     
     def __init__(self):
         """Initialize the analyzer."""
-        pass
+        self.scaler = StandardScaler()
     
     def prepare_ticker_features(self, ticker_data: Dict[str, pd.DataFrame]) -> pd.DataFrame:
         """
@@ -164,16 +168,23 @@ class ComparativeAnalyzer:
             return {}
         
         X = features_df[feature_cols].values
-        
-        # sklearn not available - clustering features disabled
-        # Return empty result since clustering requires sklearn
-        return {
-            'tickers': features_df.index.tolist(),
-            'kmeans_clusters': [],
-            'hierarchical_clusters': [],
-            'silhouette_score': None
-        }
-        
+
+        # Standardize features
+        X_scaled = self.scaler.fit_transform(X)
+
+        # K-means clustering
+        kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
+        kmeans_clusters = kmeans.fit_predict(X_scaled)
+
+        # Hierarchical clustering
+        hierarchical = AgglomerativeClustering(n_clusters=n_clusters)
+        hierarchical_clusters = hierarchical.fit_predict(X_scaled)
+
+        # Calculate silhouette score
+        silhouette = None
+        if n_clusters > 1 and len(features_df) > n_clusters:
+            silhouette = silhouette_score(X_scaled, kmeans_clusters)
+
         return {
             'tickers': features_df.index.tolist(),
             'kmeans_clusters': kmeans_clusters.tolist(),
@@ -209,13 +220,23 @@ class ComparativeAnalyzer:
         feature_cols = features_df.select_dtypes(include=[np.number]).columns.tolist()
         if not feature_cols:
             return {}
-        
-        # sklearn not available - PCA features disabled
-        # Return empty result since PCA requires sklearn
+
+        X = features_df[feature_cols].values
+
+        # Standardize features
+        X_scaled = self.scaler.fit_transform(X)
+
+        # Limit n_components to number of features
+        n_components = min(n_components, len(feature_cols))
+
+        # Perform PCA
+        pca = PCA(n_components=n_components)
+        components = pca.fit_transform(X_scaled)
+
         return {
             'tickers': features_df.index.tolist(),
-            'components': [],
-            'explained_variance_ratio': []
+            'components': components.tolist(),
+            'explained_variance_ratio': pca.explained_variance_ratio_.tolist()
         }
     
     def build_similarity_graph(

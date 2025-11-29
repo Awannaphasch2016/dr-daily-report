@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Tests for build commands"""
 
 import pytest
@@ -6,86 +7,84 @@ from click.testing import CliRunner
 from dr_cli.main import cli
 
 
-@pytest.fixture
-def runner():
-    """Create a CLI runner for testing"""
-    return CliRunner()
+class TestBuildCommands:
+    """Tests for the build command group"""
 
+    @pytest.fixture
+    def runner(self):
+        """Create a CLI runner for testing"""
+        return CliRunner()
 
-def test_build_help(runner):
-    """Test build command help"""
-    result = runner.invoke(cli, ['build', '--help'])
-    assert result.exit_code == 0
-    assert 'Create Lambda deployment package' in result.output
-    assert '--minimal' in result.output
-    assert '--type' in result.output
+    def test_build_help(self, runner):
+        """Test build command help"""
+        result = runner.invoke(cli, ['build', '--help'])
 
+        assert result.exit_code == 0
+        assert 'Create Lambda deployment package' in result.output
+        assert '--minimal' in result.output
+        assert '--type' in result.output
 
-@patch('subprocess.run')
-def test_build_default(mock_run, runner):
-    """Test build command default behavior"""
-    mock_run.return_value = MagicMock(returncode=0)
+    @patch('subprocess.run')
+    def test_build_default(self, mock_run, runner):
+        """Test build command default behavior"""
+        mock_run.return_value = MagicMock(returncode=0)
 
-    result = runner.invoke(cli, ['build'])
+        result = runner.invoke(cli, ['build'])
 
-    assert mock_run.called
-    call_args = mock_run.call_args[0][0]
-    assert 'bash' in call_args
-    assert 'deploy.sh' in ' '.join(call_args)
+        assert mock_run.called
+        call_args = mock_run.call_args[0][0]
+        assert 'bash' in call_args
+        assert 'deploy.sh' in ' '.join(call_args)
 
+    @patch('subprocess.run')
+    def test_build_minimal(self, mock_run, runner):
+        """Test build command with --minimal flag"""
+        mock_run.return_value = MagicMock(returncode=0)
 
-@patch('subprocess.run')
-def test_build_minimal(mock_run, runner):
-    """Test build command with --minimal flag"""
-    mock_run.return_value = MagicMock(returncode=0)
+        result = runner.invoke(cli, ['build', '--minimal'])
 
-    result = runner.invoke(cli, ['build', '--minimal'])
+        assert mock_run.called
+        call_args = mock_run.call_args[0][0]
+        assert 'bash' in call_args
+        assert 'create_lambda_minimal.sh' in ' '.join(call_args)
 
-    assert mock_run.called
-    call_args = mock_run.call_args[0][0]
-    assert 'bash' in call_args
-    assert 'create_lambda_minimal.sh' in ' '.join(call_args)
+    @patch('subprocess.run')
+    def test_build_type_lambda(self, mock_run, runner):
+        """Test build command with --type lambda"""
+        mock_run.return_value = MagicMock(returncode=0)
 
+        result = runner.invoke(cli, ['build', '--type', 'lambda'])
 
-@patch('subprocess.run')
-def test_build_type_lambda(mock_run, runner):
-    """Test build command with --type lambda"""
-    mock_run.return_value = MagicMock(returncode=0)
+        assert mock_run.called
+        call_args = mock_run.call_args[0][0]
+        assert 'bash' in call_args
+        assert 'create_lambda.sh' in ' '.join(call_args)
 
-    result = runner.invoke(cli, ['build', '--type', 'lambda'])
+    @patch('subprocess.run')
+    def test_build_type_standard(self, mock_run, runner):
+        """Test build command with --type standard"""
+        mock_run.return_value = MagicMock(returncode=0)
 
-    assert mock_run.called
-    call_args = mock_run.call_args[0][0]
-    assert 'bash' in call_args
-    assert 'create_lambda.sh' in ' '.join(call_args)
+        result = runner.invoke(cli, ['build', '--type', 'standard'])
 
+        assert mock_run.called
+        call_args = mock_run.call_args[0][0]
+        assert 'bash' in call_args
+        assert 'deploy.sh' in ' '.join(call_args)
 
-@patch('subprocess.run')
-def test_build_type_standard(mock_run, runner):
-    """Test build command with --type standard"""
-    mock_run.return_value = MagicMock(returncode=0)
+    @patch('subprocess.run')
+    def test_build_with_doppler(self, mock_run, runner):
+        """Test build command with doppler flag"""
+        mock_run.return_value = MagicMock(returncode=0)
 
-    result = runner.invoke(cli, ['build', '--type', 'standard'])
+        result = runner.invoke(cli, ['--doppler', 'build'])
 
-    assert mock_run.called
-    call_args = mock_run.call_args[0][0]
-    assert 'bash' in call_args
-    assert 'deploy.sh' in ' '.join(call_args)
+        assert mock_run.called
+        call_args = mock_run.call_args[0][0]
+        assert 'doppler' in call_args
 
+    def test_build_invalid_type(self, runner):
+        """Test build command with invalid type"""
+        result = runner.invoke(cli, ['build', '--type', 'invalid'])
 
-@patch('subprocess.run')
-def test_build_with_doppler(mock_run, runner):
-    """Test build command with doppler flag"""
-    mock_run.return_value = MagicMock(returncode=0)
-
-    result = runner.invoke(cli, ['--doppler', 'build'])
-
-    assert mock_run.called
-    call_args = mock_run.call_args[0][0]
-    assert 'doppler' in call_args
-
-
-def test_build_invalid_type(runner):
-    """Test build command with invalid type"""
-    result = runner.invoke(cli, ['build', '--type', 'invalid'])
-    assert result.exit_code != 0
+        assert result.exit_code != 0

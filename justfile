@@ -118,6 +118,60 @@ test-line TYPE:
 test-ticker TICKER:
     dr test integration {{TICKER}}
 
+# Deployment gate tests (must pass before deploying Telegram Mini App)
+test-deploy:
+    @echo "🧪 Running deployment gate tests..."
+    @echo "   These tests must pass before deploying to production."
+    pytest tests/telegram tests/shared -m "not integration and not e2e and not smoke" -v --tb=short
+    @echo "✅ Deployment gate tests passed!"
+
+# LINE Bot test suite (for LINE Bot development)
+test-line-all:
+    @echo "🧪 Running LINE Bot tests..."
+    pytest tests/line_bot tests/shared -m "not integration and not e2e" -v --tb=short
+    @echo "✅ LINE Bot tests passed!"
+
+# === TIER-BASED TESTING ===
+# Tiers are compositions of markers (see conftest.py for details)
+# Tier 0: Unit tests only
+# Tier 1: Unit + mocked (default, same as 'pytest')
+# Tier 2: + integration (requires API keys)
+# Tier 3: + smoke (requires running server)
+# Tier 4: + e2e (requires browser)
+
+# Fastest possible test run (unit tests only)
+test-tier0:
+    @echo "🧪 Running tier 0 (unit tests only)..."
+    pytest --tier=0 tests/shared tests/telegram -v --tb=short
+    @echo "✅ Tier 0 tests passed!"
+
+# Default test tier (unit + mocked, equivalent to just 'pytest')
+test-tier1:
+    @echo "🧪 Running tier 1 (unit + mocked)..."
+    pytest --tier=1 tests/shared tests/telegram -v --tb=short
+    @echo "✅ Tier 1 tests passed!"
+
+# Integration tests (requires OPENROUTER_API_KEY)
+test-tier2:
+    @echo "🧪 Running tier 2 (+ integration tests)..."
+    @echo "   ℹ️  Requires OPENROUTER_API_KEY"
+    doppler run -- pytest --tier=2 tests/shared tests/telegram -v --tb=short
+    @echo "✅ Tier 2 tests passed!"
+
+# Smoke tests (requires running API server)
+test-tier3:
+    @echo "🧪 Running tier 3 (+ smoke tests)..."
+    @echo "   ℹ️  Requires running API server (just dev-api)"
+    pytest --tier=3 tests/telegram/test_smoke.py -v --tb=short
+    @echo "✅ Tier 3 tests passed!"
+
+# E2E tests (requires browser)
+test-tier4:
+    @echo "🧪 Running tier 4 (+ e2e browser tests)..."
+    @echo "   ℹ️  Requires Playwright: playwright install chromium"
+    pytest --tier=4 tests/e2e -v --tb=short
+    @echo "✅ Tier 4 tests passed!"
+
 # === BUILD & DEPLOYMENT ===
 
 # Build deployment package (when preparing to deploy)

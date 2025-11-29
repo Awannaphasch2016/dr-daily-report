@@ -29,7 +29,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements_minimal.txt
+          pip install -r requirements.txt
           pip install pytest pytest-asyncio
 
       - name: Syntax check
@@ -48,13 +48,15 @@ jobs:
       - name: Unit tests
         run: |
           echo "🧪 Running unit tests..."
-          pytest tests/ -k "not integration" -v --tb=short --ignore=tests/test_smoke.py -x
+          pytest tests/telegram tests/shared -m "not integration and not e2e" -v --tb=short -x
           echo "✅ Unit tests passed"
 
       - name: Test coverage
         run: |
           pip install pytest-cov
-          pytest tests/ -k "not integration" --cov=src --cov-report=term-missing --cov-fail-under=50 || echo "⚠️ Coverage below 50%"
+          pytest tests/telegram tests/shared -m "not integration and not e2e" \
+            --cov=src --cov-report=term-missing --cov-fail-under=50 \
+            || echo "⚠️ Coverage below 50%"
         continue-on-error: true
 
   ###############################################################################

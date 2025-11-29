@@ -13,6 +13,7 @@ from pathlib import Path
 from click.testing import CliRunner
 from unittest.mock import Mock, patch, MagicMock
 
+from dr_cli.main import cli
 from dr_cli.commands.eval import (
     eval,
     generate_ground_truth,
@@ -76,7 +77,7 @@ class TestEvalCLI:
         assert 'report-generation' in result.output
 
     @patch('src.agent.TickerAnalysisAgent')
-    @patch('src.database.TickerDatabase')
+    @patch('src.data.database.TickerDatabase')
     @patch('dr_cli.commands.eval.sqlite3')
     def test_generate_ground_truth_creates_files(self, mock_sqlite, mock_db, mock_agent):
         """Test that generate-ground-truth creates JSON files"""
@@ -147,7 +148,7 @@ class TestEvalCLI:
             assert result.exit_code == 0
             assert 'No historical data found' in result.output
 
-    @patch('src.langsmith_integration.get_langsmith_client')
+    @patch('src.evaluation.langsmith_integration.get_langsmith_client')
     def test_upload_dataset_success(self, mock_get_client):
         """Test upload-dataset uploads to LangSmith"""
         # Create test ground truth file
@@ -192,7 +193,7 @@ class TestEvalCLI:
         mock_client.create_dataset.assert_called_once()
         mock_client.create_example.assert_called_once()
 
-    @patch('src.langsmith_integration.get_langsmith_client')
+    @patch('src.evaluation.langsmith_integration.get_langsmith_client')
     def test_upload_dataset_no_files(self, mock_get_client):
         """Test upload-dataset with no ground truth files"""
         mock_client = Mock()
@@ -213,8 +214,9 @@ class TestEvalCLI:
         """Test eval agent command"""
         mock_run_eval.return_value = {'status': 'success'}
 
-        result = self.runner.invoke(eval, [
-            'agent',
+        # Use main cli to ensure ctx.obj is set up properly
+        result = self.runner.invoke(cli, [
+            'eval', 'agent',
             '--dataset', 'test-dataset'
         ])
 
@@ -226,8 +228,9 @@ class TestEvalCLI:
         """Test eval component command"""
         mock_run_eval.return_value = {'status': 'success'}
 
-        result = self.runner.invoke(eval, [
-            'component',
+        # Use main cli to ensure ctx.obj is set up properly
+        result = self.runner.invoke(cli, [
+            'eval', 'component',
             'report-generation',
             '--dataset', 'test-dataset'
         ])
@@ -258,7 +261,7 @@ class TestEvalCLI:
                 ('PTT', '2025-11-20', '{"indicators": {}}', 'Test report')
             ]
 
-            with patch('src.database.TickerDatabase'):
+            with patch('src.data.database.TickerDatabase'):
                 # Test mock tier
                 result = self.runner.invoke(eval, [
                     'generate-ground-truth',
@@ -278,7 +281,7 @@ class TestEvalCLI:
                 assert result.exit_code == 0
                 assert 'not yet implemented' in result.output
 
-    @patch('src.langsmith_integration.get_langsmith_client')
+    @patch('src.evaluation.langsmith_integration.get_langsmith_client')
     def test_upload_dataset_agent_vs_component(self, mock_get_client):
         """Test upload-dataset with agent vs component type"""
         # Create test ground truth file

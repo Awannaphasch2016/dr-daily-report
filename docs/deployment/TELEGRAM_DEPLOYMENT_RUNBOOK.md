@@ -9,6 +9,8 @@
 
 | Phase | Command | Pass Criteria |
 |-------|---------|---------------|
+| CI/CD Lint | `just ci-lint` | No actionlint errors |
+| CI/CD Dry-run | `just ci-test` | All jobs pass dry-run |
 | Local | `just setup-local-dynamodb && just dev-api` | Health returns `{"status": "ok"}` |
 | Dev | `./scripts/deploy-backend.sh dev` | Smoke tests pass, alias updated |
 | E2E | `pytest tests/test_e2e_frontend.py -k "not slow" -v` | 12 tests pass |
@@ -80,6 +82,88 @@ doppler configure get project
 
 **Expected**: `dr-daily-report` or similar project name
 **If fails**: Run `doppler login` and `doppler setup`
+
+### 0.5 CI/CD Tools (for GitHub Actions testing)
+
+```bash
+# Check act is installed
+~/.local/bin/act --version         # act version 0.2.x
+
+# Check actionlint is installed
+~/.local/bin/actionlint --version  # actionlint 1.7.x
+```
+
+**If not installed**:
+```bash
+# Install act (GitHub Actions local runner)
+curl -s https://raw.githubusercontent.com/nektos/act/master/install.sh | bash -s -- -b ~/.local/bin
+
+# Install actionlint (static analyzer)
+curl -sL https://github.com/rhysd/actionlint/releases/download/v1.7.4/actionlint_1.7.4_linux_amd64.tar.gz | tar xz -C ~/.local/bin actionlint
+
+# Configure act with medium Docker image
+mkdir -p ~/.config/act
+echo "-P ubuntu-latest=ghcr.io/catthehacker/ubuntu:act-latest" > ~/.config/act/actrc
+```
+
+---
+
+## Phase 0.5: CI/CD Workflow Testing (TDD)
+
+**Purpose**: Validate GitHub Actions workflow locally before pushing to avoid CI failures.
+
+### 0.5.1 Static Analysis (Fast)
+
+```bash
+just ci-lint
+```
+
+**Expected**:
+```
+🔍 Running actionlint on workflows...
+✅ All workflows pass actionlint
+```
+
+**If fails**: Fix syntax errors in `.github/workflows/*.yml`
+
+### 0.5.2 Dry-Run Jobs
+
+```bash
+# Dry-run the environment detection job
+just ci-dryrun environment
+
+# Dry-run the test job
+just ci-dryrun test
+```
+
+**Expected**: All steps show `✅ Success`
+
+### 0.5.3 Full CI/CD Validation
+
+```bash
+just ci-test
+```
+
+**Expected**: Lint passes, dry-runs succeed for environment and test jobs.
+
+### 0.5.4 Run Jobs Locally (Optional, requires Docker)
+
+```bash
+# Run the test job locally with actual execution
+just ci-run test
+```
+
+**Note**: This runs the actual job in Docker, which takes longer but gives more confidence.
+
+### 0.5.5 CI/CD Testing Checklist
+
+| Test | Command | Pass? |
+|------|---------|-------|
+| Actionlint passes | `just ci-lint` | [ ] |
+| Environment job dry-run | `just ci-dryrun environment` | [ ] |
+| Test job dry-run | `just ci-dryrun test` | [ ] |
+
+**ALL MUST PASS before pushing workflow changes**
 
 ---
 
