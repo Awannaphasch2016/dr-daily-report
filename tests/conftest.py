@@ -45,11 +45,44 @@ def pytest_addoption(parser):
 
 
 def pytest_configure(config):
-    """Configure custom markers and handle --tier override.
+    """Configure custom markers, handle --tier override, and log environment.
 
     Markers defined here are for documentation only (actual markers defined in pytest.ini).
     The main purpose is to handle --tier flag which needs to override addopts marker filter.
     """
+    # ============================================================
+    # ENVIRONMENT LOGGING
+    # ============================================================
+    # Log critical environment variables at test start to make
+    # configuration issues obvious (no more guessing what's set)
+    print("\n" + "="*60)
+    print("TEST ENVIRONMENT")
+    print("="*60)
+
+    # API Configuration (critical for smoke tests)
+    api_url = os.environ.get("TELEGRAM_API_URL", "http://localhost:8001")
+    source = "env var" if "TELEGRAM_API_URL" in os.environ else "DEFAULT (localhost)"
+    print(f"TELEGRAM_API_URL: {api_url}")
+    print(f"  Source: {source}")
+
+    # Doppler Detection
+    doppler_config = os.environ.get("DOPPLER_CONFIG", "NOT SET")
+    doppler_env = os.environ.get("DOPPLER_ENVIRONMENT", "NOT SET")
+    print(f"DOPPLER_CONFIG: {doppler_config}")
+    print(f"DOPPLER_ENVIRONMENT: {doppler_env}")
+
+    # Other critical vars (mask sensitive keys)
+    for var in ["AWS_REGION", "LANGSMITH_TRACING_V2", "OPENROUTER_API_KEY"]:
+        value = os.environ.get(var, "NOT SET")
+        if var.endswith("_KEY") and value != "NOT SET":
+            value = value[:8] + "..." + value[-4:] if len(value) > 12 else "***"
+        print(f"{var}: {value}")
+
+    print("="*60 + "\n")
+
+    # ============================================================
+    # TIER HANDLING
+    # ============================================================
     # If --tier is provided, override the marker filter from addopts
     tier_opt = config.getoption("--tier", default=None)
     if tier_opt is not None:
