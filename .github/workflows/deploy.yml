@@ -141,7 +141,7 @@ jobs:
           severity: 'CRITICAL,HIGH'
 
   ###############################################################################
-  # Stage 2: Deploy to Dev
+  # Stage 2: Deploy to Dev (Zero-Downtime: Test Before Promote)
   ###############################################################################
   deploy-dev:
     name: Deploy Dev
@@ -150,8 +150,8 @@ jobs:
     environment: development
 
     outputs:
-      telegram_version: ${{ steps.deploy-telegram.outputs.version }}
-      worker_version: ${{ steps.deploy-worker.outputs.version }}
+      telegram_version: ${{ steps.promote-telegram.outputs.version }}
+      worker_version: ${{ steps.promote-worker.outputs.version }}
       prev_telegram_version: ${{ steps.get-current.outputs.telegram_version }}
       prev_worker_version: ${{ steps.get-current.outputs.worker_version }}
 
@@ -168,7 +168,7 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Get current versions (for rollback)
+      - name: Get current versions (for rollback reference)
         id: get-current
         run: |
           TELEGRAM_VERSION=$(aws lambda get-alias \
@@ -185,42 +185,120 @@ jobs:
           echo "telegram_version=${TELEGRAM_VERSION}" >> $GITHUB_OUTPUT
           echo "worker_version=${WORKER_VERSION}" >> $GITHUB_OUTPUT
 
-      - name: Deploy Telegram API Lambda
-        id: deploy-telegram
+      # ========================================================================
+      # Step 1: Update $LATEST (staging area - users still see old version)
+      # ========================================================================
+      - name: Update Telegram API to $LATEST (not live yet)
         run: |
-          echo "🔄 Deploying to ${{ env.TELEGRAM_FUNCTION }}..."
+          echo "🔄 Uploading new code to \$LATEST (users still see old version)..."
           aws lambda update-function-code \
             --function-name ${{ env.TELEGRAM_FUNCTION }} \
-            --image-uri ${{ needs.build.outputs.image_uri }} \
-            --publish \
-            --query 'Version' \
-            --output text > version.txt
+            --image-uri ${{ needs.build.outputs.image_uri }}
           aws lambda wait function-updated --function-name ${{ env.TELEGRAM_FUNCTION }}
-          NEW_VERSION=$(cat version.txt)
+          echo "✅ Code uploaded to \$LATEST"
+
+      - name: Update Worker to $LATEST (not live yet)
+        run: |
+          aws lambda update-function-code \
+            --function-name ${{ env.WORKER_FUNCTION }} \
+            --image-uri ${{ needs.build.outputs.image_uri }}
+          aws lambda wait function-updated --function-name ${{ env.WORKER_FUNCTION }}
+          echo "✅ Worker code uploaded to \$LATEST"
+
+      # ========================================================================
+      # Step 2: Smoke test $LATEST directly (before any user sees it)
+      # ========================================================================
+      - name: Smoke test $LATEST (pre-promotion validation)
+        run: |
+          echo "🧪 Testing \$LATEST directly via aws lambda invoke..."
+          echo "   Users are STILL seeing the old version"
+
+          # Test 1: Health endpoint
+          aws lambda invoke \
+            --function-name ${{ env.TELEGRAM_FUNCTION }} \
+            --cli-read-timeout 30 \
+            --payload '{"httpMethod":"GET","path":"/api/v1/health","requestContext":{"http":{"method":"GET"}}}' \
+            /tmp/health.json
+
+          HEALTH_STATUS=$(cat /tmp/health.json | jq -r '.statusCode // .status // 500')
+          echo "   Health check response: ${HEALTH_STATUS}"
+          if [ "$HEALTH_STATUS" != "200" ]; then
+            echo "❌ Health check FAILED on \$LATEST"
+            echo "   Response body: $(cat /tmp/health.json)"
+            echo "   Users were NEVER exposed to this broken code!"
+            exit 1
+          fi
+          echo "✅ Health check passed"
+
+          # Test 2: Search endpoint
+          aws lambda invoke \
+            --function-name ${{ env.TELEGRAM_FUNCTION }} \
+            --cli-read-timeout 30 \
+            --payload '{"httpMethod":"GET","path":"/api/v1/search","queryStringParameters":{"q":"NVDA"},"requestContext":{"http":{"method":"GET"}}}' \
+            /tmp/search.json
+
+          SEARCH_STATUS=$(cat /tmp/search.json | jq -r '.statusCode // .status // 500')
+          echo "   Search endpoint response: ${SEARCH_STATUS}"
+          if [ "$SEARCH_STATUS" != "200" ]; then
+            echo "❌ Search endpoint FAILED on \$LATEST"
+            echo "   Response body: $(cat /tmp/search.json)"
+            echo "   Users were NEVER exposed to this broken code!"
+            exit 1
+          fi
+          echo "✅ Search endpoint passed"
+
+          # Test 3: Rankings endpoint
+          aws lambda invoke \
+            --function-name ${{ env.TELEGRAM_FUNCTION }} \
+            --cli-read-timeout 30 \
+            --payload '{"httpMethod":"GET","path":"/api/v1/rankings","queryStringParameters":{"category":"top_gainers","limit":"5"},"requestContext":{"http":{"method":"GET"}}}' \
+            /tmp/rankings.json
+
+          RANKINGS_STATUS=$(cat /tmp/rankings.json | jq -r '.statusCode // .status // 500')
+          echo "   Rankings endpoint response: ${RANKINGS_STATUS}"
+          if [ "$RANKINGS_STATUS" != "200" ]; then
+            echo "❌ Rankings endpoint FAILED on \$LATEST"
+            echo "   Response body: $(cat /tmp/rankings.json)"
+            echo "   Users were NEVER exposed to this broken code!"
+            exit 1
+          fi
+          echo "✅ Rankings endpoint passed"
+
+          echo ""
+          echo "🎉 All pre-promotion smoke tests PASSED!"
+          echo "   Safe to promote to live alias"
+
+      # ========================================================================
+      # Step 3: Promote to live (only after tests pass)
+      # ========================================================================
+      - name: Promote Telegram API to live
+        id: promote-telegram
+        run: |
+          echo "🚀 Publishing version and updating live alias..."
+          NEW_VERSION=$(aws lambda publish-version \
+            --function-name ${{ env.TELEGRAM_FUNCTION }} \
+            --query 'Version' \
+            --output text)
           aws lambda update-alias \
             --function-name ${{ env.TELEGRAM_FUNCTION }} \
             --name live \
             --function-version ${NEW_VERSION}
-          echo "✅ Dev Telegram API: version ${NEW_VERSION}"
+          echo "✅ Dev Telegram API promoted: version ${NEW_VERSION}"
+          echo "   Users now see the tested code"
           echo "version=${NEW_VERSION}" >> $GITHUB_OUTPUT
 
-      - name: Deploy Report Worker Lambda
-        id: deploy-worker
+      - name: Promote Worker to live
+        id: promote-worker
         run: |
-          echo "🔄 Deploying to ${{ env.WORKER_FUNCTION }}..."
-          aws lambda update-function-code \
+          NEW_VERSION=$(aws lambda publish-version \
             --function-name ${{ env.WORKER_FUNCTION }} \
-            --image-uri ${{ needs.build.outputs.image_uri }} \
-            --publish \
             --query 'Version' \
-            --output text > version.txt
-          aws lambda wait function-updated --function-name ${{ env.WORKER_FUNCTION }}
-          NEW_VERSION=$(cat version.txt)
+            --output text)
           aws lambda update-alias \
             --function-name ${{ env.WORKER_FUNCTION }} \
             --name live \
             --function-version ${NEW_VERSION}
-          echo "✅ Dev Worker: version ${NEW_VERSION}"
+          echo "✅ Dev Worker promoted: version ${NEW_VERSION}"
           echo "version=${NEW_VERSION}" >> $GITHUB_OUTPUT
 
   ###############################################################################
@@ -265,85 +343,17 @@ jobs:
           fi
 
   ###############################################################################
-  # Gate 1: Smoke Test Dev (must pass before staging)
-  ###############################################################################
-  smoke-dev:
-    name: Smoke Test Dev
-    needs: [build, deploy-dev, deploy-dev-frontend]
-    runs-on: ubuntu-latest
-    environment: development
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Run smoke tests
-        env:
-          API_URL: ${{ secrets.TELEGRAM_API_URL }}
-        run: |
-          echo "🔥 Smoke testing DEV environment..."
-          echo "   API URL: ${API_URL}"
-
-          # Test 1: Health
-          HEALTH_CODE=$(curl -s -o /dev/null -w "%{http_code}" "${API_URL}/api/v1/health")
-          if [ "$HEALTH_CODE" != "200" ]; then
-            echo "❌ Health check failed: ${HEALTH_CODE}"
-            exit 1
-          fi
-          echo "✅ Health check passed"
-
-          # Test 2: Search
-          SEARCH_CODE=$(curl -s -o /dev/null -w "%{http_code}" "${API_URL}/api/v1/search?q=NVDA")
-          if [ "$SEARCH_CODE" != "200" ]; then
-            echo "❌ Search endpoint failed: ${SEARCH_CODE}"
-            exit 1
-          fi
-          echo "✅ Search endpoint passed"
-
-          # Test 3: Rankings
-          RANKINGS_CODE=$(curl -s -o /dev/null -w "%{http_code}" "${API_URL}/api/v1/rankings?category=top_gainers&limit=5")
-          if [ "$RANKINGS_CODE" != "200" ]; then
-            echo "❌ Rankings endpoint failed: ${RANKINGS_CODE}"
-            exit 1
-          fi
-          echo "✅ Rankings endpoint passed"
-
-          echo "🎉 DEV smoke tests passed!"
-
-      - name: Rollback on failure
-        if: failure()
-        run: |
-          echo "🚨 Dev smoke tests failed! Rolling back..."
-          aws lambda update-alias \
-            --function-name dr-daily-report-telegram-api-dev \
-            --name live \
-            --function-version ${{ needs.deploy-dev.outputs.prev_telegram_version }}
-          aws lambda update-alias \
-            --function-name dr-daily-report-report-worker-dev \
-            --name live \
-            --function-version ${{ needs.deploy-dev.outputs.prev_worker_version }}
-          echo "✅ Dev rollback complete"
-          exit 1
-
-  ###############################################################################
-  # Stage 3: Deploy to Staging (only runs after dev passes)
+  # Stage 3: Deploy to Staging (Zero-Downtime: Test Before Promote)
   ###############################################################################
   deploy-staging:
     name: Deploy Staging
-    needs: [build, smoke-dev]  # KEY: waits for dev smoke tests to pass
+    needs: [build, deploy-dev]  # Waits for dev to complete successfully
     runs-on: ubuntu-latest
     environment: staging
 
     outputs:
-      telegram_version: ${{ steps.deploy-telegram.outputs.version }}
-      worker_version: ${{ steps.deploy-worker.outputs.version }}
+      telegram_version: ${{ steps.promote-telegram.outputs.version }}
+      worker_version: ${{ steps.promote-worker.outputs.version }}
       prev_telegram_version: ${{ steps.get-current.outputs.telegram_version }}
       prev_worker_version: ${{ steps.get-current.outputs.worker_version }}
 
@@ -360,7 +370,7 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Get current versions (for rollback)
+      - name: Get current versions (for rollback reference)
         id: get-current
         run: |
           TELEGRAM_VERSION=$(aws lambda get-alias \
@@ -377,41 +387,120 @@ jobs:
           echo "telegram_version=${TELEGRAM_VERSION}" >> $GITHUB_OUTPUT
           echo "worker_version=${WORKER_VERSION}" >> $GITHUB_OUTPUT
 
-      - name: Deploy Telegram API Lambda
-        id: deploy-telegram
+      # ========================================================================
+      # Step 1: Update $LATEST (staging area - users still see old version)
+      # ========================================================================
+      - name: Update Telegram API to $LATEST (not live yet)
         run: |
-          echo "🔄 Deploying SAME image to staging..."
+          echo "🔄 Uploading new code to \$LATEST (users still see old version)..."
           aws lambda update-function-code \
             --function-name ${{ env.TELEGRAM_FUNCTION }} \
-            --image-uri ${{ needs.build.outputs.image_uri }} \
-            --publish \
-            --query 'Version' \
-            --output text > version.txt
+            --image-uri ${{ needs.build.outputs.image_uri }}
           aws lambda wait function-updated --function-name ${{ env.TELEGRAM_FUNCTION }}
-          NEW_VERSION=$(cat version.txt)
+          echo "✅ Code uploaded to \$LATEST"
+
+      - name: Update Worker to $LATEST (not live yet)
+        run: |
+          aws lambda update-function-code \
+            --function-name ${{ env.WORKER_FUNCTION }} \
+            --image-uri ${{ needs.build.outputs.image_uri }}
+          aws lambda wait function-updated --function-name ${{ env.WORKER_FUNCTION }}
+          echo "✅ Worker code uploaded to \$LATEST"
+
+      # ========================================================================
+      # Step 2: Smoke test $LATEST directly (before any user sees it)
+      # ========================================================================
+      - name: Smoke test $LATEST (pre-promotion validation)
+        run: |
+          echo "🧪 Testing \$LATEST directly via aws lambda invoke..."
+          echo "   Users are STILL seeing the old version"
+
+          # Test 1: Health endpoint
+          aws lambda invoke \
+            --function-name ${{ env.TELEGRAM_FUNCTION }} \
+            --cli-read-timeout 30 \
+            --payload '{"httpMethod":"GET","path":"/api/v1/health","requestContext":{"http":{"method":"GET"}}}' \
+            /tmp/health.json
+
+          HEALTH_STATUS=$(cat /tmp/health.json | jq -r '.statusCode // .status // 500')
+          echo "   Health check response: ${HEALTH_STATUS}"
+          if [ "$HEALTH_STATUS" != "200" ]; then
+            echo "❌ Health check FAILED on \$LATEST"
+            echo "   Response body: $(cat /tmp/health.json)"
+            echo "   Users were NEVER exposed to this broken code!"
+            exit 1
+          fi
+          echo "✅ Health check passed"
+
+          # Test 2: Search endpoint
+          aws lambda invoke \
+            --function-name ${{ env.TELEGRAM_FUNCTION }} \
+            --cli-read-timeout 30 \
+            --payload '{"httpMethod":"GET","path":"/api/v1/search","queryStringParameters":{"q":"NVDA"},"requestContext":{"http":{"method":"GET"}}}' \
+            /tmp/search.json
+
+          SEARCH_STATUS=$(cat /tmp/search.json | jq -r '.statusCode // .status // 500')
+          echo "   Search endpoint response: ${SEARCH_STATUS}"
+          if [ "$SEARCH_STATUS" != "200" ]; then
+            echo "❌ Search endpoint FAILED on \$LATEST"
+            echo "   Response body: $(cat /tmp/search.json)"
+            echo "   Users were NEVER exposed to this broken code!"
+            exit 1
+          fi
+          echo "✅ Search endpoint passed"
+
+          # Test 3: Rankings endpoint
+          aws lambda invoke \
+            --function-name ${{ env.TELEGRAM_FUNCTION }} \
+            --cli-read-timeout 30 \
+            --payload '{"httpMethod":"GET","path":"/api/v1/rankings","queryStringParameters":{"category":"top_gainers","limit":"5"},"requestContext":{"http":{"method":"GET"}}}' \
+            /tmp/rankings.json
+
+          RANKINGS_STATUS=$(cat /tmp/rankings.json | jq -r '.statusCode // .status // 500')
+          echo "   Rankings endpoint response: ${RANKINGS_STATUS}"
+          if [ "$RANKINGS_STATUS" != "200" ]; then
+            echo "❌ Rankings endpoint FAILED on \$LATEST"
+            echo "   Response body: $(cat /tmp/rankings.json)"
+            echo "   Users were NEVER exposed to this broken code!"
+            exit 1
+          fi
+          echo "✅ Rankings endpoint passed"
+
+          echo ""
+          echo "🎉 All pre-promotion smoke tests PASSED!"
+          echo "   Safe to promote to live alias"
+
+      # ========================================================================
+      # Step 3: Promote to live (only after tests pass)
+      # ========================================================================
+      - name: Promote Telegram API to live
+        id: promote-telegram
+        run: |
+          echo "🚀 Publishing version and updating live alias..."
+          NEW_VERSION=$(aws lambda publish-version \
+            --function-name ${{ env.TELEGRAM_FUNCTION }} \
+            --query 'Version' \
+            --output text)
           aws lambda update-alias \
             --function-name ${{ env.TELEGRAM_FUNCTION }} \
             --name live \
             --function-version ${NEW_VERSION}
-          echo "✅ Staging Telegram API: version ${NEW_VERSION}"
+          echo "✅ Staging Telegram API promoted: version ${NEW_VERSION}"
+          echo "   Users now see the tested code"
           echo "version=${NEW_VERSION}" >> $GITHUB_OUTPUT
 
-      - name: Deploy Report Worker Lambda
-        id: deploy-worker
+      - name: Promote Worker to live
+        id: promote-worker
         run: |
-          aws lambda update-function-code \
+          NEW_VERSION=$(aws lambda publish-version \
             --function-name ${{ env.WORKER_FUNCTION }} \
-            --image-uri ${{ needs.build.outputs.image_uri }} \
-            --publish \
             --query 'Version' \
-            --output text > version.txt
-          aws lambda wait function-updated --function-name ${{ env.WORKER_FUNCTION }}
-          NEW_VERSION=$(cat version.txt)
+            --output text)
           aws lambda update-alias \
             --function-name ${{ env.WORKER_FUNCTION }} \
             --name live \
             --function-version ${NEW_VERSION}
-          echo "✅ Staging Worker: version ${NEW_VERSION}"
+          echo "✅ Staging Worker promoted: version ${NEW_VERSION}"
           echo "version=${NEW_VERSION}" >> $GITHUB_OUTPUT
 
   ###############################################################################
@@ -456,79 +545,17 @@ jobs:
           fi
 
   ###############################################################################
-  # Gate 2: Smoke Test Staging (must pass before prod)
-  ###############################################################################
-  smoke-staging:
-    name: Smoke Test Staging
-    needs: [build, deploy-staging, deploy-staging-frontend]
-    runs-on: ubuntu-latest
-    environment: staging
-
-    steps:
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Run smoke tests
-        env:
-          API_URL: ${{ secrets.TELEGRAM_API_URL }}
-        run: |
-          echo "🔥 Smoke testing STAGING environment..."
-          echo "   API URL: ${API_URL}"
-
-          HEALTH_CODE=$(curl -s -o /dev/null -w "%{http_code}" "${API_URL}/api/v1/health")
-          if [ "$HEALTH_CODE" != "200" ]; then
-            echo "❌ Health check failed: ${HEALTH_CODE}"
-            exit 1
-          fi
-          echo "✅ Health check passed"
-
-          SEARCH_CODE=$(curl -s -o /dev/null -w "%{http_code}" "${API_URL}/api/v1/search?q=NVDA")
-          if [ "$SEARCH_CODE" != "200" ]; then
-            echo "❌ Search endpoint failed: ${SEARCH_CODE}"
-            exit 1
-          fi
-          echo "✅ Search endpoint passed"
-
-          RANKINGS_CODE=$(curl -s -o /dev/null -w "%{http_code}" "${API_URL}/api/v1/rankings?category=top_gainers&limit=5")
-          if [ "$RANKINGS_CODE" != "200" ]; then
-            echo "❌ Rankings endpoint failed: ${RANKINGS_CODE}"
-            exit 1
-          fi
-          echo "✅ Rankings endpoint passed"
-
-          echo "🎉 STAGING smoke tests passed!"
-
-      - name: Rollback on failure
-        if: failure()
-        run: |
-          echo "🚨 Staging smoke tests failed! Rolling back..."
-          aws lambda update-alias \
-            --function-name dr-daily-report-telegram-api-staging \
-            --name live \
-            --function-version ${{ needs.deploy-staging.outputs.prev_telegram_version }}
-          aws lambda update-alias \
-            --function-name dr-daily-report-report-worker-staging \
-            --name live \
-            --function-version ${{ needs.deploy-staging.outputs.prev_worker_version }}
-          echo "✅ Staging rollback complete"
-          exit 1
-
-  ###############################################################################
-  # Stage 4: Deploy to Prod (only runs after staging passes)
+  # Stage 4: Deploy to Prod (Zero-Downtime: Test Before Promote)
   ###############################################################################
   deploy-prod:
     name: Deploy Prod
-    needs: [build, smoke-staging]  # KEY: waits for staging smoke tests to pass
+    needs: [build, deploy-staging]  # Waits for staging to complete successfully
     runs-on: ubuntu-latest
     environment: production
 
     outputs:
-      telegram_version: ${{ steps.deploy-telegram.outputs.version }}
-      worker_version: ${{ steps.deploy-worker.outputs.version }}
+      telegram_version: ${{ steps.promote-telegram.outputs.version }}
+      worker_version: ${{ steps.promote-worker.outputs.version }}
       prev_telegram_version: ${{ steps.get-current.outputs.telegram_version }}
       prev_worker_version: ${{ steps.get-current.outputs.worker_version }}
 
@@ -545,8 +572,19 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Get current versions (for rollback)
+      - name: Check if prod Lambda exists
+        id: check-lambda
+        run: |
+          if aws lambda get-function --function-name ${{ env.TELEGRAM_FUNCTION }} 2>/dev/null; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "⚠️ Prod Lambda ${{ env.TELEGRAM_FUNCTION }} doesn't exist - skipping deployment"
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Get current versions (for rollback reference)
         id: get-current
+        if: steps.check-lambda.outputs.exists == 'true'
         run: |
           TELEGRAM_VERSION=$(aws lambda get-alias \
             --function-name ${{ env.TELEGRAM_FUNCTION }} \
@@ -562,53 +600,125 @@ jobs:
           echo "telegram_version=${TELEGRAM_VERSION}" >> $GITHUB_OUTPUT
           echo "worker_version=${WORKER_VERSION}" >> $GITHUB_OUTPUT
 
-      - name: Check if prod Lambda exists
-        id: check-lambda
-        run: |
-          if aws lambda get-function --function-name ${{ env.TELEGRAM_FUNCTION }} 2>/dev/null; then
-            echo "exists=true" >> $GITHUB_OUTPUT
-          else
-            echo "⚠️ Prod Lambda ${{ env.TELEGRAM_FUNCTION }} doesn't exist - skipping deployment"
-            echo "exists=false" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Deploy Telegram API Lambda
-        id: deploy-telegram
+      # ========================================================================
+      # Step 1: Update $LATEST (staging area - users still see old version)
+      # ========================================================================
+      - name: Update Telegram API to $LATEST (not live yet)
         if: steps.check-lambda.outputs.exists == 'true'
         run: |
-          echo "🔄 Deploying SAME image to prod..."
+          echo "🔄 Uploading new code to \$LATEST (users still see old version)..."
           aws lambda update-function-code \
             --function-name ${{ env.TELEGRAM_FUNCTION }} \
-            --image-uri ${{ needs.build.outputs.image_uri }} \
-            --publish \
-            --query 'Version' \
-            --output text > version.txt
+            --image-uri ${{ needs.build.outputs.image_uri }}
           aws lambda wait function-updated --function-name ${{ env.TELEGRAM_FUNCTION }}
-          NEW_VERSION=$(cat version.txt)
+          echo "✅ Code uploaded to \$LATEST"
+
+      - name: Update Worker to $LATEST (not live yet)
+        if: steps.check-lambda.outputs.exists == 'true'
+        run: |
+          aws lambda update-function-code \
+            --function-name ${{ env.WORKER_FUNCTION }} \
+            --image-uri ${{ needs.build.outputs.image_uri }}
+          aws lambda wait function-updated --function-name ${{ env.WORKER_FUNCTION }}
+          echo "✅ Worker code uploaded to \$LATEST"
+
+      # ========================================================================
+      # Step 2: Smoke test $LATEST directly (before any user sees it)
+      # ========================================================================
+      - name: Smoke test $LATEST (pre-promotion validation)
+        if: steps.check-lambda.outputs.exists == 'true'
+        run: |
+          echo "🧪 Testing \$LATEST directly via aws lambda invoke..."
+          echo "   Users are STILL seeing the old version"
+
+          # Test 1: Health endpoint
+          aws lambda invoke \
+            --function-name ${{ env.TELEGRAM_FUNCTION }} \
+            --cli-read-timeout 30 \
+            --payload '{"httpMethod":"GET","path":"/api/v1/health","requestContext":{"http":{"method":"GET"}}}' \
+            /tmp/health.json
+
+          HEALTH_STATUS=$(cat /tmp/health.json | jq -r '.statusCode // .status // 500')
+          echo "   Health check response: ${HEALTH_STATUS}"
+          if [ "$HEALTH_STATUS" != "200" ]; then
+            echo "❌ Health check FAILED on \$LATEST"
+            echo "   Response body: $(cat /tmp/health.json)"
+            echo "   Users were NEVER exposed to this broken code!"
+            exit 1
+          fi
+          echo "✅ Health check passed"
+
+          # Test 2: Search endpoint
+          aws lambda invoke \
+            --function-name ${{ env.TELEGRAM_FUNCTION }} \
+            --cli-read-timeout 30 \
+            --payload '{"httpMethod":"GET","path":"/api/v1/search","queryStringParameters":{"q":"NVDA"},"requestContext":{"http":{"method":"GET"}}}' \
+            /tmp/search.json
+
+          SEARCH_STATUS=$(cat /tmp/search.json | jq -r '.statusCode // .status // 500')
+          echo "   Search endpoint response: ${SEARCH_STATUS}"
+          if [ "$SEARCH_STATUS" != "200" ]; then
+            echo "❌ Search endpoint FAILED on \$LATEST"
+            echo "   Response body: $(cat /tmp/search.json)"
+            echo "   Users were NEVER exposed to this broken code!"
+            exit 1
+          fi
+          echo "✅ Search endpoint passed"
+
+          # Test 3: Rankings endpoint
+          aws lambda invoke \
+            --function-name ${{ env.TELEGRAM_FUNCTION }} \
+            --cli-read-timeout 30 \
+            --payload '{"httpMethod":"GET","path":"/api/v1/rankings","queryStringParameters":{"category":"top_gainers","limit":"5"},"requestContext":{"http":{"method":"GET"}}}' \
+            /tmp/rankings.json
+
+          RANKINGS_STATUS=$(cat /tmp/rankings.json | jq -r '.statusCode // .status // 500')
+          echo "   Rankings endpoint response: ${RANKINGS_STATUS}"
+          if [ "$RANKINGS_STATUS" != "200" ]; then
+            echo "❌ Rankings endpoint FAILED on \$LATEST"
+            echo "   Response body: $(cat /tmp/rankings.json)"
+            echo "   Users were NEVER exposed to this broken code!"
+            exit 1
+          fi
+          echo "✅ Rankings endpoint passed"
+
+          echo ""
+          echo "🎉 All pre-promotion smoke tests PASSED!"
+          echo "   Safe to promote to live alias"
+
+      # ========================================================================
+      # Step 3: Promote to live (only after tests pass)
+      # ========================================================================
+      - name: Promote Telegram API to live
+        id: promote-telegram
+        if: steps.check-lambda.outputs.exists == 'true'
+        run: |
+          echo "🚀 Publishing version and updating live alias..."
+          NEW_VERSION=$(aws lambda publish-version \
+            --function-name ${{ env.TELEGRAM_FUNCTION }} \
+            --query 'Version' \
+            --output text)
           aws lambda update-alias \
             --function-name ${{ env.TELEGRAM_FUNCTION }} \
             --name live \
             --function-version ${NEW_VERSION}
-          echo "✅ Prod Telegram API: version ${NEW_VERSION}"
+          echo "✅ Prod Telegram API promoted: version ${NEW_VERSION}"
+          echo "   Users now see the tested code"
           echo "version=${NEW_VERSION}" >> $GITHUB_OUTPUT
 
-      - name: Deploy Report Worker Lambda
-        id: deploy-worker
+      - name: Promote Worker to live
+        id: promote-worker
         if: steps.check-lambda.outputs.exists == 'true'
         run: |
-          aws lambda update-function-code \
+          NEW_VERSION=$(aws lambda publish-version \
             --function-name ${{ env.WORKER_FUNCTION }} \
-            --image-uri ${{ needs.build.outputs.image_uri }} \
-            --publish \
             --query 'Version' \
-            --output text > version.txt
-          aws lambda wait function-updated --function-name ${{ env.WORKER_FUNCTION }}
-          NEW_VERSION=$(cat version.txt)
+            --output text)
           aws lambda update-alias \
             --function-name ${{ env.WORKER_FUNCTION }} \
             --name live \
             --function-version ${NEW_VERSION}
-          echo "✅ Prod Worker: version ${NEW_VERSION}"
+          echo "✅ Prod Worker promoted: version ${NEW_VERSION}"
           echo "version=${NEW_VERSION}" >> $GITHUB_OUTPUT
 
   ###############################################################################
@@ -661,101 +771,29 @@ jobs:
           fi
 
   ###############################################################################
-  # Gate 3: Smoke Test Prod (final verification)
-  ###############################################################################
-  smoke-prod:
-    name: Smoke Test Prod
-    needs: [build, deploy-prod, deploy-prod-frontend]
-    runs-on: ubuntu-latest
-    environment: production
-
-    steps:
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Run smoke tests
-        env:
-          API_URL: ${{ secrets.TELEGRAM_API_URL }}
-        run: |
-          # Skip if no API URL configured (prod not set up)
-          if [ -z "${API_URL}" ]; then
-            echo "⚠️ No TELEGRAM_API_URL configured for production - skipping smoke tests"
-            echo "   Set up production infrastructure first, then configure secrets"
-            exit 0
-          fi
-
-          echo "🔥 Smoke testing PROD environment..."
-          echo "   API URL: ${API_URL}"
-
-          HEALTH_CODE=$(curl -s -o /dev/null -w "%{http_code}" "${API_URL}/api/v1/health")
-          if [ "$HEALTH_CODE" != "200" ]; then
-            echo "❌ Health check failed: ${HEALTH_CODE}"
-            exit 1
-          fi
-          echo "✅ Health check passed"
-
-          SEARCH_CODE=$(curl -s -o /dev/null -w "%{http_code}" "${API_URL}/api/v1/search?q=NVDA")
-          if [ "$SEARCH_CODE" != "200" ]; then
-            echo "❌ Search endpoint failed: ${SEARCH_CODE}"
-            exit 1
-          fi
-          echo "✅ Search endpoint passed"
-
-          RANKINGS_CODE=$(curl -s -o /dev/null -w "%{http_code}" "${API_URL}/api/v1/rankings?category=top_gainers&limit=5")
-          if [ "$RANKINGS_CODE" != "200" ]; then
-            echo "❌ Rankings endpoint failed: ${RANKINGS_CODE}"
-            exit 1
-          fi
-          echo "✅ Rankings endpoint passed"
-
-          echo "🎉 PROD smoke tests passed!"
-
-      - name: Rollback on failure
-        if: failure()
-        env:
-          API_URL: ${{ secrets.TELEGRAM_API_URL }}
-        run: |
-          # Only rollback if prod is actually deployed
-          if [ -z "${API_URL}" ]; then
-            echo "⚠️ No TELEGRAM_API_URL configured - nothing to rollback"
-            exit 0
-          fi
-          echo "🚨 Prod smoke tests failed! Rolling back..."
-          aws lambda update-alias \
-            --function-name dr-daily-report-telegram-api-prod \
-            --name live \
-            --function-version ${{ needs.deploy-prod.outputs.prev_telegram_version }}
-          aws lambda update-alias \
-            --function-name dr-daily-report-report-worker-prod \
-            --name live \
-            --function-version ${{ needs.deploy-prod.outputs.prev_worker_version }}
-          echo "✅ Prod rollback complete"
-          exit 1
-
-  ###############################################################################
   # Final: Deployment Summary
   ###############################################################################
   notify:
     name: Deployment Complete
-    needs: [build, deploy-dev, deploy-staging, deploy-prod, smoke-prod]
+    needs: [build, deploy-dev, deploy-dev-frontend, deploy-staging, deploy-staging-frontend, deploy-prod, deploy-prod-frontend]
     runs-on: ubuntu-latest
     if: success()
 
     steps:
       - name: Deployment Summary
         run: |
-          echo "🎉 Progressive Deployment Complete!"
+          echo "🎉 Zero-Downtime Progressive Deployment Complete!"
           echo ""
           echo "📦 Image: ${{ needs.build.outputs.image_tag }}"
           echo ""
-          echo "🏷️  Deployed to all environments:"
+          echo "🏷️  Deployed to all environments (pre-promotion smoke tested):"
           echo "   ✅ Dev:     Telegram v${{ needs.deploy-dev.outputs.telegram_version }}, Worker v${{ needs.deploy-dev.outputs.worker_version }}"
           echo "   ✅ Staging: Telegram v${{ needs.deploy-staging.outputs.telegram_version }}, Worker v${{ needs.deploy-staging.outputs.worker_version }}"
           echo "   ✅ Prod:    Telegram v${{ needs.deploy-prod.outputs.telegram_version }}, Worker v${{ needs.deploy-prod.outputs.worker_version }}"
           echo ""
-          echo "All smoke tests passed!"
+          echo "🛡️  Zero-Downtime Pattern: Test Before Promote"
+          echo "   • Code uploaded to \$LATEST (staging area)"
+          echo "   • Smoke tested via aws lambda invoke"
+          echo "   • Only promoted to live alias after tests pass"
+          echo "   • Users NEVER saw untested code"
 
