@@ -1,7 +1,7 @@
 # Telegram Mini App - Manual Deployment Runbook
 
 **Purpose**: Step-by-step manual testing guide from local development to production.
-**Last Updated**: 2025-11-28
+**Last Updated**: 2025-11-30
 
 ---
 
@@ -10,12 +10,69 @@
 | Phase | Command | Pass Criteria |
 |-------|---------|---------------|
 | CI/CD Lint | `just ci-lint` | No actionlint errors |
-| CI/CD Dry-run | `just ci-test` | All jobs pass dry-run |
+| CI/CD Dry-run | `just ci-dryrun test` | All jobs pass dry-run |
 | Local | `just setup-local-dynamodb && just dev-api` | Health returns `{"status": "ok"}` |
-| Dev | `./scripts/deploy-backend.sh dev` | Smoke tests pass, alias updated |
+| **All Envs (CI/CD)** | `git push origin telegram` | Auto-deploys to dev → staging → prod |
+| Manual Deploy | `./scripts/deploy-backend.sh <env>` | Smoke tests pass, alias updated |
+| Rollback | `./scripts/rollback.sh <env> <version>` | Alias moved to previous version |
 | E2E | `pytest tests/test_e2e_frontend.py -k "not slow" -v` | 12 tests pass |
-| Staging | `./scripts/deploy-backend.sh staging` | Same as dev |
-| Prod | `./scripts/deploy-backend.sh prod` | Same as dev |
+
+---
+
+## Zero-Downtime Deployment Architecture
+
+### Lambda Version/Alias Model
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    API Gateway                               │
+│         (Always invokes "live" alias, never $LATEST)        │
+└────────────────────────┬────────────────────────────────────┘
+                         │
+                         ▼
+              ┌──────────────────────┐
+              │   "live" Alias       │ ← Users hit this
+              │   (Pointer to vN)    │
+              └──────────┬───────────┘
+                         │
+        ┌────────────────┼────────────────┐
+        │                │                │
+        ▼                ▼                ▼
+    Version 41      Version 42       $LATEST
+    (immutable)     (immutable)      (mutable)
+    [OLD CODE]      [NEW CODE]       [STAGING]
+```
+
+**Key concepts:**
+- `$LATEST`: Mutable staging area where new code lands first
+- Published versions (v1, v2, ...): Immutable snapshots
+- `live` alias: Pointer that API Gateway uses (users hit this)
+
+**Why this matters (Zero-Downtime):**
+- New code goes to `$LATEST` but users still see old version
+- Smoke tests run against `$LATEST` BEFORE alias update
+- If tests fail, alias is NEVER updated → users see no errors
+- Rollback = move alias pointer (~100ms, no rebuild)
+
+### Deployment Flow
+
+```
+1. update-function-code    → Code lands in $LATEST
+   (users still on v41)
+
+2. aws lambda invoke       → Test $LATEST directly
+   (users still on v41)
+
+3. IF TESTS PASS:
+   - publish-version       → Create v42 snapshot
+   - update-alias          → Move "live" to v42
+   (users NOW on v42)
+
+4. IF TESTS FAIL:
+   - Pipeline stops
+   - Alias NOT updated
+   (users still on v41, never saw broken code)
+```
 
 ---
 
@@ -343,25 +400,101 @@ docker rm -f dynamodb-local
 
 ### 2.1 Terraform Infrastructure (if needed)
 
-Only run if infrastructure changed:
+Only run if infrastructure changed (e.g., new Lambda memory, new DynamoDB table):
 
 ```bash
 cd terraform
-terraform init
-doppler run -- terraform plan -var-file=terraform.tfvars
+
+# Initialize with dev backend
+terraform init -backend-config=envs/dev/backend.hcl
+
+# Plan with dev vars
+terraform plan -var-file=envs/dev/terraform.tfvars
 ```
 
 **Expected**: Plan shows resources to create/update (no errors)
 **If fails**:
-- "Backend configuration changed": `terraform init -reconfigure`
-- Missing variables: Check `terraform.tfvars` exists
+- "Backend configuration changed": `terraform init -backend-config=envs/dev/backend.hcl -reconfigure`
+- Missing variables: Check `envs/dev/terraform.tfvars` exists
 
 ```bash
 # Apply only if plan looks correct
-doppler run -- terraform apply -var-file=terraform.tfvars
+terraform apply -var-file=envs/dev/terraform.tfvars
+
+# IMPORTANT: After applying to dev, also apply to staging and prod
+terraform init -backend-config=envs/staging/backend.hcl -reconfigure
+terraform apply -var-file=envs/staging/terraform.tfvars
+
+terraform init -backend-config=envs/prod/backend.hcl -reconfigure
+terraform apply -var-file=envs/prod/terraform.tfvars
 ```
 
-### 2.2 Deploy Backend to Dev
+**Note**: Terraform is only for infrastructure changes. Code deploys via CI/CD (no terraform).
+
+### 2.2 Deploy via GitHub Actions (Recommended)
+
+Push to `telegram` branch triggers **auto-progressive deployment to ALL environments**:
+
+```bash
+git add .
+git commit -m "Your changes"
+git push origin telegram
+```
+
+**Pipeline Flow:**
+```
+git push to telegram
+       ↓
+┌──────────────────┐
+│   Quality Gates  │  Unit tests, syntax check
+└────────┬─────────┘
+         ↓
+┌──────────────────┐
+│   Build Image    │  Docker build → ECR (ONE image for all envs)
+└────────┬─────────┘
+         ↓
+┌──────────────────┐
+│   Deploy Dev     │  update-function-code → smoke test → promote
+└────────┬─────────┘
+         ↓ (only if dev succeeds)
+┌──────────────────┐
+│  Deploy Staging  │  update-function-code → smoke test → promote
+└────────┬─────────┘
+         ↓ (only if staging succeeds)
+┌──────────────────┐
+│   Deploy Prod    │  update-function-code → smoke test → promote
+└──────────────────┘
+```
+
+**Monitor deployment:**
+```bash
+# Watch the workflow in terminal
+gh run watch
+
+# Or view in browser
+gh run view --web
+
+# List recent runs
+gh run list --workflow=deploy.yml
+```
+
+**Key Points:**
+- Single push deploys to dev → staging → prod automatically
+- Same Docker image promoted through all environments
+- Each environment smoke-tested before promotion
+- NO terraform in CI/CD (infrastructure assumed to exist)
+
+**If smoke test fails:**
+- Pipeline stops at that environment
+- `$LATEST` is updated but "live" alias NOT moved
+- Users continue seeing old (working) version
+- Downstream environments NOT affected
+- Check logs: `gh run view --log-failed`
+- Fix code, push again
+
+### 2.2a Manual Deploy (Alternative)
+
+For local testing or when CI/CD is unavailable:
 
 ```bash
 cd /home/anak/dev/dr-daily-report_telegram
@@ -388,10 +521,7 @@ cd /home/anak/dev/dr-daily-report_telegram
  Backend deployed successfully!
 ```
 
-**If smoke test fails**:
-- $LATEST is updated but "live" alias NOT moved (users unaffected)
-- Check Lambda logs: `aws logs tail /aws/lambda/dr-daily-report-telegram-api-dev --follow`
-- Fix code, redeploy
+**Note:** The script follows the same zero-downtime pattern as CI/CD.
 
 ### 2.3 Get Dev API URL
 
@@ -452,14 +582,83 @@ curl -s "${API_URL}/api/v1/report/status/${JOB_ID}" | jq '{status, ticker}'
 
 **ALL MUST PASS before proceeding to Phase 3**
 
+### 2.6 CI/CD Deployment Monitoring
+
+#### Watch GitHub Actions Run
+
+```bash
+# List recent runs
+gh run list --workflow=deploy.yml
+
+# Watch current run (auto-refreshes)
+gh run watch
+
+# View specific run with logs
+gh run view <run-id> --log
+
+# View only failed steps
+gh run view --log-failed
+```
+
+#### Verify Deployment Success
+
+After workflow completes:
+
+```bash
+# Check which version is live
+aws lambda get-alias \
+    --function-name dr-daily-report-telegram-api-dev \
+    --name live \
+    --query 'FunctionVersion' \
+    --output text
+
+# Verify health via API Gateway
+curl -s "https://ou0ivives1.execute-api.ap-southeast-1.amazonaws.com/api/v1/health" | jq
+```
+
+#### Manual Rollback (if needed)
+
+```bash
+# List recent versions
+aws lambda list-versions-by-function \
+    --function-name dr-daily-report-telegram-api-dev \
+    --query 'Versions[-5:].{Version:Version,Description:Description}' \
+    --output table
+
+# Rollback to previous version (e.g., v41)
+aws lambda update-alias \
+    --function-name dr-daily-report-telegram-api-dev \
+    --name live \
+    --function-version 41
+
+# Also rollback worker if needed
+aws lambda update-alias \
+    --function-name dr-daily-report-report-worker-dev \
+    --name live \
+    --function-version 41
+
+# Verify rollback
+aws lambda get-alias \
+    --function-name dr-daily-report-telegram-api-dev \
+    --name live
+```
+
+**Rollback is instant** (~100ms) - just moves the alias pointer, no rebuild needed.
+
 ---
 
 ## Phase 3: Staging Environment
 
-> **Note**: Staging environment not yet deployed. These are placeholder instructions.
+### 3.1 Staging Deployment
 
-### 3.1 Deploy to Staging
+**Staging is auto-deployed** after dev succeeds (no manual step needed).
 
+When you push to `telegram`, the CI/CD pipeline automatically:
+1. Deploys to dev (smoke tests)
+2. If dev passes → deploys to staging (smoke tests)
+3. If staging passes → deploys to prod
+
+**Manual deploy (if needed):**
 ```bash
 ./scripts/deploy-backend.sh staging
 ```
@@ -467,7 +666,7 @@ curl -s "${API_URL}/api/v1/report/status/${JOB_ID}" | jq '{status, ticker}'
 ### 3.2 Test Staging Endpoints
 
 ```bash
-STAGING_URL="https://staging-xxxxxxxx.execute-api.ap-southeast-1.amazonaws.com"
+STAGING_URL="https://ta0g00v0c7.execute-api.ap-southeast-1.amazonaws.com"
 
 # Same tests as dev
 curl -s "${STAGING_URL}/api/v1/health" | jq
@@ -479,7 +678,8 @@ curl -s -X POST "${STAGING_URL}/api/v1/report/DBS19" | jq
 
 | Test | Pass? |
 |------|-------|
-| Deploy script completes | [ ] |
+| CI/CD workflow shows staging complete | [ ] |
+| Smoke tests pass (pre-promotion) | [ ] |
 | Health endpoint returns ok | [ ] |
 | Search returns results | [ ] |
 | Async report completes | [ ] |
@@ -488,43 +688,71 @@ curl -s -X POST "${STAGING_URL}/api/v1/report/DBS19" | jq
 
 ## Phase 4: Production Environment
 
-> **Note**: Production environment not yet deployed.
-
 ### 4.1 Pre-Production Checklist
 
-Before deploying to production:
+Production is auto-deployed after staging succeeds. Before pushing to `telegram`:
 
 | Item | Status |
 |------|--------|
-| All staging tests pass | [ ] |
+| Code tested locally | [ ] |
+| All unit tests pass | [ ] |
 | Doppler prod secrets configured | [ ] |
 | CloudWatch alarms set up | [ ] |
-| Rollback plan documented | [ ] |
+| Rollback plan understood (see 4.4) | [ ] |
 
-### 4.2 Deploy to Production
+### 4.2 Production Deployment
 
+**Production is auto-deployed** after staging succeeds (no manual step needed).
+
+The CI/CD pipeline:
+1. Deploys to dev → smoke tests pass
+2. Deploys to staging → smoke tests pass
+3. Deploys to prod → smoke tests pass
+4. All environments get the SAME Docker image
+
+**Manual deploy (if needed):**
 ```bash
 ./scripts/deploy-backend.sh prod
 ```
 
+**Production deployment includes:**
+1. Same zero-downtime pattern as dev/staging
+2. Pre-promotion smoke tests on `$LATEST`
+3. Post-promotion verification via API Gateway
+4. If tests fail, alias NOT updated (users see old version)
+
 ### 4.3 Verify Production
 
 ```bash
-PROD_URL="https://prod-xxxxxxxx.execute-api.ap-southeast-1.amazonaws.com"
+PROD_URL="https://prod-xxxxxxxx.execute-api.ap-southeast-1.amazonaws.com"  # TBD
 
 # Health check
 curl -s "${PROD_URL}/api/v1/health" | jq
-```
 
-### 4.4 Rollback (if needed)
-
-```bash
-# Get current version
+# Verify version
 aws lambda get-alias \
     --function-name dr-daily-report-telegram-api-prod \
     --name live \
     --query 'FunctionVersion' \
     --output text
+```
+
+### 4.4 Rollback (if needed)
+
+**Rollback is instant** - just moves the alias pointer (~100ms):
+
+```bash
+# Use the rollback script (recommended)
+./scripts/rollback.sh prod           # Interactive - shows versions, prompts for selection
+./scripts/rollback.sh prod 41        # Rollback both Lambdas to version 41
+./scripts/rollback.sh prod telegram 41  # Rollback only Telegram API
+
+# Or manual AWS CLI commands:
+# List recent versions
+aws lambda list-versions-by-function \
+    --function-name dr-daily-report-telegram-api-prod \
+    --query 'Versions[-5:].{Version:Version}' \
+    --output table
 
 # Rollback to previous version (e.g., version 41)
 aws lambda update-alias \
@@ -532,28 +760,48 @@ aws lambda update-alias \
     --name live \
     --function-version 41
 
+# Also rollback worker
 aws lambda update-alias \
     --function-name dr-daily-report-report-worker-prod \
     --name live \
     --function-version 41
 ```
 
+**No rebuild needed** - previous versions are immutable snapshots.
+
 ---
 
 ## Common Failure Modes
 
+### Local Development Errors
+
 | Symptom | Cause | Fix |
 |---------|-------|-----|
 | `ModuleNotFoundError: slowapi` | Not using venv | `source venv/bin/activate` |
-| `ResourceNotFoundException` | DynamoDB table missing | Run `just setup-local-dynamodb` (local) or check Terraform (AWS) |
+| `ResourceNotFoundException` | DynamoDB table missing | Run `just setup-local-dynamodb` |
 | `Connection refused :8000` | DynamoDB Local not running | `docker start dynamodb-local` |
 | `Connection refused :8001` | API server not running | `just dev-api` |
 | Empty `TableNames` list | Credential mismatch | Use `doppler run --` for all commands |
+| `InvalidAddress` SQS error | SQS not available locally | This endpoint only works in AWS |
+
+### Deployment Errors (Zero-Downtime Pattern)
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| Pre-promotion smoke test fails | Code bug in `$LATEST` | Users NOT affected. Check `gh run view --log-failed`, fix code, push again |
+| Post-promotion verification fails | API Gateway routing issue | Automatic rollback triggered. Check CloudWatch logs |
 | `504 Gateway Timeout` | Lambda timeout (sync endpoint) | Use async POST endpoint instead |
-| `401 Unauthorized` | Missing/invalid API keys | Check Doppler secrets |
-| Smoke test fails | Code bug in $LATEST | Check Lambda logs, fix code, redeploy |
+| `401 Unauthorized` | Missing/invalid API keys | Check Doppler secrets for environment |
 | `AccessDenied` on ECR push | IAM permissions | Check IAM policy for ECR access |
-| `InvalidAddress` SQS error | SQS not available locally | This endpoint only works in AWS (dev/staging/prod) |
+| Workflow stuck at "Deploy" | Previous deployment in progress | Wait or cancel: `gh run cancel <run-id>` |
+
+### Rollback Scenarios
+
+| Symptom | What Happened | What To Do |
+|---------|---------------|------------|
+| Smoke test failed | Code didn't pass health check on `$LATEST` | Alias NOT updated - users see old version. Fix code and redeploy |
+| Post-promotion failed | Health check passed but API Gateway verification failed | Automatic rollback triggered. Check logs |
+| Manual rollback needed | Issue found after deployment | Run rollback commands in section 4.4 |
 
 ---
 
@@ -572,20 +820,28 @@ docker stop dynamodb-local   # Stop DynamoDB Local container
 # Verify Local Tables
 doppler run -- aws dynamodb list-tables --endpoint-url http://localhost:8000 --region ap-southeast-1
 
-# Deployment
-./scripts/deploy-backend.sh dev      # Deploy to dev
-./scripts/deploy-backend.sh staging  # Deploy to staging
-./scripts/deploy-backend.sh prod     # Deploy to prod
+# Code Deployment (CI/CD - auto-deploys to all envs)
+git push origin telegram     # Triggers: dev → staging → prod
+
+# Manual Deployment (backup)
+./scripts/deploy-backend.sh dev      # Deploy to dev only
+./scripts/deploy-backend.sh staging  # Deploy to staging only
+./scripts/deploy-backend.sh prod     # Deploy to prod only
+
+# Rollback
+./scripts/rollback.sh dev 41          # Rollback dev to version 41
+./scripts/rollback.sh staging 41      # Rollback staging to version 41
+./scripts/rollback.sh prod 41         # Rollback prod to version 41
 
 # Monitoring
 aws logs tail /aws/lambda/dr-daily-report-telegram-api-dev --follow
+gh run watch                          # Watch CI/CD workflow
 
-# Rollback
-aws lambda update-alias --function-name FUNC --name live --function-version PREV
-
-# Terraform
-cd terraform && terraform plan -var-file=terraform.tfvars
-cd terraform && doppler run -- terraform apply -var-file=terraform.tfvars
+# Terraform (infrastructure changes only)
+cd terraform
+terraform init -backend-config=envs/dev/backend.hcl
+terraform apply -var-file=envs/dev/terraform.tfvars
+# Then apply to staging and prod too!
 ```
 
 ---
@@ -654,5 +910,34 @@ FRONTEND_URL=http://localhost:5500 pytest tests/test_e2e_frontend.py -k "not slo
 |-------------|-----------------|--------------|--------|
 | Local | `http://localhost:8001/api/v1` | `http://localhost:5500` | Development |
 | Dev | `https://ou0ivives1.execute-api.ap-southeast-1.amazonaws.com/api/v1` | `https://demjoigiw6myp.cloudfront.net` | Deployed |
-| Staging | TBD | TBD | Not deployed |
-| Prod | TBD | TBD | Not deployed |
+| Staging | `https://ta0g00v0c7.execute-api.ap-southeast-1.amazonaws.com/api/v1` | (shares dev CloudFront) | Deployed |
+| Prod | TBD | TBD | Planned |
+
+### CI/CD: Auto-Progressive Deployment
+
+**Single branch deploys to ALL environments:**
+
+| Trigger | Deploys To |
+|---------|------------|
+| `git push origin telegram` | dev → staging → prod (automatic chain) |
+
+**Deployment Flow:**
+```
+git push to telegram
+       ↓
+   Build Image (once)
+       ↓
+   Deploy Dev → smoke test
+       ↓ (if pass)
+   Deploy Staging → smoke test
+       ↓ (if pass)
+   Deploy Prod → smoke test
+       ↓
+   Done (all envs updated)
+```
+
+**Key Points:**
+- NO separate branches for staging/prod
+- Same Docker image promoted through all environments
+- Each environment smoke-tested before promotion
+- If any environment fails, downstream environments are NOT deployed

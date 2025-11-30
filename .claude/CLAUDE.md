@@ -1399,77 +1399,69 @@ Version N (immutable)      ← Snapshot created via publish-version
 - Alias is the pointer that controls production traffic
 - Terraform uses `ignore_changes = [function_version]` to let deploy scripts control the alias
 
-#### Deploy Script with Built-in Testing
+#### Deployment Methods
 
-```bash
-# scripts/deploy-backend.sh - single source of truth for deployments
-#!/bin/bash
-FUNCTION_NAME="dr-daily-report-telegram-api-$ENV"
+**Primary: GitHub Actions** (`.github/workflows/deploy.yml`)
+- Triggered automatically on push to `telegram` branch
+- Implements zero-downtime pattern inline (~300 lines)
+- Tests $LATEST via `aws lambda invoke` before promoting
 
-# Step 1: Update $LATEST (code available but not live)
-aws lambda update-function-code --function-name $FUNCTION_NAME --image-uri $IMAGE_URI
-aws lambda wait function-updated --function-name $FUNCTION_NAME
+**Backup: Manual Script** (`scripts/deploy-backend.sh`)
+- For manual deployments outside CI/CD
+- Same zero-downtime pattern
+- Usage: `ENV=dev ./scripts/deploy-backend.sh`
 
-# Step 2: Smoke test $LATEST directly (not through alias)
-RESPONSE=$(aws lambda invoke --function-name $FUNCTION_NAME \
-  --payload '{"path":"/api/v1/health"}' /tmp/response.json \
-  --query 'StatusCode' --output text)
+**Why CI/CD doesn't call the script:**
+The script was created for manual use. GitHub Actions implements the same
+pattern inline for better error handling and step visibility in the UI.
 
-if [ "$RESPONSE" != "200" ]; then
-  echo "❌ Smoke test failed! NOT updating alias."
-  exit 1
-fi
+#### CI/CD Strategy: Auto-Progressive Deployment
 
-# Step 3: Only if tests pass - promote to live
-NEW_VERSION=$(aws lambda publish-version --function-name $FUNCTION_NAME \
-  --query 'Version' --output text)
-
-aws lambda update-alias --function-name $FUNCTION_NAME \
-  --name live --function-version $NEW_VERSION
-
-echo "✅ Deployed version $NEW_VERSION to live!"
-```
-
-**Both justfile and GitHub Actions call this script** (DRY - single source of truth).
-
-#### CI/CD Strategy: Branch + Path Triggers
-
-**Decision:** Use environment branches combined with path filtering.
+**Single branch triggers deployment to ALL environments:**
 
 ```yaml
-# Branch determines environment, path determines if deploy is needed
 on:
   push:
     branches:
-      - telegram          # → Dev environment
-      - telegram-staging  # → Staging environment
-      - telegram-prod     # → Production environment
+      - telegram  # Only trigger - auto-chains dev → staging → prod
     paths:
       - 'src/**'
       - 'frontend/telegram-webapp/**'
       - 'Dockerfile*'
       - 'requirements*.txt'
-  # NOTE: main branch is NOT included - see MAIN BRANCH PROTECTION section
+      - 'terraform/**'
 ```
 
-**Branch → Environment Mapping:**
-| Branch | Environment | Deploy Trigger |
-|--------|-------------|----------------|
-| `telegram` | Dev | Auto on push (if paths match) |
-| `telegram-staging` | Staging | Auto on push (if paths match) |
-| `telegram-prod` | Prod | Auto on push (if paths match) |
-
-**Promotion Flow:**
+**Pipeline Flow:**
 ```
-telegram → telegram-staging → telegram-prod
-   (merge)        (merge)
+git push to telegram
+       ↓
+┌──────────────────┐
+│   Quality Gates  │  Unit tests, syntax check, security audit
+└────────┬─────────┘
+         ↓
+┌──────────────────┐
+│   Build Image    │  Docker build → ECR (one image for all envs)
+└────────┬─────────┘
+         ↓
+┌──────────────────┐
+│   Deploy Dev     │  update-function-code → smoke test → promote
+└────────┬─────────┘
+         ↓ (only if dev succeeds)
+┌──────────────────┐
+│  Deploy Staging  │  update-function-code → smoke test → promote
+└────────┬─────────┘
+         ↓ (only if staging succeeds)
+┌──────────────────┐
+│   Deploy Prod    │  update-function-code → smoke test → promote
+└──────────────────┘
 ```
 
-**Rationale:**
-- **Safety**: Branch isolation prevents accidental prod deploys
-- **Efficiency**: Path filtering skips deploys for doc/test-only changes
-- **Explicit**: Each merge is an intentional promotion decision
-- **Audit trail**: Branch history = deployment history
+**Key Points:**
+- NO terraform in CI/CD (infrastructure assumed to exist)
+- Same Docker image promoted through all environments
+- Zero-downtime: test $LATEST before updating "live" alias
+- Auto-progressive: no manual gates between environments
 
 #### Rollback Strategy
 
@@ -1579,73 +1571,81 @@ Use AWS Cost Explorer with tag filters:
 
 See `terraform/TAGGING_POLICY.md` for complete documentation.
 
-### Terraform Layered Architecture
+### Terraform Architecture
 
-**Layer Structure:** `terraform/layers/{00-bootstrap,01-data,02-platform,03-apps/*}`
-
-**Key Pattern - Cross-Layer Dependencies:**
-```hcl
-# In app layer, reference outputs from lower layers via remote state
-data "terraform_remote_state" "data" {
-  backend = "s3"
-  config = {
-    bucket = "dr-daily-report-tf-state"
-    key    = "layers/01-data/terraform.tfstate"  # State key path
-    region = "ap-southeast-1"
-  }
-}
-
-locals {
-  # Consume outputs from lower layer
-  dynamodb_policy_arn = data.terraform_remote_state.data.outputs.dynamodb_policy_arn
-}
-```
-
-**Per-Layer Workflow:** `cd terraform/layers/XX-layer && terraform init && terraform plan && terraform apply`
-
-**Deploy Order:** 01-data → 02-platform → 03-apps/* (respect dependencies)
-
-### Multi-Environment Deployment
-
-#### Environment Directory Structure
+**Structure:** Root terraform with environment-specific variable files.
 
 ```
 terraform/
-├── modules/                # Reusable modules (shared code)
-│   ├── telegram-api/       # Lambda + API Gateway + DynamoDB
-│   └── async-worker/       # SQS + Worker Lambda
-│
-├── envs/                   # Environment-specific configs
+├── *.tf                    # All resources (~10 files, ~1,800 lines)
+├── envs/                   # Environment-specific config
 │   ├── dev/
-│   │   ├── main.tf         # Calls modules with dev config
-│   │   ├── backend.tf      # S3 state: s3://bucket/dev/terraform.tfstate
-│   │   └── terraform.tfvars
+│   │   ├── backend.hcl     # S3 state: telegram-api/dev/terraform.tfstate
+│   │   └── terraform.tfvars # memory=512, environment="dev"
 │   ├── staging/
+│   │   ├── backend.hcl
+│   │   └── terraform.tfvars
 │   └── prod/
-│
-└── shared/                 # Cross-env resources (ECR, S3 buckets)
+│       ├── backend.hcl
+│       └── terraform.tfvars
+└── layers/                 # DEPRECATED - was used for initial bootstrap
 ```
 
-#### S3 Remote Backend with State Locking
+**Deployment Workflow:**
+```bash
+# From terraform/ directory
+terraform init -backend-config=envs/dev/backend.hcl
+terraform plan -var-file=envs/dev/terraform.tfvars
+terraform apply -var-file=envs/dev/terraform.tfvars
 
-```hcl
-# envs/dev/backend.tf
-terraform {
-  backend "s3" {
-    bucket         = "dr-daily-report-terraform-state"
-    key            = "dev/terraform.tfstate"
-    region         = "ap-southeast-1"
-    dynamodb_table = "dr-daily-report-tf-locks"
-    encrypt        = true
-  }
-}
+# Switch environments (must reconfigure backend)
+terraform init -backend-config=envs/staging/backend.hcl -reconfigure
+terraform apply -var-file=envs/staging/terraform.tfvars
 ```
 
-**Why S3 backend:**
-- Team collaboration (no local state conflicts)
-- State locking via DynamoDB (prevents concurrent applies)
-- Versioning for state recovery
-- Encryption at rest
+**Key Principle:** Same .tf code for all environments, different tfvars values.
+
+**Why no layers?** Layered terraform is premature optimization at <100 resources.
+Current scale (~50 resources) doesn't justify the complexity of cross-layer state references.
+
+### Multi-Environment Deployment
+
+#### How It Works
+
+```
+Same Code + Different Variables = Different Environments
+
+terraform/*.tf (SHARED)          envs/{env}/terraform.tfvars (DIFFERENT)
+─────────────────────────        ─────────────────────────────────────
+resource "aws_lambda" {          # dev
+  memory = var.lambda_memory  →  lambda_memory = 512
+}                                environment = "dev"
+
+                                 # staging
+                                 lambda_memory = 1024
+                                 environment = "staging"
+
+                                 # prod
+                                 lambda_memory = 1024
+                                 environment = "prod"
+```
+
+#### State Isolation
+
+Each environment has its own state file (prevents cross-env accidents):
+- `s3://dr-daily-report-tf-state/telegram-api/dev/terraform.tfstate`
+- `s3://dr-daily-report-tf-state/telegram-api/staging/terraform.tfstate`
+- `s3://dr-daily-report-tf-state/telegram-api/prod/terraform.tfstate`
+
+#### When to Run Terraform vs CI/CD
+
+| Change Type | Tool | Example |
+|-------------|------|---------|
+| Code only | CI/CD auto-deploys | Fix bug in rankings_service.py |
+| Infra change | Manual `terraform apply` | Increase Lambda memory |
+| New resource | `terraform apply` → then CI/CD | Add new DynamoDB table |
+
+**Drift Prevention:** After applying to dev, remember to apply to staging and prod too.
 
 #### Environment Configuration Differences
 
@@ -1654,31 +1654,22 @@ terraform {
 | Lambda Memory | 512 MB | 1024 MB | 1024 MB |
 | Log Retention | 7 days | 14 days | 30 days |
 | API Throttling | 10 req/s | 50 req/s | 100 req/s |
-| Alarms | Disabled | Warning only | PagerDuty |
-
-#### Branch → Environment Mapping
-
-```
-feature/*  ──▶  PR to main  ──▶  main  ──▶  Auto-deploy to DEV
-                                  │
-                                  ▼
-                        release/* or tag  ──▶  Deploy to STAGING
-                                  │
-                                  ▼
-                        Manual approval  ──▶  Deploy to PROD
-```
 
 #### Deployment Commands
 
 ```bash
-# Dev (from main branch merge)
-cd terraform/envs/dev && terraform apply -var="lambda_image_uri=sha-xxx"
+# Apply to dev
+cd terraform
+terraform init -backend-config=envs/dev/backend.hcl
+terraform apply -var-file=envs/dev/terraform.tfvars
 
-# Staging (from release tag)
-cd terraform/envs/staging && terraform apply -var="lambda_image_uri=sha-xxx"
+# Apply to staging (reconfigure backend first)
+terraform init -backend-config=envs/staging/backend.hcl -reconfigure
+terraform apply -var-file=envs/staging/terraform.tfvars
 
-# Prod (after manual approval)
-cd terraform/envs/prod && terraform apply -var="lambda_image_uri=sha-xxx"
+# Apply to prod
+terraform init -backend-config=envs/prod/backend.hcl -reconfigure
+terraform apply -var-file=envs/prod/terraform.tfvars
 ```
 
 ---
@@ -2164,15 +2155,16 @@ analyze TICKER FORMAT="text":
 | Run specific test | `dr test file <filename>` |
 | Generate report | `dr --doppler util report <TICKER>` |
 | Build Lambda package | `just build` or `dr build` |
-| Deploy to AWS | `just ship-it` |
 | Check syntax | `just check` |
 | Clean artifacts | `just clean` |
 | View project structure | `just tree` |
 | LangSmith traces | `dr --doppler langsmith list-runs` |
-| Deploy to dev | `cd terraform/envs/dev && terraform apply` |
-| Deploy to staging | `cd terraform/envs/staging && terraform apply` |
-| Deploy to prod | `cd terraform/envs/prod && terraform apply` |
+| Deploy code | `git push origin telegram` (CI/CD auto-deploys to all envs) |
+| Deploy infra to dev | `cd terraform && terraform init -backend-config=envs/dev/backend.hcl && terraform apply -var-file=envs/dev/terraform.tfvars` |
+| Deploy infra to staging | `terraform init -backend-config=envs/staging/backend.hcl -reconfigure && terraform apply -var-file=envs/staging/terraform.tfvars` |
+| Deploy infra to prod | `terraform init -backend-config=envs/prod/backend.hcl -reconfigure && terraform apply -var-file=envs/prod/terraform.tfvars` |
 | Check TF state | `terraform state list` |
+| Rollback Lambda | `./scripts/rollback.sh <env> <version>` (e.g., `./scripts/rollback.sh dev 5`) |
 
 **Key Files to Know:**
 - `src/agent.py` - Main LangGraph agent

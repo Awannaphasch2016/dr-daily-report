@@ -5,21 +5,38 @@
 # Quickly rollback Lambda functions to a previous version by updating aliases.
 #
 # Usage:
-#   ./scripts/rollback.sh                    # Interactive mode (list versions, prompt for selection)
-#   ./scripts/rollback.sh <version>          # Rollback both Lambdas to specific version
-#   ./scripts/rollback.sh telegram <version> # Rollback only Telegram API Lambda
-#   ./scripts/rollback.sh worker <version>   # Rollback only Report Worker Lambda
+#   ./scripts/rollback.sh <env>                    # Interactive mode (list versions, prompt for selection)
+#   ./scripts/rollback.sh <env> <version>          # Rollback both Lambdas to specific version
+#   ./scripts/rollback.sh <env> telegram <version> # Rollback only Telegram API Lambda
+#   ./scripts/rollback.sh <env> worker <version>   # Rollback only Report Worker Lambda
 #
 # Examples:
-#   ./scripts/rollback.sh 5                  # Rollback both to version 5
-#   ./scripts/rollback.sh telegram 3         # Rollback Telegram API to version 3
-#   ./scripts/rollback.sh worker 4           # Rollback Worker to version 4
+#   ./scripts/rollback.sh dev                # Interactive mode for dev
+#   ./scripts/rollback.sh dev 5              # Rollback both dev Lambdas to version 5
+#   ./scripts/rollback.sh staging telegram 3 # Rollback staging Telegram API to version 3
+#   ./scripts/rollback.sh prod worker 4      # Rollback prod Worker to version 4
+#
+# Environments: dev, staging, prod
 
 set -e
 
-# Configuration
-TELEGRAM_FUNCTION="dr-daily-report-telegram-api-dev"
-WORKER_FUNCTION="dr-daily-report-report-worker-dev"
+# Validate environment argument
+ENV="${1:-}"
+if [[ ! "$ENV" =~ ^(dev|staging|prod)$ ]]; then
+    echo "❌ Error: First argument must be environment (dev, staging, prod)"
+    echo ""
+    echo "Usage: $0 <env> [version|telegram|worker] [version]"
+    echo "Examples:"
+    echo "  $0 dev              # Interactive mode for dev"
+    echo "  $0 dev 5            # Rollback both dev Lambdas to version 5"
+    echo "  $0 staging telegram 3  # Rollback staging Telegram API to version 3"
+    exit 1
+fi
+shift  # Remove env from arguments
+
+# Configuration based on environment
+TELEGRAM_FUNCTION="dr-daily-report-telegram-api-${ENV}"
+WORKER_FUNCTION="dr-daily-report-report-worker-${ENV}"
 ALIAS_NAME="live"
 REGION="${AWS_REGION:-ap-southeast-1}"
 
@@ -92,6 +109,7 @@ main() {
     echo ""
     echo "🔄 Lambda Rollback Script"
     echo "========================="
+    echo "Environment: ${ENV}"
     echo ""
 
     # Check AWS credentials
