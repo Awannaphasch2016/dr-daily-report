@@ -724,3 +724,4 @@ jobs:
           echo "   ✅ Prod:    Telegram v${{ needs.deploy-prod.outputs.telegram_version }}, Worker v${{ needs.deploy-prod.outputs.worker_version }}"
           echo ""
           echo "All smoke tests passed!"
+
