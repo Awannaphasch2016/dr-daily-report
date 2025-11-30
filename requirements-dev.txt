@@ -2,7 +2,7 @@
 # Install with: pip install -r requirements-dev.txt
 
 # Include production dependencies
--r requirements_minimal.txt
+-r requirements.txt
 
 # Testing
 pytest>=7.0.0

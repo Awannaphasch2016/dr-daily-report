@@ -1,4 +1,0 @@
-# Heavy data science libraries to be stored in S3 and loaded at runtime
-numpy<2.0.0,>=1.24.0
-pandas>=2.0.0
-matplotlib>=3.7.0
