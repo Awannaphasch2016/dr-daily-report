@@ -1,4 +1,7 @@
-"""FastAPI application for Telegram Mini App backend"""
+"""FastAPI application for Telegram Mini App backend
+
+Version: 1.0.1 - CI/CD pipeline verification
+"""
 
 from fastapi import FastAPI, HTTPException, Query, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
