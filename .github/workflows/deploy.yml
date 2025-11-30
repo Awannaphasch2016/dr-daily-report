@@ -214,10 +214,11 @@ jobs:
           echo "   Users are STILL seeing the old version"
 
           # Test 1: Health endpoint
+          HEALTH_PAYLOAD=$(echo '{"httpMethod":"GET","path":"/api/v1/health","requestContext":{"http":{"method":"GET"}}}' | base64 -w 0)
           aws lambda invoke \
             --function-name ${{ env.TELEGRAM_FUNCTION }} \
             --cli-read-timeout 30 \
-            --payload '{"httpMethod":"GET","path":"/api/v1/health","requestContext":{"http":{"method":"GET"}}}' \
+            --payload "$HEALTH_PAYLOAD" \
             /tmp/health.json
 
           HEALTH_STATUS=$(cat /tmp/health.json | jq -r '.statusCode // .status // 500')
@@ -231,10 +232,11 @@ jobs:
           echo "✅ Health check passed"
 
           # Test 2: Search endpoint
+          SEARCH_PAYLOAD=$(echo '{"httpMethod":"GET","path":"/api/v1/search","queryStringParameters":{"q":"NVDA"},"requestContext":{"http":{"method":"GET"}}}' | base64 -w 0)
           aws lambda invoke \
             --function-name ${{ env.TELEGRAM_FUNCTION }} \
             --cli-read-timeout 30 \
-            --payload '{"httpMethod":"GET","path":"/api/v1/search","queryStringParameters":{"q":"NVDA"},"requestContext":{"http":{"method":"GET"}}}' \
+            --payload "$SEARCH_PAYLOAD" \
             /tmp/search.json
 
           SEARCH_STATUS=$(cat /tmp/search.json | jq -r '.statusCode // .status // 500')
@@ -248,10 +250,11 @@ jobs:
           echo "✅ Search endpoint passed"
 
           # Test 3: Rankings endpoint
+          RANKINGS_PAYLOAD=$(echo '{"httpMethod":"GET","path":"/api/v1/rankings","queryStringParameters":{"category":"top_gainers","limit":"5"},"requestContext":{"http":{"method":"GET"}}}' | base64 -w 0)
           aws lambda invoke \
             --function-name ${{ env.TELEGRAM_FUNCTION }} \
             --cli-read-timeout 30 \
-            --payload '{"httpMethod":"GET","path":"/api/v1/rankings","queryStringParameters":{"category":"top_gainers","limit":"5"},"requestContext":{"http":{"method":"GET"}}}' \
+            --payload "$RANKINGS_PAYLOAD" \
             /tmp/rankings.json
 
           RANKINGS_STATUS=$(cat /tmp/rankings.json | jq -r '.statusCode // .status // 500')
@@ -416,10 +419,11 @@ jobs:
           echo "   Users are STILL seeing the old version"
 
           # Test 1: Health endpoint
+          HEALTH_PAYLOAD=$(echo '{"httpMethod":"GET","path":"/api/v1/health","requestContext":{"http":{"method":"GET"}}}' | base64 -w 0)
           aws lambda invoke \
             --function-name ${{ env.TELEGRAM_FUNCTION }} \
             --cli-read-timeout 30 \
-            --payload '{"httpMethod":"GET","path":"/api/v1/health","requestContext":{"http":{"method":"GET"}}}' \
+            --payload "$HEALTH_PAYLOAD" \
             /tmp/health.json
 
           HEALTH_STATUS=$(cat /tmp/health.json | jq -r '.statusCode // .status // 500')
@@ -433,10 +437,11 @@ jobs:
           echo "✅ Health check passed"
 
           # Test 2: Search endpoint
+          SEARCH_PAYLOAD=$(echo '{"httpMethod":"GET","path":"/api/v1/search","queryStringParameters":{"q":"NVDA"},"requestContext":{"http":{"method":"GET"}}}' | base64 -w 0)
           aws lambda invoke \
             --function-name ${{ env.TELEGRAM_FUNCTION }} \
             --cli-read-timeout 30 \
-            --payload '{"httpMethod":"GET","path":"/api/v1/search","queryStringParameters":{"q":"NVDA"},"requestContext":{"http":{"method":"GET"}}}' \
+            --payload "$SEARCH_PAYLOAD" \
             /tmp/search.json
 
           SEARCH_STATUS=$(cat /tmp/search.json | jq -r '.statusCode // .status // 500')
@@ -450,10 +455,11 @@ jobs:
           echo "✅ Search endpoint passed"
 
           # Test 3: Rankings endpoint
+          RANKINGS_PAYLOAD=$(echo '{"httpMethod":"GET","path":"/api/v1/rankings","queryStringParameters":{"category":"top_gainers","limit":"5"},"requestContext":{"http":{"method":"GET"}}}' | base64 -w 0)
           aws lambda invoke \
             --function-name ${{ env.TELEGRAM_FUNCTION }} \
             --cli-read-timeout 30 \
-            --payload '{"httpMethod":"GET","path":"/api/v1/rankings","queryStringParameters":{"category":"top_gainers","limit":"5"},"requestContext":{"http":{"method":"GET"}}}' \
+            --payload "$RANKINGS_PAYLOAD" \
             /tmp/rankings.json
 
           RANKINGS_STATUS=$(cat /tmp/rankings.json | jq -r '.statusCode // .status // 500')
@@ -632,10 +638,11 @@ jobs:
           echo "   Users are STILL seeing the old version"
 
           # Test 1: Health endpoint
+          HEALTH_PAYLOAD=$(echo '{"httpMethod":"GET","path":"/api/v1/health","requestContext":{"http":{"method":"GET"}}}' | base64 -w 0)
           aws lambda invoke \
             --function-name ${{ env.TELEGRAM_FUNCTION }} \
             --cli-read-timeout 30 \
-            --payload '{"httpMethod":"GET","path":"/api/v1/health","requestContext":{"http":{"method":"GET"}}}' \
+            --payload "$HEALTH_PAYLOAD" \
             /tmp/health.json
 
           HEALTH_STATUS=$(cat /tmp/health.json | jq -r '.statusCode // .status // 500')
@@ -649,10 +656,11 @@ jobs:
           echo "✅ Health check passed"
 
           # Test 2: Search endpoint
+          SEARCH_PAYLOAD=$(echo '{"httpMethod":"GET","path":"/api/v1/search","queryStringParameters":{"q":"NVDA"},"requestContext":{"http":{"method":"GET"}}}' | base64 -w 0)
           aws lambda invoke \
             --function-name ${{ env.TELEGRAM_FUNCTION }} \
             --cli-read-timeout 30 \
-            --payload '{"httpMethod":"GET","path":"/api/v1/search","queryStringParameters":{"q":"NVDA"},"requestContext":{"http":{"method":"GET"}}}' \
+            --payload "$SEARCH_PAYLOAD" \
             /tmp/search.json
 
           SEARCH_STATUS=$(cat /tmp/search.json | jq -r '.statusCode // .status // 500')
@@ -666,10 +674,11 @@ jobs:
           echo "✅ Search endpoint passed"
 
           # Test 3: Rankings endpoint
+          RANKINGS_PAYLOAD=$(echo '{"httpMethod":"GET","path":"/api/v1/rankings","queryStringParameters":{"category":"top_gainers","limit":"5"},"requestContext":{"http":{"method":"GET"}}}' | base64 -w 0)
           aws lambda invoke \
             --function-name ${{ env.TELEGRAM_FUNCTION }} \
             --cli-read-timeout 30 \
-            --payload '{"httpMethod":"GET","path":"/api/v1/rankings","queryStringParameters":{"category":"top_gainers","limit":"5"},"requestContext":{"http":{"method":"GET"}}}' \
+            --payload "$RANKINGS_PAYLOAD" \
             /tmp/rankings.json
 
           RANKINGS_STATUS=$(cat /tmp/rankings.json | jq -r '.statusCode // .status // 500')
