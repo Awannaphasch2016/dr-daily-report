@@ -123,6 +123,12 @@ class ReportResponse(BaseModel):
     confidence: Literal["high", "medium", "low"] = Field(..., description="Confidence level")
     investment_horizon: str = Field(..., description="Investment time horizon")
 
+    # Full narrative report (Thai language)
+    narrative_report: str = Field(
+        default="",
+        description="Full Thai language narrative report with analysis and recommendations"
+    )
+
     # Report sections
     summary_sections: SummarySections = Field(..., description="Summary bullets")
     technical_metrics: list[TechnicalMetric] = Field(..., description="Technical indicators")

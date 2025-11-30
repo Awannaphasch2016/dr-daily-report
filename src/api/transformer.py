@@ -185,6 +185,7 @@ class ResponseTransformer:
             estimated_upside_pct=stance_info.get("upside_pct"),
             confidence=stance_info["confidence"],
             investment_horizon=stance_info["horizon"],
+            narrative_report=report_text,
             summary_sections=summary_sections,
             technical_metrics=technical_metrics,
             fundamentals=fundamentals,
