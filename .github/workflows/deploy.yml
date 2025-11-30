@@ -123,12 +123,10 @@ jobs:
           docker build \
             -f Dockerfile.lambda.container \
             -t ${IMAGE_URI} \
-            -t ${{ env.ECR_REGISTRY }}/${ECR_REPOSITORY}:latest \
             .
 
           echo "🚀 Pushing to ECR..."
           docker push ${IMAGE_URI}
-          docker push ${{ env.ECR_REGISTRY }}/${ECR_REPOSITORY}:latest
 
           echo "✅ Image pushed: ${IMAGE_URI}"
           echo "image_tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
@@ -726,4 +724,3 @@ jobs:
           echo "   ✅ Prod:    Telegram v${{ needs.deploy-prod.outputs.telegram_version }}, Worker v${{ needs.deploy-prod.outputs.worker_version }}"
           echo ""
           echo "All smoke tests passed!"
-# 2025-11-30T16:30:46+07:00
