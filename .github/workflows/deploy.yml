@@ -562,8 +562,19 @@ jobs:
           echo "telegram_version=${TELEGRAM_VERSION}" >> $GITHUB_OUTPUT
           echo "worker_version=${WORKER_VERSION}" >> $GITHUB_OUTPUT
 
+      - name: Check if prod Lambda exists
+        id: check-lambda
+        run: |
+          if aws lambda get-function --function-name ${{ env.TELEGRAM_FUNCTION }} 2>/dev/null; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "⚠️ Prod Lambda ${{ env.TELEGRAM_FUNCTION }} doesn't exist - skipping deployment"
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Deploy Telegram API Lambda
         id: deploy-telegram
+        if: steps.check-lambda.outputs.exists == 'true'
         run: |
           echo "🔄 Deploying SAME image to prod..."
           aws lambda update-function-code \
@@ -583,6 +594,7 @@ jobs:
 
       - name: Deploy Report Worker Lambda
         id: deploy-worker
+        if: steps.check-lambda.outputs.exists == 'true'
         run: |
           aws lambda update-function-code \
             --function-name ${{ env.WORKER_FUNCTION }} \
@@ -620,11 +632,19 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Deploy frontend to S3
+        env:
+          BUCKET_NAME: ${{ secrets.WEBAPP_BUCKET_NAME }}
+          API_URL: ${{ secrets.TELEGRAM_API_URL }}
         run: |
+          # Skip if no bucket configured (prod not set up)
+          if [ -z "${BUCKET_NAME}" ]; then
+            echo "⚠️ No WEBAPP_BUCKET_NAME configured for production - skipping frontend deployment"
+            exit 0
+          fi
           mkdir -p build
           cp -r frontend/telegram-webapp/* build/
-          sed -i "s|window.TELEGRAM_API_URL = '{{API_URL}}'|window.TELEGRAM_API_URL = '${{ secrets.TELEGRAM_API_URL }}'|g" build/index.html
-          aws s3 sync build/ s3://${{ secrets.WEBAPP_BUCKET_NAME }}/ --delete
+          sed -i "s|window.TELEGRAM_API_URL = '{{API_URL}}'|window.TELEGRAM_API_URL = '${API_URL}'|g" build/index.html
+          aws s3 sync build/ s3://${BUCKET_NAME}/ --delete
           echo "✅ Prod frontend deployed"
 
       - name: Invalidate CloudFront
@@ -661,6 +681,13 @@ jobs:
         env:
           API_URL: ${{ secrets.TELEGRAM_API_URL }}
         run: |
+          # Skip if no API URL configured (prod not set up)
+          if [ -z "${API_URL}" ]; then
+            echo "⚠️ No TELEGRAM_API_URL configured for production - skipping smoke tests"
+            echo "   Set up production infrastructure first, then configure secrets"
+            exit 0
+          fi
+
           echo "🔥 Smoke testing PROD environment..."
           echo "   API URL: ${API_URL}"
 
@@ -689,7 +716,14 @@ jobs:
 
       - name: Rollback on failure
         if: failure()
+        env:
+          API_URL: ${{ secrets.TELEGRAM_API_URL }}
         run: |
+          # Only rollback if prod is actually deployed
+          if [ -z "${API_URL}" ]; then
+            echo "⚠️ No TELEGRAM_API_URL configured - nothing to rollback"
+            exit 0
+          fi
           echo "🚨 Prod smoke tests failed! Rolling back..."
           aws lambda update-alias \
             --function-name dr-daily-report-telegram-api-prod \
