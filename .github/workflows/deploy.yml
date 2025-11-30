@@ -317,10 +317,19 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Deploy frontend to S3
+        env:
+          API_URL: ${{ secrets.TELEGRAM_API_URL }}
         run: |
           mkdir -p build
           cp -r frontend/telegram-webapp/* build/
-          sed -i "s|window.TELEGRAM_API_URL = '{{API_URL}}'|window.TELEGRAM_API_URL = '${{ secrets.TELEGRAM_API_URL }}'|g" build/index.html
+
+          # Ensure API URL has /api/v1 suffix
+          if [[ ! "${API_URL}" =~ /api/v1$ ]]; then
+            API_URL="${API_URL%/}/api/v1"
+          fi
+          echo "   Using API URL: ${API_URL}"
+
+          sed -i "s|window.TELEGRAM_API_URL = '{{API_URL}}'|window.TELEGRAM_API_URL = '${API_URL}'|g" build/index.html
           aws s3 sync build/ s3://${{ secrets.WEBAPP_BUCKET_NAME }}/ --delete
           echo "✅ Dev frontend deployed"
 
@@ -514,10 +523,19 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Deploy frontend to S3
+        env:
+          API_URL: ${{ secrets.TELEGRAM_API_URL }}
         run: |
           mkdir -p build
           cp -r frontend/telegram-webapp/* build/
-          sed -i "s|window.TELEGRAM_API_URL = '{{API_URL}}'|window.TELEGRAM_API_URL = '${{ secrets.TELEGRAM_API_URL }}'|g" build/index.html
+
+          # Ensure API URL has /api/v1 suffix
+          if [[ ! "${API_URL}" =~ /api/v1$ ]]; then
+            API_URL="${API_URL%/}/api/v1"
+          fi
+          echo "   Using API URL: ${API_URL}"
+
+          sed -i "s|window.TELEGRAM_API_URL = '{{API_URL}}'|window.TELEGRAM_API_URL = '${API_URL}'|g" build/index.html
           aws s3 sync build/ s3://${{ secrets.WEBAPP_BUCKET_NAME }}/ --delete
           echo "✅ Staging frontend deployed"
 
@@ -738,6 +756,13 @@ jobs:
           fi
           mkdir -p build
           cp -r frontend/telegram-webapp/* build/
+
+          # Ensure API URL has /api/v1 suffix
+          if [[ ! "${API_URL}" =~ /api/v1$ ]]; then
+            API_URL="${API_URL%/}/api/v1"
+          fi
+          echo "   Using API URL: ${API_URL}"
+
           sed -i "s|window.TELEGRAM_API_URL = '{{API_URL}}'|window.TELEGRAM_API_URL = '${API_URL}'|g" build/index.html
           aws s3 sync build/ s3://${BUCKET_NAME}/ --delete
           echo "✅ Prod frontend deployed"

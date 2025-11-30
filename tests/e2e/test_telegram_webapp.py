@@ -8,6 +8,7 @@ Covers non-trivial logic, constraints, and user flows.
 Run with: pytest tests/e2e/test_telegram_webapp.py -v
 """
 
+import os
 import pytest
 from playwright.sync_api import Page, expect
 import time
@@ -17,9 +18,9 @@ import time
 pytestmark = pytest.mark.e2e
 
 
-# Test configuration
-BASE_URL = "http://localhost:8080"
-API_BASE_URL = "https://ou0ivives1.execute-api.ap-southeast-1.amazonaws.com/api/v1"
+# Test configuration - read from environment for flexibility
+BASE_URL = os.environ.get("E2E_BASE_URL", os.environ.get("BASE_URL", "http://localhost:8080"))
+API_BASE_URL = os.environ.get("E2E_API_URL", "https://ou0ivives1.execute-api.ap-southeast-1.amazonaws.com/api/v1")
 
 
 class TestPageLoad:
