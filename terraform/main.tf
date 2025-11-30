@@ -1,8 +1,19 @@
-# Terraform configuration for LINE Bot Lambda Function
-# This manages the Lambda function with ZIP deployment and Lambda Function URL
+# Terraform configuration for DR Daily Report Infrastructure
+# Manages Lambda functions, API Gateway, DynamoDB, S3 for both LINE Bot and Telegram Mini App
+#
+# Usage:
+#   terraform init -backend-config=envs/{env}/backend.hcl
+#   terraform plan -var-file=envs/{env}/terraform.tfvars
+#   terraform apply -var-file=envs/{env}/terraform.tfvars
 
 terraform {
   required_version = ">= 1.0"
+
+  # S3 backend with partial configuration
+  # Values provided via: terraform init -backend-config=envs/{env}/backend.hcl
+  backend "s3" {
+    # bucket, key, region, dynamodb_table, encrypt are set in backend.hcl
+  }
 
   required_providers {
     aws = {

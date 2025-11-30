@@ -265,20 +265,75 @@ deploy-telegram ENV="dev":
     just deploy-telegram-frontend {{ENV}}
     @echo "✅ Telegram Mini App deployed!"
 
-# Run Terraform plan for Telegram infrastructure (with Doppler secrets)
-# Validates that placeholder values are overridden by Doppler TF_VAR_* env vars
-tf-plan:
-    @echo "📋 Running Terraform plan with Doppler..."
-    cd terraform && doppler run -- terraform plan -var-file=terraform.tfvars -out=tfplan
-    @echo "✅ Plan saved to terraform/tfplan. Review and run 'just tf-apply' to apply."
+# === TERRAFORM MULTI-ENVIRONMENT ===
+# Uses directory structure for environment separation (not workspaces)
+# See: terraform/envs/{dev,staging,prod}/backend.hcl and terraform.tfvars
+#
+# Usage:
+#   just tf-init dev       # Initialize with dev backend config
+#   just tf-plan dev       # Plan changes for dev
+#   just tf-apply dev      # Apply changes to dev
+#   just tf-destroy staging # Destroy staging (with confirmation)
 
-# Apply Terraform changes (requires tf-plan to be run first)
-tf-apply:
-    @test -f terraform/tfplan || (echo "❌ Run 'just tf-plan' first to create a plan" && exit 1)
-    @echo "🔧 Applying Terraform plan..."
-    cd terraform && doppler run -- terraform apply tfplan
-    @rm -f terraform/tfplan
-    @echo "✅ Terraform applied successfully!"
+# Initialize Terraform for a specific environment
+tf-init ENV:
+    @echo "🔧 Initializing Terraform for {{ENV}}..."
+    cd terraform && terraform init -backend-config=envs/{{ENV}}/backend.hcl -reconfigure
+    @echo "✅ Terraform initialized for {{ENV}}"
+
+# Helper to map environment name to Doppler config
+# dev → dev_personal, staging → stg, prod → prd
+_doppler-config ENV:
+    #!/bin/bash
+    case "{{ENV}}" in
+        dev) echo "dev_personal" ;;
+        staging) echo "stg" ;;
+        prod) echo "prd" ;;
+        *) echo "{{ENV}}" ;;
+    esac
+
+# Run Terraform plan for a specific environment (with Doppler secrets)
+tf-plan ENV:
+    #!/bin/bash
+    set -e
+    DOPPLER_CONFIG=$(just _doppler-config {{ENV}})
+    echo "📋 Running Terraform plan for {{ENV}}..."
+    echo "   Backend: envs/{{ENV}}/backend.hcl"
+    echo "   Vars:    envs/{{ENV}}/terraform.tfvars"
+    echo "   Doppler: $DOPPLER_CONFIG"
+    cd terraform && doppler run -c $DOPPLER_CONFIG -- terraform plan -var-file=envs/{{ENV}}/terraform.tfvars -out=tfplan-{{ENV}}
+    echo "✅ Plan saved to terraform/tfplan-{{ENV}}. Review and run 'just tf-apply {{ENV}}' to apply."
+
+# Apply Terraform changes for a specific environment
+tf-apply ENV:
+    #!/bin/bash
+    set -e
+    if [ ! -f terraform/tfplan-{{ENV}} ]; then
+        echo "❌ Run 'just tf-plan {{ENV}}' first to create a plan"
+        exit 1
+    fi
+    DOPPLER_CONFIG=$(just _doppler-config {{ENV}})
+    echo "🔧 Applying Terraform plan for {{ENV}}..."
+    cd terraform && doppler run -c $DOPPLER_CONFIG -- terraform apply tfplan-{{ENV}}
+    rm -f terraform/tfplan-{{ENV}}
+    echo "✅ Terraform applied to {{ENV}} successfully!"
+
+# Destroy infrastructure for a specific environment (with confirmation)
+tf-destroy ENV:
+    #!/bin/bash
+    set -e
+    echo "⚠️  WARNING: This will destroy all resources in {{ENV}}!"
+    echo "   Press Ctrl+C to abort, or Enter to continue..."
+    read -r _
+    DOPPLER_CONFIG=$(just _doppler-config {{ENV}})
+    echo "🗑️  Destroying {{ENV}} infrastructure..."
+    cd terraform && doppler run -c $DOPPLER_CONFIG -- terraform destroy -var-file=envs/{{ENV}}/terraform.tfvars
+    echo "✅ {{ENV}} infrastructure destroyed"
+
+# Show current Terraform state for an environment
+tf-state ENV:
+    @echo "📊 Terraform state for {{ENV}}..."
+    cd terraform && terraform state list
 
 # Verify Lambda has no placeholder values after deployment
 tf-verify-lambda FUNCTION="dr-daily-report-telegram-api-dev":
@@ -287,6 +342,14 @@ tf-verify-lambda FUNCTION="dr-daily-report-telegram-api-dev":
         --query 'Environment.Variables' | grep -q "placeholder" && \
         (echo "❌ ERROR: Placeholder found in Lambda!" && exit 1) || \
         echo "✅ No placeholders found in Lambda"
+
+# Legacy single-env terraform commands (for backwards compatibility)
+# These use dev environment by default
+terraform-plan:
+    @just tf-plan dev
+
+terraform-apply:
+    @just tf-apply dev
 
 # === GITHUB ACTIONS LOCAL TESTING (TDD) ===
 
@@ -318,10 +381,6 @@ ci-test:
     just ci-dryrun environment
     just ci-dryrun test
     @echo "✅ CI/CD validation complete!"
-
-# Legacy aliases (for backwards compatibility)
-terraform-plan: tf-plan
-terraform-apply: tf-apply
 
 # === CLEANUP ===
 
