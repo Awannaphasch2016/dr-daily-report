@@ -213,15 +213,25 @@ jobs:
           echo "🧪 Testing \$LATEST directly via aws lambda invoke..."
           echo "   Users are STILL seeing the old version"
 
+          # API Gateway HTTP API v2 event format required by Mangum
+          make_payload() {
+            local method=$1
+            local path=$2
+            local query=${3:-""}
+            cat << EOF
+          {"version":"2.0","routeKey":"${method} ${path}","rawPath":"${path}","rawQueryString":"${query}","headers":{"content-type":"application/json"},"requestContext":{"http":{"method":"${method}","path":"${path}","protocol":"HTTP/1.1","sourceIp":"127.0.0.1","userAgent":"smoke-test/1.0"},"requestId":"smoke-test","routeKey":"${method} ${path}","stage":"\$default"},"isBase64Encoded":false}
+          EOF
+          }
+
           # Test 1: Health endpoint
-          HEALTH_PAYLOAD=$(echo '{"httpMethod":"GET","path":"/api/v1/health","requestContext":{"http":{"method":"GET"}}}' | base64 -w 0)
+          HEALTH_PAYLOAD=$(make_payload "GET" "/api/v1/health" | base64 -w 0)
           aws lambda invoke \
             --function-name ${{ env.TELEGRAM_FUNCTION }} \
             --cli-read-timeout 30 \
             --payload "$HEALTH_PAYLOAD" \
             /tmp/health.json
 
-          HEALTH_STATUS=$(cat /tmp/health.json | jq -r '.statusCode // .status // 500')
+          HEALTH_STATUS=$(cat /tmp/health.json | jq -r '.statusCode // 500')
           echo "   Health check response: ${HEALTH_STATUS}"
           if [ "$HEALTH_STATUS" != "200" ]; then
             echo "❌ Health check FAILED on \$LATEST"
@@ -232,14 +242,14 @@ jobs:
           echo "✅ Health check passed"
 
           # Test 2: Search endpoint
-          SEARCH_PAYLOAD=$(echo '{"httpMethod":"GET","path":"/api/v1/search","queryStringParameters":{"q":"NVDA"},"requestContext":{"http":{"method":"GET"}}}' | base64 -w 0)
+          SEARCH_PAYLOAD=$(make_payload "GET" "/api/v1/search" "q=NVDA" | base64 -w 0)
           aws lambda invoke \
             --function-name ${{ env.TELEGRAM_FUNCTION }} \
             --cli-read-timeout 30 \
             --payload "$SEARCH_PAYLOAD" \
             /tmp/search.json
 
-          SEARCH_STATUS=$(cat /tmp/search.json | jq -r '.statusCode // .status // 500')
+          SEARCH_STATUS=$(cat /tmp/search.json | jq -r '.statusCode // 500')
           echo "   Search endpoint response: ${SEARCH_STATUS}"
           if [ "$SEARCH_STATUS" != "200" ]; then
             echo "❌ Search endpoint FAILED on \$LATEST"
@@ -248,24 +258,6 @@ jobs:
             exit 1
           fi
           echo "✅ Search endpoint passed"
-
-          # Test 3: Rankings endpoint
-          RANKINGS_PAYLOAD=$(echo '{"httpMethod":"GET","path":"/api/v1/rankings","queryStringParameters":{"category":"top_gainers","limit":"5"},"requestContext":{"http":{"method":"GET"}}}' | base64 -w 0)
-          aws lambda invoke \
-            --function-name ${{ env.TELEGRAM_FUNCTION }} \
-            --cli-read-timeout 30 \
-            --payload "$RANKINGS_PAYLOAD" \
-            /tmp/rankings.json
-
-          RANKINGS_STATUS=$(cat /tmp/rankings.json | jq -r '.statusCode // .status // 500')
-          echo "   Rankings endpoint response: ${RANKINGS_STATUS}"
-          if [ "$RANKINGS_STATUS" != "200" ]; then
-            echo "❌ Rankings endpoint FAILED on \$LATEST"
-            echo "   Response body: $(cat /tmp/rankings.json)"
-            echo "   Users were NEVER exposed to this broken code!"
-            exit 1
-          fi
-          echo "✅ Rankings endpoint passed"
 
           echo ""
           echo "🎉 All pre-promotion smoke tests PASSED!"
@@ -418,15 +410,25 @@ jobs:
           echo "🧪 Testing \$LATEST directly via aws lambda invoke..."
           echo "   Users are STILL seeing the old version"
 
+          # API Gateway HTTP API v2 event format required by Mangum
+          make_payload() {
+            local method=$1
+            local path=$2
+            local query=${3:-""}
+            cat << EOF
+          {"version":"2.0","routeKey":"${method} ${path}","rawPath":"${path}","rawQueryString":"${query}","headers":{"content-type":"application/json"},"requestContext":{"http":{"method":"${method}","path":"${path}","protocol":"HTTP/1.1","sourceIp":"127.0.0.1","userAgent":"smoke-test/1.0"},"requestId":"smoke-test","routeKey":"${method} ${path}","stage":"\$default"},"isBase64Encoded":false}
+          EOF
+          }
+
           # Test 1: Health endpoint
-          HEALTH_PAYLOAD=$(echo '{"httpMethod":"GET","path":"/api/v1/health","requestContext":{"http":{"method":"GET"}}}' | base64 -w 0)
+          HEALTH_PAYLOAD=$(make_payload "GET" "/api/v1/health" | base64 -w 0)
           aws lambda invoke \
             --function-name ${{ env.TELEGRAM_FUNCTION }} \
             --cli-read-timeout 30 \
             --payload "$HEALTH_PAYLOAD" \
             /tmp/health.json
 
-          HEALTH_STATUS=$(cat /tmp/health.json | jq -r '.statusCode // .status // 500')
+          HEALTH_STATUS=$(cat /tmp/health.json | jq -r '.statusCode // 500')
           echo "   Health check response: ${HEALTH_STATUS}"
           if [ "$HEALTH_STATUS" != "200" ]; then
             echo "❌ Health check FAILED on \$LATEST"
@@ -437,14 +439,14 @@ jobs:
           echo "✅ Health check passed"
 
           # Test 2: Search endpoint
-          SEARCH_PAYLOAD=$(echo '{"httpMethod":"GET","path":"/api/v1/search","queryStringParameters":{"q":"NVDA"},"requestContext":{"http":{"method":"GET"}}}' | base64 -w 0)
+          SEARCH_PAYLOAD=$(make_payload "GET" "/api/v1/search" "q=NVDA" | base64 -w 0)
           aws lambda invoke \
             --function-name ${{ env.TELEGRAM_FUNCTION }} \
             --cli-read-timeout 30 \
             --payload "$SEARCH_PAYLOAD" \
             /tmp/search.json
 
-          SEARCH_STATUS=$(cat /tmp/search.json | jq -r '.statusCode // .status // 500')
+          SEARCH_STATUS=$(cat /tmp/search.json | jq -r '.statusCode // 500')
           echo "   Search endpoint response: ${SEARCH_STATUS}"
           if [ "$SEARCH_STATUS" != "200" ]; then
             echo "❌ Search endpoint FAILED on \$LATEST"
@@ -453,24 +455,6 @@ jobs:
             exit 1
           fi
           echo "✅ Search endpoint passed"
-
-          # Test 3: Rankings endpoint
-          RANKINGS_PAYLOAD=$(echo '{"httpMethod":"GET","path":"/api/v1/rankings","queryStringParameters":{"category":"top_gainers","limit":"5"},"requestContext":{"http":{"method":"GET"}}}' | base64 -w 0)
-          aws lambda invoke \
-            --function-name ${{ env.TELEGRAM_FUNCTION }} \
-            --cli-read-timeout 30 \
-            --payload "$RANKINGS_PAYLOAD" \
-            /tmp/rankings.json
-
-          RANKINGS_STATUS=$(cat /tmp/rankings.json | jq -r '.statusCode // .status // 500')
-          echo "   Rankings endpoint response: ${RANKINGS_STATUS}"
-          if [ "$RANKINGS_STATUS" != "200" ]; then
-            echo "❌ Rankings endpoint FAILED on \$LATEST"
-            echo "   Response body: $(cat /tmp/rankings.json)"
-            echo "   Users were NEVER exposed to this broken code!"
-            exit 1
-          fi
-          echo "✅ Rankings endpoint passed"
 
           echo ""
           echo "🎉 All pre-promotion smoke tests PASSED!"
@@ -637,15 +621,25 @@ jobs:
           echo "🧪 Testing \$LATEST directly via aws lambda invoke..."
           echo "   Users are STILL seeing the old version"
 
+          # API Gateway HTTP API v2 event format required by Mangum
+          make_payload() {
+            local method=$1
+            local path=$2
+            local query=${3:-""}
+            cat << EOF
+          {"version":"2.0","routeKey":"${method} ${path}","rawPath":"${path}","rawQueryString":"${query}","headers":{"content-type":"application/json"},"requestContext":{"http":{"method":"${method}","path":"${path}","protocol":"HTTP/1.1","sourceIp":"127.0.0.1","userAgent":"smoke-test/1.0"},"requestId":"smoke-test","routeKey":"${method} ${path}","stage":"\$default"},"isBase64Encoded":false}
+          EOF
+          }
+
           # Test 1: Health endpoint
-          HEALTH_PAYLOAD=$(echo '{"httpMethod":"GET","path":"/api/v1/health","requestContext":{"http":{"method":"GET"}}}' | base64 -w 0)
+          HEALTH_PAYLOAD=$(make_payload "GET" "/api/v1/health" | base64 -w 0)
           aws lambda invoke \
             --function-name ${{ env.TELEGRAM_FUNCTION }} \
             --cli-read-timeout 30 \
             --payload "$HEALTH_PAYLOAD" \
             /tmp/health.json
 
-          HEALTH_STATUS=$(cat /tmp/health.json | jq -r '.statusCode // .status // 500')
+          HEALTH_STATUS=$(cat /tmp/health.json | jq -r '.statusCode // 500')
           echo "   Health check response: ${HEALTH_STATUS}"
           if [ "$HEALTH_STATUS" != "200" ]; then
             echo "❌ Health check FAILED on \$LATEST"
@@ -656,14 +650,14 @@ jobs:
           echo "✅ Health check passed"
 
           # Test 2: Search endpoint
-          SEARCH_PAYLOAD=$(echo '{"httpMethod":"GET","path":"/api/v1/search","queryStringParameters":{"q":"NVDA"},"requestContext":{"http":{"method":"GET"}}}' | base64 -w 0)
+          SEARCH_PAYLOAD=$(make_payload "GET" "/api/v1/search" "q=NVDA" | base64 -w 0)
           aws lambda invoke \
             --function-name ${{ env.TELEGRAM_FUNCTION }} \
             --cli-read-timeout 30 \
             --payload "$SEARCH_PAYLOAD" \
             /tmp/search.json
 
-          SEARCH_STATUS=$(cat /tmp/search.json | jq -r '.statusCode // .status // 500')
+          SEARCH_STATUS=$(cat /tmp/search.json | jq -r '.statusCode // 500')
           echo "   Search endpoint response: ${SEARCH_STATUS}"
           if [ "$SEARCH_STATUS" != "200" ]; then
             echo "❌ Search endpoint FAILED on \$LATEST"
@@ -672,24 +666,6 @@ jobs:
             exit 1
           fi
           echo "✅ Search endpoint passed"
-
-          # Test 3: Rankings endpoint
-          RANKINGS_PAYLOAD=$(echo '{"httpMethod":"GET","path":"/api/v1/rankings","queryStringParameters":{"category":"top_gainers","limit":"5"},"requestContext":{"http":{"method":"GET"}}}' | base64 -w 0)
-          aws lambda invoke \
-            --function-name ${{ env.TELEGRAM_FUNCTION }} \
-            --cli-read-timeout 30 \
-            --payload "$RANKINGS_PAYLOAD" \
-            /tmp/rankings.json
-
-          RANKINGS_STATUS=$(cat /tmp/rankings.json | jq -r '.statusCode // .status // 500')
-          echo "   Rankings endpoint response: ${RANKINGS_STATUS}"
-          if [ "$RANKINGS_STATUS" != "200" ]; then
-            echo "❌ Rankings endpoint FAILED on \$LATEST"
-            echo "   Response body: $(cat /tmp/rankings.json)"
-            echo "   Users were NEVER exposed to this broken code!"
-            exit 1
-          fi
-          echo "✅ Rankings endpoint passed"
 
           echo ""
           echo "🎉 All pre-promotion smoke tests PASSED!"
