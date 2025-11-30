@@ -31,7 +31,13 @@ log_retention_days = 7
 telegram_bot_token  = ""  # Get from @BotFather
 telegram_app_id     = ""  # Get from https://my.telegram.org/apps
 telegram_app_hash   = ""  # Get from https://my.telegram.org/apps
-telegram_webapp_url = "https://demjoigiw6myp.cloudfront.net"  # CloudFront distribution URL
+telegram_webapp_url = "https://demjoigiw6myp.cloudfront.net"  # CloudFront distribution URL (legacy)
+
+# CORS: All allowed WebApp origins (dev, staging, prod CloudFront distributions)
+telegram_webapp_urls = [
+  "https://demjoigiw6myp.cloudfront.net",   # dev
+  "https://d3uuexs20crp9s.cloudfront.net"   # staging
+]
 
 # LangSmith Tracing
 langsmith_tracing_enabled = false

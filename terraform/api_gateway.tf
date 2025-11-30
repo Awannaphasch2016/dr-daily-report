@@ -12,11 +12,17 @@ resource "aws_apigatewayv2_api" "telegram_api" {
 
   cors_configuration {
     # Restrict to Telegram WebApp origins for security
-    allow_origins = compact([
-      "https://web.telegram.org",
-      "https://t.me",
-      var.telegram_webapp_url != "" ? var.telegram_webapp_url : null
-    ])
+    # Supports multiple origins for dev/staging/prod environments
+    allow_origins = distinct(compact(concat(
+      [
+        "https://web.telegram.org",
+        "https://t.me"
+      ],
+      # Legacy single URL support
+      var.telegram_webapp_url != "" ? [var.telegram_webapp_url] : [],
+      # Multiple URLs for multi-environment support
+      var.telegram_webapp_urls
+    )))
     allow_methods = ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
     allow_headers = [
       "Content-Type",

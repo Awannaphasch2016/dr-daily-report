@@ -130,9 +130,15 @@ variable "telegram_app_hash" {
 }
 
 variable "telegram_webapp_url" {
-  description = "Telegram Mini App WebApp URL"
+  description = "Telegram Mini App WebApp URL (legacy, use telegram_webapp_urls for multiple)"
   type        = string
   default     = ""
+}
+
+variable "telegram_webapp_urls" {
+  description = "List of Telegram Mini App WebApp URLs (for CORS - dev, staging, prod)"
+  type        = list(string)
+  default     = []
 }
 
 ###############################################################################

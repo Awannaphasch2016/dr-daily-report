@@ -26,7 +26,13 @@ log_retention_days = 14
 telegram_bot_token  = ""  # From Doppler staging config
 telegram_app_id     = ""
 telegram_app_hash   = ""
-telegram_webapp_url = ""  # Will be set after CloudFront creation
+telegram_webapp_url = "https://d3uuexs20crp9s.cloudfront.net"  # Staging CloudFront
+
+# CORS: All allowed WebApp origins (dev, staging, prod CloudFront distributions)
+telegram_webapp_urls = [
+  "https://demjoigiw6myp.cloudfront.net",   # dev
+  "https://d3uuexs20crp9s.cloudfront.net"   # staging
+]
 
 # LangSmith Tracing
 langsmith_tracing_enabled = false
