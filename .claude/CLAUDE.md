@@ -1571,9 +1571,185 @@ Use AWS Cost Explorer with tag filters:
 
 See `terraform/TAGGING_POLICY.md` for complete documentation.
 
-### Terraform Architecture
+#### Multi-Environment CORS Configuration
 
-**Structure:** Root terraform with environment-specific variable files.
+API Gateway CORS is configured to allow multiple CloudFront origins for dev/staging/prod:
+
+```hcl
+# terraform/api_gateway.tf
+cors_configuration {
+  allow_origins = distinct(compact(concat(
+    ["https://web.telegram.org", "https://t.me"],
+    var.telegram_webapp_url != "" ? [var.telegram_webapp_url] : [],
+    var.telegram_webapp_urls  # List of CloudFront URLs
+  )))
+}
+
+# terraform/variables.tf
+variable "telegram_webapp_urls" {
+  description = "List of Telegram Mini App WebApp URLs (for CORS)"
+  type        = list(string)
+  default     = []
+}
+
+# terraform/terraform.dev.tfvars (and staging, prod)
+telegram_webapp_urls = [
+  "https://demjoigiw6myp.cloudfront.net",   # dev
+  "https://d3uuexs20crp9s.cloudfront.net"   # staging
+]
+```
+
+**Why:** Single `telegram_webapp_url` couldn't support multiple environments. The list
+pattern allows staging frontend to call dev API during cross-environment testing.
+
+#### Two-CloudFront Pattern for Zero-Risk Frontend Deployment
+
+**Problem:** CloudFront cache invalidation is immediate - once you invalidate, users see
+the new files. If the new frontend has bugs, users see broken UI before E2E tests can catch it.
+
+**Solution:** Two CloudFront distributions per environment, both pointing to same S3 bucket:
+
+```
+                    S3 Bucket (single source)
+                           │
+          ┌────────────────┴────────────────┐
+          │                                 │
+    TEST CloudFront                   APP CloudFront
+    (E2E testing)                     (User-facing)
+          │                                 │
+          ▼                                 ▼
+   Invalidated FIRST              Invalidated ONLY after
+   E2E tests run here              E2E tests pass
+```
+
+**Deployment Flow:**
+```
+1. S3 sync (files uploaded)
+   ↓
+2. Invalidate TEST CloudFront
+   ↓
+3. E2E tests run against TEST URL
+   ↓
+4. Tests pass? → Invalidate APP CloudFront
+   Tests fail? → APP CloudFront unchanged (users see old version)
+```
+
+**Terraform Resources:**
+```hcl
+# terraform/frontend.tf
+resource "aws_cloudfront_distribution" "webapp" {
+  comment = "Telegram Mini App - ${var.environment}"  # User-facing
+  # ... cache behaviors
+}
+
+resource "aws_cloudfront_distribution" "webapp_test" {
+  comment = "Telegram Mini App TEST - ${var.environment} (E2E testing)"
+  # Same S3 origin, same cache behaviors
+  tags = { Purpose = "e2e-testing" }
+}
+```
+
+**Outputs:**
+- `webapp_url` - User-facing CloudFront URL
+- `webapp_test_url` - E2E testing CloudFront URL
+- `cloudfront_distribution_id` - APP CloudFront ID (for promotion)
+- `cloudfront_test_distribution_id` - TEST CloudFront ID (for E2E)
+
+**Deploy Script Usage:**
+```bash
+# Full deploy (S3 + both CloudFronts) - NOT recommended for CI
+./scripts/deploy-frontend.sh dev
+
+# CI/CD pattern (safe):
+./scripts/deploy-frontend.sh dev --test-only  # S3 + TEST CloudFront
+# ... run E2E tests ...
+./scripts/deploy-frontend.sh dev --app-only   # APP CloudFront (after tests pass)
+```
+
+**GitHub Secrets Required (per environment):**
+- `CLOUDFRONT_DISTRIBUTION_ID` - APP CloudFront ID
+- `CLOUDFRONT_TEST_DISTRIBUTION_ID` - TEST CloudFront ID
+- `CLOUDFRONT_DOMAIN` - APP CloudFront domain (for fallback)
+- `CLOUDFRONT_TEST_DOMAIN` - TEST CloudFront domain (for E2E URL)
+
+**Why This Pattern:**
+- ✅ **Zero-Risk**: Users never see untested frontend code
+- ✅ **Fast Rollback**: Don't invalidate APP = instant "rollback"
+- ✅ **Mirrors Lambda Pattern**: TEST CloudFront = $LATEST, APP CloudFront = "live" alias
+- ✅ **Same Infrastructure**: Both CloudFronts use same S3 bucket (no duplication)
+
+**Trade-offs:**
+- ❌ **Cost**: 2x CloudFront distributions per environment
+- ❌ **Complexity**: More secrets, more invalidation steps
+- ✅ **Overall**: Safety > cost for production deployments
+
+### Infrastructure TDD Workflow - MANDATORY
+
+**CRITICAL:** When modifying ANY terraform files (`terraform/*.tf`), you MUST follow this workflow. Do NOT skip steps.
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    INFRASTRUCTURE TDD FLOW                       │
+│                                                                  │
+│  1. terraform plan        →  Generate plan                      │
+│  2. conftest test         →  OPA policy validation (GATE)       │
+│  3. terraform apply       →  Only if OPA passes                 │
+│  4. go test (Terratest)   →  Verify infra works                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Step-by-Step Commands:**
+```bash
+cd terraform
+
+# 1. Generate terraform plan
+doppler run -- terraform plan -out=tfplan.binary -var-file=envs/dev/terraform.tfvars
+
+# 2. OPA Policy Validation (MUST PASS before apply)
+terraform show -json tfplan.binary > tfplan.json
+conftest test tfplan.json -p policies/
+
+# 3. Apply ONLY if OPA passes
+doppler run -- terraform apply tfplan.binary
+
+# 4. Post-apply verification with Terratest
+cd tests && go test -v -timeout 10m
+```
+
+**What Each Step Catches:**
+
+| Step | Tool | Catches |
+|------|------|---------|
+| Pre-apply | OPA/Conftest | IAM overpermission, missing tags, security misconfig |
+| Post-apply | Terratest | Lambda doesn't start, API Gateway misconfigured, wrong schedule |
+
+**When to Skip (NEVER for production changes):**
+- ❌ NEVER skip OPA for production (`terraform/envs/prod/`)
+- ⚠️ May skip Terratest locally if CI will run it
+- ✅ Can skip for pure documentation changes in terraform/
+
+**Justfile Recipes:**
+```bash
+just opa-validate dev      # Run OPA against dev plan
+just terratest             # Run Terratest integration tests
+just infra-tdd dev         # Full cycle: plan → OPA → apply → Terratest
+```
+
+**Anti-Pattern (What NOT to Do):**
+```bash
+# WRONG: Skipping OPA validation
+terraform plan -var-file=envs/dev/terraform.tfvars
+terraform apply -auto-approve  # ❌ No OPA check!
+
+# WRONG: Reactive error fixing without re-validating
+terraform apply  # fails
+# fix error manually
+terraform apply  # ❌ Should re-run OPA on new plan!
+```
+
+---
+
+### Terraform Architecture
 
 ```
 terraform/
@@ -1671,6 +1847,53 @@ terraform apply -var-file=envs/staging/terraform.tfvars
 terraform init -backend-config=envs/prod/backend.hcl -reconfigure
 terraform apply -var-file=envs/prod/terraform.tfvars
 ```
+
+#### ⚠️ Terraform State Lock Discipline - CRITICAL
+
+**The state lock protects Terraform state from concurrent modifications. Respect it.**
+
+**What the lock means:**
+- A `terraform apply` or `terraform import` is **actively running**
+- It's making changes to remote state in S3
+- Interrupting it can corrupt state
+
+**NEVER do these:**
+- ❌ Run `terraform force-unlock` because an operation is "taking too long"
+- ❌ Start a new `terraform apply` while another is running
+- ❌ Run multiple terraform commands in parallel (background jobs)
+- ❌ Assume a slow operation has "stalled" - Lambda permissions can take 5+ minutes
+
+**When is force-unlock appropriate?**
+- ✅ The terraform process crashed (kill -9, network disconnect, machine reboot)
+- ✅ The process that acquired the lock no longer exists (verify with `ps aux | grep terraform`)
+- ✅ The lock is orphaned (AWS console shows no active operations)
+
+**Correct workflow:**
+```bash
+# 1. Start apply (FOREGROUND, not background)
+doppler run -- terraform apply -var-file=envs/dev/terraform.tfvars
+
+# 2. WAIT for it to complete (even if it takes 10+ minutes)
+# Some resources like Lambda permissions take a long time
+
+# 3. Only then start another operation
+doppler run -- terraform import ...
+```
+
+**If you hit a lock error:**
+```bash
+# FIRST: Check if terraform is still running
+ps aux | grep terraform
+
+# If process exists: WAIT for it to finish
+# If process is dead: THEN force-unlock
+terraform force-unlock <lock-id>
+```
+
+**Why this matters:**
+- Force-unlocking an active operation can corrupt state
+- Corrupted state requires manual recovery (terraform state rm/import)
+- State corruption can cause resources to be orphaned or recreated
 
 ---
 
@@ -2065,6 +2288,125 @@ terraform apply -var="lambda_image_uri=${{ needs.build.outputs.image_uri }}"
 - ❌ More complex CI (must pass image URI between jobs)
 - ✅ Overall: Reproducibility > simplicity
 
+### Why Infrastructure TDD with OPA + Terratest
+
+**Decision:** Use OPA for pre-apply policy validation and Terratest for post-apply integration testing.
+
+**TDD Flow:**
+```
+terraform plan → OPA validation → terraform apply → Terratest verification
+     ↓                ↓                  ↓                   ↓
+  Generate JSON    Check policies    Create infra    Verify infra works
+```
+
+**Pre-Apply: OPA Policy Validation**
+```bash
+# Convert plan to JSON, validate against policies
+terraform plan -out=tfplan.binary
+terraform show -json tfplan.binary > tfplan.json
+conftest test tfplan.json --policy policies/
+```
+
+**Post-Apply: Terratest Integration Tests**
+```go
+// terraform/tests/lambda_test.go
+func TestTelegramAPIHealthCheck(t *testing.T) {
+    client := getLambdaClient(t)
+    result, err := client.Invoke(&lambda.InvokeInput{
+        FunctionName: aws.String("dr-daily-report-telegram-api-dev"),
+        Payload:      []byte(`{"httpMethod": "GET", "path": "/api/v1/health"}`),
+    })
+    require.NoError(t, err)
+    // Assert response
+}
+```
+
+**Rationale:**
+- ✅ **Shift-Left Security**: Catch IAM/S3/encryption issues before they deploy
+- ✅ **Policy-as-Code**: Version-controlled, reviewable security rules
+- ✅ **Integration Confidence**: Terratest verifies infra actually works
+- ✅ **CI/CD Integration**: OPA blocks PRs, Terratest runs on merge
+
+**Trade-offs:**
+- ❌ Learning curve: Rego language for OPA policies
+- ❌ Test maintenance: Terratest needs updates when infra changes
+- ✅ Overall: Early detection > deployment rollbacks
+
+**Directory Structure:**
+```
+terraform/
+├── policies/                    # OPA policies (Rego)
+│   ├── main.rego               # Entry point
+│   ├── security/               # Security policies
+│   │   ├── iam.rego            # IAM least privilege
+│   │   ├── s3.rego             # S3 security
+│   │   ├── dynamodb.rego       # DynamoDB best practices
+│   │   └── encryption.rego     # Encryption requirements
+│   └── tagging/
+│       └── required_tags.rego  # Tag enforcement
+├── tests/                       # Terratest (Go)
+│   ├── go.mod
+│   ├── lambda_test.go
+│   ├── dynamodb_test.go
+│   └── api_gateway_test.go
+└── envs/                        # Environment configs
+```
+
+**CI/CD Integration:**
+```yaml
+# .github/workflows/terraform-test.yml
+jobs:
+  opa-validate:     # Runs on PRs - blocks on policy violations
+  terratest:        # Runs on push to telegram/staging - verifies deployment
+```
+
+**Justfile Recipes:**
+```bash
+just opa-validate dev    # Run OPA policies against dev plan
+just terratest           # Run Terratest integration tests
+just infra-tdd dev       # Full cycle: OPA → apply → Terratest
+```
+
+### Why Two CloudFront Distributions Per Environment
+
+**Decision:** Create TEST and APP CloudFront distributions for zero-risk frontend deployment.
+
+**Problem:**
+CloudFront cache invalidation is atomic - once invalidated, users immediately see new files.
+If E2E tests run AFTER invalidation and fail, users have already seen the broken frontend.
+
+**Solution:**
+```
+Same S3 Bucket
+     │
+     ├── TEST CloudFront → Invalidated first, E2E tests run here
+     │
+     └── APP CloudFront  → Invalidated ONLY after E2E tests pass
+```
+
+**Rationale:**
+- ✅ **Zero-Risk**: Users never see untested frontend code
+- ✅ **Mirrors Backend Pattern**: Like Lambda's $LATEST (TEST) vs "live" alias (APP)
+- ✅ **Instant Rollback**: Simply don't invalidate APP = users see old working version
+- ✅ **No S3 Duplication**: Both CloudFronts serve same bucket, just different cache timing
+
+**Alternatives considered:**
+- ❌ **Separate S3 buckets**: Doubles storage costs, requires sync logic
+- ❌ **S3 versioning + rollback**: Complex, doesn't prevent initial exposure
+- ❌ **Feature flags**: Adds code complexity, still deploys broken code
+- ❌ **Canary releases**: Overkill for static frontend, CloudFront doesn't support natively
+
+**Trade-offs:**
+- ❌ 2x CloudFront distributions = higher cost (~$1-5/month per distribution)
+- ❌ More GitHub secrets to manage per environment
+- ❌ Longer deployment pipeline (test → promote)
+- ✅ Overall: Safety > cost for production frontends
+
+**Historical Context:** Implemented after realizing CloudFront doesn't honor client-side
+`Cache-Control: no-cache` headers - there's no way to "test before users see" with
+a single distribution. This pattern mirrors the Lambda alias pattern that solved
+the same problem for backend deployments.
+
 ---
 
 ## Reference Examples
@@ -2165,6 +2507,9 @@ analyze TICKER FORMAT="text":
 | Deploy infra to prod | `terraform init -backend-config=envs/prod/backend.hcl -reconfigure && terraform apply -var-file=envs/prod/terraform.tfvars` |
 | Check TF state | `terraform state list` |
 | Rollback Lambda | `./scripts/rollback.sh <env> <version>` (e.g., `./scripts/rollback.sh dev 5`) |
+| OPA validate | `just opa-validate dev` |
+| Run Terratest | `just terratest` |
+| Full infra TDD | `just infra-tdd dev` (OPA → apply → Terratest) |
 
 **Key Files to Know:**
 - `src/agent.py` - Main LangGraph agent
