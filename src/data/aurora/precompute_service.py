@@ -982,12 +982,12 @@ class PrecomputeService:
             if ticker_info.dr_symbol and ticker_info.dr_symbol not in symbols_to_check:
                 symbols_to_check.append(ticker_info.dr_symbol)
 
-        # Query using symbol (direct match) with fallback to ticker_master_id
-        # This ensures we can find reports stored with either ticker_id or ticker_master_id
+        # Query using symbol (direct match) with fallback to ticker_id
+        # This ensures we can find reports stored with the resolved ticker_id
         placeholders = ', '.join(['%s'] * len(symbols_to_check))
         query = f"""
             SELECT * FROM precomputed_reports
-            WHERE (symbol IN ({placeholders}) OR (ticker_master_id IS NOT NULL AND ticker_master_id = %s))
+            WHERE (symbol IN ({placeholders}) OR (ticker_id IS NOT NULL AND ticker_id = %s))
             AND report_date = %s
             AND status = 'completed'
             ORDER BY id DESC
