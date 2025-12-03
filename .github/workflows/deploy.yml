@@ -18,6 +18,7 @@ on:
       - 'requirements*.txt'
       - 'terraform/**'
       - '.github/workflows/**'
+      - 'tests/**'
   pull_request:
     branches:
       - telegram
