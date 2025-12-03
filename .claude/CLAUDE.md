@@ -26,8 +26,14 @@ Maintain the **"Goldilocks Zone" of abstraction** - not too abstract, not too sp
 - Doesn't require updates when implementation details change
 - Would cause bugs/confusion if not followed
 
+**Code examples are appropriate when they:**
+- Illustrate the principle (show what "right" looks like)
+- Demonstrate anti-patterns (show what NOT to do)
+- Reference stable interfaces (AWS CLI, gh commands) unlikely to change
+- Help discoverability (flags like `--exit-status` people may not know)
+
 **A principle does NOT belong here if it:**
-- Contains specific code snippets (put in code comments instead)
+- Is pure implementation without underlying principle
 - References specific file paths that may change
 - Is standard engineering practice (no need to document "write tests")
 - Is a one-time decision already made (document in ADR or commit message)
