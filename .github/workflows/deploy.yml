@@ -6,6 +6,7 @@ name: Progressive Deployment Pipeline
 # Single trigger on telegram branch - auto-promotes through all environments
 # ============================================================================
 on:
+  workflow_dispatch:  # Manual trigger for reruns without cached artifacts
   push:
     branches:
       - telegram  # Single trigger - auto-chains through dev → staging → prod
