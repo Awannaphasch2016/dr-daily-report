@@ -75,10 +75,10 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     logger.info(f"🌍 Environment: {environment}")
 
     # Validate required environment variables
+    # NOTE: DYNAMODB_CACHE_TABLE was removed - using Aurora for caching instead
     required_vars = [
         'OPENROUTER_API_KEY',
         'DYNAMODB_WATCHLIST_TABLE',
-        'DYNAMODB_CACHE_TABLE',
         'PDF_STORAGE_BUCKET'
     ]
 
