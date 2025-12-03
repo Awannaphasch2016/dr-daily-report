@@ -6,6 +6,34 @@
 
 ---
 
+## About This Document
+
+**CLAUDE.md is the ground truth contract for how we work.** All developers (human and AI) must follow these principles.
+
+### What Belongs in CLAUDE.md
+
+Maintain the **"Goldilocks Zone" of abstraction** - not too abstract, not too specific:
+
+| Level | Example | Problem |
+|-------|---------|---------|
+| Too Abstract | "Use good practices for data" | No guidance - 100 ways to interpret |
+| Too Specific | "Use Aurora with this exact SQL query" | Constant updates, implementation lock-in |
+| **Just Right** | "Verify data type compatibility at system boundaries - MySQL ENUMs fail silently" | Guides behavior, explains WHY, survives implementation changes |
+
+**A principle belongs here if it:**
+- Guides behavior (tells you WHAT to do)
+- Explains WHY (so you can adapt to new situations)
+- Doesn't require updates when implementation details change
+- Would cause bugs/confusion if not followed
+
+**A principle does NOT belong here if it:**
+- Contains specific code snippets (put in code comments instead)
+- References specific file paths that may change
+- Is standard engineering practice (no need to document "write tests")
+- Is a one-time decision already made (document in ADR or commit message)
+
+---
+
 ## Project Context
 
 ### Overview
@@ -77,290 +105,78 @@ aws iam attach-user-policy --user-name <user> --policy-arn <arn>
 
 ## Testing Guidelines
 
-### Test Organization (App-Separated)
-
-Tests are separated by app for independent CI/CD pipelines:
-
+### Test Structure
 ```
 tests/
-├── conftest.py              # Shared fixtures ONLY
-├── shared/                  # Shared code tests (agent, workflow, data)
-│   ├── test_transformer.py
-│   └── scoring/             # Scorer tests
-├── telegram/                # Telegram Mini App tests
-│   ├── test_api_endpoints.py
-│   ├── test_rankings_service.py
-│   └── test_watchlist_service.py
-├── line_bot/                # LINE Bot tests (skip in Telegram CI)
-│   ├── test_line_local.py
-│   └── test_fuzzy_matching.py
-├── e2e/                     # Browser tests (Playwright)
-│   └── test_telegram_webapp.py
-├── integration/             # External API tests (LangSmith, etc.)
-└── infrastructure/          # S3, DynamoDB tests
+├── conftest.py         # Shared fixtures ONLY
+├── shared/             # Agent, workflow, data tests
+├── telegram/           # Telegram API tests
+├── line_bot/           # LINE Bot tests (mark: legacy)
+├── e2e/                # Playwright browser tests
+├── integration/        # External API tests
+└── infrastructure/     # S3, DynamoDB tests
 ```
 
-### Test Tiers (Layered Scoping)
-
-Tests are organized into tiers based on external dependencies:
-
-```
-Layer 2 (Tiers):     --tier=0   --tier=1   --tier=2      --tier=3   --tier=4
-                        ↓          ↓          ↓             ↓          ↓
-Layer 1 (Markers):   (none)    (none)    integration     smoke       e2e
-                                              ↓             ↓          ↓
-Layer 0 (Fixtures):                    requires_llm  requires_server requires_browser
-```
+### Test Tiers
 
 | Tier | Command | Includes | Use Case |
 |------|---------|----------|----------|
-| 0 | `pytest --tier=0` | Unit only | Fastest local check |
-| 1 | `pytest` (default) | Unit + mocked | PR check, deploy gate |
-| 2 | `pytest --tier=2` | + integration | Nightly (needs API keys) |
-| 3 | `pytest --tier=3` | + smoke | Local pre-deploy (needs server) |
-| 4 | `pytest --tier=4` | + e2e | Release (needs browser) |
+| 0 | `pytest --tier=0` | Unit only | Fast local |
+| 1 | `pytest` (default) | Unit + mocked | Deploy gate |
+| 2 | `pytest --tier=2` | + integration | Nightly |
+| 3 | `pytest --tier=3` | + smoke | Pre-deploy |
+| 4 | `pytest --tier=4` | + e2e | Release |
 
-**Tier + path are orthogonal:**
-```bash
-pytest --tier=2 tests/telegram  # Tier 2 for Telegram tests only
-pytest --tier=1 tests/line_bot  # Tier 1 for LINE bot tests only
-```
+### Rules (DO / DON'T)
 
-**Marker primitives still work:**
-```bash
-pytest -m smoke          # Just smoke tests
-pytest -m integration    # Just integration tests
-pytest -m "not legacy"   # Skip LINE bot tests
-```
+| DO | DON'T |
+|----|-------|
+| `class TestComponent:` | `def test_foo()` at module level |
+| `assert x == expected` | `return True/False` (pytest ignores!) |
+| `assert isinstance(r, dict)` | `assert r is not None` (weak) |
+| Define mocks in `conftest.py` | Duplicate mocks per file |
+| Patch where USED: `@patch('src.api.module.lib')` | Patch where defined: `@patch('lib')` |
+| `AsyncMock` for async methods | `Mock` for async (breaks await) |
 
-**Requirement fixtures (Layer 0):**
+### Canonical Test Pattern
 ```python
-def test_llm_call(self, requires_llm):
-    # Skips if OPENROUTER_API_KEY not set
-
-def test_health(self, requires_live_server):
-    # Skips if API server not responding
-
-def test_browser(self, requires_browser):
-    # Skips if Playwright not installed
-```
-
-### Mandatory Conventions
-
-| Rule | Requirement | Anti-Pattern |
-|------|-------------|--------------|
-| Class-based | `class Test<Component>:` | `def test_foo()` at module level |
-| Proper assertions | `assert x == expected` | `return True/False` (pytest ignores) |
-| Strong assertions | `assert isinstance(r, dict)` | `assert r is not None` |
-| No debug output | Remove `print()` | `print(f"Debug: {x}")` |
-| Centralized mocks | Define in `conftest.py` | Duplicate mocks per file |
-| File = Component | `test_<component>.py` tests one component | Cross-component testing |
-
-### Anti-Patterns (DO NOT USE)
-
-```python
-# BROKEN: pytest ignores return values - test ALWAYS passes
-def test_api_handler():
-    response = handler(event, context)
-    if response['statusCode'] == 200:
-        return True   # <- pytest ignores this!
-    return False
-
-# WRONG: Module-level function (not in class)
-def test_something():
-    assert True
-
-# WEAK: Only checks existence, not correctness
-assert result is not None
-
-# NOISY: Print statements in tests
-print(f"Debug: {result}")
-```
-
-### Required Test Pattern
-
-```python
-# -*- coding: utf-8 -*-
-"""Tests for <Component>"""
-
-import pytest
-from unittest.mock import Mock, patch, AsyncMock
-from src.module import Component
-
-
 class TestComponent:
-    """Test suite for Component"""
-
     def setup_method(self):
-        """Set up test fixtures"""
         self.component = Component()
 
-    def test_success_scenario(self, mock_ticker_data):
-        """Test that <action> succeeds when <condition>"""
-        # Arrange
-        input_data = {'ticker': 'NVDA19'}
-
-        # Act
-        result = self.component.process(input_data)
-
-        # Assert - STRONG assertions
+    def test_success(self, mock_ticker_data):  # Use fixture from conftest
+        result = self.component.process({'ticker': 'NVDA19'})
         assert isinstance(result, dict), f"Expected dict, got {type(result)}"
-        assert 'ticker' in result, f"Missing 'ticker' key in {result.keys()}"
         assert result['ticker'] == 'NVDA19'
 
-    def test_invalid_input_raises_error(self):
-        """Test that invalid input raises ValueError"""
-        with pytest.raises(ValueError, match="Invalid ticker"):
+    def test_error(self):
+        with pytest.raises(ValueError, match="Invalid"):
             self.component.process({'ticker': ''})
-```
-
-### Assertion Hierarchy
-
-```python
-# Level 1: Type check
-assert isinstance(result, dict), f"Expected dict, got {type(result)}"
-
-# Level 2: Structure check
-assert 'ticker' in result, f"Missing 'ticker' in {result.keys()}"
-
-# Level 3: Value check
-assert result['ticker'] == 'NVDA19'
-assert result['price'] > 0, f"Invalid price: {result['price']}"
-
-# Level 4: Collection check
-assert len(results) == 3
-assert all(isinstance(r, RankingItem) for r in results)
-```
-
-### Pytest Markers
-
-```python
-# Tier-controlled markers (what the test needs)
-@pytest.mark.integration   # External APIs (LLM, yfinance, LangSmith)
-@pytest.mark.smoke         # Requires live API server
-@pytest.mark.e2e           # Requires Playwright browser
-
-# Other markers
-@pytest.mark.legacy        # LINE bot (skip in Telegram CI)
-@pytest.mark.slow          # Takes >10 seconds
-@pytest.mark.ratelimited   # Paused due to API rate limits
-
-# Mark entire file
-pytestmark = pytest.mark.legacy
-pytestmark = pytest.mark.e2e
-```
-
-### Rate-Limited Tests
-
-For tests hitting external API rate limits:
-
-```python
-@pytest.mark.ratelimited
-def test_yfinance_heavy_fetch():
-    """Test paused due to yfinance rate limits"""
-    ...
-```
-
-```bash
-# Normal run - ratelimited tests are skipped
-pytest tests/
-
-# When you have API quota again
-pytest tests/ --run-ratelimited
-```
-
-### Mocking Conventions
-
-**Centralize in conftest.py:**
-```python
-# tests/conftest.py - SINGLE SOURCE for shared mocks
-@pytest.fixture
-def mock_dynamodb_table():
-    """Mock DynamoDB table with all CRUD operations"""
-    table = MagicMock()
-    table.put_item = Mock(return_value={})
-    table.get_item = Mock(return_value={'Item': {}})
-    table.query = Mock(return_value={'Items': []})
-    return table
-```
-
-**Patch location rules:**
-```python
-# Patch where it's USED, not where it's DEFINED
-@patch('src.api.rankings_service.yfinance.Ticker')  # Used in rankings_service
-def test_rankings(mock_yf):
-    pass
-
-# NOT: @patch('yfinance.Ticker')  # Where it's defined
-```
-
-**Sync vs Async mocking:**
-```python
-# Sync methods: use Mock
-mock_service.get_data = Mock(return_value={'ticker': 'NVDA19'})
-
-# Async methods: use AsyncMock
-mock_service.fetch_async = AsyncMock(return_value={'ticker': 'NVDA19'})
-
-# In patch(): use new_callable
-with patch.object(service, 'fetch_async', new_callable=AsyncMock) as mock:
-    mock.return_value = expected_data
-```
-
-### Async Testing
-
-```python
-class TestAsyncService:
-    """Test async service methods"""
 
     @pytest.mark.asyncio
-    async def test_async_method(self, mock_ticker_data):
-        """Test async data fetching"""
-        service = RankingsService()
-
-        with patch.object(service, 'fetch_async', new_callable=AsyncMock) as mock:
-            mock.return_value = mock_ticker_data
-
-            result = await service.get_rankings('top_gainers')
-
-            mock.assert_called_once()
-            assert isinstance(result, list)
+    async def test_async(self):
+        with patch.object(svc, 'fetch', new_callable=AsyncMock) as m:
+            m.return_value = {'data': 1}
+            result = await svc.get_data()
+        assert result == {'data': 1}
 ```
 
-### CI Pipeline Commands
-
-```bash
-# Telegram deploy gate (tier 1, default)
-pytest tests/shared tests/telegram -m "not e2e"
-
-# Or using tier flag (equivalent)
-pytest --tier=1 tests/shared tests/telegram
-
-# LINE bot tests
-pytest tests/shared tests/line_bot -m "not e2e"
-
-# Integration tests (nightly, needs secrets)
-pytest --tier=2 tests/shared tests/telegram
-
-# Full suite with coverage
-pytest --cov=src --cov-fail-under=50
+### Markers
+```python
+@pytest.mark.integration   # External APIs (LLM, yfinance)
+@pytest.mark.smoke         # Requires live server
+@pytest.mark.e2e           # Requires browser
+@pytest.mark.legacy        # LINE bot (skip in Telegram CI)
+@pytest.mark.ratelimited   # API rate limited (--run-ratelimited to include)
+pytestmark = pytest.mark.legacy  # Mark entire file
 ```
 
-### Running Tests (Justfile)
-
+### Quick Reference
 ```bash
-# Tier-based commands
-just test-tier0          # Unit only (fastest)
-just test-tier1          # Unit + mocked (default)
-just test-tier2          # + integration (needs API keys)
-just test-tier3          # + smoke (needs running server)
-just test-tier4          # + e2e (needs browser)
-
-# Deployment gate
-just test-deploy
-
-# Specific file
-dr test file test_rankings_service.py
+just test-deploy                    # Deploy gate
+pytest --tier=2 tests/telegram      # Integration + Telegram only
+pytest -m "not legacy and not e2e"  # Skip LINE bot and browser tests
+pytest --run-ratelimited            # Include rate-limited tests
 ```
 
 ---
@@ -731,6 +547,12 @@ class WatchlistService:
 - **SQLite**: Historical ticker data, session cache, Lambda container reuse
 - **S3**: Generated reports, long-lived cache, cross-invocation persistence
 - **DynamoDB**: User state, watchlists, requires strong consistency
+
+#### System Boundary Principle
+
+**When crossing system boundaries (API ↔ Database), verify data type compatibility explicitly.**
+
+Strict types like MySQL ENUMs fail silently on mismatch - no exception, data just doesn't persist. Always validate that values passed between systems match the expected type constraints on both sides.
 
 #### Retry/Fallback Pattern
 
@@ -1432,6 +1254,19 @@ on:
       - 'terraform/**'
 ```
 
+**⚠️ Path Filter Implications - What Does NOT Trigger Deployment:**
+
+| File Change | Triggers Deploy? | Why |
+|-------------|------------------|-----|
+| `tests/*.py` | ❌ No | Tests don't affect production code |
+| `docs/*.md` | ❌ No | Documentation is git-only |
+| `.claude/CLAUDE.md` | ❌ No | Dev instructions, not runtime |
+| `.github/workflows/*.yml` | ❌ No | CI config (but runs on next trigger) |
+
+**Consequence:** If you ONLY change test files and want CI to run, you must:
+1. Include a trivial change to a path-filtered file (e.g., comment in `src/`)
+2. Or manually trigger the workflow: `gh workflow run deploy.yml`
+
 **Pipeline Flow:**
 ```
 git push to telegram
@@ -1519,6 +1354,95 @@ git commit -m "Add E2E frontend tests"
 - **Safety**: Unnecessary deployments risk production incidents
 - **Clarity**: Each action should have clear intent
 - **Auditability**: Git history shows code changes, Terraform state shows infra changes
+
+#### Deployment Monitoring Discipline
+
+**CRITICAL: Never use `sleep X` to wait for deployments.**
+
+Time-based waiting leads to incorrect conclusions:
+- Too short: Conclude "bug exists" when deployment isn't done yet
+- Too long: Waste time waiting for already-completed operations
+- Variable: Same operation takes different time based on load/complexity
+
+**Anti-Pattern (What causes misdiagnosis):**
+```bash
+# WRONG: Time-based waiting
+./deploy.sh && sleep 60 && curl $API_URL  # ❌ Might not be ready
+gh run list && sleep 120 && gh run view   # ❌ Guessing completion time
+
+# WRONG: Checking "status: completed" without "conclusion: success"
+gh run view 12345 --json status
+# {"status": "completed"}  ← This does NOT mean success!
+```
+
+**Correct Pattern - Use Blocking Waiters:**
+
+| Operation | Waiter Command | What It Does |
+|-----------|----------------|--------------|
+| Lambda code update | `aws lambda wait function-updated --function-name X` | Blocks until $LATEST is updated |
+| CloudFront invalidation | `aws cloudfront wait invalidation-completed --distribution-id X --id Y` | Blocks until cache is purged |
+| GitHub Actions run | `gh run watch <run-id> --exit-status` | Blocks AND returns proper exit code |
+| Lambda publish version | `aws lambda wait function-active --function-name X` | Blocks until version is ready |
+
+**AWS CLI Waiter Pattern:**
+```bash
+# Correct: Use AWS waiters (block until actual completion)
+aws lambda update-function-code --function-name $FUNC --image-uri $IMAGE
+aws lambda wait function-updated --function-name $FUNC  # ← Blocks until done
+echo "Now Lambda is ACTUALLY updated"
+
+# CloudFront invalidation
+INVALIDATION_ID=$(aws cloudfront create-invalidation ... --query 'Invalidation.Id' --output text)
+aws cloudfront wait invalidation-completed \
+  --distribution-id $DIST_ID \
+  --id $INVALIDATION_ID  # ← Blocks until cache is purged
+```
+
+**GitHub Actions Waiter Pattern:**
+```bash
+# Correct: Use --exit-status to get proper return code
+gh run watch 12345 --exit-status  # Blocks AND exits non-zero on failure
+
+# Or if you need JSON output after completion:
+gh run watch 12345 --exit-status && gh run view 12345 --json conclusion
+
+# ALWAYS check conclusion, not just status
+gh run view 12345 --json status,conclusion --jq '{status, conclusion}'
+# {"status": "completed", "conclusion": "success"}  ← Both matter!
+```
+
+**Completion vs Success - The Critical Distinction:**
+```
+status: completed  = "The workflow finished running"
+conclusion: success = "The workflow achieved its goal"
+
+A workflow can be:
+- completed + success  → ✅ Deploy succeeded
+- completed + failure  → ❌ Deploy failed (tests failed, build error, etc.)
+- completed + cancelled → ⚠️ Someone cancelled it
+
+NEVER assume completed = success!
+```
+
+**On Failure - Read Logs Before Concluding "Bug":**
+```bash
+# When something fails, check logs FIRST
+gh run view 12345 --log-failed  # Shows only failed step logs
+
+# For Lambda failures
+aws logs tail /aws/lambda/$FUNCTION_NAME --since 5m
+
+# For CloudWatch insights
+aws logs filter-log-events \
+  --log-group-name /aws/lambda/$FUNCTION_NAME \
+  --filter-pattern "ERROR"
+```
+
+**Why This Discipline Matters:**
+- **Accuracy**: Know when deployment is ACTUALLY done, not guessing
+- **Debugging**: Don't chase phantom bugs that are just timing issues
+- **Efficiency**: No wasted time on arbitrary sleep durations
+- **Reliability**: CI/CD scripts fail properly when deployments fail
 
 ### AWS Infrastructure & Tagging Strategy
 
@@ -1894,6 +1818,85 @@ terraform force-unlock <lock-id>
 - Force-unlocking an active operation can corrupt state
 - Corrupted state requires manual recovery (terraform state rm/import)
 - State corruption can cause resources to be orphaned or recreated
+
+#### Infrastructure TDD Workflow
+
+**Tests are the source of truth for infrastructure verification.**
+
+When you need to verify infrastructure state (e.g., "is the SQS → Lambda trigger connected?"), first look at the Terratest tests. If tests don't answer the question, that's a TDD opportunity to expand coverage.
+
+**Core Principle:**
+> "If you can't find the answer by looking at the test, it means test coverage has room to improve and that's a good time to do TDD to expand the coverage."
+
+**Workflow:**
+```
+1. Tests define expected infrastructure state
+         ↓
+2. Run tests → see failures (RED)
+         ↓
+3. terraform plan → OPA/Conftest validation
+         ↓
+4. terraform apply → make infrastructure changes
+         ↓
+5. Run tests → verify fixes (GREEN)
+```
+
+**Directory Structure:**
+```
+terraform/
+├── tests/
+│   ├── sqs_worker_test.go      # SQS → Lambda integration
+│   ├── api_gateway_test.go     # API Gateway endpoints
+│   └── iam_test.go             # IAM policies/roles
+├── policies/
+│   └── terraform.rego          # OPA policies for plan validation
+└── *.tf                        # Terraform configurations
+```
+
+**Example: Testing SQS → Lambda Trigger:**
+```go
+// terraform/tests/sqs_worker_test.go
+func TestSQSLambdaTrigger(t *testing.T) {
+    // Verify event source mapping exists
+    mappings := aws.LambdaListEventSourceMappings(t, region, functionName)
+    assert.NotEmpty(t, mappings, "No event source mappings found")
+
+    // Verify correct queue is connected
+    for _, m := range mappings {
+        if strings.Contains(*m.EventSourceArn, queueName) {
+            assert.Equal(t, "Enabled", *m.State)
+            return
+        }
+    }
+    t.Errorf("Queue %s not found in event source mappings", queueName)
+}
+```
+
+**Running Infrastructure Tests:**
+```bash
+# Run all infrastructure tests
+cd terraform && go test -v ./tests/...
+
+# Run specific test
+go test -v -run TestSQSLambdaTrigger ./tests/...
+
+# With timeout (infrastructure tests can be slow)
+go test -v -timeout 5m ./tests/...
+```
+
+**Anti-Patterns:**
+- ❌ Using `aws CLI` commands to manually verify infrastructure state
+- ❌ Checking AWS Console for verification
+- ❌ Running ad-hoc queries instead of adding test coverage
+- ✅ Writing a test that verifies the expected state
+- ✅ Using tests as living documentation of infrastructure contracts
+
+**When Tests Fail:**
+1. Read the error message carefully
+2. Check if resource exists but isn't in Terraform state → `terraform import`
+3. Check if resource needs to be created → update `.tf` files
+4. Apply changes: `doppler run -- terraform apply -var-file=envs/dev/terraform.tfvars`
+5. Re-run tests to verify fix
 
 ---
 
