@@ -4,7 +4,7 @@ name: Progressive Deployment Pipeline
 # Progressive Deployment: dev → staging → prod
 # Each stage must pass before the next begins
 # Single trigger on telegram branch - auto-promotes through all environments
-# Required secrets per environment: CLOUDFRONT_DOMAIN, CLOUDFRONT_DISTRIBUTION_ID
+# Required vars: CLOUDFRONT_DOMAIN. Secrets: CLOUDFRONT_DISTRIBUTION_ID
 # ============================================================================
 on:
   workflow_dispatch:  # Manual trigger for reruns without cached artifacts
@@ -425,7 +425,7 @@ jobs:
                 --distribution-id ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }} \
                 --paths "/*" > /dev/null
             fi
-            echo "test_url=https://${{ secrets.CLOUDFRONT_DOMAIN }}" >> $GITHUB_OUTPUT
+            echo "test_url=https://${{ vars.CLOUDFRONT_DOMAIN }}" >> $GITHUB_OUTPUT
           fi
 
   ###############################################################################
@@ -705,7 +705,7 @@ jobs:
                 --distribution-id ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }} \
                 --paths "/*" > /dev/null
             fi
-            echo "test_url=https://${{ secrets.CLOUDFRONT_DOMAIN }}" >> $GITHUB_OUTPUT
+            echo "test_url=https://${{ vars.CLOUDFRONT_DOMAIN }}" >> $GITHUB_OUTPUT
           fi
 
   ###############################################################################
@@ -1007,7 +1007,7 @@ jobs:
                 --distribution-id ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }} \
                 --paths "/*" > /dev/null
             fi
-            echo "test_url=https://${{ secrets.CLOUDFRONT_DOMAIN }}" >> $GITHUB_OUTPUT
+            echo "test_url=https://${{ vars.CLOUDFRONT_DOMAIN }}" >> $GITHUB_OUTPUT
           fi
 
   ###############################################################################
