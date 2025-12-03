@@ -4,6 +4,7 @@ name: Progressive Deployment Pipeline
 # Progressive Deployment: dev → staging → prod
 # Each stage must pass before the next begins
 # Single trigger on telegram branch - auto-promotes through all environments
+# Required secrets per environment: CLOUDFRONT_DOMAIN, CLOUDFRONT_DISTRIBUTION_ID
 # ============================================================================
 on:
   workflow_dispatch:  # Manual trigger for reruns without cached artifacts
