@@ -663,6 +663,194 @@ class ResponseTransformer:
 
         return risks[:5]  # Max 5 risks
 
+    async def transform_cached_report(
+        self,
+        cached_report: dict,
+        ticker_info: dict
+    ) -> ReportResponse:
+        """Transform cached report from Aurora to ReportResponse
+
+        Uses the new schema columns:
+        - 'date' (data date) instead of 'report_date'
+        - 'report_generated_at' instead of 'computed_at'
+        - 'pdf_s3_key' for PDF URL generation
+        - 'pdf_presigned_url' for cached presigned URL
+
+        Args:
+            cached_report: Cached report from precomputed_reports table
+            ticker_info: Ticker info from TickerService
+
+        Returns:
+            ReportResponse matching API spec
+        """
+        import json
+
+        ticker = cached_report.get('symbol', '')
+        report_text = cached_report.get('report_text', '')
+        report_json = cached_report.get('report_json')
+
+        # Parse report_json if it's a string
+        if isinstance(report_json, str):
+            try:
+                report_json = json.loads(report_json)
+            except json.JSONDecodeError:
+                report_json = {}
+
+        report_json = report_json or {}
+
+        # Extract data from cached report
+        company_name = ticker_info.get('company_name', '')
+        price = float(report_json.get('price', 0) or 0)
+        currency = ticker_info.get('currency', 'USD')
+
+        # Calculate price change (from report_json or default)
+        price_change_pct = float(report_json.get('price_change_pct', 0) or 0)
+
+        # Extract timestamp - prefer new 'report_generated_at', fall back to 'computed_at'
+        timestamp = (
+            cached_report.get('report_generated_at') or
+            cached_report.get('computed_at')
+        )
+        if timestamp:
+            if isinstance(timestamp, str):
+                try:
+                    as_of = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+                except ValueError:
+                    as_of = datetime.now()
+            elif isinstance(timestamp, datetime):
+                as_of = timestamp
+            else:
+                as_of = datetime.now()
+        else:
+            as_of = datetime.now()
+
+        # Extract indicators and percentiles from report_json
+        indicators = report_json.get('indicators', {})
+        percentiles = report_json.get('percentiles', {})
+
+        # Extract stance and confidence from report
+        stance_info = self._extract_stance(report_text, indicators, percentiles)
+
+        # Build summary sections
+        summary_sections = self._extract_summary_sections(report_text)
+
+        # Build technical metrics
+        technical_metrics = self._build_technical_metrics(indicators, percentiles)
+
+        # Build fundamentals from report_json
+        ticker_data = report_json.get('ticker_data', {})
+        fundamentals = self._build_fundamentals(ticker_data)
+
+        # Build news items from report_json
+        news = report_json.get('news', [])
+        news_items = self._build_news_items(news)
+
+        # Calculate overall sentiment
+        overall_sentiment = self._calculate_overall_sentiment(news_items)
+
+        # Build risk assessment
+        risk = self._build_risk(indicators, percentiles, report_text)
+
+        # Build peers (skip for cached reports to save time)
+        peers = []
+
+        # Data sources
+        data_sources = [
+            "Yahoo Finance - price, volume, fundamentals",
+            "Internal dataset - technical percentiles",
+            "Precomputed cache - instant retrieval"
+        ]
+
+        # Chart URL from cached report
+        chart_base64 = cached_report.get('chart_base64', '')
+
+        # ================================================================
+        # PDF URL handling - use stored presigned URL or generate new one
+        # ================================================================
+        pdf_report_url = self._get_pdf_url_from_cached_report(cached_report)
+
+        # Generation metadata - mark as cache hit
+        generation_metadata = GenerationMetadata(
+            agent_version="v1.0.0",
+            strategy=cached_report.get('strategy', 'multi-stage'),
+            generated_at=as_of,
+            cache_hit=True  # Mark as cache hit
+        )
+
+        return ReportResponse(
+            ticker=ticker,
+            company_name=company_name,
+            price=price,
+            price_change_pct=price_change_pct,
+            currency=currency,
+            as_of=as_of,
+            stance=stance_info["stance"],
+            estimated_upside_pct=stance_info.get("upside_pct"),
+            confidence=stance_info["confidence"],
+            investment_horizon=stance_info["horizon"],
+            narrative_report=report_text,
+            summary_sections=summary_sections,
+            technical_metrics=technical_metrics,
+            fundamentals=fundamentals,
+            news_items=news_items,
+            overall_sentiment=overall_sentiment,
+            risk=risk,
+            peers=peers,
+            data_sources=data_sources,
+            pdf_report_url=pdf_report_url,
+            generation_metadata=generation_metadata
+        )
+
+    def _get_pdf_url_from_cached_report(self, cached_report: dict) -> Optional[str]:
+        """Get PDF URL from cached report, using stored presigned URL if valid.
+
+        Priority:
+        1. Use stored pdf_presigned_url if not expired
+        2. Generate new presigned URL from pdf_s3_key
+        3. Return None if no PDF available
+
+        Args:
+            cached_report: Cached report dict with PDF columns
+
+        Returns:
+            Presigned URL string or None
+        """
+        # Check for stored presigned URL
+        stored_url = cached_report.get('pdf_presigned_url')
+        expires_at = cached_report.get('pdf_url_expires_at')
+
+        if stored_url and expires_at:
+            # Check if URL is still valid
+            if isinstance(expires_at, str):
+                try:
+                    expires_at = datetime.fromisoformat(expires_at.replace('Z', '+00:00'))
+                except ValueError:
+                    expires_at = None
+
+            if expires_at and isinstance(expires_at, datetime):
+                if expires_at > datetime.now():
+                    logger.debug(f"Using stored presigned URL (expires: {expires_at})")
+                    return stored_url
+                else:
+                    logger.debug(f"Stored presigned URL expired at {expires_at}")
+
+        # Try to generate new presigned URL from pdf_s3_key
+        pdf_s3_key = cached_report.get('pdf_s3_key')
+        if pdf_s3_key:
+            try:
+                if self.pdf_storage.is_available():
+                    url = self.pdf_storage.get_presigned_url(pdf_s3_key)
+                    logger.info(f"Generated new presigned URL for: {pdf_s3_key}")
+
+                    # Optionally update the cached URL in database (async)
+                    # This is done by precompute_service.update_pdf_presigned_url()
+
+                    return url
+            except Exception as e:
+                logger.warning(f"Failed to generate presigned URL for {pdf_s3_key}: {e}")
+
+        return None
+
 
 # Global transformer instance
 _transformer: ResponseTransformer | None = None

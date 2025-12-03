@@ -41,8 +41,13 @@ from .job_service import get_job_service, JobNotFoundError
 from .telegram_auth import get_telegram_auth, TelegramAuthError
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+# NOTE: In Lambda, basicConfig() is a no-op because Lambda pre-configures the root logger.
+# Instead, get the logger and explicitly set its level.
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
+# Also ensure the root logger level allows INFO through (Lambda default may be WARNING)
+logging.getLogger().setLevel(logging.INFO)
 
 # Rate limiting configuration
 limiter = Limiter(key_func=get_remote_address)
@@ -222,15 +227,45 @@ async def get_report(
         from .transformer import get_transformer
 
         ticker_service = get_ticker_service()
+        ticker_upper = ticker.upper()
 
         # Validate ticker is supported
-        if not ticker_service.is_supported(ticker):
+        if not ticker_service.is_supported(ticker_upper):
             raise TickerNotSupportedError(ticker)
 
         # Get ticker info
-        ticker_info = ticker_service.get_ticker_info(ticker)
+        ticker_info = ticker_service.get_ticker_info(ticker_upper)
 
-        logger.info(f"Generating report for {ticker}")
+        # Check for cached report in Aurora (unless force_refresh)
+        if not force_refresh:
+            try:
+                from src.data.aurora.precompute_service import PrecomputeService
+                import time
+
+                cache_start = time.time()
+                precompute_service = PrecomputeService()
+                # Use yahoo_ticker (e.g., NVDA) instead of symbol (e.g., NVDA19) for cache lookup
+                yahoo_ticker = ticker_info.get('yahoo_ticker', ticker_upper)
+                cached_report = precompute_service.get_cached_report(yahoo_ticker)
+
+                if cached_report and cached_report.get('report_text'):
+                    cache_duration = time.time() - cache_start
+                    logger.info(f"✅ Cache HIT for {ticker_upper} ({cache_duration:.3f}s)")
+
+                    # Transform cached report to API response
+                    transformer = get_transformer()
+                    response = await transformer.transform_cached_report(
+                        cached_report,
+                        ticker_info
+                    )
+                    return response
+                else:
+                    logger.info(f"Cache MISS for {ticker_upper} - generating on-demand")
+
+            except Exception as e:
+                logger.warning(f"Cache check failed for {ticker_upper}: {e} - falling back to on-demand")
+
+        logger.info(f"Generating report for {ticker_upper}")
 
         # Initialize agent
         agent = TickerAnalysisAgent()
@@ -296,25 +331,77 @@ async def get_report(
 
 @app.post("/api/v1/report/{ticker}", response_model=JobSubmitResponse)
 @limiter.limit("20/minute")  # 20 async job submissions per minute per IP
-async def submit_report_async(request: Request, ticker: str):
+async def submit_report_async(
+    request: Request,
+    ticker: str,
+    force_refresh: bool = Query(False, description="Force report regeneration (ignore cache)")
+):
     """Submit async report generation job
 
-    Creates a job for async report generation and sends it to SQS queue.
-    Returns immediately with job_id for status polling.
+    First checks Aurora cache for an existing precomputed report. If found,
+    returns immediately with a "cached" job_id (prefixed with "cached_").
+    Otherwise, creates a job for async report generation and sends it to SQS queue.
+
+    This cache-first approach enables <500ms response times for precomputed reports.
 
     Args:
         ticker: Ticker symbol (e.g., NVDA19)
+        force_refresh: If true, skip cache and always generate new report
 
     Returns:
-        JobSubmitResponse with job_id and pending status
+        JobSubmitResponse with job_id and status
     """
     try:
+        import time
+
         ticker_upper = ticker.upper()
         ticker_service = get_ticker_service()
 
         # Validate ticker is supported
         if not ticker_service.is_supported(ticker_upper):
             raise TickerNotSupportedError(ticker)
+
+        # ================================================================
+        # CACHE-FIRST: Check Aurora precomputed_reports before creating job
+        # ================================================================
+        if not force_refresh:
+            try:
+                from src.data.aurora.precompute_service import PrecomputeService
+
+                cache_start = time.time()
+                precompute_service = PrecomputeService()
+
+                # Get ticker info to resolve yahoo_ticker
+                ticker_info = ticker_service.get_ticker_info(ticker_upper)
+                yahoo_ticker = ticker_info.get('yahoo_ticker', ticker_upper)
+
+                # Check cache using ticker_master_id (works with any symbol format)
+                cached_report = precompute_service.get_cached_report(yahoo_ticker)
+
+                if cached_report and cached_report.get('report_text'):
+                    cache_duration = time.time() - cache_start
+                    logger.info(
+                        f"✅ CACHE HIT for {ticker_upper} (yahoo={yahoo_ticker}) "
+                        f"in {cache_duration:.3f}s - returning cached job_id"
+                    )
+
+                    # Return a special "cached" job_id that status endpoint recognizes
+                    # This allows clients to poll normally but get instant results
+                    cached_job_id = f"cached_{yahoo_ticker}_{cached_report.get('id', 'unknown')}"
+
+                    return JobSubmitResponse(
+                        job_id=cached_job_id,
+                        status="completed"  # Already completed (cached)
+                    )
+                else:
+                    logger.info(f"Cache MISS for {ticker_upper} - creating async job")
+
+            except Exception as e:
+                logger.warning(f"Cache check failed for {ticker_upper}: {e} - falling back to async job")
+
+        # ================================================================
+        # CACHE MISS: Create async job as before
+        # ================================================================
 
         # Create job in DynamoDB
         job_service = get_job_service()
@@ -343,6 +430,11 @@ async def get_job_status(job_id: str):
 
     Polls job status from DynamoDB. Returns result when completed.
 
+    Special handling for cached job_ids (prefixed with "cached_"):
+    - These are returned when a precomputed report exists
+    - Fetches the report directly from Aurora cache
+    - Returns immediately with completed status and result
+
     Args:
         job_id: Job identifier from submit_report_async
 
@@ -350,6 +442,70 @@ async def get_job_status(job_id: str):
         JobStatusResponse with current status and result (if completed)
     """
     try:
+        # ================================================================
+        # Handle cached job_ids (from precomputed reports)
+        # ================================================================
+        if job_id.startswith("cached_"):
+            # Extract ticker from cached_job_id format: "cached_{yahoo_ticker}_{id}"
+            parts = job_id.split("_", 2)  # ["cached", yahoo_ticker, id]
+            if len(parts) >= 2:
+                yahoo_ticker = parts[1]
+
+                try:
+                    from src.data.aurora.precompute_service import PrecomputeService
+                    from .transformer import get_transformer
+
+                    precompute_service = PrecomputeService()
+                    cached_report = precompute_service.get_cached_report(yahoo_ticker)
+
+                    if cached_report and cached_report.get('report_text'):
+                        # Get ticker info for transformation
+                        ticker_service = get_ticker_service()
+
+                        # Try to find matching ticker in service
+                        # Note: cached reports use yahoo_ticker (e.g., NVDA), not DR symbol (e.g., NVDA19)
+                        ticker_info = None
+                        try:
+                            # Search for ticker to get full info
+                            search_results = ticker_service.search(yahoo_ticker, limit=1)
+                            if search_results:
+                                ticker_info = ticker_service.get_ticker_info(search_results[0].ticker)
+                        except Exception:
+                            pass
+
+                        if ticker_info is None:
+                            ticker_info = {
+                                'ticker': yahoo_ticker,
+                                'yahoo_ticker': yahoo_ticker,
+                                'name': cached_report.get('symbol', yahoo_ticker)
+                            }
+
+                        # Transform cached report to API response
+                        transformer = get_transformer()
+                        result = await transformer.transform_cached_report(
+                            cached_report,
+                            ticker_info
+                        )
+
+                        logger.info(f"✅ Returning cached report for {yahoo_ticker}")
+
+                        return JobStatusResponse(
+                            job_id=job_id,
+                            ticker=yahoo_ticker,
+                            status="completed",
+                            created_at=cached_report.get('report_generated_at') or cached_report.get('computed_at'),
+                            started_at=cached_report.get('report_generated_at') or cached_report.get('computed_at'),
+                            finished_at=cached_report.get('report_generated_at') or cached_report.get('computed_at'),
+                            result=result.model_dump() if hasattr(result, 'model_dump') else result,
+                            error=None
+                        )
+                except Exception as e:
+                    logger.warning(f"Failed to fetch cached report for {job_id}: {e}")
+                    # Fall through to regular job lookup (will raise JobNotFoundError)
+
+        # ================================================================
+        # Regular job lookup from DynamoDB
+        # ================================================================
         job_service = get_job_service()
         job = job_service.get_job(job_id)
 

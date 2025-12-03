@@ -297,13 +297,86 @@ jobs:
           echo "version=${NEW_VERSION}" >> $GITHUB_OUTPUT
 
   ###############################################################################
-  # Stage 2b: Deploy Dev Frontend
+  # Stage 2a: VPC Integration Tests (CodeBuild - Aurora connectivity)
   ###############################################################################
-  deploy-dev-frontend:
-    name: Deploy Dev Frontend
+  vpc-integration-tests:
+    name: VPC Integration Tests (CodeBuild)
     needs: [deploy-dev]
     runs-on: ubuntu-latest
     environment: development
+    # Only run if aurora is enabled (CodeBuild project exists)
+    if: ${{ vars.AURORA_ENABLED == 'true' }}
+
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Start CodeBuild for VPC tests
+        id: codebuild
+        run: |
+          echo "🚀 Starting CodeBuild for VPC integration tests..."
+          BUILD_ID=$(aws codebuild start-build \
+            --project-name dr-daily-report-vpc-tests-dev \
+            --query 'build.id' \
+            --output text)
+          echo "build_id=${BUILD_ID}" >> $GITHUB_OUTPUT
+          echo "📋 Build ID: ${BUILD_ID}"
+
+      - name: Wait for CodeBuild completion
+        run: |
+          BUILD_ID="${{ steps.codebuild.outputs.build_id }}"
+          echo "⏳ Waiting for CodeBuild to complete..."
+          echo "   Build ID: ${BUILD_ID}"
+
+          # Poll every 30 seconds for up to 20 minutes
+          for i in {1..40}; do
+            STATUS=$(aws codebuild batch-get-builds \
+              --ids "${BUILD_ID}" \
+              --query 'builds[0].buildStatus' \
+              --output text)
+
+            PHASE=$(aws codebuild batch-get-builds \
+              --ids "${BUILD_ID}" \
+              --query 'builds[0].currentPhase' \
+              --output text 2>/dev/null || echo "UNKNOWN")
+
+            echo "   [${i}/40] Status: ${STATUS}, Phase: ${PHASE}"
+
+            if [ "$STATUS" = "SUCCEEDED" ]; then
+              echo "✅ VPC integration tests PASSED!"
+              exit 0
+            elif [ "$STATUS" = "FAILED" ] || [ "$STATUS" = "FAULT" ] || [ "$STATUS" = "STOPPED" ]; then
+              echo "❌ VPC integration tests FAILED with status: ${STATUS}"
+              # Get logs URL
+              LOGS_URL=$(aws codebuild batch-get-builds \
+                --ids "${BUILD_ID}" \
+                --query 'builds[0].logs.deepLink' \
+                --output text)
+              echo "📋 CloudWatch Logs: ${LOGS_URL}"
+              exit 1
+            fi
+
+            sleep 30
+          done
+
+          echo "❌ Timeout waiting for CodeBuild (20 min limit)"
+          exit 1
+
+  ###############################################################################
+  # Stage 2b: Deploy Dev Frontend (TEST CloudFront only - for E2E testing)
+  ###############################################################################
+  deploy-dev-frontend:
+    name: Deploy Dev Frontend (TEST)
+    needs: [deploy-dev]
+    runs-on: ubuntu-latest
+    environment: development
+
+    outputs:
+      test_url: ${{ steps.deploy.outputs.test_url }}
 
     steps:
       - name: Checkout code
@@ -316,9 +389,11 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Deploy frontend to S3
+      - name: Deploy frontend to S3 + TEST CloudFront
+        id: deploy
         env:
           API_URL: ${{ secrets.TELEGRAM_API_URL }}
+          TEST_DIST_ID: ${{ secrets.CLOUDFRONT_TEST_DISTRIBUTION_ID }}
         run: |
           mkdir -p build
           cp -r frontend/telegram-webapp/* build/
@@ -331,9 +406,79 @@ jobs:
 
           sed -i "s|window.TELEGRAM_API_URL = '{{API_URL}}'|window.TELEGRAM_API_URL = '${API_URL}'|g" build/index.html
           aws s3 sync build/ s3://${{ secrets.WEBAPP_BUCKET_NAME }}/ --delete
-          echo "✅ Dev frontend deployed"
+          echo "✅ Dev frontend uploaded to S3"
 
-      - name: Invalidate CloudFront
+          # Only invalidate TEST CloudFront (users still see old version)
+          if [ -n "${TEST_DIST_ID}" ]; then
+            aws cloudfront create-invalidation \
+              --distribution-id ${TEST_DIST_ID} \
+              --paths "/*" > /dev/null
+            echo "✅ TEST CloudFront invalidated (E2E can test new code)"
+            echo "test_url=https://${{ secrets.CLOUDFRONT_TEST_DOMAIN }}" >> $GITHUB_OUTPUT
+          else
+            echo "⚠️ TEST CloudFront not configured, using APP CloudFront"
+            # Fallback to APP CloudFront if TEST not configured
+            if [ -n "${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }}" ]; then
+              aws cloudfront create-invalidation \
+                --distribution-id ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }} \
+                --paths "/*" > /dev/null
+            fi
+            echo "test_url=https://${{ secrets.CLOUDFRONT_DOMAIN }}" >> $GITHUB_OUTPUT
+          fi
+
+  ###############################################################################
+  # Stage 2c: E2E Tests against Dev TEST CloudFront
+  ###############################################################################
+  e2e-test-dev:
+    name: E2E Tests (Dev)
+    needs: [deploy-dev-frontend]
+    runs-on: ubuntu-latest
+    environment: development
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install pytest playwright pytest-playwright
+          playwright install chromium
+
+      - name: Run E2E Tests
+        env:
+          E2E_BASE_URL: ${{ needs.deploy-dev-frontend.outputs.test_url }}
+        run: |
+          echo "🧪 Running E2E tests against: ${E2E_BASE_URL}"
+          pytest tests/e2e/ -m e2e -v --tb=short || {
+            echo "❌ E2E tests failed! APP CloudFront will NOT be updated."
+            echo "   Users still see the previous working version."
+            exit 1
+          }
+          echo "✅ E2E tests passed!"
+
+  ###############################################################################
+  # Stage 2d: Promote Dev Frontend (APP CloudFront - users see new version)
+  ###############################################################################
+  promote-dev-frontend:
+    name: Promote Dev Frontend (APP)
+    needs: [e2e-test-dev]
+    runs-on: ubuntu-latest
+    environment: development
+
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Invalidate APP CloudFront (users see new frontend)
         env:
           DIST_ID: ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }}
         run: |
@@ -341,9 +486,9 @@ jobs:
             aws cloudfront create-invalidation \
               --distribution-id ${DIST_ID} \
               --paths "/*" > /dev/null
-            echo "✅ Dev CloudFront invalidated"
+            echo "✅ APP CloudFront invalidated - users now see new frontend"
           else
-            echo "⏭️ No CloudFront distribution configured"
+            echo "⏭️ No APP CloudFront distribution configured"
           fi
 
   ###############################################################################
@@ -351,7 +496,7 @@ jobs:
   ###############################################################################
   deploy-staging:
     name: Deploy Staging
-    needs: [build, deploy-dev]  # Waits for dev to complete successfully
+    needs: [build, promote-dev-frontend]  # Waits for dev E2E tests to pass
     runs-on: ubuntu-latest
     environment: staging
 
@@ -503,13 +648,16 @@ jobs:
           echo "version=${NEW_VERSION}" >> $GITHUB_OUTPUT
 
   ###############################################################################
-  # Stage 3b: Deploy Staging Frontend
+  # Stage 3b: Deploy Staging Frontend (TEST CloudFront only - for E2E testing)
   ###############################################################################
   deploy-staging-frontend:
-    name: Deploy Staging Frontend
+    name: Deploy Staging Frontend (TEST)
     needs: [deploy-staging]
     runs-on: ubuntu-latest
     environment: staging
+
+    outputs:
+      test_url: ${{ steps.deploy.outputs.test_url }}
 
     steps:
       - name: Checkout code
@@ -522,9 +670,11 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Deploy frontend to S3
+      - name: Deploy frontend to S3 + TEST CloudFront
+        id: deploy
         env:
           API_URL: ${{ secrets.TELEGRAM_API_URL }}
+          TEST_DIST_ID: ${{ secrets.CLOUDFRONT_TEST_DISTRIBUTION_ID }}
         run: |
           mkdir -p build
           cp -r frontend/telegram-webapp/* build/
@@ -537,9 +687,78 @@ jobs:
 
           sed -i "s|window.TELEGRAM_API_URL = '{{API_URL}}'|window.TELEGRAM_API_URL = '${API_URL}'|g" build/index.html
           aws s3 sync build/ s3://${{ secrets.WEBAPP_BUCKET_NAME }}/ --delete
-          echo "✅ Staging frontend deployed"
+          echo "✅ Staging frontend uploaded to S3"
 
-      - name: Invalidate CloudFront
+          # Only invalidate TEST CloudFront (users still see old version)
+          if [ -n "${TEST_DIST_ID}" ]; then
+            aws cloudfront create-invalidation \
+              --distribution-id ${TEST_DIST_ID} \
+              --paths "/*" > /dev/null
+            echo "✅ TEST CloudFront invalidated (E2E can test new code)"
+            echo "test_url=https://${{ secrets.CLOUDFRONT_TEST_DOMAIN }}" >> $GITHUB_OUTPUT
+          else
+            echo "⚠️ TEST CloudFront not configured, using APP CloudFront"
+            if [ -n "${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }}" ]; then
+              aws cloudfront create-invalidation \
+                --distribution-id ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }} \
+                --paths "/*" > /dev/null
+            fi
+            echo "test_url=https://${{ secrets.CLOUDFRONT_DOMAIN }}" >> $GITHUB_OUTPUT
+          fi
+
+  ###############################################################################
+  # Stage 3c: E2E Tests against Staging TEST CloudFront
+  ###############################################################################
+  e2e-test-staging:
+    name: E2E Tests (Staging)
+    needs: [deploy-staging-frontend]
+    runs-on: ubuntu-latest
+    environment: staging
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install pytest playwright pytest-playwright
+          playwright install chromium
+
+      - name: Run E2E Tests
+        env:
+          E2E_BASE_URL: ${{ needs.deploy-staging-frontend.outputs.test_url }}
+        run: |
+          echo "🧪 Running E2E tests against: ${E2E_BASE_URL}"
+          pytest tests/e2e/ -m e2e -v --tb=short || {
+            echo "❌ E2E tests failed! APP CloudFront will NOT be updated."
+            echo "   Users still see the previous working version."
+            exit 1
+          }
+          echo "✅ E2E tests passed!"
+
+  ###############################################################################
+  # Stage 3d: Promote Staging Frontend (APP CloudFront - users see new version)
+  ###############################################################################
+  promote-staging-frontend:
+    name: Promote Staging Frontend (APP)
+    needs: [e2e-test-staging]
+    runs-on: ubuntu-latest
+    environment: staging
+
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Invalidate APP CloudFront (users see new frontend)
         env:
           DIST_ID: ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }}
         run: |
@@ -547,9 +766,9 @@ jobs:
             aws cloudfront create-invalidation \
               --distribution-id ${DIST_ID} \
               --paths "/*" > /dev/null
-            echo "✅ Staging CloudFront invalidated"
+            echo "✅ APP CloudFront invalidated - users now see new frontend"
           else
-            echo "⏭️ No CloudFront distribution configured"
+            echo "⏭️ No APP CloudFront distribution configured"
           fi
 
   ###############################################################################
@@ -557,7 +776,7 @@ jobs:
   ###############################################################################
   deploy-prod:
     name: Deploy Prod
-    needs: [build, deploy-staging]  # Waits for staging to complete successfully
+    needs: [build, promote-staging-frontend]  # Waits for staging E2E tests to pass
     runs-on: ubuntu-latest
     environment: production
 
@@ -725,13 +944,16 @@ jobs:
           echo "version=${NEW_VERSION}" >> $GITHUB_OUTPUT
 
   ###############################################################################
-  # Stage 4b: Deploy Prod Frontend
+  # Stage 4b: Deploy Prod Frontend (TEST CloudFront only - for E2E testing)
   ###############################################################################
   deploy-prod-frontend:
-    name: Deploy Prod Frontend
+    name: Deploy Prod Frontend (TEST)
     needs: [deploy-prod]
     runs-on: ubuntu-latest
     environment: production
+
+    outputs:
+      test_url: ${{ steps.deploy.outputs.test_url }}
 
     steps:
       - name: Checkout code
@@ -744,10 +966,12 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Deploy frontend to S3
+      - name: Deploy frontend to S3 + TEST CloudFront
+        id: deploy
         env:
           BUCKET_NAME: ${{ secrets.WEBAPP_BUCKET_NAME }}
           API_URL: ${{ secrets.TELEGRAM_API_URL }}
+          TEST_DIST_ID: ${{ secrets.CLOUDFRONT_TEST_DISTRIBUTION_ID }}
         run: |
           # Skip if no bucket configured (prod not set up)
           if [ -z "${BUCKET_NAME}" ]; then
@@ -765,9 +989,83 @@ jobs:
 
           sed -i "s|window.TELEGRAM_API_URL = '{{API_URL}}'|window.TELEGRAM_API_URL = '${API_URL}'|g" build/index.html
           aws s3 sync build/ s3://${BUCKET_NAME}/ --delete
-          echo "✅ Prod frontend deployed"
+          echo "✅ Prod frontend uploaded to S3"
 
-      - name: Invalidate CloudFront
+          # Only invalidate TEST CloudFront (users still see old version)
+          if [ -n "${TEST_DIST_ID}" ]; then
+            aws cloudfront create-invalidation \
+              --distribution-id ${TEST_DIST_ID} \
+              --paths "/*" > /dev/null
+            echo "✅ TEST CloudFront invalidated (E2E can test new code)"
+            echo "test_url=https://${{ secrets.CLOUDFRONT_TEST_DOMAIN }}" >> $GITHUB_OUTPUT
+          else
+            echo "⚠️ TEST CloudFront not configured, using APP CloudFront"
+            if [ -n "${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }}" ]; then
+              aws cloudfront create-invalidation \
+                --distribution-id ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }} \
+                --paths "/*" > /dev/null
+            fi
+            echo "test_url=https://${{ secrets.CLOUDFRONT_DOMAIN }}" >> $GITHUB_OUTPUT
+          fi
+
+  ###############################################################################
+  # Stage 4c: E2E Tests against Prod TEST CloudFront
+  ###############################################################################
+  e2e-test-prod:
+    name: E2E Tests (Prod)
+    needs: [deploy-prod-frontend]
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install pytest playwright pytest-playwright
+          playwright install chromium
+
+      - name: Run E2E Tests
+        env:
+          E2E_BASE_URL: ${{ needs.deploy-prod-frontend.outputs.test_url }}
+        run: |
+          # Skip if no test URL (prod not set up)
+          if [ -z "${E2E_BASE_URL}" ]; then
+            echo "⚠️ No test URL available - skipping E2E tests"
+            exit 0
+          fi
+          echo "🧪 Running E2E tests against: ${E2E_BASE_URL}"
+          pytest tests/e2e/ -m e2e -v --tb=short || {
+            echo "❌ E2E tests failed! APP CloudFront will NOT be updated."
+            echo "   Users still see the previous working version."
+            exit 1
+          }
+          echo "✅ E2E tests passed!"
+
+  ###############################################################################
+  # Stage 4d: Promote Prod Frontend (APP CloudFront - users see new version)
+  ###############################################################################
+  promote-prod-frontend:
+    name: Promote Prod Frontend (APP)
+    needs: [e2e-test-prod]
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Invalidate APP CloudFront (users see new frontend)
         env:
           DIST_ID: ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }}
         run: |
@@ -775,9 +1073,9 @@ jobs:
             aws cloudfront create-invalidation \
               --distribution-id ${DIST_ID} \
               --paths "/*" > /dev/null
-            echo "✅ Prod CloudFront invalidated"
+            echo "✅ APP CloudFront invalidated - users now see new frontend"
           else
-            echo "⏭️ No CloudFront distribution configured"
+            echo "⏭️ No APP CloudFront distribution configured"
           fi
 
   ###############################################################################
@@ -785,9 +1083,9 @@ jobs:
   ###############################################################################
   notify:
     name: Deployment Complete
-    needs: [build, deploy-dev, deploy-dev-frontend, deploy-staging, deploy-staging-frontend, deploy-prod, deploy-prod-frontend]
+    needs: [build, deploy-dev, vpc-integration-tests, promote-dev-frontend, deploy-staging, promote-staging-frontend, deploy-prod, promote-prod-frontend]
     runs-on: ubuntu-latest
-    if: success()
+    if: always() && !cancelled() && !contains(needs.*.result, 'failure')
 
     steps:
       - name: Deployment Summary
@@ -802,8 +1100,21 @@ jobs:
           echo "   ✅ Prod:    Telegram v${{ needs.deploy-prod.outputs.telegram_version }}, Worker v${{ needs.deploy-prod.outputs.worker_version }}"
           echo ""
           echo "🛡️  Zero-Downtime Pattern: Test Before Promote"
+          echo ""
+          echo "   Backend (Lambda):"
           echo "   • Code uploaded to \$LATEST (staging area)"
           echo "   • Smoke tested via aws lambda invoke"
           echo "   • Only promoted to live alias after tests pass"
-          echo "   • Users NEVER saw untested code"
+          echo ""
+          echo "   VPC Integration Tests (CodeBuild):"
+          echo "   • Aurora connectivity tested inside VPC"
+          echo "   • Cache-first behavior verified with fixtures"
+          echo "   • Tests: ${{ needs.vpc-integration-tests.result || 'skipped' }}"
+          echo ""
+          echo "   Frontend (CloudFront):"
+          echo "   • Files uploaded to S3 bucket"
+          echo "   • TEST CloudFront invalidated → E2E tests run"
+          echo "   • APP CloudFront invalidated ONLY after E2E pass"
+          echo ""
+          echo "   Users NEVER saw untested code (backend or frontend)!"
 

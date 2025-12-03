@@ -221,9 +221,14 @@ class ErrorEnvelope(BaseModel):
 # ============================================================================
 
 class JobSubmitResponse(BaseModel):
-    """Response for POST /report/{ticker} - job submission"""
-    job_id: str = Field(..., description="Unique job identifier")
-    status: Literal["pending"] = Field(default="pending", description="Initial job status")
+    """Response for POST /report/{ticker} - job submission
+
+    Status can be:
+    - 'pending': New async job created, poll status endpoint for result
+    - 'completed': Cache hit, job_id is prefixed with 'cached_', result available immediately
+    """
+    job_id: str = Field(..., description="Unique job identifier (prefixed with 'cached_' for cache hits)")
+    status: Literal["pending", "completed"] = Field(default="pending", description="Job status: 'pending' for new jobs, 'completed' for cache hits")
 
 
 class JobStatusResponse(BaseModel):

@@ -1,0 +1,375 @@
+# -*- coding: utf-8 -*-
+"""Unit tests for report_worker_handler caching behavior.
+
+TDD Goal: Verify that PrecomputeService.store_report_from_api() is called
+after job completion, with correct arguments, and that caching failures
+don't break job completion.
+
+These tests answer: "Is the caching code path executed?"
+- Mocks all external dependencies
+- Verifies method calls and arguments
+- Fast feedback loop for debugging
+"""
+
+import pytest
+import json
+from unittest.mock import Mock, MagicMock, AsyncMock, patch
+
+
+class TestReportWorkerCaching:
+    """Test caching behavior in report_worker_handler."""
+
+    def setup_method(self):
+        """Reset singletons before each test."""
+        # Clear module-level singletons
+        import src.api.job_service as job_mod
+        import src.api.ticker_service as ticker_mod
+        import src.api.transformer as transformer_mod
+
+        job_mod._job_service = None
+        ticker_mod._ticker_service = None
+        transformer_mod._transformer = None
+
+    @pytest.fixture
+    def mock_dependencies(self):
+        """Create all mocked dependencies for process_record."""
+        # Mock TickerAnalysisAgent
+        mock_agent_class = MagicMock()
+        mock_agent = MagicMock()
+        mock_agent.graph.invoke.return_value = {
+            "ticker": "DBS19",
+            "report": "Test Thai report",
+            "chart_base64": "BASE64_CHART_DATA",
+            "indicators": {"rsi": 50},
+            "percentiles": {"rsi_percentile": 50},
+            "error": "",  # No error - successful run
+        }
+        mock_agent_class.return_value = mock_agent
+
+        # Mock transformer (async)
+        mock_transformer = MagicMock()
+        mock_response = MagicMock()
+        mock_response.model_dump.return_value = {
+            "ticker": "DBS19",
+            "narrative_report": "Thai language report text",
+            "generation_metadata": {"strategy": "multi_stage_analysis"},
+        }
+        mock_transformer.transform_report = AsyncMock(return_value=mock_response)
+
+        # Mock job_service
+        mock_job_service = MagicMock()
+        mock_job_service.start_job = MagicMock()
+        mock_job_service.complete_job = MagicMock()
+        mock_job_service.fail_job = MagicMock()
+
+        # Mock ticker_service
+        mock_ticker_service = MagicMock()
+        mock_ticker_service.get_ticker_info.return_value = {
+            "symbol": "DBS19",
+            "name": "DBS Group Holdings",
+            "yahoo_ticker": "D05.SI",
+        }
+
+        # Mock PrecomputeService
+        mock_precompute_class = MagicMock()
+        mock_precompute = MagicMock()
+        mock_precompute.store_report_from_api.return_value = True
+        mock_precompute_class.return_value = mock_precompute
+
+        return {
+            "agent_class": mock_agent_class,
+            "agent": mock_agent,
+            "transformer": mock_transformer,
+            "job_service": mock_job_service,
+            "ticker_service": mock_ticker_service,
+            "precompute_class": mock_precompute_class,
+            "precompute": mock_precompute,
+        }
+
+    @pytest.mark.asyncio
+    async def test_caching_called_after_job_complete(self, mock_dependencies):
+        """Verify PrecomputeService.store_report_from_api() is called after job completes.
+
+        This is the CORE test - answers "is caching code path executed?"
+        """
+        with patch('src.report_worker_handler.TickerAnalysisAgent', mock_dependencies["agent_class"]), \
+             patch('src.report_worker_handler.get_transformer', return_value=mock_dependencies["transformer"]), \
+             patch('src.report_worker_handler.get_job_service', return_value=mock_dependencies["job_service"]), \
+             patch('src.report_worker_handler.get_ticker_service', return_value=mock_dependencies["ticker_service"]), \
+             patch('src.report_worker_handler.PrecomputeService', mock_dependencies["precompute_class"]):
+
+            from src.report_worker_handler import process_record
+
+            # Create SQS record
+            record = {
+                "messageId": "test-msg-123",
+                "body": json.dumps({"job_id": "rpt_test123", "ticker": "DBS19"})
+            }
+
+            # Execute
+            await process_record(record)
+
+            # Assert: Job was marked complete
+            mock_dependencies["job_service"].complete_job.assert_called_once()
+            call_args = mock_dependencies["job_service"].complete_job.call_args
+            assert call_args[0][0] == "rpt_test123", "Should complete job with correct job_id"
+
+            # Assert: PrecomputeService was instantiated
+            mock_dependencies["precompute_class"].assert_called_once()
+
+            # Assert: store_report_from_api was called
+            mock_dependencies["precompute"].store_report_from_api.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_caching_called_with_correct_arguments(self, mock_dependencies):
+        """Verify store_report_from_api receives correct arguments.
+
+        Checks:
+        - symbol matches ticker
+        - report_text comes from result['narrative_report']
+        - strategy comes from generation_metadata
+        - chart_base64 comes from final_state (not result)
+        """
+        with patch('src.report_worker_handler.TickerAnalysisAgent', mock_dependencies["agent_class"]), \
+             patch('src.report_worker_handler.get_transformer', return_value=mock_dependencies["transformer"]), \
+             patch('src.report_worker_handler.get_job_service', return_value=mock_dependencies["job_service"]), \
+             patch('src.report_worker_handler.get_ticker_service', return_value=mock_dependencies["ticker_service"]), \
+             patch('src.report_worker_handler.PrecomputeService', mock_dependencies["precompute_class"]):
+
+            from src.report_worker_handler import process_record
+
+            record = {
+                "messageId": "test-msg-456",
+                "body": json.dumps({"job_id": "rpt_test456", "ticker": "DBS19"})
+            }
+
+            await process_record(record)
+
+            # Get the call arguments
+            call_kwargs = mock_dependencies["precompute"].store_report_from_api.call_args.kwargs
+
+            # Verify each argument
+            assert call_kwargs["symbol"] == "DBS19", \
+                f"symbol should be 'DBS19', got {call_kwargs.get('symbol')}"
+
+            assert call_kwargs["report_text"] == "Thai language report text", \
+                f"report_text should match narrative_report, got {call_kwargs.get('report_text')}"
+
+            assert call_kwargs["strategy"] == "multi_stage_analysis", \
+                f"strategy should be 'multi_stage_analysis', got {call_kwargs.get('strategy')}"
+
+            assert call_kwargs["chart_base64"] == "BASE64_CHART_DATA", \
+                f"chart_base64 should be 'BASE64_CHART_DATA', got {call_kwargs.get('chart_base64')}"
+
+            # Verify report_json is passed
+            assert "report_json" in call_kwargs, "report_json should be passed"
+            assert call_kwargs["report_json"]["ticker"] == "DBS19"
+
+    @pytest.mark.asyncio
+    async def test_caching_failure_does_not_fail_job(self, mock_dependencies):
+        """Verify job completes even if Aurora caching fails.
+
+        Caching is fire-and-forget - DynamoDB is the primary store.
+        """
+        # Make caching throw an exception
+        mock_dependencies["precompute"].store_report_from_api.side_effect = Exception(
+            "Aurora connection refused"
+        )
+
+        with patch('src.report_worker_handler.TickerAnalysisAgent', mock_dependencies["agent_class"]), \
+             patch('src.report_worker_handler.get_transformer', return_value=mock_dependencies["transformer"]), \
+             patch('src.report_worker_handler.get_job_service', return_value=mock_dependencies["job_service"]), \
+             patch('src.report_worker_handler.get_ticker_service', return_value=mock_dependencies["ticker_service"]), \
+             patch('src.report_worker_handler.PrecomputeService', mock_dependencies["precompute_class"]):
+
+            from src.report_worker_handler import process_record
+
+            record = {
+                "messageId": "test-msg-789",
+                "body": json.dumps({"job_id": "rpt_test789", "ticker": "DBS19"})
+            }
+
+            # Should NOT raise exception
+            await process_record(record)
+
+            # Job should still be marked complete (before caching attempted)
+            mock_dependencies["job_service"].complete_job.assert_called_once()
+
+            # fail_job should NOT be called - caching failure is not a job failure
+            mock_dependencies["job_service"].fail_job.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_caching_returns_false_does_not_fail_job(self, mock_dependencies):
+        """Verify job completes even if store_report_from_api returns False."""
+        mock_dependencies["precompute"].store_report_from_api.return_value = False
+
+        with patch('src.report_worker_handler.TickerAnalysisAgent', mock_dependencies["agent_class"]), \
+             patch('src.report_worker_handler.get_transformer', return_value=mock_dependencies["transformer"]), \
+             patch('src.report_worker_handler.get_job_service', return_value=mock_dependencies["job_service"]), \
+             patch('src.report_worker_handler.get_ticker_service', return_value=mock_dependencies["ticker_service"]), \
+             patch('src.report_worker_handler.PrecomputeService', mock_dependencies["precompute_class"]):
+
+            from src.report_worker_handler import process_record
+
+            record = {
+                "messageId": "test-msg-warn",
+                "body": json.dumps({"job_id": "rpt_warn", "ticker": "DBS19"})
+            }
+
+            # Should NOT raise exception
+            await process_record(record)
+
+            # Job should still be marked complete
+            mock_dependencies["job_service"].complete_job.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_caching_not_called_when_agent_fails(self, mock_dependencies):
+        """Verify caching is NOT called if agent returns error."""
+        # Make agent return error state
+        mock_dependencies["agent"].graph.invoke.return_value = {
+            "ticker": "BAD19",
+            "report": "",
+            "chart_base64": "",
+            "error": "Failed to fetch ticker data",  # Error state
+        }
+
+        with patch('src.report_worker_handler.TickerAnalysisAgent', mock_dependencies["agent_class"]), \
+             patch('src.report_worker_handler.get_transformer', return_value=mock_dependencies["transformer"]), \
+             patch('src.report_worker_handler.get_job_service', return_value=mock_dependencies["job_service"]), \
+             patch('src.report_worker_handler.get_ticker_service', return_value=mock_dependencies["ticker_service"]), \
+             patch('src.report_worker_handler.PrecomputeService', mock_dependencies["precompute_class"]):
+
+            from src.report_worker_handler import process_record, AgentError
+
+            record = {
+                "messageId": "test-msg-error",
+                "body": json.dumps({"job_id": "rpt_error", "ticker": "BAD19"})
+            }
+
+            # Should raise AgentError (agent error is re-raised for SQS DLQ)
+            with pytest.raises(AgentError):
+                await process_record(record)
+
+            # Job should be marked failed (not complete)
+            mock_dependencies["job_service"].fail_job.assert_called_once()
+            mock_dependencies["job_service"].complete_job.assert_not_called()
+
+            # Caching should NOT be attempted
+            mock_dependencies["precompute"].store_report_from_api.assert_not_called()
+
+
+class TestReportWorkerLambdaHandler:
+    """Test the Lambda handler entry point."""
+
+    @pytest.fixture
+    def mock_process_record(self):
+        """Mock process_record for handler tests."""
+        with patch('src.report_worker_handler.process_record', new_callable=AsyncMock) as mock:
+            yield mock
+
+    def test_handler_processes_all_records(self, mock_process_record):
+        """Verify handler processes each SQS record."""
+        from src.report_worker_handler import handler
+
+        event = {
+            "Records": [
+                {"messageId": "msg1", "body": '{"job_id": "rpt_1", "ticker": "DBS19"}'},
+                {"messageId": "msg2", "body": '{"job_id": "rpt_2", "ticker": "OCBC19"}'},
+            ]
+        }
+
+        result = handler(event, None)
+
+        assert result["statusCode"] == 200
+        assert "2 records" in result["body"]
+        assert mock_process_record.call_count == 2
+
+    def test_handler_returns_processed_count(self, mock_process_record):
+        """Verify handler returns correct count."""
+        from src.report_worker_handler import handler
+
+        event = {"Records": []}
+
+        result = handler(event, None)
+
+        assert result["statusCode"] == 200
+        assert "0 records" in result["body"]
+
+
+class TestCachingArgumentSources:
+    """Test that caching arguments come from correct sources.
+
+    chart_base64 should come from final_state, not result.
+    This is important because transform_report may not include chart_base64.
+    """
+
+    def setup_method(self):
+        """Reset singletons."""
+        import src.api.job_service as job_mod
+        import src.api.ticker_service as ticker_mod
+        import src.api.transformer as transformer_mod
+
+        job_mod._job_service = None
+        ticker_mod._ticker_service = None
+        transformer_mod._transformer = None
+
+    @pytest.mark.asyncio
+    async def test_chart_base64_from_final_state_not_result(self):
+        """Verify chart_base64 comes from final_state, not result.
+
+        The handler code should use:
+            chart_base64=final_state.get('chart_base64', '')
+        NOT:
+            chart_base64=result.get('chart_base64', '')
+        """
+        # Mock agent with chart_base64 in final_state
+        mock_agent_class = MagicMock()
+        mock_agent = MagicMock()
+        mock_agent.graph.invoke.return_value = {
+            "ticker": "DBS19",
+            "report": "Test report",
+            "chart_base64": "CHART_FROM_FINAL_STATE",  # This should be used
+            "error": "",
+        }
+        mock_agent_class.return_value = mock_agent
+
+        # Mock transformer that returns result WITHOUT chart_base64
+        mock_transformer = MagicMock()
+        mock_response = MagicMock()
+        mock_response.model_dump.return_value = {
+            "ticker": "DBS19",
+            "narrative_report": "Report text",
+            "generation_metadata": {"strategy": "test"},
+            # No chart_base64 here - it's not in the API response model
+        }
+        mock_transformer.transform_report = AsyncMock(return_value=mock_response)
+
+        # Mock other services
+        mock_job_service = MagicMock()
+        mock_ticker_service = MagicMock()
+        mock_ticker_service.get_ticker_info.return_value = {"symbol": "DBS19", "name": "DBS"}
+
+        mock_precompute_class = MagicMock()
+        mock_precompute = MagicMock()
+        mock_precompute.store_report_from_api.return_value = True
+        mock_precompute_class.return_value = mock_precompute
+
+        with patch('src.report_worker_handler.TickerAnalysisAgent', mock_agent_class), \
+             patch('src.report_worker_handler.get_transformer', return_value=mock_transformer), \
+             patch('src.report_worker_handler.get_job_service', return_value=mock_job_service), \
+             patch('src.report_worker_handler.get_ticker_service', return_value=mock_ticker_service), \
+             patch('src.report_worker_handler.PrecomputeService', mock_precompute_class):
+
+            from src.report_worker_handler import process_record
+
+            record = {
+                "messageId": "test",
+                "body": json.dumps({"job_id": "rpt_chart", "ticker": "DBS19"})
+            }
+
+            await process_record(record)
+
+            # Verify chart_base64 came from final_state
+            call_kwargs = mock_precompute.store_report_from_api.call_args.kwargs
+            assert call_kwargs["chart_base64"] == "CHART_FROM_FINAL_STATE", \
+                f"chart_base64 should come from final_state, got: {call_kwargs.get('chart_base64')}"

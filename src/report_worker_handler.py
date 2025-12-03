@@ -21,10 +21,16 @@ from src.types import AgentState
 from src.api.job_service import get_job_service
 from src.api.ticker_service import get_ticker_service
 from src.api.transformer import get_transformer
+from src.data.aurora.precompute_service import PrecomputeService
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+# NOTE: In Lambda, basicConfig() is a no-op because Lambda pre-configures the root logger.
+# Instead, get the logger and explicitly set its level.
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
+# Also ensure the root logger level allows INFO through (Lambda default may be WARNING)
+logging.getLogger().setLevel(logging.INFO)
 
 
 class AgentError(Exception):
@@ -143,9 +149,28 @@ async def process_record(record: dict) -> None:
         response = await transformer.transform_report(final_state, ticker_info)
         result = response.model_dump()
 
-        # Mark job as completed
+        # Mark job as completed in DynamoDB
         job_service.complete_job(job_id, result)
         logger.info(f"Completed job {job_id} for ticker {ticker}")
+
+        # Store to Aurora cache for future cache hits
+        try:
+            logger.info(f"Attempting to cache report in Aurora for {ticker}")
+            precompute_service = PrecomputeService()
+            cache_result = precompute_service.store_report_from_api(
+                symbol=ticker,
+                report_text=result.get('narrative_report', ''),
+                report_json=result,
+                strategy=result.get('generation_metadata', {}).get('strategy', 'multi_stage_analysis'),
+                chart_base64=final_state.get('chart_base64', ''),
+            )
+            if cache_result:
+                logger.info(f"✅ Cached report in Aurora for {ticker}")
+            else:
+                logger.warning(f"⚠️ store_report_from_api returned False for {ticker}")
+        except Exception as cache_error:
+            # Log but don't fail the job - DynamoDB result is the primary store
+            logger.error(f"❌ Failed to cache report in Aurora for {ticker}: {cache_error}", exc_info=True)
 
     except json.JSONDecodeError as e:
         error_msg = f"Invalid JSON in message body: {e}"
