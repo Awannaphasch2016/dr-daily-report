@@ -153,7 +153,7 @@ async def process_record(record: dict) -> None:
         job_service.complete_job(job_id, result)
         logger.info(f"Completed job {job_id} for ticker {ticker}")
 
-        # Store to Aurora cache for future cache hits
+        # Store to Aurora cache for future cache hits (enables cache-first behavior)
         try:
             logger.info(f"Attempting to cache report in Aurora for {ticker}")
             precompute_service = PrecomputeService()

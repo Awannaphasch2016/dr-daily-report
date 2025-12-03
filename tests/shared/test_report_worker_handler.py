@@ -155,8 +155,9 @@ class TestReportWorkerCaching:
             assert call_kwargs["report_text"] == "Thai language report text", \
                 f"report_text should match narrative_report, got {call_kwargs.get('report_text')}"
 
-            assert call_kwargs["strategy"] == "multi_stage_analysis", \
-                f"strategy should be 'multi_stage_analysis', got {call_kwargs.get('strategy')}"
+            # Strategy should be mapped to MySQL ENUM value ('multi-stage' or 'single-stage')
+            assert call_kwargs["strategy"] == "multi-stage", \
+                f"strategy should be 'multi-stage' (MySQL ENUM), got {call_kwargs.get('strategy')}"
 
             assert call_kwargs["chart_base64"] == "BASE64_CHART_DATA", \
                 f"chart_base64 should be 'BASE64_CHART_DATA', got {call_kwargs.get('chart_base64')}"
