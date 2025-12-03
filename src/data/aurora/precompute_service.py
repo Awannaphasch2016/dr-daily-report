@@ -716,7 +716,7 @@ class PrecomputeService:
         symbol: str,
         report_text: str,
         report_json: Dict[str, Any],
-        strategy: str = 'multi_stage_analysis',
+        strategy: str = 'multi-stage',  # Must match MySQL ENUM('single-stage', 'multi-stage')
         chart_base64: str = '',
         generation_time_ms: int = 0,
     ) -> bool:
