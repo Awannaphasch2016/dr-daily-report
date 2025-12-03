@@ -447,7 +447,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install pytest playwright pytest-playwright
+          pip install -r requirements-dev.txt
           playwright install chromium
 
       - name: Run E2E Tests
@@ -727,7 +727,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install pytest playwright pytest-playwright
+          pip install -r requirements-dev.txt
           playwright install chromium
 
       - name: Run E2E Tests
