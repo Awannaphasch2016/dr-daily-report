@@ -315,10 +315,16 @@ jobs:
             --function-name ${{ env.SCHEDULER_FUNCTION }} \
             --query 'Version' \
             --output text)
+          # Create alias if it doesn't exist, otherwise update it
           aws lambda update-alias \
             --function-name ${{ env.SCHEDULER_FUNCTION }} \
             --name live \
-            --function-version ${NEW_VERSION}
+            --function-version ${NEW_VERSION} 2>/dev/null || \
+          aws lambda create-alias \
+            --function-name ${{ env.SCHEDULER_FUNCTION }} \
+            --name live \
+            --function-version ${NEW_VERSION} \
+            --description "Production alias for scheduler - update to rollback"
           echo "✅ Dev Scheduler promoted: version ${NEW_VERSION}"
           echo "version=${NEW_VERSION}" >> $GITHUB_OUTPUT
 
@@ -583,7 +589,18 @@ jobs:
           aws lambda wait function-updated --function-name ${{ env.WORKER_FUNCTION }}
           echo "✅ Worker code uploaded to \$LATEST"
 
+      - name: Check if Scheduler Lambda exists
+        id: check-scheduler
+        run: |
+          if aws lambda get-function --function-name ${{ env.SCHEDULER_FUNCTION }} 2>/dev/null; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "⚠️ Scheduler Lambda ${{ env.SCHEDULER_FUNCTION }} doesn't exist - skipping"
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Update Scheduler to $LATEST (not live yet)
+        if: steps.check-scheduler.outputs.exists == 'true'
         run: |
           aws lambda update-function-code \
             --function-name ${{ env.SCHEDULER_FUNCTION }} \
@@ -684,15 +701,22 @@ jobs:
 
       - name: Promote Scheduler to live
         id: promote-scheduler
+        if: steps.check-scheduler.outputs.exists == 'true'
         run: |
           NEW_VERSION=$(aws lambda publish-version \
             --function-name ${{ env.SCHEDULER_FUNCTION }} \
             --query 'Version' \
             --output text)
+          # Create alias if it doesn't exist, otherwise update it
           aws lambda update-alias \
             --function-name ${{ env.SCHEDULER_FUNCTION }} \
             --name live \
-            --function-version ${NEW_VERSION}
+            --function-version ${NEW_VERSION} 2>/dev/null || \
+          aws lambda create-alias \
+            --function-name ${{ env.SCHEDULER_FUNCTION }} \
+            --name live \
+            --function-version ${NEW_VERSION} \
+            --description "Production alias for scheduler - update to rollback"
           echo "✅ Staging Scheduler promoted: version ${NEW_VERSION}"
           echo "version=${NEW_VERSION}" >> $GITHUB_OUTPUT
 
@@ -899,8 +923,18 @@ jobs:
           aws lambda wait function-updated --function-name ${{ env.WORKER_FUNCTION }}
           echo "✅ Worker code uploaded to \$LATEST"
 
+      - name: Check if Scheduler Lambda exists
+        id: check-scheduler
+        run: |
+          if aws lambda get-function --function-name ${{ env.SCHEDULER_FUNCTION }} 2>/dev/null; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "⚠️ Scheduler Lambda ${{ env.SCHEDULER_FUNCTION }} doesn't exist - skipping"
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Update Scheduler to $LATEST (not live yet)
-        if: steps.check-lambda.outputs.exists == 'true'
+        if: steps.check-lambda.outputs.exists == 'true' && steps.check-scheduler.outputs.exists == 'true'
         run: |
           aws lambda update-function-code \
             --function-name ${{ env.SCHEDULER_FUNCTION }} \
@@ -1004,16 +1038,22 @@ jobs:
 
       - name: Promote Scheduler to live
         id: promote-scheduler
-        if: steps.check-lambda.outputs.exists == 'true'
+        if: steps.check-lambda.outputs.exists == 'true' && steps.check-scheduler.outputs.exists == 'true'
         run: |
           NEW_VERSION=$(aws lambda publish-version \
             --function-name ${{ env.SCHEDULER_FUNCTION }} \
             --query 'Version' \
             --output text)
+          # Create alias if it doesn't exist, otherwise update it
           aws lambda update-alias \
             --function-name ${{ env.SCHEDULER_FUNCTION }} \
             --name live \
-            --function-version ${NEW_VERSION}
+            --function-version ${NEW_VERSION} 2>/dev/null || \
+          aws lambda create-alias \
+            --function-name ${{ env.SCHEDULER_FUNCTION }} \
+            --name live \
+            --function-version ${NEW_VERSION} \
+            --description "Production alias for scheduler - update to rollback"
           echo "✅ Prod Scheduler promoted: version ${NEW_VERSION}"
           echo "version=${NEW_VERSION}" >> $GITHUB_OUTPUT
 
