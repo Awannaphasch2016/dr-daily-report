@@ -35,10 +35,75 @@ env:
 
 jobs:
   ###############################################################################
-  # Stage 0: Quality Gates (runs on PR and push)
+  # Stage 0a: Detect Changes (for conditional deployment)
+  ###############################################################################
+  detect-changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+      shared: ${{ steps.filter.outputs.shared }}
+      api: ${{ steps.filter.outputs.api }}
+      scheduler: ${{ steps.filter.outputs.scheduler }}
+      worker: ${{ steps.filter.outputs.worker }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Detect changed paths
+        uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            shared:
+              - 'src/agent.py'
+              - 'src/workflow/**'
+              - 'src/data/**'
+              - 'src/analysis/**'
+              - 'src/report/**'
+              - 'src/types.py'
+              - 'src/config.py'
+              - 'requirements*.txt'
+              - 'Dockerfile*'
+            api:
+              - 'src/api/**'
+            scheduler:
+              - 'src/scheduler/**'
+            worker:
+              - 'src/report_worker_handler.py'
+            backend:
+              - 'src/**'
+              - 'Dockerfile*'
+              - 'requirements*.txt'
+            frontend:
+              - 'frontend/telegram-webapp/**'
+
+      - name: Log detected changes
+        run: |
+          echo "📊 Change Detection Results:"
+          echo "   Backend changed:   ${{ steps.filter.outputs.backend }}"
+          echo "   Frontend changed:  ${{ steps.filter.outputs.frontend }}"
+          echo "   Shared code:       ${{ steps.filter.outputs.shared }}"
+          echo "   API code:          ${{ steps.filter.outputs.api }}"
+          echo "   Scheduler code:    ${{ steps.filter.outputs.scheduler }}"
+          echo "   Worker code:       ${{ steps.filter.outputs.worker }}"
+          echo ""
+          echo "📝 Deployment Decision:"
+          if [ "${{ steps.filter.outputs.backend }}" == "true" ]; then
+            echo "   → Will deploy backend (all Lambdas)"
+          fi
+          if [ "${{ steps.filter.outputs.frontend }}" == "true" ]; then
+            echo "   → Will deploy frontend"
+          fi
+
+  ###############################################################################
+  # Stage 0b: Quality Gates (runs on PR and push)
   ###############################################################################
   test:
     name: Quality Gates
+    needs: [detect-changes]
     runs-on: ubuntu-latest
 
     steps:
@@ -81,12 +146,13 @@ jobs:
 
   ###############################################################################
   # Stage 1: Build (immutable artifact - built once, promoted through envs)
+  # Only runs if backend code changed
   ###############################################################################
   build:
     name: Build Image
-    needs: [test]
+    needs: [test, detect-changes]
     runs-on: ubuntu-latest
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' && needs.detect-changes.outputs.backend == 'true'
 
     outputs:
       image_tag: ${{ steps.build.outputs.image_tag }}
@@ -400,10 +466,17 @@ jobs:
 
   ###############################################################################
   # Stage 2b: Deploy Dev Frontend (TEST CloudFront only - for E2E testing)
+  # Runs if frontend changed, even if backend deploy was skipped
   ###############################################################################
   deploy-dev-frontend:
     name: Deploy Dev Frontend (TEST)
-    needs: [deploy-dev]
+    needs: [deploy-dev, detect-changes, test]
+    # Run if: (frontend changed AND tests passed) AND (deploy-dev succeeded OR was skipped)
+    if: |
+      always() &&
+      needs.detect-changes.outputs.frontend == 'true' &&
+      needs.test.result == 'success' &&
+      (needs.deploy-dev.result == 'success' || needs.deploy-dev.result == 'skipped')
     runs-on: ubuntu-latest
     environment: development
 
@@ -722,10 +795,17 @@ jobs:
 
   ###############################################################################
   # Stage 3b: Deploy Staging Frontend (TEST CloudFront only - for E2E testing)
+  # Runs if frontend changed, even if backend deploy was skipped
   ###############################################################################
   deploy-staging-frontend:
     name: Deploy Staging Frontend (TEST)
-    needs: [deploy-staging]
+    needs: [deploy-staging, promote-dev-frontend, detect-changes]
+    # Run if: (frontend changed AND dev frontend promoted) AND (staging deploy succeeded OR was skipped)
+    if: |
+      always() &&
+      needs.detect-changes.outputs.frontend == 'true' &&
+      needs.promote-dev-frontend.result == 'success' &&
+      (needs.deploy-staging.result == 'success' || needs.deploy-staging.result == 'skipped')
     runs-on: ubuntu-latest
     environment: staging
 
@@ -1062,7 +1142,14 @@ jobs:
   ###############################################################################
   deploy-prod-frontend:
     name: Deploy Prod Frontend (TEST)
-    needs: [deploy-prod]
+    needs: [deploy-prod, promote-staging-frontend, detect-changes]
+    # Run if: frontend changed AND (staging frontend promoted OR no frontend to promote)
+    # AND (prod backend deployed OR skipped because only frontend changed)
+    if: |
+      always() &&
+      needs.detect-changes.outputs.frontend == 'true' &&
+      (needs.promote-staging-frontend.result == 'success' || needs.promote-staging-frontend.result == 'skipped') &&
+      (needs.deploy-prod.result == 'success' || needs.deploy-prod.result == 'skipped')
     runs-on: ubuntu-latest
     environment: production
 
