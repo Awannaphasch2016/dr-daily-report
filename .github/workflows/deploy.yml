@@ -162,6 +162,7 @@ jobs:
       ENV_NAME: dev
       TELEGRAM_FUNCTION: dr-daily-report-telegram-api-dev
       WORKER_FUNCTION: dr-daily-report-report-worker-dev
+      SCHEDULER_FUNCTION: dr-daily-report-ticker-scheduler-dev
 
     steps:
       - name: Configure AWS credentials
@@ -207,6 +208,14 @@ jobs:
             --image-uri ${{ needs.build.outputs.image_uri }}
           aws lambda wait function-updated --function-name ${{ env.WORKER_FUNCTION }}
           echo "✅ Worker code uploaded to \$LATEST"
+
+      - name: Update Scheduler to $LATEST (not live yet)
+        run: |
+          aws lambda update-function-code \
+            --function-name ${{ env.SCHEDULER_FUNCTION }} \
+            --image-uri ${{ needs.build.outputs.image_uri }}
+          aws lambda wait function-updated --function-name ${{ env.SCHEDULER_FUNCTION }}
+          echo "✅ Scheduler code uploaded to \$LATEST"
 
       # ========================================================================
       # Step 2: Smoke test $LATEST directly (before any user sees it)
@@ -297,6 +306,20 @@ jobs:
             --name live \
             --function-version ${NEW_VERSION}
           echo "✅ Dev Worker promoted: version ${NEW_VERSION}"
+          echo "version=${NEW_VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Promote Scheduler to live
+        id: promote-scheduler
+        run: |
+          NEW_VERSION=$(aws lambda publish-version \
+            --function-name ${{ env.SCHEDULER_FUNCTION }} \
+            --query 'Version' \
+            --output text)
+          aws lambda update-alias \
+            --function-name ${{ env.SCHEDULER_FUNCTION }} \
+            --name live \
+            --function-version ${NEW_VERSION}
+          echo "✅ Dev Scheduler promoted: version ${NEW_VERSION}"
           echo "version=${NEW_VERSION}" >> $GITHUB_OUTPUT
 
   ###############################################################################
@@ -513,6 +536,7 @@ jobs:
       ENV_NAME: staging
       TELEGRAM_FUNCTION: dr-daily-report-telegram-api-staging
       WORKER_FUNCTION: dr-daily-report-report-worker-staging
+      SCHEDULER_FUNCTION: dr-daily-report-ticker-scheduler-staging
 
     steps:
       - name: Configure AWS credentials
@@ -558,6 +582,14 @@ jobs:
             --image-uri ${{ needs.build.outputs.image_uri }}
           aws lambda wait function-updated --function-name ${{ env.WORKER_FUNCTION }}
           echo "✅ Worker code uploaded to \$LATEST"
+
+      - name: Update Scheduler to $LATEST (not live yet)
+        run: |
+          aws lambda update-function-code \
+            --function-name ${{ env.SCHEDULER_FUNCTION }} \
+            --image-uri ${{ needs.build.outputs.image_uri }}
+          aws lambda wait function-updated --function-name ${{ env.SCHEDULER_FUNCTION }}
+          echo "✅ Scheduler code uploaded to \$LATEST"
 
       # ========================================================================
       # Step 2: Smoke test $LATEST directly (before any user sees it)
@@ -648,6 +680,20 @@ jobs:
             --name live \
             --function-version ${NEW_VERSION}
           echo "✅ Staging Worker promoted: version ${NEW_VERSION}"
+          echo "version=${NEW_VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Promote Scheduler to live
+        id: promote-scheduler
+        run: |
+          NEW_VERSION=$(aws lambda publish-version \
+            --function-name ${{ env.SCHEDULER_FUNCTION }} \
+            --query 'Version' \
+            --output text)
+          aws lambda update-alias \
+            --function-name ${{ env.SCHEDULER_FUNCTION }} \
+            --name live \
+            --function-version ${NEW_VERSION}
+          echo "✅ Staging Scheduler promoted: version ${NEW_VERSION}"
           echo "version=${NEW_VERSION}" >> $GITHUB_OUTPUT
 
   ###############################################################################
@@ -793,6 +839,7 @@ jobs:
       ENV_NAME: prod
       TELEGRAM_FUNCTION: dr-daily-report-telegram-api-prod
       WORKER_FUNCTION: dr-daily-report-report-worker-prod
+      SCHEDULER_FUNCTION: dr-daily-report-ticker-scheduler-prod
 
     steps:
       - name: Configure AWS credentials
@@ -851,6 +898,15 @@ jobs:
             --image-uri ${{ needs.build.outputs.image_uri }}
           aws lambda wait function-updated --function-name ${{ env.WORKER_FUNCTION }}
           echo "✅ Worker code uploaded to \$LATEST"
+
+      - name: Update Scheduler to $LATEST (not live yet)
+        if: steps.check-lambda.outputs.exists == 'true'
+        run: |
+          aws lambda update-function-code \
+            --function-name ${{ env.SCHEDULER_FUNCTION }} \
+            --image-uri ${{ needs.build.outputs.image_uri }}
+          aws lambda wait function-updated --function-name ${{ env.SCHEDULER_FUNCTION }}
+          echo "✅ Scheduler code uploaded to \$LATEST"
 
       # ========================================================================
       # Step 2: Smoke test $LATEST directly (before any user sees it)
@@ -944,6 +1000,21 @@ jobs:
             --name live \
             --function-version ${NEW_VERSION}
           echo "✅ Prod Worker promoted: version ${NEW_VERSION}"
+          echo "version=${NEW_VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Promote Scheduler to live
+        id: promote-scheduler
+        if: steps.check-lambda.outputs.exists == 'true'
+        run: |
+          NEW_VERSION=$(aws lambda publish-version \
+            --function-name ${{ env.SCHEDULER_FUNCTION }} \
+            --query 'Version' \
+            --output text)
+          aws lambda update-alias \
+            --function-name ${{ env.SCHEDULER_FUNCTION }} \
+            --name live \
+            --function-version ${NEW_VERSION}
+          echo "✅ Prod Scheduler promoted: version ${NEW_VERSION}"
           echo "version=${NEW_VERSION}" >> $GITHUB_OUTPUT
 
   ###############################################################################
