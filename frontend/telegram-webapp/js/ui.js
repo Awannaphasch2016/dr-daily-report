@@ -240,9 +240,9 @@ const UI = {
             ${report.risk ? `
             <div class="report-section">
                 <div class="report-section-title">⚠️ Risk Assessment</div>
-                <div class="badge badge-${report.risk.level}">${report.risk.level}</div>
+                <div class="badge badge-${report.risk.risk_level || 'medium'}">${report.risk.risk_level || 'N/A'}</div>
                 <div class="report-section-content" style="margin-top: var(--spacing-sm);">
-                    ${report.risk.bullets?.map(b => `
+                    ${report.risk.risk_bullets?.map(b => `
                         <div class="report-bullet">${b}</div>
                     `).join('') || ''}
                 </div>
@@ -301,23 +301,74 @@ const UI = {
 
     /**
      * Render fundamentals section
+     * API returns: fundamentals.valuation, fundamentals.growth, fundamentals.profitability
      */
     renderFundamentals(fundamentals) {
         let html = '<div class="report-section"><div class="report-section-title">📈 Fundamentals</div>';
+        html += '<div class="report-section-content">';
 
+        // Valuation metrics (P/E, Market Cap)
         if (fundamentals.valuation?.length) {
-            html += '<div class="report-section-content">';
+            html += '<div class="report-subsection"><strong>Valuation</strong></div>';
             html += fundamentals.valuation.map(m => `
                 <div class="report-metric">
                     <span class="report-metric-name">${m.name}</span>
-                    <span class="report-metric-value">${m.value}${m.unit || ''}</span>
+                    <span class="report-metric-value">${this.formatMetricValue(m.value, m.name)}${m.unit || ''}</span>
                 </div>
             `).join('');
-            html += '</div>';
         }
 
-        html += '</div>';
+        // Growth metrics (Revenue Growth, Earnings Growth)
+        if (fundamentals.growth?.length) {
+            html += '<div class="report-subsection"><strong>Growth</strong></div>';
+            html += fundamentals.growth.map(m => `
+                <div class="report-metric">
+                    <span class="report-metric-name">${m.name}</span>
+                    <span class="report-metric-value">${this.formatMetricValue(m.value, m.name)}${m.unit || ''}</span>
+                </div>
+            `).join('');
+        }
+
+        // Profitability metrics (EPS, Dividend Yield)
+        if (fundamentals.profitability?.length) {
+            html += '<div class="report-subsection"><strong>Profitability</strong></div>';
+            html += fundamentals.profitability.map(m => `
+                <div class="report-metric">
+                    <span class="report-metric-name">${m.name}</span>
+                    <span class="report-metric-value">${this.formatMetricValue(m.value, m.name)}${m.unit || ''}</span>
+                </div>
+            `).join('');
+        }
+
+        html += '</div></div>';
         return html;
+    },
+
+    /**
+     * Format metric value based on metric name
+     */
+    formatMetricValue(value, name) {
+        if (value === null || value === undefined) return 'N/A';
+
+        // Format large numbers (Market Cap)
+        if (name?.toLowerCase().includes('market cap')) {
+            if (value >= 1e12) return `$${(value / 1e12).toFixed(1)}T`;
+            if (value >= 1e9) return `$${(value / 1e9).toFixed(1)}B`;
+            if (value >= 1e6) return `$${(value / 1e6).toFixed(1)}M`;
+            return `$${value.toLocaleString()}`;
+        }
+
+        // Format percentages (Growth, Yield)
+        if (name?.toLowerCase().includes('growth') || name?.toLowerCase().includes('yield')) {
+            return `${value.toFixed(1)}%`;
+        }
+
+        // Format ratios (P/E, EPS)
+        if (typeof value === 'number') {
+            return value.toFixed(2);
+        }
+
+        return value;
     },
 
     /**

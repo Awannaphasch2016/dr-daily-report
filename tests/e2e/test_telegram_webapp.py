@@ -368,6 +368,107 @@ class TestKeyboardNavigation:
         expect(page).to_have_title("DR Daily Report")
 
 
+class TestReportSectionsDisplay:
+    """
+    TDD Tests: Verify all report sections display correctly.
+
+    These tests catch bugs where API data exists but UI fails to render it.
+    Bug identified: Fundamentals shows empty, Risk Assessment shows 'undefined'.
+    """
+
+    def _open_cached_report(self, page: Page, ticker: str = "TENCENT19"):
+        """Helper to open a report modal for a cached ticker."""
+        page.goto(BASE_URL)
+        search_input = page.locator("#search-input")
+        search_input.fill(ticker)
+        page.wait_for_timeout(500)
+        page.locator(f"text={ticker}").first.click()
+        # Wait for cached report to load (should be fast)
+        page.wait_for_timeout(3000)
+
+    def test_fundamentals_section_displays_valuation(self, page: Page):
+        """
+        BUG: Fundamentals section shows only header, no valuation data.
+
+        Expected: P/E Ratio and Market Cap should be visible.
+        API returns: fundamentals.valuation = [{name: "P/E Ratio", value: 17.7}, ...]
+        """
+        self._open_cached_report(page)
+
+        # Fundamentals section should exist
+        fundamentals_section = page.locator("text=Fundamentals").first
+        expect(fundamentals_section).to_be_visible()
+
+        # Should show valuation metrics
+        report_body = page.locator("#report-body")
+        expect(report_body).to_contain_text("P/E")
+
+    def test_fundamentals_section_displays_growth(self, page: Page):
+        """
+        BUG: Fundamentals section missing growth data.
+
+        Expected: Revenue Growth and Earnings Growth should be visible.
+        API returns: fundamentals.growth = [{name: "Revenue Growth", value: 12.2}, ...]
+        """
+        self._open_cached_report(page)
+
+        report_body = page.locator("#report-body")
+        # Should show growth metrics
+        expect(report_body).to_contain_text("Growth")
+
+    def test_risk_assessment_displays_level(self, page: Page):
+        """
+        BUG: Risk Assessment shows 'undefined' instead of risk level.
+
+        Root cause: UI uses 'report.risk.level' but API returns 'report.risk.risk_level'.
+        Expected: "medium" or "high" or "low" badge.
+        """
+        self._open_cached_report(page)
+
+        # Risk Assessment section should exist
+        risk_section = page.locator("text=Risk Assessment").first
+        expect(risk_section).to_be_visible()
+
+        # Should NOT show 'undefined'
+        report_body = page.locator("#report-body")
+        risk_text = report_body.inner_text()
+        assert "undefined" not in risk_text.lower(), \
+            f"Risk Assessment shows 'undefined' - field name mismatch bug. Got: {risk_text[:500]}"
+
+        # Should show actual risk level
+        expect(report_body).to_match_text(r"(low|medium|high)", flags=2)  # Case insensitive
+
+    def test_risk_assessment_displays_bullets(self, page: Page):
+        """
+        BUG: Risk bullets not rendering.
+
+        Root cause: UI uses 'report.risk.bullets' but API returns 'report.risk.risk_bullets'.
+        """
+        self._open_cached_report(page)
+
+        report_body = page.locator("#report-body")
+
+        # Risk bullets should be visible (contain Thai text about RSI, MACD, etc.)
+        # At least one bullet should exist
+        risk_bullets = page.locator(".report-section:has-text('Risk Assessment') .report-bullet")
+        expect(risk_bullets.first).to_be_visible()
+
+    def test_no_undefined_text_in_report(self, page: Page):
+        """
+        CRITICAL: No 'undefined' text should appear anywhere in the report.
+
+        This catches any field mapping bugs between API and UI.
+        """
+        self._open_cached_report(page)
+
+        report_body = page.locator("#report-body")
+        report_text = report_body.inner_text()
+
+        # 'undefined' appearing means a JS field access failed
+        assert "undefined" not in report_text, \
+            f"Report contains 'undefined' - indicates field mapping bug. Text: {report_text[:1000]}"
+
+
 # Pytest configuration for Playwright
 @pytest.fixture(scope="function")
 def page(browser):
