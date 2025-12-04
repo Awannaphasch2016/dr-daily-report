@@ -383,8 +383,18 @@ class TestReportSectionsDisplay:
         search_input.fill(ticker)
         page.wait_for_timeout(500)
         page.locator(f"text={ticker}").first.click()
-        # Wait for cached report to load (should be fast)
-        page.wait_for_timeout(3000)
+        # Wait for report to load - cached reports should be fast but async still needs polling
+        # Wait until we see actual report content (not just "Starting AI analysis")
+        page.wait_for_function(
+            """() => {
+                const body = document.getElementById('report-body');
+                if (!body) return false;
+                const text = body.innerText;
+                // Wait until we see actual report content
+                return text.includes('Fundamentals') || text.includes('Risk Assessment') || text.includes('BULLISH') || text.includes('BEARISH');
+            }""",
+            timeout=30000  # 30 seconds max wait for cache lookup
+        )
 
     def test_fundamentals_section_displays_valuation(self, page: Page):
         """
@@ -435,8 +445,10 @@ class TestReportSectionsDisplay:
         assert "undefined" not in risk_text.lower(), \
             f"Risk Assessment shows 'undefined' - field name mismatch bug. Got: {risk_text[:500]}"
 
-        # Should show actual risk level
-        expect(report_body).to_match_text(r"(low|medium|high)", flags=2)  # Case insensitive
+        # Should show actual risk level (low, medium, or high)
+        import re
+        assert re.search(r'(low|medium|high)', risk_text, re.IGNORECASE), \
+            f"Risk level not found in report. Expected 'low', 'medium', or 'high'. Got: {risk_text[:500]}"
 
     def test_risk_assessment_displays_bullets(self, page: Page):
         """
