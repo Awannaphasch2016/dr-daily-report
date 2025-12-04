@@ -22,6 +22,7 @@ from src.api.job_service import get_job_service
 from src.api.ticker_service import get_ticker_service
 from src.api.transformer import get_transformer
 from src.data.aurora.precompute_service import PrecomputeService
+from src.data.aurora.ticker_resolver import get_ticker_resolver
 
 # Configure logging
 # NOTE: In Lambda, basicConfig() is a no-op because Lambda pre-configures the root logger.
@@ -87,9 +88,23 @@ async def process_record(record: dict) -> None:
         # Parse message body
         message = json.loads(body)
         job_id = message['job_id']
-        ticker = message['ticker']
+        ticker_raw = message['ticker']
 
-        logger.info(f"Processing job {job_id} for ticker {ticker}")
+        # Defensive validation: Resolve ticker to canonical form
+        # This handles both DR symbols (DBS19) and Yahoo symbols (D05.SI)
+        resolver = get_ticker_resolver()
+        resolved = resolver.resolve(ticker_raw)
+
+        if not resolved:
+            error_msg = f"Unknown ticker: {ticker_raw}"
+            logger.error(f"Job {job_id}: {error_msg}")
+            job_service = get_job_service()
+            job_service.fail_job(job_id, error_msg)
+            raise ValueError(error_msg)
+
+        # Use DR symbol for consistency
+        ticker = resolved.dr_symbol
+        logger.info(f"Processing job {job_id} for ticker {ticker} (resolved from {ticker_raw})")
 
         # Get services
         job_service = get_job_service()

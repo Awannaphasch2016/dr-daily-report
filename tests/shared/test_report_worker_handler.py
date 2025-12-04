@@ -234,11 +234,18 @@ class TestReportWorkerCaching:
             "error": "Failed to fetch ticker data",  # Error state
         }
 
+        # Mock resolver to return identity mapping (BAD19 → BAD19)
+        mock_resolver = MagicMock()
+        mock_resolved = MagicMock()
+        mock_resolved.dr_symbol = "BAD19"
+        mock_resolver.resolve.return_value = mock_resolved
+
         with patch('src.report_worker_handler.TickerAnalysisAgent', mock_dependencies["agent_class"]), \
              patch('src.report_worker_handler.get_transformer', return_value=mock_dependencies["transformer"]), \
              patch('src.report_worker_handler.get_job_service', return_value=mock_dependencies["job_service"]), \
              patch('src.report_worker_handler.get_ticker_service', return_value=mock_dependencies["ticker_service"]), \
-             patch('src.report_worker_handler.PrecomputeService', mock_dependencies["precompute_class"]):
+             patch('src.report_worker_handler.PrecomputeService', mock_dependencies["precompute_class"]), \
+             patch('src.report_worker_handler.get_ticker_resolver', return_value=mock_resolver):
 
             from src.report_worker_handler import process_record, AgentError
 
@@ -374,3 +381,227 @@ class TestCachingArgumentSources:
             call_kwargs = mock_precompute.store_report_from_api.call_args.kwargs
             assert call_kwargs["chart_base64"] == "CHART_FROM_FINAL_STATE", \
                 f"chart_base64 should come from final_state, got: {call_kwargs.get('chart_base64')}"
+
+
+class TestWorkerSymbolValidation:
+    """CRITICAL: Verify worker validates and normalizes incoming symbols.
+
+    This is defensive validation - even if scheduler sends wrong format,
+    worker should resolve and normalize to DR symbol.
+
+    TDD Goal: Worker should use TickerResolver to validate symbols,
+    so it can handle Yahoo symbols (D05.SI) even though it expects DR symbols (DBS19).
+    """
+
+    def setup_method(self):
+        """Reset singletons before each test."""
+        import src.api.job_service as job_mod
+        import src.api.ticker_service as ticker_mod
+        import src.api.transformer as transformer_mod
+
+        job_mod._job_service = None
+        ticker_mod._ticker_service = None
+        transformer_mod._transformer = None
+
+    def _create_mock_resolved_ticker(self, dr_symbol: str, yahoo_symbol: str = None):
+        """Create a mock resolved ticker object."""
+        mock_resolved = MagicMock()
+        mock_resolved.dr_symbol = dr_symbol
+        mock_resolved.yahoo_symbol = yahoo_symbol or dr_symbol
+        mock_resolved.ticker_id = 1
+        mock_resolved.company_name = f"Test Company for {dr_symbol}"
+        return mock_resolved
+
+    def _create_base_mocks(self):
+        """Create all base mocks needed for process_record."""
+        # Mock TickerAnalysisAgent
+        mock_agent_class = MagicMock()
+        mock_agent = MagicMock()
+        mock_agent.graph.invoke.return_value = {
+            "ticker": "DBS19",
+            "report": "Test Thai report",
+            "chart_base64": "CHART_DATA",
+            "error": "",
+        }
+        mock_agent_class.return_value = mock_agent
+
+        # Mock transformer (async)
+        mock_transformer = MagicMock()
+        mock_response = MagicMock()
+        mock_response.model_dump.return_value = {
+            "ticker": "DBS19",
+            "narrative_report": "Thai report",
+            "generation_metadata": {"strategy": "multi_stage_analysis"},
+        }
+        mock_transformer.transform_report = AsyncMock(return_value=mock_response)
+
+        # Mock job_service
+        mock_job_service = MagicMock()
+
+        # Mock ticker_service
+        mock_ticker_service = MagicMock()
+        mock_ticker_service.get_ticker_info.return_value = {
+            "symbol": "DBS19",
+            "name": "DBS Group",
+            "yahoo_ticker": "D05.SI",
+        }
+
+        # Mock PrecomputeService
+        mock_precompute_class = MagicMock()
+        mock_precompute = MagicMock()
+        mock_precompute.store_report_from_api.return_value = True
+        mock_precompute_class.return_value = mock_precompute
+
+        return {
+            "agent_class": mock_agent_class,
+            "agent": mock_agent,
+            "transformer": mock_transformer,
+            "job_service": mock_job_service,
+            "ticker_service": mock_ticker_service,
+            "precompute_class": mock_precompute_class,
+            "precompute": mock_precompute,
+        }
+
+    @pytest.mark.asyncio
+    async def test_worker_resolves_ticker_before_processing(self):
+        """Worker should use resolver to validate incoming ticker."""
+        mocks = self._create_base_mocks()
+
+        # Mock resolver
+        mock_resolver = MagicMock()
+        mock_resolver.resolve.return_value = self._create_mock_resolved_ticker("DBS19", "D05.SI")
+
+        with patch('src.report_worker_handler.TickerAnalysisAgent', mocks["agent_class"]), \
+             patch('src.report_worker_handler.get_transformer', return_value=mocks["transformer"]), \
+             patch('src.report_worker_handler.get_job_service', return_value=mocks["job_service"]), \
+             patch('src.report_worker_handler.get_ticker_service', return_value=mocks["ticker_service"]), \
+             patch('src.report_worker_handler.PrecomputeService', mocks["precompute_class"]), \
+             patch('src.report_worker_handler.get_ticker_resolver', return_value=mock_resolver):
+
+            from src.report_worker_handler import process_record
+
+            record = {
+                "messageId": "test",
+                "body": json.dumps({"job_id": "rpt_resolve", "ticker": "DBS19"})
+            }
+
+            await process_record(record)
+
+            # Verify resolver was called
+            mock_resolver.resolve.assert_called_once_with("DBS19")
+
+    @pytest.mark.asyncio
+    async def test_worker_handles_yahoo_symbol_via_resolution(self):
+        """CRITICAL: Worker should handle Yahoo symbols (D05.SI) via resolver.
+
+        Even if scheduler accidentally sends Yahoo format, worker should
+        resolve it to DR format (DBS19) and process successfully.
+        """
+        mocks = self._create_base_mocks()
+
+        # Update agent mock to use resolved ticker
+        mocks["agent"].graph.invoke.return_value = {
+            "ticker": "DBS19",  # Resolved from D05.SI
+            "report": "Test report",
+            "chart_base64": "",
+            "error": "",
+        }
+
+        # Mock resolver - Yahoo symbol resolves to DR symbol
+        mock_resolver = MagicMock()
+        mock_resolver.resolve.return_value = self._create_mock_resolved_ticker("DBS19", "D05.SI")
+
+        with patch('src.report_worker_handler.TickerAnalysisAgent', mocks["agent_class"]), \
+             patch('src.report_worker_handler.get_transformer', return_value=mocks["transformer"]), \
+             patch('src.report_worker_handler.get_job_service', return_value=mocks["job_service"]), \
+             patch('src.report_worker_handler.get_ticker_service', return_value=mocks["ticker_service"]), \
+             patch('src.report_worker_handler.PrecomputeService', mocks["precompute_class"]), \
+             patch('src.report_worker_handler.get_ticker_resolver', return_value=mock_resolver):
+
+            from src.report_worker_handler import process_record
+
+            # Send Yahoo symbol (simulating scheduler bug)
+            record = {
+                "messageId": "test-yahoo",
+                "body": json.dumps({"job_id": "rpt_yahoo", "ticker": "D05.SI"})
+            }
+
+            # Should NOT raise - resolver handles conversion
+            await process_record(record)
+
+            # Verify resolver was called with Yahoo symbol
+            mock_resolver.resolve.assert_called_once_with("D05.SI")
+
+            # Verify job completed (not failed)
+            mocks["job_service"].complete_job.assert_called_once()
+            mocks["job_service"].fail_job.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_worker_fails_job_for_unknown_ticker(self):
+        """Worker should fail job gracefully for unknown/invalid tickers."""
+        mocks = self._create_base_mocks()
+
+        # Mock resolver - returns None for unknown ticker
+        mock_resolver = MagicMock()
+        mock_resolver.resolve.return_value = None
+
+        with patch('src.report_worker_handler.TickerAnalysisAgent', mocks["agent_class"]), \
+             patch('src.report_worker_handler.get_transformer', return_value=mocks["transformer"]), \
+             patch('src.report_worker_handler.get_job_service', return_value=mocks["job_service"]), \
+             patch('src.report_worker_handler.get_ticker_service', return_value=mocks["ticker_service"]), \
+             patch('src.report_worker_handler.PrecomputeService', mocks["precompute_class"]), \
+             patch('src.report_worker_handler.get_ticker_resolver', return_value=mock_resolver):
+
+            from src.report_worker_handler import process_record
+
+            record = {
+                "messageId": "test-unknown",
+                "body": json.dumps({"job_id": "rpt_unknown", "ticker": "INVALID123"})
+            }
+
+            # Should raise exception for unknown ticker
+            with pytest.raises(Exception) as exc_info:
+                await process_record(record)
+
+            assert "Unknown ticker" in str(exc_info.value) or "INVALID123" in str(exc_info.value)
+
+            # Verify job was marked as failed (may be called twice - once in validation, once in exception handler)
+            assert mocks["job_service"].fail_job.call_count >= 1
+            # Check the first call has correct job_id and message
+            fail_args = mocks["job_service"].fail_job.call_args_list[0]
+            assert fail_args[0][0] == "rpt_unknown"  # job_id
+            assert "INVALID123" in fail_args[0][1]  # error message contains ticker
+
+    @pytest.mark.asyncio
+    async def test_worker_uses_dr_symbol_for_agent(self):
+        """Worker should pass DR symbol (not raw input) to agent.
+
+        Even if message contains Yahoo symbol, agent should receive DR symbol.
+        """
+        mocks = self._create_base_mocks()
+
+        # Mock resolver
+        mock_resolver = MagicMock()
+        mock_resolver.resolve.return_value = self._create_mock_resolved_ticker("DBS19", "D05.SI")
+
+        with patch('src.report_worker_handler.TickerAnalysisAgent', mocks["agent_class"]), \
+             patch('src.report_worker_handler.get_transformer', return_value=mocks["transformer"]), \
+             patch('src.report_worker_handler.get_job_service', return_value=mocks["job_service"]), \
+             patch('src.report_worker_handler.get_ticker_service', return_value=mocks["ticker_service"]), \
+             patch('src.report_worker_handler.PrecomputeService', mocks["precompute_class"]), \
+             patch('src.report_worker_handler.get_ticker_resolver', return_value=mock_resolver):
+
+            from src.report_worker_handler import process_record
+
+            # Send Yahoo symbol
+            record = {
+                "messageId": "test-dr",
+                "body": json.dumps({"job_id": "rpt_dr", "ticker": "D05.SI"})
+            }
+
+            await process_record(record)
+
+            # Verify agent.graph.invoke received DR symbol (DBS19), not Yahoo (D05.SI)
+            invoke_args = mocks["agent"].graph.invoke.call_args[0][0]
+            assert invoke_args["ticker"] == "DBS19", \
+                f"Agent should receive DR symbol 'DBS19', got '{invoke_args['ticker']}'"

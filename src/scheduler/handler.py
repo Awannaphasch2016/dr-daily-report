@@ -442,9 +442,11 @@ def _handle_parallel_precompute(event: Dict[str, Any], start_time: datetime) -> 
     try:
         from src.data.aurora.precompute_service import PrecomputeService
         from src.api.job_service import get_job_service
+        from src.data.aurora.ticker_resolver import get_ticker_resolver
 
         service = PrecomputeService()
         job_service = get_job_service()
+        resolver = get_ticker_resolver()
 
         # Get all tickers from Aurora
         tickers = service.repo.get_all_tickers()
@@ -468,16 +470,25 @@ def _handle_parallel_precompute(event: Dict[str, Any], start_time: datetime) -> 
         submitted_jobs = []
 
         for ticker_info in tickers:
-            symbol = ticker_info['symbol']
+            yahoo_symbol = ticker_info['symbol']  # DB stores Yahoo format
+
+            # Convert Yahoo symbol to DR symbol for worker
+            # Worker expects DR format (DBS19, NVDA19) not Yahoo format (D05.SI, NVDA)
+            dr_symbol = resolver.to_dr(yahoo_symbol)
+            if not dr_symbol:
+                logger.warning(f"Cannot resolve {yahoo_symbol} to DR format, skipping")
+                jobs_failed += 1
+                failed_tickers.append(yahoo_symbol)
+                continue
 
             try:
-                # Create job in DynamoDB
-                job = job_service.create_job(ticker=symbol)
+                # Create job in DynamoDB with DR symbol
+                job = job_service.create_job(ticker=dr_symbol)
 
-                # Send to SQS for async processing
+                # Send to SQS for async processing with DR symbol
                 message_body = json.dumps({
                     'job_id': job.job_id,
-                    'ticker': symbol
+                    'ticker': dr_symbol
                 })
 
                 sqs.send_message(
@@ -488,15 +499,15 @@ def _handle_parallel_precompute(event: Dict[str, Any], start_time: datetime) -> 
                 jobs_submitted += 1
                 submitted_jobs.append({
                     'job_id': job.job_id,
-                    'ticker': symbol
+                    'ticker': dr_symbol
                 })
 
-                logger.debug(f"Submitted job {job.job_id} for {symbol}")
+                logger.debug(f"Submitted job {job.job_id} for {dr_symbol} (from {yahoo_symbol})")
 
             except Exception as e:
-                logger.error(f"Failed to submit job for {symbol}: {e}")
+                logger.error(f"Failed to submit job for {dr_symbol} ({yahoo_symbol}): {e}")
                 jobs_failed += 1
-                failed_tickers.append(symbol)
+                failed_tickers.append(dr_symbol)
 
         end_time = datetime.now()
         duration_seconds = (end_time - start_time).total_seconds()
