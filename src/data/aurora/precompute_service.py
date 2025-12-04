@@ -663,8 +663,11 @@ class PrecomputeService:
         chart_base64: str,
         pdf_s3_key: Optional[str] = None,
         pdf_generated_at: Optional[datetime] = None,
-    ):
+    ) -> int:
         """Store a completed report to Aurora cache.
+
+        Returns:
+            Number of rows affected (0 = failure, typically FK constraint)
 
         Schema columns (as of 2025-12-02):
             id, ticker_id, ticker_master_id, symbol, report_date,
@@ -709,7 +712,7 @@ class PrecomputeService:
             chart_base64,
         )
 
-        self.client.execute(query, params, commit=True)
+        return self.client.execute(query, params, commit=True)
 
     def store_report_from_api(
         self,
@@ -757,7 +760,7 @@ class PrecomputeService:
 
             # Store using the internal method with Yahoo symbol
             logger.info(f"store_report_from_api: Calling _store_completed_report for {yahoo_symbol}")
-            self._store_completed_report(
+            rowcount = self._store_completed_report(
                 ticker_id=ticker_id,
                 symbol=yahoo_symbol,  # Use Yahoo symbol for Aurora storage
                 data_date=data_date,
@@ -770,6 +773,11 @@ class PrecomputeService:
                 pdf_s3_key=None,
                 pdf_generated_at=None,
             )
+
+            # Check rowcount - 0 means INSERT failed (e.g., FK constraint violation)
+            if rowcount == 0:
+                logger.warning(f"⚠️ INSERT affected 0 rows for {symbol} - possible FK constraint failure")
+                return False
 
             logger.info(f"✅ Cached API-generated report for {symbol} (yahoo={yahoo_symbol})")
             return True

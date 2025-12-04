@@ -185,6 +185,207 @@ pytest -m "not legacy and not e2e"  # Skip LINE bot and browser tests
 pytest --run-ratelimited            # Include rate-limited tests
 ```
 
+### Testing Anti-Patterns to Avoid
+
+These patterns create false confidence—tests that pass but don't catch bugs.
+
+#### Anti-Pattern 1: The Liar (Tests That Can't Fail)
+
+A test that passes regardless of whether the code works. Often written after implementation without verifying it can fail.
+
+```python
+# BAD: "The Liar" - this test always passes
+def test_store_report(self):
+    mock_client = MagicMock()  # MagicMock() is truthy by default
+    service.store_report('NVDA19', 'report text')
+    mock_client.execute.assert_called()  # Only checks "was it called?"
+    # Missing: What if execute() returned 0 rows? Test still passes!
+
+# GOOD: Test can actually fail when code is broken
+def test_store_report_detects_failure(self):
+    mock_client = MagicMock()
+    mock_client.execute.return_value = 0  # Simulate FK constraint failure
+    result = service.store_report('NVDA19', 'report text')
+    assert result is False, "Should return False when INSERT affects 0 rows"
+```
+
+**Detection**: After writing a test, intentionally break the code. If the test still passes, it's a Liar.
+
+#### Anti-Pattern 2: Happy Path Only
+
+Testing only success scenarios, never failures.
+
+```python
+# BAD: Only tests success
+def test_fetch_ticker(self):
+    mock_yf.download.return_value = sample_dataframe
+    result = service.fetch('NVDA')
+    assert result is not None
+
+# GOOD: Tests both success AND failure paths
+def test_fetch_ticker_success(self):
+    mock_yf.download.return_value = sample_dataframe
+    result = service.fetch('NVDA')
+    assert len(result) > 0
+
+def test_fetch_ticker_returns_none_on_empty(self):
+    mock_yf.download.return_value = pd.DataFrame()  # Empty result
+    result = service.fetch('INVALID')
+    assert result is None
+
+def test_fetch_ticker_handles_timeout(self):
+    mock_yf.download.side_effect = TimeoutError()
+    result = service.fetch('NVDA')
+    assert result is None  # Graceful degradation
+```
+
+#### Anti-Pattern 3: Testing Implementation, Not Behavior
+
+Testing *how* code does something rather than *what* it achieves.
+
+```python
+# BAD: Tests implementation details (brittle)
+def test_cache_stores_correctly(self):
+    service.store_report('NVDA19', 'report')
+    # Asserts exact SQL string - breaks on any query change
+    mock_client.execute.assert_called_with(
+        "INSERT INTO reports (symbol, text) VALUES (%s, %s)",
+        ('NVDA19', 'report')
+    )
+
+# GOOD: Tests behavior (survives refactoring)
+def test_stored_report_can_be_retrieved(self):
+    service.store_report('NVDA19', 'report text')
+    result = service.get_report('NVDA19')
+    assert result['text'] == 'report text'  # The actual contract
+```
+
+**Kent Beck's Rule**: "Tests should be sensitive to behavior changes and insensitive to structure changes."
+
+#### Anti-Pattern 4: Mock Overload (The Mockery)
+
+So many mocks that you're testing the mocks, not the code.
+
+```python
+# BAD: Testing mocks, not behavior
+@patch('service.db_client')
+@patch('service.cache')
+@patch('service.logger')
+@patch('service.metrics')
+@patch('service.validator')
+def test_process(self, mock_validator, mock_metrics, mock_logger, mock_cache, mock_db):
+    mock_validator.validate.return_value = True
+    mock_cache.get.return_value = None
+    mock_db.query.return_value = [{'id': 1}]
+    # ... 20 more lines of mock setup
+    # What are we even testing at this point?
+
+# GOOD: Mock only external boundaries
+@patch('service.external_api')  # Only mock what crosses system boundary
+def test_process(self, mock_api):
+    mock_api.fetch.return_value = {'data': 'value'}
+    result = service.process('input')
+    assert result['status'] == 'success'
+```
+
+**Rule**: If test setup is longer than the test itself, the code needs refactoring, not more mocks.
+
+### Testing Principles (FIRST + Behavior)
+
+#### Principle 1: Test Outcomes, Not Execution
+
+```python
+# Execution test: "Did it run?"
+mock_client.execute.assert_called_once()  # ✗ Weak
+
+# Outcome test: "Did it work?"
+assert result is True  # Success case
+assert result is False  # When rowcount=0
+```
+
+#### Principle 2: Explicit Failure Mocking
+
+MagicMock defaults are truthy. Always explicitly mock failure states:
+
+```python
+# These failures must be explicitly simulated:
+mock_client.execute.return_value = 0           # No rows affected
+mock_client.execute.side_effect = IntegrityError("FK violation")
+mock_client.fetch_one.return_value = None      # Not found
+mock_api.call.side_effect = TimeoutError()     # Timeout
+```
+
+#### Principle 3: Round-Trip Tests for Persistence
+
+The real contract for storage is "data can be retrieved after storing."
+
+```python
+def test_cache_roundtrip(self):
+    """Store then retrieve - the actual user contract"""
+    # Store
+    service.store_report(
+        symbol='MWG19',
+        report_text='Analysis report',
+        report_json={'key': 'value'}
+    )
+
+    # Retrieve (the behavior that matters)
+    result = service.get_cached_report('MWG19')
+
+    # Assert the contract
+    assert result is not None, "Stored report should be retrievable"
+    assert result['report_text'] == 'Analysis report'
+```
+
+#### Principle 4: Silent Failure Detection
+
+Database operations often fail without exceptions:
+
+| Failure Mode | Raises Exception? | How to Detect |
+|--------------|-------------------|---------------|
+| FK constraint (MySQL) | Sometimes | Check rowcount |
+| ENUM value mismatch | No | Check rowcount |
+| Duplicate key (IGNORE) | No | Check rowcount |
+| Write to wrong table | No | Round-trip test |
+
+```python
+# Code must check rowcount, not just absence of exception
+def store_report(self, symbol: str, text: str) -> bool:
+    rowcount = self.client.execute(insert_query, params)
+    if rowcount == 0:
+        logger.warning(f"INSERT affected 0 rows for {symbol}")
+        return False  # Explicit failure signal
+    return True
+```
+
+#### Principle 5: Test Sabotage Verification
+
+After writing a test, verify it can detect failures:
+
+```python
+# Step 1: Write the test
+def test_store_returns_false_on_failure(self):
+    mock_client.execute.return_value = 0
+    result = service.store_report('NVDA19', 'text')
+    assert result is False
+
+# Step 2: Sabotage - temporarily break the code
+def store_report(self, symbol, text):
+    self.client.execute(query, params)
+    return True  # BUG: Always returns True
+
+# Step 3: Run test - it should FAIL
+# If test passes despite sabotage, the test is worthless (The Liar)
+```
+
+### References
+
+- [Software Testing Anti-patterns (Codepipes)](https://blog.codepipes.com/testing/software-testing-antipatterns.html)
+- [Unit Testing Anti-Patterns (Yegor Bugayenko)](https://www.yegor256.com/2018/12/11/unit-testing-anti-patterns.html)
+- [Learn Go with Tests: Anti-patterns](https://quii.gitbook.io/learn-go-with-tests/meta/anti-patterns)
+- [Database Integration Testing (Three Dots Labs)](https://threedots.tech/post/database-integration-testing/)
+- [FIRST Principles (Uncle Bob Martin)](https://medium.com/pragmatic-programmers/unit-tests-are-first-fast-isolated-repeatable-self-verifying-and-timely-a83e8070698e)
+
 ---
 
 ## Code Organization
