@@ -241,6 +241,27 @@
     color: var(--tg-theme-button-color);
 }
 
+/* Narrative Report Section */
+.narrative-report {
+    background-color: var(--tg-theme-secondary-bg-color);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-md);
+    margin-top: var(--spacing-sm);
+}
+
+.narrative-report p {
+    margin: 0 0 var(--spacing-sm) 0;
+    text-align: justify;
+}
+
+.narrative-report p:last-child {
+    margin-bottom: 0;
+}
+
+.narrative-report strong {
+    color: var(--tg-theme-button-color);
+}
+
 /* Peers Section */
 .peers-list {
     display: flex;

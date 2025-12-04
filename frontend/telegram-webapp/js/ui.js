@@ -193,6 +193,8 @@ const UI = {
 
             ${report.summary_sections ? this.renderSummarySections(report.summary_sections) : ''}
 
+            ${report.narrative_report ? this.renderNarrativeReport(report.narrative_report) : ''}
+
             ${report.technical_metrics?.length ? `
             <div class="report-section">
                 <div class="report-section-title">📊 Technical Metrics</div>
@@ -297,6 +299,31 @@ const UI = {
         }
 
         return html;
+    },
+
+    /**
+     * Render narrative report (LLM-generated analysis)
+     * This is the full Thai language analysis explaining the "why" behind the takeaways
+     */
+    renderNarrativeReport(narrativeReport) {
+        if (!narrativeReport) return '';
+
+        // Convert markdown-style formatting to HTML
+        // **text** -> <strong>text</strong>
+        // \n -> <br> for line breaks
+        let formattedReport = narrativeReport
+            .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+            .replace(/\n\n/g, '</p><p>')
+            .replace(/\n/g, '<br>');
+
+        return `
+        <div class="report-section">
+            <div class="report-section-title">📝 Analysis Report</div>
+            <div class="report-section-content narrative-report">
+                <p>${formattedReport}</p>
+            </div>
+        </div>
+        `;
     },
 
     /**
