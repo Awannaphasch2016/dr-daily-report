@@ -541,6 +541,55 @@ class ResponseTransformer:
             profitability=profitability
         )
 
+    def _build_fundamentals_from_cache(self, report_json: dict) -> Fundamentals:
+        """Build fundamentals from cached report_json.
+
+        Cached reports from the API worker store the complete ReportResponse,
+        which includes a pre-built 'fundamentals' object. Use that directly
+        instead of trying to rebuild from raw ticker_data.
+
+        Args:
+            report_json: The cached report's report_json field
+
+        Returns:
+            Fundamentals object with valuation, growth, and profitability metrics
+        """
+        # Check if pre-built fundamentals exists in the cached response
+        cached_fundamentals = report_json.get('fundamentals')
+        if cached_fundamentals and isinstance(cached_fundamentals, dict):
+            # Convert cached dict to FundamentalMetric objects
+            valuation = [
+                FundamentalMetric(**m) if isinstance(m, dict) else m
+                for m in cached_fundamentals.get('valuation', [])
+            ]
+            growth = [
+                FundamentalMetric(**m) if isinstance(m, dict) else m
+                for m in cached_fundamentals.get('growth', [])
+            ]
+            profitability = [
+                FundamentalMetric(**m) if isinstance(m, dict) else m
+                for m in cached_fundamentals.get('profitability', [])
+            ]
+
+            logger.debug(f"Using pre-built fundamentals: {len(valuation)} valuation, "
+                        f"{len(growth)} growth, {len(profitability)} profitability metrics")
+
+            return Fundamentals(
+                valuation=valuation,
+                growth=growth,
+                profitability=profitability
+            )
+
+        # Fallback: Try to build from ticker_data if available
+        ticker_data = report_json.get('ticker_data', {})
+        if ticker_data:
+            logger.debug("Falling back to building fundamentals from ticker_data")
+            return self._build_fundamentals(ticker_data)
+
+        # No fundamentals data available
+        logger.warning("No fundamentals data available in cached report")
+        return Fundamentals(valuation=[], growth=[], profitability=[])
+
     def _build_news_items(self, news: list) -> list[NewsItem]:
         """Build news items with sentiment"""
         items = []
@@ -737,9 +786,8 @@ class ResponseTransformer:
         # Build technical metrics
         technical_metrics = self._build_technical_metrics(indicators, percentiles)
 
-        # Build fundamentals from report_json
-        ticker_data = report_json.get('ticker_data', {})
-        fundamentals = self._build_fundamentals(ticker_data)
+        # Build fundamentals - use pre-built from report_json if available
+        fundamentals = self._build_fundamentals_from_cache(report_json)
 
         # Build news items from report_json
         news = report_json.get('news', [])
