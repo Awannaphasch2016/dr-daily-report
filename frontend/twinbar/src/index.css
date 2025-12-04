@@ -1,0 +1,59 @@
+@import "tailwindcss";
+
+/* Twinbar Design System */
+@theme {
+  /* Brand Colors */
+  --color-primary: #1652f0;
+  --color-primary-dark: #0d3cb8;
+  --color-primary-light: #4d7af5;
+
+  /* Outcome Colors */
+  --color-yes: #00d395;
+  --color-yes-light: #e6fbf5;
+  --color-no: #ff6b6b;
+  --color-no-light: #ffebeb;
+
+  /* Neutral */
+  --color-bg: #ffffff;
+  --color-bg-secondary: #f3f4f6;
+  --color-text: #1a1a2e;
+  --color-text-secondary: #6b7280;
+  --color-border: #e5e7eb;
+}
+
+/* Dark mode */
+@media (prefers-color-scheme: dark) {
+  @theme {
+    --color-bg: #0f0f1a;
+    --color-bg-secondary: #1a1a2e;
+    --color-text: #f3f4f6;
+    --color-text-secondary: #9ca3af;
+    --color-border: #2d2d44;
+  }
+}
+
+/* Base styles */
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif;
+  background-color: var(--color-bg);
+  color: var(--color-text);
+  margin: 0;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+
+#root {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-text-secondary);
+  border-radius: 999px;
+}

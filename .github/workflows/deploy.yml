@@ -13,7 +13,7 @@ on:
       - telegram  # Single trigger - auto-chains through dev → staging → prod
     paths:
       - 'src/**'
-      - 'frontend/telegram-webapp/**'
+      - 'frontend/twinbar/**'
       - 'Dockerfile*'
       - 'requirements*.txt'
       - 'terraform/**'
@@ -24,7 +24,7 @@ on:
       - telegram
     paths:
       - 'src/**'
-      - 'frontend/telegram-webapp/**'
+      - 'frontend/twinbar/**'
       - 'Dockerfile*'
       - 'requirements*.txt'
 
@@ -78,7 +78,7 @@ jobs:
               - 'Dockerfile*'
               - 'requirements*.txt'
             frontend:
-              - 'frontend/telegram-webapp/**'
+              - 'frontend/twinbar/**'
 
       - name: Log detected changes
         run: |
@@ -487,6 +487,13 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/twinbar/package-lock.json
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -494,23 +501,28 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
+      - name: Build Twinbar React app
+        working-directory: frontend/twinbar
+        run: |
+          npm ci
+          npm run build
+
       - name: Deploy frontend to S3 + TEST CloudFront
         id: deploy
         env:
           API_URL: ${{ secrets.TELEGRAM_API_URL }}
           TEST_DIST_ID: ${{ secrets.CLOUDFRONT_TEST_DISTRIBUTION_ID }}
         run: |
-          mkdir -p build
-          cp -r frontend/telegram-webapp/* build/
-
           # Ensure API URL has /api/v1 suffix
           if [[ ! "${API_URL}" =~ /api/v1$ ]]; then
             API_URL="${API_URL%/}/api/v1"
           fi
           echo "   Using API URL: ${API_URL}"
 
-          sed -i "s|window.TELEGRAM_API_URL = '{{API_URL}}'|window.TELEGRAM_API_URL = '${API_URL}'|g" build/index.html
-          aws s3 sync build/ s3://${{ secrets.WEBAPP_BUCKET_NAME }}/ --delete
+          # Inject API URL into built index.html
+          sed -i "s|</head>|<script>window.TELEGRAM_API_URL = '${API_URL}';</script></head>|g" frontend/twinbar/dist/index.html
+
+          aws s3 sync frontend/twinbar/dist/ s3://${{ secrets.WEBAPP_BUCKET_NAME }}/ --delete
           echo "✅ Dev frontend uploaded to S3"
 
           # Only invalidate TEST CloudFront (users still see old version)
@@ -816,6 +828,13 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/twinbar/package-lock.json
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -823,23 +842,28 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
+      - name: Build Twinbar React app
+        working-directory: frontend/twinbar
+        run: |
+          npm ci
+          npm run build
+
       - name: Deploy frontend to S3 + TEST CloudFront
         id: deploy
         env:
           API_URL: ${{ secrets.TELEGRAM_API_URL }}
           TEST_DIST_ID: ${{ secrets.CLOUDFRONT_TEST_DISTRIBUTION_ID }}
         run: |
-          mkdir -p build
-          cp -r frontend/telegram-webapp/* build/
-
           # Ensure API URL has /api/v1 suffix
           if [[ ! "${API_URL}" =~ /api/v1$ ]]; then
             API_URL="${API_URL%/}/api/v1"
           fi
           echo "   Using API URL: ${API_URL}"
 
-          sed -i "s|window.TELEGRAM_API_URL = '{{API_URL}}'|window.TELEGRAM_API_URL = '${API_URL}'|g" build/index.html
-          aws s3 sync build/ s3://${{ secrets.WEBAPP_BUCKET_NAME }}/ --delete
+          # Inject API URL into built index.html
+          sed -i "s|</head>|<script>window.TELEGRAM_API_URL = '${API_URL}';</script></head>|g" frontend/twinbar/dist/index.html
+
+          aws s3 sync frontend/twinbar/dist/ s3://${{ secrets.WEBAPP_BUCKET_NAME }}/ --delete
           echo "✅ Staging frontend uploaded to S3"
 
           # Only invalidate TEST CloudFront (users still see old version)
@@ -1160,12 +1184,25 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/twinbar/package-lock.json
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
+
+      - name: Build Twinbar React app
+        working-directory: frontend/twinbar
+        run: |
+          npm ci
+          npm run build
 
       - name: Deploy frontend to S3 + TEST CloudFront
         id: deploy
@@ -1179,8 +1216,6 @@ jobs:
             echo "⚠️ No WEBAPP_BUCKET_NAME configured for production - skipping frontend deployment"
             exit 0
           fi
-          mkdir -p build
-          cp -r frontend/telegram-webapp/* build/
 
           # Ensure API URL has /api/v1 suffix
           if [[ ! "${API_URL}" =~ /api/v1$ ]]; then
@@ -1188,8 +1223,10 @@ jobs:
           fi
           echo "   Using API URL: ${API_URL}"
 
-          sed -i "s|window.TELEGRAM_API_URL = '{{API_URL}}'|window.TELEGRAM_API_URL = '${API_URL}'|g" build/index.html
-          aws s3 sync build/ s3://${BUCKET_NAME}/ --delete
+          # Inject API URL into built index.html
+          sed -i "s|</head>|<script>window.TELEGRAM_API_URL = '${API_URL}';</script></head>|g" frontend/twinbar/dist/index.html
+
+          aws s3 sync frontend/twinbar/dist/ s3://${BUCKET_NAME}/ --delete
           echo "✅ Prod frontend uploaded to S3"
 
           # Only invalidate TEST CloudFront (users still see old version)
