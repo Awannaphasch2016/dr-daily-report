@@ -17,6 +17,7 @@ export function MarketCard({ market, onSelect, onBuy, onAgree }: MarketCardProps
     <div
       className="market-card bg-[var(--color-bg)] border border-[var(--color-border)] rounded-xl p-4 cursor-pointer transition-all hover:shadow-lg hover:-translate-y-0.5 hover:border-[var(--color-primary-light)]"
       data-market-id={market.id}
+      onClick={() => onSelect(market)}
     >
       {market.image && (
         <img
@@ -27,8 +28,7 @@ export function MarketCard({ market, onSelect, onBuy, onAgree }: MarketCardProps
       )}
 
       <div
-        className="market-title text-base font-semibold mb-3 leading-snug line-clamp-2 cursor-pointer"
-        onClick={() => onSelect(market)}
+        className="market-title text-base font-semibold mb-3 leading-snug line-clamp-2"
       >
         {market.title}
       </div>
@@ -63,7 +63,7 @@ export function MarketCard({ market, onSelect, onBuy, onAgree }: MarketCardProps
       {market.socialProof && <SocialProofBar socialProof={market.socialProof} />}
 
       {/* Agree Button - Single asymmetric commitment action */}
-      <div className="mt-4">
+      <div className="mt-4" onClick={(e) => e.stopPropagation()}>
         <AgreeButton
           market={market}
           onAgree={onAgree || ((id) => onBuy(id, 'yes'))} // Fallback to onBuy if onAgree not provided

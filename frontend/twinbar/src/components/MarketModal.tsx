@@ -1,4 +1,4 @@
-import { Dialog, DialogPanel, DialogTitle, Tab, TabGroup, TabList, TabPanel, TabPanels } from '@headlessui/react';
+import { Dialog, DialogPanel, DialogTitle } from '@headlessui/react';
 import { XMarkIcon } from '@heroicons/react/24/outline';
 import type { Market } from '../types/market';
 import { formatVolume, formatEndsAt } from '../lib/format';
@@ -6,15 +6,17 @@ import { FullChart } from './FullChart';
 import { ScoringPanel } from './ScoringPanel';
 import { NarrativePanel } from './NarrativePanel';
 import { SocialProofPanel } from './SocialProofPanel';
+import { AgreeButton } from './AgreeButton';
 
 interface MarketModalProps {
   market: Market | null;
   isOpen: boolean;
   onClose: () => void;
   onBuy: (marketId: string, outcome: 'yes' | 'no') => void;
+  onAgree?: (marketId: string) => void;
 }
 
-export function MarketModal({ market, isOpen, onClose, onBuy }: MarketModalProps) {
+export function MarketModal({ market, isOpen, onClose, onBuy, onAgree }: MarketModalProps) {
   if (!market) return null;
 
   const hasReport = market.report !== undefined;
@@ -24,11 +26,11 @@ export function MarketModal({ market, isOpen, onClose, onBuy }: MarketModalProps
       {/* Backdrop */}
       <div className="fixed inset-0 bg-black/50" aria-hidden="true" />
 
-      {/* Modal container */}
-      <div className="fixed inset-0 flex items-end justify-center">
+      {/* Modal container - WIDER, uses ~80% of screen */}
+      <div className="fixed inset-0 flex items-end justify-center px-4">
         <DialogPanel
           id="market-modal"
-          className="modal-content w-full max-w-lg max-h-[90vh] overflow-y-auto bg-[var(--color-bg)] rounded-t-2xl"
+          className="modal-content w-full max-w-4xl max-h-[90vh] overflow-y-auto bg-[var(--color-bg)] rounded-t-2xl"
         >
           {/* Header */}
           <div className="modal-header flex justify-between items-center p-4 border-b border-[var(--color-border)] sticky top-0 bg-[var(--color-bg)] z-10">
@@ -43,152 +45,48 @@ export function MarketModal({ market, isOpen, onClose, onBuy }: MarketModalProps
             </button>
           </div>
 
-          {/* Phase 3: Tabbed Content (if report data available) */}
+          {/* Single scrollable layout - ALL content in one page */}
           {hasReport ? (
-            <TabGroup>
-              {/* Tab Navigation */}
-              <TabList data-testid="modal-tabs" className="flex border-b border-[var(--color-border)] px-4 sticky top-14 bg-[var(--color-bg)] z-10">
-                <Tab
-                  data-tab="overview"
-                  className="px-4 py-3 text-sm font-medium transition-colors focus:outline-none data-[selected]:border-b-2 data-[selected]:border-[var(--color-primary)] data-[selected]:text-[var(--color-primary)]"
-                >
-                  Overview
-                </Tab>
-                <Tab
-                  data-tab="technical"
-                  className="px-4 py-3 text-sm font-medium transition-colors focus:outline-none data-[selected]:border-b-2 data-[selected]:border-[var(--color-primary)] data-[selected]:text-[var(--color-primary)]"
-                >
-                  Technical
-                </Tab>
-                <Tab
-                  data-tab="fundamentals"
-                  className="px-4 py-3 text-sm font-medium transition-colors focus:outline-none data-[selected]:border-b-2 data-[selected]:border-[var(--color-primary)] data-[selected]:text-[var(--color-primary)]"
-                >
-                  Fundamentals
-                </Tab>
-                <Tab
-                  data-tab="peers"
-                  className="px-4 py-3 text-sm font-medium transition-colors focus:outline-none data-[selected]:border-b-2 data-[selected]:border-[var(--color-primary)] data-[selected]:text-[var(--color-primary)]"
-                >
-                  Peers
-                </Tab>
-              </TabList>
-
-              {/* Tab Panels */}
-              <TabPanels>
-                {/* Overview Tab */}
-                <TabPanel className="p-4">
-                  <div id="market-body" className="modal-body space-y-6">
-                    {/* Phase 4: Scoring Panel */}
-                    {market.report && market.report.all_scores && market.report.all_scores.length > 0 && (
-                      <ScoringPanel scores={market.report.all_scores} />
-                    )}
-
-                    {/* Phase 5: LLM Narrative Panel */}
-                    {market.report && market.report.narrative_sections && market.report.narrative_sections.length > 0 && (
-                      <NarrativePanel sections={market.report.narrative_sections} />
-                    )}
-
-                    {/* Social Proof Panel - Detailed commitment evidence */}
-                    {market.socialProof && <SocialProofPanel socialProof={market.socialProof} />}
-
-                    {/* Existing market info */}
-                    {market.image && (
-                      <img
-                        src={market.image}
-                        alt=""
-                        className="w-full h-44 object-cover rounded-lg bg-[var(--color-bg-secondary)]"
-                      />
-                    )}
-
-                    <p className="text-[var(--color-text-secondary)]">
-                      {market.description || 'No description available.'}
-                    </p>
-
-                    {/* Stats */}
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="text-center">
-                        <div className="text-xs text-[var(--color-text-secondary)]">Volume</div>
-                        <div className="font-semibold">{formatVolume(market.volume)}</div>
-                      </div>
-                      <div className="text-center">
-                        <div className="text-xs text-[var(--color-text-secondary)]">Liquidity</div>
-                        <div className="font-semibold">{formatVolume(market.liquidity)}</div>
-                      </div>
-                    </div>
-
-                    {/* Buy buttons */}
-                    <div>
-                      <div className="text-xs text-[var(--color-text-secondary)] mb-2">Current Odds</div>
-                      <div className="market-outcomes flex gap-2">
-                        <button
-                          className="outcome-btn yes flex-1 flex justify-between items-center py-3 px-4 rounded-lg font-semibold transition-colors bg-[var(--color-yes-light)] text-[var(--color-yes)] border border-[var(--color-yes)] hover:bg-[var(--color-yes)] hover:text-white"
-                          data-outcome="yes"
-                          data-market-id={market.id}
-                          onClick={() => onBuy(market.id, 'yes')}
-                        >
-                          <span>Buy Yes</span>
-                          <span className="outcome-odds font-bold">{market.yesOdds}¢</span>
-                        </button>
-
-                        <button
-                          className="outcome-btn no flex-1 flex justify-between items-center py-3 px-4 rounded-lg font-semibold transition-colors bg-[var(--color-no-light)] text-[var(--color-no)] border border-[var(--color-no)] hover:bg-[var(--color-no)] hover:text-white"
-                          data-outcome="no"
-                          data-market-id={market.id}
-                          onClick={() => onBuy(market.id, 'no')}
-                        >
-                          <span>Buy No</span>
-                          <span className="outcome-odds font-bold">{market.noOdds}¢</span>
-                        </button>
-                      </div>
-                    </div>
-
-                    {market.endsAt && (
-                      <p className="text-xs text-[var(--color-text-secondary)] text-center">
-                        Market ends {formatEndsAt(market.endsAt)}
-                      </p>
-                    )}
-                  </div>
-                </TabPanel>
-
-                {/* Technical Tab */}
-                <TabPanel className="p-4">
-                  {market.report && market.report.price_history && (
+            <div id="market-body" className="modal-body p-6 space-y-8">
+              {/* SECTION 1: Technical Chart - FULL WIDTH AT TOP */}
+              {market.report && market.report.price_history && (
+                <section>
+                  <h2 className="text-sm font-semibold text-[var(--color-text-secondary)] uppercase tracking-wider mb-3">
+                    Price Chart
+                  </h2>
+                  <div data-testid="full-chart-section">
                     <FullChart
                       data={market.report.price_history}
                       indicators={{ sma20: true, sma50: true }}
                     />
-                  )}
-                </TabPanel>
-
-                {/* Fundamentals Tab - Placeholder */}
-                <TabPanel className="p-4">
-                  <div data-testid="fundamentals-panel" className="text-center py-8">
-                    <p className="text-[var(--color-text-secondary)]">
-                      Fundamentals panel coming soon...
-                    </p>
-                    {market.report?.fundamentals && (
-                      <div className="mt-4 space-y-4">
-                        <div>
-                          <h3 className="font-semibold mb-2">Valuation</h3>
-                          <div className="text-sm text-[var(--color-text-secondary)]">
-                            P/E: {market.report.fundamentals.valuation.pe_ratio}
-                          </div>
-                        </div>
-                      </div>
-                    )}
                   </div>
-                </TabPanel>
+                </section>
+              )}
 
-                {/* Peers Tab - Placeholder */}
-                <TabPanel className="p-4">
-                  <div data-testid="peers-panel" className="space-y-3">
-                    {market.report?.peers && market.report.peers.length > 0 ? (
-                      market.report.peers.map((peer, index) => (
+              {/* SECTION 2: 2-Column Layout - Scoring (LEFT) + Peers (RIGHT) */}
+              <section className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* LEFT: Scoring Panel */}
+                {market.report && market.report.all_scores && market.report.all_scores.length > 0 && (
+                  <div>
+                    <h2 className="text-sm font-semibold text-[var(--color-text-secondary)] uppercase tracking-wider mb-3">
+                      Key Scores
+                    </h2>
+                    <ScoringPanel scores={market.report.all_scores} />
+                  </div>
+                )}
+
+                {/* RIGHT: Peers */}
+                {market.report?.peers && market.report.peers.length > 0 && (
+                  <div>
+                    <h2 className="text-sm font-semibold text-[var(--color-text-secondary)] uppercase tracking-wider mb-3">
+                      Related Markets
+                    </h2>
+                    <div data-testid="peers-panel" className="space-y-3">
+                      {market.report.peers.map((peer, index) => (
                         <div
                           key={index}
                           data-testid="peer-card"
-                          className="p-3 border border-[var(--color-border)] rounded-lg"
+                          className="p-3 border border-[var(--color-border)] rounded-lg hover:border-[var(--color-primary-light)] transition-colors"
                         >
                           <div className="flex justify-between items-center">
                             <span data-testid="peer-ticker" className="font-semibold">
@@ -202,16 +100,58 @@ export function MarketModal({ market, isOpen, onClose, onBuy }: MarketModalProps
                             {peer.company_name}
                           </div>
                         </div>
-                      ))
-                    ) : (
-                      <p className="text-center text-[var(--color-text-secondary)]">
-                        No peer data available
-                      </p>
-                    )}
+                      ))}
+                    </div>
                   </div>
-                </TabPanel>
-              </TabPanels>
-            </TabGroup>
+                )}
+              </section>
+
+              {/* SECTION 3: LLM Narrative */}
+              {market.report && market.report.narrative_sections && market.report.narrative_sections.length > 0 && (
+                <section>
+                  <h2 className="text-sm font-semibold text-[var(--color-text-secondary)] uppercase tracking-wider mb-3">
+                    Analysis
+                  </h2>
+                  <NarrativePanel sections={market.report.narrative_sections} />
+                </section>
+              )}
+
+              {/* SECTION 4: Social Proof */}
+              {market.socialProof && (
+                <section>
+                  <h2 className="text-sm font-semibold text-[var(--color-text-secondary)] uppercase tracking-wider mb-3">
+                    Community Consensus
+                  </h2>
+                  <SocialProofPanel socialProof={market.socialProof} />
+                </section>
+              )}
+
+              {/* SECTION 5: Market Stats + Agree Button */}
+              <section>
+                <div className="grid grid-cols-2 gap-4 mb-6">
+                  <div className="text-center p-4 bg-[var(--color-bg-secondary)] rounded-lg">
+                    <div className="text-xs text-[var(--color-text-secondary)] mb-1">Volume</div>
+                    <div className="font-semibold text-lg">{formatVolume(market.volume)}</div>
+                  </div>
+                  <div className="text-center p-4 bg-[var(--color-bg-secondary)] rounded-lg">
+                    <div className="text-xs text-[var(--color-text-secondary)] mb-1">Liquidity</div>
+                    <div className="font-semibold text-lg">{formatVolume(market.liquidity)}</div>
+                  </div>
+                </div>
+
+                {/* Agree Button - Prominent CTA */}
+                <AgreeButton
+                  market={market}
+                  onAgree={onAgree || ((id) => onBuy(id, 'yes'))}
+                />
+
+                {market.endsAt && (
+                  <p className="text-xs text-[var(--color-text-secondary)] text-center mt-4">
+                    Market ends {formatEndsAt(market.endsAt)}
+                  </p>
+                )}
+              </section>
+            </div>
           ) : (
             // Fallback: Original modal content for markets without reports
             <div id="market-body" className="modal-body p-4">
@@ -239,30 +179,12 @@ export function MarketModal({ market, isOpen, onClose, onBuy }: MarketModalProps
                 </div>
               </div>
 
-              {/* Buy buttons */}
+              {/* Agree Button - Single asymmetric commitment */}
               <div className="mb-4">
-                <div className="text-xs text-[var(--color-text-secondary)] mb-2">Current Odds</div>
-                <div className="market-outcomes flex gap-2">
-                  <button
-                    className="outcome-btn yes flex-1 flex justify-between items-center py-3 px-4 rounded-lg font-semibold transition-colors bg-[var(--color-yes-light)] text-[var(--color-yes)] border border-[var(--color-yes)] hover:bg-[var(--color-yes)] hover:text-white"
-                    data-outcome="yes"
-                    data-market-id={market.id}
-                    onClick={() => onBuy(market.id, 'yes')}
-                  >
-                    <span>Buy Yes</span>
-                    <span className="outcome-odds font-bold">{market.yesOdds}¢</span>
-                  </button>
-
-                  <button
-                    className="outcome-btn no flex-1 flex justify-between items-center py-3 px-4 rounded-lg font-semibold transition-colors bg-[var(--color-no-light)] text-[var(--color-no)] border border-[var(--color-no)] hover:bg-[var(--color-no)] hover:text-white"
-                    data-outcome="no"
-                    data-market-id={market.id}
-                    onClick={() => onBuy(market.id, 'no')}
-                  >
-                    <span>Buy No</span>
-                    <span className="outcome-odds font-bold">{market.noOdds}¢</span>
-                  </button>
-                </div>
+                <AgreeButton
+                  market={market}
+                  onAgree={onAgree || ((id) => onBuy(id, 'yes'))}
+                />
               </div>
 
               {market.endsAt && (
