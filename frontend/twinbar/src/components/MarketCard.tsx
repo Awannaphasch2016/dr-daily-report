@@ -1,13 +1,18 @@
 import type { Market } from '../types/market';
 import { formatVolume, formatEndsAt } from '../lib/format';
+import { MiniChart } from './MiniChart';
+import { ScoreTable } from './ScoreTable';
+import { SocialProofBar } from './SocialProofBar';
+import { AgreeButton } from './AgreeButton';
 
 interface MarketCardProps {
   market: Market;
   onSelect: (market: Market) => void;
   onBuy: (marketId: string, outcome: 'yes' | 'no') => void;
+  onAgree?: (marketId: string) => void; // New: Handle single "Agree" action
 }
 
-export function MarketCard({ market, onSelect, onBuy }: MarketCardProps) {
+export function MarketCard({ market, onSelect, onBuy, onAgree }: MarketCardProps) {
   return (
     <div
       className="market-card bg-[var(--color-bg)] border border-[var(--color-border)] rounded-xl p-4 cursor-pointer transition-all hover:shadow-lg hover:-translate-y-0.5 hover:border-[var(--color-primary-light)]"
@@ -22,11 +27,30 @@ export function MarketCard({ market, onSelect, onBuy }: MarketCardProps) {
       )}
 
       <div
-        className="market-title text-base font-semibold mb-2 leading-snug line-clamp-2 cursor-pointer"
+        className="market-title text-base font-semibold mb-3 leading-snug line-clamp-2 cursor-pointer"
         onClick={() => onSelect(market)}
       >
         {market.title}
       </div>
+
+      {/* HORIZONTAL LAYOUT: Chart LEFT (40%), Score Table RIGHT (60%) */}
+      {market.report && (
+        <div data-testid="horizontal-content" className="flex gap-3 mb-3">
+          {/* LEFT: Mini Chart (40% width) */}
+          {market.report.price_history && market.report.price_history.length > 0 && (
+            <div className="w-2/5 flex-shrink-0">
+              <MiniChart data={market.report.price_history} stance={market.report.stance} />
+            </div>
+          )}
+
+          {/* RIGHT: Score Table (60% width) */}
+          {market.report.key_scores && market.report.key_scores.length > 0 && (
+            <div className="flex-1">
+              <ScoreTable scores={market.report.key_scores.slice(0, 5)} />
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="market-meta flex items-center gap-4 mb-4 text-xs text-[var(--color-text-secondary)]">
         <span className="market-volume">Vol: {formatVolume(market.volume)}</span>
@@ -35,32 +59,15 @@ export function MarketCard({ market, onSelect, onBuy }: MarketCardProps) {
         )}
       </div>
 
-      <div className="market-outcomes flex gap-2">
-        <button
-          className="outcome-btn yes flex-1 flex flex-col items-center py-2 px-4 rounded-lg font-semibold transition-colors bg-[var(--color-yes-light)] text-[var(--color-yes)] border border-[var(--color-yes)] hover:bg-[var(--color-yes)] hover:text-white"
-          data-outcome="yes"
-          data-market-id={market.id}
-          onClick={(e) => {
-            e.stopPropagation();
-            onBuy(market.id, 'yes');
-          }}
-        >
-          <span className="outcome-label text-sm">Yes</span>
-          <span className="outcome-odds text-lg font-bold">{market.yesOdds}¢</span>
-        </button>
+      {/* Social Proof Bar - Show agreement count & capital commitment */}
+      {market.socialProof && <SocialProofBar socialProof={market.socialProof} />}
 
-        <button
-          className="outcome-btn no flex-1 flex flex-col items-center py-2 px-4 rounded-lg font-semibold transition-colors bg-[var(--color-no-light)] text-[var(--color-no)] border border-[var(--color-no)] hover:bg-[var(--color-no)] hover:text-white"
-          data-outcome="no"
-          data-market-id={market.id}
-          onClick={(e) => {
-            e.stopPropagation();
-            onBuy(market.id, 'no');
-          }}
-        >
-          <span className="outcome-label text-sm">No</span>
-          <span className="outcome-odds text-lg font-bold">{market.noOdds}¢</span>
-        </button>
+      {/* Agree Button - Single asymmetric commitment action */}
+      <div className="mt-4">
+        <AgreeButton
+          market={market}
+          onAgree={onAgree || ((id) => onBuy(id, 'yes'))} // Fallback to onBuy if onAgree not provided
+        />
       </div>
     </div>
   );

@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { Market, MarketCategory, SortOption } from '../types/market';
+import { mockNVDAReport, mockAAPLReport } from '../mocks/reportData';
 
 interface MarketState {
   markets: Market[];
@@ -48,6 +49,25 @@ export const mockMarkets: Market[] = [
     endsAt: '2025-12-31T23:59:59Z',
     createdAt: '2025-01-01T00:00:00Z',
     status: 'open',
+    report: mockNVDAReport, // Enhanced with mock report data
+    socialProof: {
+      agreementCount: 127,
+      capitalInvested: 340000,
+      capitalCapacity: 500000,
+      convictionLevel: 'high', // 68% filled
+      // Detailed metrics for SocialProofPanel
+      recentActivity: [
+        { userName: 'Sarah', amount: 500, timeAgo: '2 min ago' },
+        { userName: 'Mike', amount: 1200, timeAgo: '5 min ago' },
+        { userName: 'Alex', amount: 350, timeAgo: '8 min ago' },
+      ],
+      avgInvestment: 2680,
+      medianInvestment: 1200,
+      topInvestment: 15000,
+      holdTimePercentage: 78, // 78% hold >7 days
+      whaleCount: 3, // 3 investors >$10K
+      vsAvgThesis: 2.3, // 2.3x more popular than average
+    },
   },
   {
     id: '2',
@@ -61,6 +81,23 @@ export const mockMarkets: Market[] = [
     endsAt: '2025-03-31T23:59:59Z',
     createdAt: '2025-01-01T00:00:00Z',
     status: 'open',
+    report: mockAAPLReport, // Enhanced with mock report data
+    socialProof: {
+      agreementCount: 89,
+      capitalInvested: 180000,
+      capitalCapacity: 400000,
+      convictionLevel: 'medium', // 45% filled
+      recentActivity: [
+        { userName: 'Jordan', amount: 750, timeAgo: '10 min ago' },
+        { userName: 'Emma', amount: 2000, timeAgo: '25 min ago' },
+      ],
+      avgInvestment: 2022,
+      medianInvestment: 950,
+      topInvestment: 8500,
+      holdTimePercentage: 62,
+      whaleCount: 1,
+      vsAvgThesis: 1.5,
+    },
   },
   {
     id: '3',
@@ -74,6 +111,20 @@ export const mockMarkets: Market[] = [
     endsAt: '2025-03-31T23:59:59Z',
     createdAt: '2025-01-05T00:00:00Z',
     status: 'open',
+    report: mockNVDAReport, // Enhanced with mock report data
+    socialProof: {
+      agreementCount: 23,
+      capitalInvested: 50000,
+      capitalCapacity: 200000,
+      convictionLevel: 'low', // 25% filled
+      recentActivity: [{ userName: 'Chris', amount: 300, timeAgo: '1h ago' }],
+      avgInvestment: 2174,
+      medianInvestment: 800,
+      topInvestment: 5000,
+      holdTimePercentage: 45,
+      whaleCount: 0,
+      vsAvgThesis: 0.8,
+    },
   },
   {
     id: '4',
@@ -87,6 +138,24 @@ export const mockMarkets: Market[] = [
     endsAt: '2025-04-20T00:00:00Z',
     createdAt: '2025-01-02T00:00:00Z',
     status: 'open',
+    report: mockAAPLReport, // Enhanced with mock report data
+    socialProof: {
+      agreementCount: 234,
+      capitalInvested: 850000,
+      capitalCapacity: 1000000,
+      convictionLevel: 'high', // 85% filled
+      recentActivity: [
+        { userName: 'Taylor', amount: 5000, timeAgo: '3 min ago' },
+        { userName: 'Jordan', amount: 3500, timeAgo: '15 min ago' },
+        { userName: 'Morgan', amount: 2200, timeAgo: '30 min ago' },
+      ],
+      avgInvestment: 3632,
+      medianInvestment: 2500,
+      topInvestment: 25000,
+      holdTimePercentage: 85,
+      whaleCount: 8,
+      vsAvgThesis: 4.2,
+    },
   },
   {
     id: '5',
@@ -100,6 +169,20 @@ export const mockMarkets: Market[] = [
     endsAt: '2025-01-31T23:59:59Z',
     createdAt: '2025-01-01T00:00:00Z',
     status: 'open',
+    report: mockAAPLReport, // Enhanced with mock report data
+    socialProof: {
+      agreementCount: 8,
+      capitalInvested: 12000,
+      capitalCapacity: 500000,
+      convictionLevel: 'early', // 2.4% filled
+      recentActivity: [{ userName: 'Pat', amount: 1500, timeAgo: '2h ago' }],
+      avgInvestment: 1500,
+      medianInvestment: 1200,
+      topInvestment: 5000,
+      holdTimePercentage: 75,
+      whaleCount: 0,
+      vsAvgThesis: 0.2,
+    },
   },
   {
     id: '6',
@@ -113,5 +196,22 @@ export const mockMarkets: Market[] = [
     endsAt: '2025-06-15T00:00:00Z',
     createdAt: '2025-01-10T00:00:00Z',
     status: 'open',
+    report: mockNVDAReport, // Enhanced with mock report data
+    socialProof: {
+      agreementCount: 56,
+      capitalInvested: 110000,
+      capitalCapacity: 200000,
+      convictionLevel: 'medium', // 55% filled
+      recentActivity: [
+        { userName: 'Casey', amount: 1000, timeAgo: '20 min ago' },
+        { userName: 'Riley', amount: 850, timeAgo: '45 min ago' },
+      ],
+      avgInvestment: 1964,
+      medianInvestment: 1100,
+      topInvestment: 7500,
+      holdTimePercentage: 68,
+      whaleCount: 1,
+      vsAvgThesis: 1.8,
+    },
   },
 ];
