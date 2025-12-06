@@ -76,7 +76,7 @@ function calculateSMA(data: PriceDataPoint[], period: number): number[] {
 
 /**
  * Custom Candlestick Shape Component
- * Renders individual candlestick with wick and body
+ * Renders individual candlestick with wick and body (TradingView style)
  */
 const Candlestick = (props: any) => {
   const { x, y, width, height, payload } = props;
@@ -84,14 +84,16 @@ const Candlestick = (props: any) => {
   if (!payload || width <= 0) return null;
 
   const isGreen = payload.isGreen;
-  const fillColor = isGreen ? '#10b981' : '#ef4444'; // green or red
-  const wickColor = '#6b7280'; // gray
+  // TradingView-style colors: teal-green for bullish, red for bearish
+  const candleColor = isGreen ? '#26a69a' : '#ef5350';
 
   // Calculate positions
-  const candleX = x;
-  const candleY = y;
-  const candleWidth = Math.max(width * 0.8, 2); // Min 2px width
-  const wickX = x + width / 2;
+  const candleWidth = Math.max(width * 0.7, 3); // Wider body, min 3px
+  const candleX = x + (width - candleWidth) / 2; // Center the body
+  const wickX = x + width / 2; // Center the wick
+
+  // Handle doji case (open ≈ close, very small body)
+  const isDoji = height < 1;
 
   return (
     <g className="candlestick">
@@ -101,21 +103,32 @@ const Candlestick = (props: any) => {
         y1={y - (payload.wickHigh - payload.candleTop) * (height / payload.candleHeight)}
         x2={wickX}
         y2={y + height + (payload.candleBottom - payload.wickLow) * (height / payload.candleHeight)}
-        stroke={wickColor}
+        stroke={candleColor}
         strokeWidth={1}
       />
 
-      {/* Body (rectangle from open to close) */}
-      <rect
-        x={candleX}
-        y={candleY}
-        width={candleWidth}
-        height={height}
-        fill={fillColor}
-        stroke={fillColor}
-        strokeWidth={1}
-        className="candlestick"
-      />
+      {/* Body (rectangle from open to close, or line for doji) */}
+      {isDoji ? (
+        // Doji: horizontal line when open ≈ close
+        <line
+          x1={x}
+          x2={x + width}
+          y1={y}
+          y2={y}
+          stroke={candleColor}
+          strokeWidth={1}
+        />
+      ) : (
+        <rect
+          x={candleX}
+          y={y}
+          width={candleWidth}
+          height={height}
+          fill={candleColor}
+          stroke="none"
+          className="candlestick"
+        />
+      )}
     </g>
   );
 };
