@@ -200,6 +200,10 @@ class RankedTicker(BaseModel):
     estimated_upside_pct: Optional[float] = Field(None, description="Estimated upside")
     risk_level: Optional[Literal["low", "medium", "high"]] = Field(None, description="Risk level")
 
+    # NEW: Lightweight report data from Aurora cache
+    chart_data: Optional[dict] = Field(None, description="Precomputed chart data (price_history, projections, initial_investment)")
+    key_scores: Optional[list[ScoringMetric]] = Field(None, description="Top 3 investment decision scores (0-10 scale)")
+
 
 class RankingsResponse(BaseModel):
     """Rankings endpoint response"""
