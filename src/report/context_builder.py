@@ -116,7 +116,7 @@ REMEMBER: Write "{{{{UNCERTAINTY}}}}/100" NOT "{ground_truth['uncertainty_score'
 3. ปริมาณการซื้อขาย (Volume): {volume_desc}
 {percentile_context}
 การวิเคราะห์เทียบเคียง (Relative Analysis):
-- คำแนะนำนักวิเคราะห์: {ticker_data.get('recommendation', 'N/A').upper()}
+- คำแนะนำนักวิเคราะห์: {(ticker_data.get('recommendation') or 'N/A').upper() if ticker_data.get('recommendation') else 'N/A'}
 - ราคาเป้าหมายเฉลี่ย: {ticker_data.get('target_mean_price', 'N/A')}
 - จำนวนนักวิเคราะห์: {ticker_data.get('analyst_count', 'N/A')}
 - ราคาสูงสุด 52 สัปดาห์: {ticker_data.get('fifty_two_week_high', 'N/A')}

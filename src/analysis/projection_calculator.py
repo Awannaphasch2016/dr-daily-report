@@ -137,7 +137,14 @@ class ProjectionCalculator:
         std_dev = self.calculate_standard_deviation(returns)
 
         # Last historical date
-        last_date = datetime.strptime(dates[-1], '%Y-%m-%d')
+        # Handle both date strings and numeric indices
+        last_date_str = dates[-1]
+        if isinstance(last_date_str, (int, float)):
+            # Numeric index - use today's date as fallback
+            last_date = datetime.now()
+            logger.warning(f"DataFrame has numeric index, using current date as projection start")
+        else:
+            last_date = datetime.strptime(str(last_date_str), '%Y-%m-%d')
         last_day_index = len(returns) - 1
 
         # Generate projections
