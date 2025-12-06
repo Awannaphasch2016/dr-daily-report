@@ -34,8 +34,6 @@ function _transformRankedTickerToMarket(rankedTicker: RankedTicker): Market {
     price,
     price_change_pct,
     stance,
-    estimated_upside_pct,
-    risk_level,
   } = rankedTicker;
 
   // Map price change to yes/no odds (positive change = bullish odds)
