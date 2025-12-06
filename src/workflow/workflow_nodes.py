@@ -497,6 +497,61 @@ class WorkflowNodes:
         return state
 
     @traceable(
+        name="score_user_facing",
+        tags=["workflow", "scoring"],
+        process_inputs=_filter_state_for_langsmith,
+        process_outputs=_filter_state_for_langsmith
+    )
+    def score_user_facing(self, state: AgentState) -> AgentState:
+        """Calculate user-facing investment scores (0-10 scale)"""
+        self._log_node_start("score_user_facing", state)
+
+        if state.get("error"):
+            self._log_node_skip("score_user_facing", state, "Previous error in workflow")
+            return state
+
+        start_time = time.perf_counter()
+
+        try:
+            from src.scoring.user_facing_scorer import UserFacingScorer
+            scorer = UserFacingScorer()
+
+            logger.info("   🎯 Calculating user-facing scores")
+
+            scores = scorer.calculate_all_scores(
+                ticker_data=state.get("ticker_data", {}),
+                indicators=state.get("indicators", {}),
+                percentiles=state.get("percentiles", {})
+            )
+
+            state["user_facing_scores"] = scores
+
+            # Validate output
+            if scores and len(scores) >= 5:
+                elapsed = time.perf_counter() - start_time
+                details = {
+                    'scores_count': len(scores),
+                    'categories': list(scores.keys()),
+                    'duration_ms': f"{elapsed*1000:.2f}"
+                }
+                self._log_node_success("score_user_facing", state, details)
+            else:
+                self._log_node_error("score_user_facing", state, f"Insufficient scores: {len(scores) if scores else 0}")
+
+        except Exception as e:
+            error_msg = f"Failed to calculate scores: {e}"
+            state["error"] = error_msg
+            self._log_node_error("score_user_facing", state, error_msg)
+
+        # Record timing
+        elapsed = time.perf_counter() - start_time
+        timing_metrics = state.get("timing_metrics", {})
+        timing_metrics["user_facing_scoring"] = elapsed
+        state["timing_metrics"] = timing_metrics
+
+        return state
+
+    @traceable(
         name="generate_chart",
         tags=["workflow", "visualization"],
         process_inputs=_filter_state_for_langsmith,

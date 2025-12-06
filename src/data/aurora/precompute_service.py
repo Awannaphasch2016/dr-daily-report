@@ -528,6 +528,45 @@ class PrecomputeService:
     # Report Precomputation
     # =========================================================================
 
+    def _enhance_report_json_with_portfolio_data(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        """Add price_history and projections to report_json for storage.
+
+        Args:
+            state: AgentState dict from workflow
+
+        Returns:
+            Enhanced state with price_history and projections
+        """
+        try:
+            from src.analysis.projection_calculator import ProjectionCalculator
+
+            ticker_data = state.get('ticker_data', {})
+            history_df = ticker_data.get('history')
+
+            if history_df is None or (hasattr(history_df, 'empty') and history_df.empty):
+                logger.debug("No history data for portfolio calculations")
+                return state
+
+            # Extract close prices and dates
+            close_prices = history_df['Close'].tolist()
+            dates = [idx.strftime('%Y-%m-%d') if hasattr(idx, 'strftime') else str(idx)
+                     for idx in history_df.index]
+
+            # Calculate projections
+            calc = ProjectionCalculator(initial_investment=1000.0)
+            projections = calc.calculate_projections(close_prices, dates, days_ahead=7)
+
+            # Add to state
+            state['projections'] = projections
+            state['initial_investment'] = 1000.0
+
+            logger.info(f"✅ Added {len(projections)} projections to report_json")
+
+        except Exception as e:
+            logger.warning(f"Failed to calculate projections for precompute: {e}")
+
+        return state
+
     def compute_and_store_report(
         self,
         symbol: str,
@@ -582,6 +621,10 @@ class PrecomputeService:
             report_text = result.get('report', '') if isinstance(result, dict) else str(result)
             mini_reports = result.get('mini_reports', {}) if isinstance(result, dict) else {}
             chart_base64 = result.get('chart_base64', '') if isinstance(result, dict) else ''
+
+            # Calculate and add projections + price history to report_json
+            if isinstance(result, dict):
+                result = self._enhance_report_json_with_portfolio_data(result)
 
             # Generate PDF if requested
             pdf_s3_key = None

@@ -30,5 +30,6 @@ class AgentState(TypedDict):
     timing_metrics: dict  # Add timing metrics field
     api_costs: dict  # Add API costs field
     database_metrics: dict  # Add database metrics field
+    user_facing_scores: dict  # Add user-facing investment scores (0-10 scale)
     error: str
     strategy: str  # Report generation strategy: 'single-stage' or 'multi-stage'

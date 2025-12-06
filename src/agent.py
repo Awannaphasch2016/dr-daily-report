@@ -124,16 +124,18 @@ class TickerAnalysisAgent:
         workflow.add_node("fetch_data", self.workflow_nodes.fetch_data)
         workflow.add_node("fetch_news", self.workflow_nodes.fetch_news)
         workflow.add_node("analyze_technical", self.workflow_nodes.analyze_technical)
+        workflow.add_node("score_user_facing", self.workflow_nodes.score_user_facing)
         workflow.add_node("fetch_comparative_data", self.workflow_nodes.fetch_comparative_data)
         workflow.add_node("analyze_comparative_insights", self.workflow_nodes.analyze_comparative_insights)
         workflow.add_node("generate_chart", self.workflow_nodes.generate_chart)
         workflow.add_node("generate_report", self.workflow_nodes.generate_report)
-        
+
         # Add edges
         workflow.set_entry_point("fetch_data")
         workflow.add_edge("fetch_data", "fetch_news")
         workflow.add_edge("fetch_news", "analyze_technical")
-        workflow.add_edge("analyze_technical", "fetch_comparative_data")
+        workflow.add_edge("analyze_technical", "score_user_facing")
+        workflow.add_edge("score_user_facing", "fetch_comparative_data")
         workflow.add_edge("fetch_comparative_data", "analyze_comparative_insights")
         workflow.add_edge("analyze_comparative_insights", "generate_chart")
         workflow.add_edge("generate_chart", "generate_report")

@@ -27,6 +27,38 @@ class SearchResponse(BaseModel):
 # Report Models
 # ============================================================================
 
+class PriceDataPoint(BaseModel):
+    """Historical price data point with portfolio metrics"""
+    date: str = Field(..., description="Date (YYYY-MM-DD)")
+    open: float = Field(..., description="Opening price")
+    high: float = Field(..., description="High price")
+    low: float = Field(..., description="Low price")
+    close: float = Field(..., description="Closing price")
+    volume: int = Field(..., description="Trading volume")
+    return_pct: Optional[float] = Field(None, description="Cumulative return % from entry")
+    portfolio_nav: Optional[float] = Field(None, description="Portfolio NAV at this price")
+    is_projection: bool = Field(default=False, description="True if this is a projection")
+
+
+class ProjectionBand(BaseModel):
+    """Forward projection with confidence bands"""
+    date: str = Field(..., description="Future date (YYYY-MM-DD)")
+    expected_return: float = Field(..., description="Expected return %")
+    best_case_return: float = Field(..., description="Best case return %")
+    worst_case_return: float = Field(..., description="Worst case return %")
+    expected_nav: float = Field(..., description="Expected portfolio NAV")
+    best_case_nav: float = Field(..., description="Best case portfolio NAV")
+    worst_case_nav: float = Field(..., description="Worst case portfolio NAV")
+
+
+class ScoringMetric(BaseModel):
+    """Investment decision score (0-10 scale)"""
+    category: str = Field(..., description="Score category (e.g., Fundamental, Technical)")
+    score: float = Field(..., description="Score value (0-10)")
+    max_score: float = Field(default=10, description="Maximum score (always 10)")
+    rationale: Optional[str] = Field(None, description="Brief explanation of score")
+
+
 class SummarySections(BaseModel):
     """Summary sections of the report"""
     key_takeaways: list[str] = Field(default_factory=list, description="Key takeaway bullets")
@@ -137,6 +169,15 @@ class ReportResponse(BaseModel):
     overall_sentiment: OverallSentiment = Field(..., description="Aggregated sentiment")
     risk: Risk = Field(..., description="Risk assessment")
     peers: list[Peer] = Field(default_factory=list, description="Peer comparisons")
+
+    # Price history and projections
+    price_history: list[PriceDataPoint] = Field(default_factory=list, description="Historical price data with portfolio metrics")
+    projections: list[ProjectionBand] = Field(default_factory=list, description="7-day forward projections")
+    initial_investment: float = Field(default=1000.0, description="Initial investment amount for portfolio calculations")
+
+    # Investment scores
+    key_scores: list[ScoringMetric] = Field(default_factory=list, description="Top 3 investment scores")
+    all_scores: list[ScoringMetric] = Field(default_factory=list, description="All 5-6 investment scores")
 
     # Additional data
     data_sources: list[str] = Field(..., description="Data sources used")

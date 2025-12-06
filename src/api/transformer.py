@@ -18,7 +18,10 @@ from .models import (
     UncertaintyScore,
     Risk,
     Peer,
-    GenerationMetadata
+    GenerationMetadata,
+    PriceDataPoint,
+    ProjectionBand,
+    ScoringMetric
 )
 from .peer_selector import get_peer_selector_service
 
@@ -174,6 +177,20 @@ class ResponseTransformer:
             cache_hit=state.get("cache_hit", False)  # Track if report was from cache
         )
 
+        # Build price history with portfolio metrics
+        initial_investment = 1000.0  # Default $1000
+        price_history_dicts = self._build_price_history(ticker_data, initial_investment)
+        price_history = [PriceDataPoint(**point) for point in price_history_dicts]
+
+        # Build 7-day projections
+        projections_dicts = self._build_projections(ticker_data, initial_investment)
+        projections = [ProjectionBand(**proj) for proj in projections_dicts]
+
+        # Build scores (key_scores and all_scores)
+        scores = self._build_scores(state)
+        key_scores = scores.get('key_scores', [])
+        all_scores = scores.get('all_scores', [])
+
         return ReportResponse(
             ticker=ticker,
             company_name=company_name,
@@ -193,6 +210,11 @@ class ResponseTransformer:
             overall_sentiment=overall_sentiment,
             risk=risk,
             peers=peers,
+            price_history=price_history,
+            projections=projections,
+            initial_investment=initial_investment,
+            key_scores=key_scores,
+            all_scores=all_scores,
             data_sources=data_sources,
             pdf_report_url=pdf_report_url,
             generation_metadata=generation_metadata
@@ -711,6 +733,113 @@ class ResponseTransformer:
             ]
 
         return risks[:5]  # Max 5 risks
+
+    def _build_price_history(self, ticker_data: dict, initial_investment: float) -> list:
+        """Build price history with portfolio metrics
+
+        Args:
+            ticker_data: Ticker data from state
+            initial_investment: Initial portfolio value
+
+        Returns:
+            List of PriceDataPoint dicts with return_pct and portfolio_nav
+        """
+        from src.analysis.projection_calculator import ProjectionCalculator
+        import pandas as pd
+
+        history_df = ticker_data.get("history")
+        if history_df is None or (isinstance(history_df, pd.DataFrame) and history_df.empty):
+            logger.debug("No history data available for price_history")
+            return []
+
+        # Convert DataFrame to OHLCV dicts
+        ohlcv_data = []
+        for date_idx, row in history_df.iterrows():
+            ohlcv_data.append({
+                'date': date_idx.strftime('%Y-%m-%d') if hasattr(date_idx, 'strftime') else str(date_idx),
+                'open': float(row.get('Open', 0)),
+                'high': float(row.get('High', 0)),
+                'low': float(row.get('Low', 0)),
+                'close': float(row.get('Close', 0)),
+                'volume': int(row.get('Volume', 0))
+            })
+
+        # Enhance with portfolio metrics
+        calc = ProjectionCalculator(initial_investment=initial_investment)
+        enhanced = calc.enhance_historical_data(ohlcv_data)
+
+        logger.info(f"Built price history with {len(enhanced)} data points")
+        return enhanced
+
+    def _build_projections(self, ticker_data: dict, initial_investment: float) -> list:
+        """Build 7-day projections
+
+        Args:
+            ticker_data: Ticker data from state
+            initial_investment: Initial portfolio value
+
+        Returns:
+            List of ProjectionBand dicts
+        """
+        from src.analysis.projection_calculator import ProjectionCalculator
+        import pandas as pd
+
+        history_df = ticker_data.get("history")
+        if history_df is None or (isinstance(history_df, pd.DataFrame) and history_df.empty):
+            logger.debug("No history data available for projections")
+            return []
+
+        # Extract close prices and dates
+        close_prices = history_df['Close'].tolist()
+        dates = [date_idx.strftime('%Y-%m-%d') if hasattr(date_idx, 'strftime') else str(date_idx)
+                 for date_idx in history_df.index]
+
+        # Calculate projections
+        calc = ProjectionCalculator(initial_investment=initial_investment)
+        projections = calc.calculate_projections(close_prices, dates, days_ahead=7)
+
+        logger.info(f"Generated {len(projections)} day projections")
+        return projections
+
+    def _build_scores(self, state: AgentState) -> dict:
+        """Build key_scores (top 3) and all_scores from user_facing_scores
+
+        Args:
+            state: AgentState with user_facing_scores
+
+        Returns:
+            Dict with 'key_scores' and 'all_scores' lists
+        """
+        from .models import ScoringMetric
+
+        scores_data = state.get("user_facing_scores", {})
+
+        if not scores_data:
+            logger.debug("No user_facing_scores in state")
+            return {'key_scores': [], 'all_scores': []}
+
+        # Convert dict to ScoringMetric objects
+        all_scores = []
+        for category, score_dict in scores_data.items():
+            all_scores.append(ScoringMetric(
+                category=score_dict.get('category', category),
+                score=float(score_dict.get('score', 0)),
+                max_score=10.0,
+                rationale=score_dict.get('rationale', '')
+            ))
+
+        # Sort by score descending
+        all_scores_sorted = sorted(all_scores, key=lambda x: x.score, reverse=True)
+
+        # Top 3 scores
+        key_scores = all_scores_sorted[:3]
+
+        logger.info(f"Built {len(all_scores)} scores, top 3: {[s.category for s in key_scores]}")
+
+        return {
+            'key_scores': key_scores,
+            'all_scores': all_scores
+        }
 
     async def transform_cached_report(
         self,
