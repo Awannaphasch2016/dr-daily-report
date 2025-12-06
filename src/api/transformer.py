@@ -791,8 +791,23 @@ class ResponseTransformer:
 
         # Extract close prices and dates
         close_prices = history_df['Close'].tolist()
-        dates = [date_idx.strftime('%Y-%m-%d') if hasattr(date_idx, 'strftime') else str(date_idx)
-                 for date_idx in history_df.index]
+
+        # Handle DataFrame index - can be datetime or numeric
+        from datetime import datetime, timedelta
+        dates = []
+        for i, date_idx in enumerate(history_df.index):
+            if hasattr(date_idx, 'strftime'):
+                # Datetime index - use strftime
+                dates.append(date_idx.strftime('%Y-%m-%d'))
+            elif isinstance(date_idx, (int, float)):
+                # Numeric index - calculate date from today going backwards
+                days_ago = len(history_df) - i - 1
+                date_obj = datetime.now() - timedelta(days=days_ago)
+                dates.append(date_obj.strftime('%Y-%m-%d'))
+            else:
+                # Fallback: use str but log warning
+                logger.warning(f"Unexpected DataFrame index type: {type(date_idx)} - {date_idx}")
+                dates.append(str(date_idx))
 
         # Calculate projections
         calc = ProjectionCalculator(initial_investment=initial_investment)
