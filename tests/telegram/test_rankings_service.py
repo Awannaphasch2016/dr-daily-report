@@ -112,10 +112,10 @@ class TestRankingsService:
         gainers = service._calculate_top_gainers(ticker_data, limit=2)
 
         assert len(gainers) == 2
-        assert gainers[0].ticker == 'NVDA19'
-        assert gainers[0].price_change_pct == 5.5
-        assert gainers[1].ticker == 'DBS19'
-        assert gainers[1].price_change_pct == 2.3
+        assert gainers[0]['ticker'] == 'NVDA19'
+        assert gainers[0]['price_change_pct'] == 5.5
+        assert gainers[1]['ticker'] == 'DBS19'
+        assert gainers[1]['price_change_pct'] == 2.3
 
     # Test 5: Calculate top losers
     def test_calculate_top_losers(self, service):
@@ -132,10 +132,10 @@ class TestRankingsService:
         losers = service._calculate_top_losers(ticker_data, limit=2)
 
         assert len(losers) == 2
-        assert losers[0].ticker == 'JPMUS19'
-        assert losers[0].price_change_pct == -5.2
-        assert losers[1].ticker == 'DBS19'
-        assert losers[1].price_change_pct == -3.8
+        assert losers[0]['ticker'] == 'JPMUS19'
+        assert losers[0]['price_change_pct'] == -5.2
+        assert losers[1]['ticker'] == 'DBS19'
+        assert losers[1]['price_change_pct'] == -3.8
 
     # Test 6: Calculate volume surge
     def test_calculate_volume_surge(self, service):
@@ -152,9 +152,9 @@ class TestRankingsService:
         volume_surge = service._calculate_volume_surge(ticker_data, limit=2)
 
         assert len(volume_surge) == 2
-        assert volume_surge[0].ticker == 'DBS19'
-        assert volume_surge[0].volume_ratio == 3.8
-        assert volume_surge[1].ticker == 'JPMUS19'
+        assert volume_surge[0]['ticker'] == 'DBS19'
+        assert volume_surge[0]['volume_ratio'] == 3.8
+        assert volume_surge[1]['ticker'] == 'JPMUS19'
 
     # Test 7: Calculate trending (momentum score)
     def test_calculate_trending(self, service):
@@ -171,8 +171,8 @@ class TestRankingsService:
         trending = service._calculate_trending(ticker_data, limit=2)
 
         assert len(trending) == 2
-        assert trending[0].ticker == 'NVDA19'  # Highest momentum
-        assert trending[1].ticker == 'JPMUS19'
+        assert trending[0]['ticker'] == 'NVDA19'  # Highest momentum
+        assert trending[1]['ticker'] == 'JPMUS19'
 
     # Test 8: Cache behavior - fresh data
     @pytest.mark.asyncio
@@ -181,8 +181,8 @@ class TestRankingsService:
         # Populate cache
         service._cache = {
             'top_gainers': [
-                RankingItem(ticker='NVDA19', company_name='NVIDIA', price=150.0,
-                           price_change_pct=5.0, currency='USD', volume_ratio=2.0)
+                {'ticker': 'NVDA19', 'company_name': 'NVIDIA', 'price': 150.0,
+                 'price_change_pct': 5.0, 'currency': 'USD', 'volume_ratio': 2.0}
             ]
         }
         service._cache_timestamp = datetime.now()
@@ -193,7 +193,7 @@ class TestRankingsService:
             # Should not fetch, use cache
             mock_fetch.assert_not_called()
             assert len(result) == 1
-            assert result[0].ticker == 'NVDA19'
+            assert result[0]['ticker'] == 'NVDA19'
 
     # Test 9: Cache behavior - stale data
     @pytest.mark.asyncio
@@ -202,8 +202,8 @@ class TestRankingsService:
         # Populate cache with old timestamp
         service._cache = {
             'top_gainers': [
-                RankingItem(ticker='OLD', company_name='Old Data', price=100.0,
-                           price_change_pct=1.0, currency='USD', volume_ratio=1.0)
+                {'ticker': 'OLD', 'company_name': 'Old Data', 'price': 100.0,
+                 'price_change_pct': 1.0, 'currency': 'USD', 'volume_ratio': 1.0}
             ]
         }
         service._cache_timestamp = datetime.now() - timedelta(seconds=400)  # Stale
@@ -279,7 +279,7 @@ class TestRankingsService:
                 result = await service.get_rankings(category)
                 assert isinstance(result, list)
                 assert len(result) > 0
-                assert isinstance(result[0], RankingItem)
+                assert isinstance(result[0], dict)
 
     # Test 14: Limit parameter enforcement
     @pytest.mark.asyncio
