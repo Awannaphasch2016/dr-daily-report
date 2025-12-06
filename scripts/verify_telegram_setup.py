@@ -123,8 +123,8 @@ def check_dynamodb_tables():
         tables = response.get('TableNames', [])
 
         required_tables = [
-            'dr-daily-report-telegram-watchlist-dev',
-            'dr-daily-report-telegram-cache-dev'
+            'dr-daily-report-telegram-watchlist-dev'
+            # NOTE: cache table removed - cache moved to Aurora ticker_data_cache
         ]
 
         all_exist = True

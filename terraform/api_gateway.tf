@@ -13,6 +13,7 @@ resource "aws_apigatewayv2_api" "telegram_api" {
   cors_configuration {
     # Restrict to Telegram WebApp origins for security
     # Supports multiple origins for dev/staging/prod environments
+    # Includes both APP (users) and TEST (E2E) CloudFront distributions
     allow_origins = distinct(compact(concat(
       [
         "https://web.telegram.org",
@@ -21,7 +22,9 @@ resource "aws_apigatewayv2_api" "telegram_api" {
       # Legacy single URL support
       var.telegram_webapp_url != "" ? [var.telegram_webapp_url] : [],
       # Multiple URLs for multi-environment support
-      var.telegram_webapp_urls
+      var.telegram_webapp_urls,
+      # TEST CloudFront URL for E2E testing (dynamically generated)
+      ["https://${aws_cloudfront_distribution.webapp_test.domain_name}"]
     )))
     allow_methods = ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
     allow_headers = [

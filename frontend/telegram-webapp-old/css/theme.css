@@ -1,0 +1,187 @@
+/* Twinbar Theme - Design System */
+
+:root {
+    /* Brand Colors - Twin Bar Identity */
+    --tb-primary: #1652f0;        /* Polymarket-inspired blue */
+    --tb-primary-dark: #0d3cb8;
+    --tb-primary-light: #4d7af5;
+    --tb-accent: #00d395;         /* Success/Yes green */
+    --tb-danger: #ff6b6b;         /* Danger/No red */
+
+    /* Telegram Theme Integration */
+    --tg-theme-bg-color: #ffffff;
+    --tg-theme-text-color: #1a1a2e;
+    --tg-theme-hint-color: #6b7280;
+    --tg-theme-link-color: var(--tb-primary);
+    --tg-theme-button-color: var(--tb-primary);
+    --tg-theme-button-text-color: #ffffff;
+    --tg-theme-secondary-bg-color: #f3f4f6;
+
+    /* Semantic Colors */
+    --color-success: #00d395;
+    --color-danger: #ff6b6b;
+    --color-warning: #fbbf24;
+    --color-yes: #00d395;         /* Buy Yes */
+    --color-no: #ff6b6b;          /* Buy No */
+    --color-neutral: #6b7280;
+
+    /* Card Colors */
+    --card-bg: #ffffff;
+    --card-border: #e5e7eb;
+    --card-hover-bg: #f9fafb;
+
+    /* Spacing Scale */
+    --spacing-xs: 4px;
+    --spacing-sm: 8px;
+    --spacing-md: 16px;
+    --spacing-lg: 24px;
+    --spacing-xl: 32px;
+    --spacing-2xl: 48px;
+
+    /* Border Radius */
+    --radius-sm: 6px;
+    --radius-md: 10px;
+    --radius-lg: 14px;
+    --radius-xl: 20px;
+    --radius-full: 9999px;
+
+    /* Shadows */
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
+    --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
+    --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.12);
+    --shadow-card: 0 2px 8px rgba(0, 0, 0, 0.06);
+    --shadow-card-hover: 0 8px 24px rgba(22, 82, 240, 0.15);
+
+    /* Transitions */
+    --transition-fast: 150ms ease;
+    --transition-normal: 250ms ease;
+    --transition-slow: 350ms ease;
+
+    /* Typography */
+    --font-xs: 11px;
+    --font-sm: 13px;
+    --font-md: 15px;
+    --font-lg: 17px;
+    --font-xl: 22px;
+    --font-2xl: 28px;
+    --font-3xl: 36px;
+
+    /* Font Weights */
+    --weight-normal: 400;
+    --weight-medium: 500;
+    --weight-semibold: 600;
+    --weight-bold: 700;
+}
+
+/* Dark Mode */
+@media (prefers-color-scheme: dark) {
+    :root {
+        --tg-theme-bg-color: #0f0f1a;
+        --tg-theme-text-color: #f3f4f6;
+        --tg-theme-hint-color: #9ca3af;
+        --tg-theme-secondary-bg-color: #1a1a2e;
+
+        --card-bg: #1a1a2e;
+        --card-border: #2d2d44;
+        --card-hover-bg: #252540;
+
+        --shadow-card: 0 2px 8px rgba(0, 0, 0, 0.3);
+        --shadow-card-hover: 0 8px 24px rgba(22, 82, 240, 0.25);
+    }
+}
+
+/* Base Reset */
+*, *::before, *::after {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+html {
+    font-size: 16px;
+    -webkit-text-size-adjust: 100%;
+    scroll-behavior: smooth;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    background-color: var(--tg-theme-bg-color);
+    color: var(--tg-theme-text-color);
+    line-height: 1.5;
+    min-height: 100vh;
+    overflow-x: hidden;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--tg-theme-hint-color);
+    border-radius: var(--radius-full);
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--tb-primary);
+}
+
+/* Selection */
+::selection {
+    background-color: var(--tb-primary);
+    color: white;
+}
+
+/* Links */
+a {
+    color: var(--tb-primary);
+    text-decoration: none;
+    transition: color var(--transition-fast);
+}
+
+a:hover {
+    color: var(--tb-primary-dark);
+}
+
+/* Button Reset */
+button {
+    font-family: inherit;
+    font-size: inherit;
+    border: none;
+    background: none;
+    cursor: pointer;
+    outline: none;
+    transition: all var(--transition-fast);
+}
+
+button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* Input Reset */
+input {
+    font-family: inherit;
+    font-size: inherit;
+    border: none;
+    outline: none;
+    background: transparent;
+}
+
+input::placeholder {
+    color: var(--tg-theme-hint-color);
+}
+
+/* Focus States */
+button:focus-visible,
+input:focus-visible {
+    outline: 2px solid var(--tb-primary);
+    outline-offset: 2px;
+}

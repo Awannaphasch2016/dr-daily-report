@@ -483,3 +483,107 @@ reset:
     just deep-clean
     just setup
     @echo "✅ Environment reset complete"
+
+# === INFRASTRUCTURE TDD ===
+# OPA policy validation (pre-apply) + Terratest integration tests (post-apply)
+# Flow: terraform plan → OPA validation → terraform apply → Terratest
+#
+# Usage:
+#   just opa-validate dev    # Validate Terraform plan against OPA policies
+#   just terratest           # Run Terratest integration tests
+#   just infra-tdd dev       # Full TDD cycle: OPA → apply → Terratest
+
+# Install OPA/Conftest for policy validation
+opa-install:
+    @echo "📦 Installing Conftest (OPA for Terraform)..."
+    @if command -v conftest &> /dev/null; then \
+        echo "✅ Conftest already installed: $(conftest --version)"; \
+    else \
+        echo "Installing Conftest..."; \
+        curl -L https://github.com/open-policy-agent/conftest/releases/download/v0.46.2/conftest_0.46.2_Linux_x86_64.tar.gz | tar xz; \
+        sudo mv conftest /usr/local/bin/; \
+        echo "✅ Conftest installed: $(conftest --version)"; \
+    fi
+
+# Run OPA policy validation on Terraform plan (pre-apply check)
+opa-validate ENV="dev":
+    #!/bin/bash
+    set -e
+    echo "🔍 Running OPA policy validation for {{ENV}}..."
+    DOPPLER_CONFIG=$(just _doppler-config {{ENV}})
+
+    # Generate Terraform plan JSON
+    echo "   Generating Terraform plan..."
+    cd terraform && doppler run -c $DOPPLER_CONFIG -- terraform plan \
+        -var-file=envs/{{ENV}}/terraform.tfvars \
+        -out=tfplan.binary \
+        -no-color
+    terraform show -json tfplan.binary > tfplan.json
+
+    # Run OPA policies
+    echo "   Running OPA policies..."
+    conftest test tfplan.json --policy policies/ --all-namespaces --output table
+
+    # Cleanup
+    rm -f tfplan.binary tfplan.json
+    echo "✅ OPA validation passed for {{ENV}}!"
+
+# Run OPA validation with warnings only (non-blocking)
+opa-check ENV="dev":
+    #!/bin/bash
+    set -e
+    echo "🔍 Running OPA policy check (non-blocking) for {{ENV}}..."
+    DOPPLER_CONFIG=$(just _doppler-config {{ENV}})
+
+    cd terraform && doppler run -c $DOPPLER_CONFIG -- terraform plan \
+        -var-file=envs/{{ENV}}/terraform.tfvars \
+        -out=tfplan.binary \
+        -no-color 2>&1 | tail -5
+    terraform show -json tfplan.binary > tfplan.json
+
+    # Run policies but don't fail on denies
+    conftest test tfplan.json --policy policies/ --all-namespaces --no-fail --output stdout
+
+    rm -f tfplan.binary tfplan.json
+    echo "✅ OPA check complete!"
+
+# Run Terratest integration tests (post-apply verification)
+terratest:
+    @echo "🧪 Running Terratest integration tests..."
+    @if ! command -v go &> /dev/null; then \
+        echo "❌ Go is not installed. Install Go 1.21+ first."; \
+        exit 1; \
+    fi
+    cd terraform/tests && go test -v -timeout 15m ./... -parallel 4
+    @echo "✅ Terratest integration tests passed!"
+
+# Run specific Terratest test
+terratest-run TEST:
+    @echo "🧪 Running Terratest: {{TEST}}..."
+    cd terraform/tests && go test -v -timeout 10m -run {{TEST}}
+
+# Full Infrastructure TDD cycle: OPA validate → apply → Terratest
+infra-tdd ENV="dev":
+    @echo "🔄 Running full Infrastructure TDD cycle for {{ENV}}..."
+    @echo ""
+    @echo "Step 1: OPA Policy Validation (pre-apply)"
+    just opa-validate {{ENV}}
+    @echo ""
+    @echo "Step 2: Terraform Apply"
+    just tf-plan {{ENV}}
+    just tf-apply {{ENV}}
+    @echo ""
+    @echo "Step 3: Terratest Integration Tests (post-apply)"
+    just terratest
+    @echo ""
+    @echo "✅ Infrastructure TDD cycle complete for {{ENV}}!"
+
+# List available OPA policies
+opa-list:
+    @echo "📋 Available OPA policies:"
+    @find terraform/policies -name "*.rego" -type f | sort
+
+# Test OPA policies against sample plan (offline)
+opa-test:
+    @echo "🧪 Testing OPA policies..."
+    cd terraform && conftest verify --policy policies/

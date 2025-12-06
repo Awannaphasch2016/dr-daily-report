@@ -1,10 +1,10 @@
 FROM public.ecr.aws/lambda/python:3.11
 
 # Copy requirements file
-COPY requirements_minimal.txt ${LAMBDA_TASK_ROOT}/
+COPY requirements.txt ${LAMBDA_TASK_ROOT}/
 
 # Install dependencies
-RUN pip install --no-cache-dir -r ${LAMBDA_TASK_ROOT}/requirements_minimal.txt
+RUN pip install --no-cache-dir -r ${LAMBDA_TASK_ROOT}/requirements.txt
 
 # Copy application code
 COPY src/ ${LAMBDA_TASK_ROOT}/src/

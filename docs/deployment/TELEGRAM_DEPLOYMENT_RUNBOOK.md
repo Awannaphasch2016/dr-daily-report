@@ -12,10 +12,12 @@
 | CI/CD Lint | `just ci-lint` | No actionlint errors |
 | CI/CD Dry-run | `just ci-dryrun test` | All jobs pass dry-run |
 | Local | `just setup-local-dynamodb && just dev-api` | Health returns `{"status": "ok"}` |
+| **OPA Validate** | `just opa-validate dev` | No policy violations |
+| **Terratest** | `just terratest` | All infra tests pass |
 | **All Envs (CI/CD)** | `git push origin telegram` | Auto-deploys to dev → staging → prod |
 | Manual Deploy | `./scripts/deploy-backend.sh <env>` | Smoke tests pass, alias updated |
 | Rollback | `./scripts/rollback.sh <env> <version>` | Alias moved to previous version |
-| E2E | `pytest tests/test_e2e_frontend.py -k "not slow" -v` | 12 tests pass |
+| E2E | `pytest tests/e2e/test_telegram_webapp.py -v -m e2e` | All tests pass |
 
 ---
 
@@ -87,9 +89,19 @@ aws --version             # AWS CLI 2.x
 terraform --version       # Terraform 1.x
 doppler --version         # Doppler CLI
 jq --version              # JSON processor
+conftest --version        # Conftest (OPA) - optional for infra TDD
+go version                # Go 1.21+ - optional for Terratest
 ```
 
 **If any fails**: Install the missing tool before proceeding.
+
+**For Infrastructure TDD (optional):**
+```bash
+# Install Conftest for OPA policy validation
+just opa-install
+
+# Go is required for Terratest (install from https://go.dev/dl/)
+```
 
 ### 0.2 Python Virtual Environment
 
@@ -221,6 +233,114 @@ just ci-run test
 | Test job dry-run | `just ci-dryrun test` | [ ] |
 
 **ALL MUST PASS before pushing workflow changes**
+
+---
+
+## Phase 0.6: Infrastructure TDD Testing
+
+**Purpose**: Validate Terraform changes before and after deployment using policy-as-code (OPA) and integration tests (Terratest).
+
+### TDD Flow
+
+```
+terraform plan → OPA validation → terraform apply → Terratest verification
+     ↓                ↓                  ↓                   ↓
+  Generate JSON    Check policies    Create infra    Verify infra works
+                  (BLOCKS deploy)                   (catches runtime issues)
+```
+
+### 0.6.1 Install Conftest (OPA)
+
+```bash
+just opa-install
+```
+
+**Expected**: Conftest installed to `~/.local/bin/conftest`
+
+### 0.6.2 Run OPA Policy Validation (Pre-Apply)
+
+```bash
+just opa-validate dev
+```
+
+**Expected**:
+```
+🔍 Running OPA policy validation for dev environment...
+📋 Initializing Terraform...
+📝 Generating plan...
+✅ OPA policy validation passed!
+```
+
+**If fails**: Fix the policy violations before running `terraform apply`
+
+**Common policy violations:**
+| Violation | Fix |
+|-----------|-----|
+| IAM wildcard Resource | Scope down to specific ARNs |
+| S3 missing public access block | Add `aws_s3_bucket_public_access_block` |
+| DynamoDB missing PITR | Add `point_in_time_recovery { enabled = true }` |
+| Missing required tags | Add Project, Environment, ManagedBy tags |
+
+### 0.6.3 Run Terratest (Post-Apply)
+
+```bash
+# After terraform apply
+just terratest
+```
+
+**Expected**:
+```
+=== RUN   TestAPIGatewayExists
+--- PASS: TestAPIGatewayExists (1.23s)
+=== RUN   TestDynamoDBBillingMode
+--- PASS: TestDynamoDBBillingMode (0.89s)
+=== RUN   TestLambdaVPCConfiguration
+--- PASS: TestLambdaVPCConfiguration (1.45s)
+PASS
+```
+
+**If fails**: Infrastructure exists but may not be configured correctly
+
+### 0.6.4 Full Infrastructure TDD Cycle
+
+```bash
+# Full cycle: OPA → apply → Terratest
+just infra-tdd dev
+```
+
+This runs:
+1. OPA policy validation (pre-apply)
+2. `terraform apply` (if OPA passes)
+3. Terratest integration tests (post-apply)
+
+### 0.6.5 Run Specific Terratest
+
+```bash
+# Run only Lambda tests
+just terratest-run TestLambda
+
+# Run only DynamoDB tests
+just terratest-run TestDynamoDB
+
+# Run only API Gateway tests
+just terratest-run TestAPIGateway
+```
+
+### 0.6.6 Infrastructure TDD Checklist
+
+| Test | Command | Pass? |
+|------|---------|-------|
+| Conftest installed | `conftest --version` | [ ] |
+| OPA policies pass | `just opa-validate dev` | [ ] |
+| Terratest Lambda | `just terratest-run TestLambda` | [ ] |
+| Terratest DynamoDB | `just terratest-run TestDynamoDB` | [ ] |
+| Terratest API Gateway | `just terratest-run TestAPIGateway` | [ ] |
+| Full TDD cycle | `just infra-tdd dev` | [ ] |
+
+**When to run:**
+- **OPA only**: Before every `terraform apply` (fast, ~10s)
+- **Terratest**: After infrastructure changes (slower, ~2min)
+- **Full cycle**: When making significant Terraform changes
 
 ---
 
@@ -842,6 +962,14 @@ cd terraform
 terraform init -backend-config=envs/dev/backend.hcl
 terraform apply -var-file=envs/dev/terraform.tfvars
 # Then apply to staging and prod too!
+
+# Infrastructure TDD
+just opa-install                  # Install Conftest (one-time)
+just opa-validate dev             # Run OPA policies against dev plan
+just opa-check dev                # Non-blocking OPA check (warnings only)
+just terratest                    # Run all Terratest integration tests
+just terratest-run TestLambda     # Run specific test
+just infra-tdd dev                # Full TDD cycle: OPA → apply → Terratest
 ```
 
 ---

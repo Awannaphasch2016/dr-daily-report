@@ -77,28 +77,8 @@ def create_local_tables():
         else:
             raise
 
-    print()
-
-    # Table 3: Cache
-    try:
-        cache_table = dynamodb.create_table(
-            TableName='dr-daily-report-telegram-cache-dev',
-            KeySchema=[
-                {'AttributeName': 'cache_key', 'KeyType': 'HASH'}
-            ],
-            AttributeDefinitions=[
-                {'AttributeName': 'cache_key', 'AttributeType': 'S'}
-            ],
-            BillingMode='PAY_PER_REQUEST'
-        )
-        print(f"✅ Created table: {cache_table.table_name}")
-        print(f"   - Hash key: cache_key (e.g., 'report:NVDA19')")
-        print(f"   - Billing: On-demand")
-    except ClientError as e:
-        if e.response['Error']['Code'] == 'ResourceInUseException':
-            print(f"⚠️  Table 'dr-daily-report-telegram-cache-dev' already exists")
-        else:
-            raise
+    # NOTE: Cache table REMOVED - cache functionality moved to Aurora ticker_data_cache
+    # See db/migrations/002_schema_redesign.sql
 
     print()
     print("=" * 60)
@@ -111,7 +91,7 @@ def create_local_tables():
     print("  export USE_LOCAL_DYNAMODB=true")
     print("  export WATCHLIST_TABLE_NAME=dr-daily-report-telegram-watchlist-dev")
     print("  export JOBS_TABLE_NAME=dr-daily-report-telegram-jobs-dev")
-    print("  export CACHE_TABLE_NAME=dr-daily-report-telegram-cache-dev")
+    print("  # NOTE: CACHE_TABLE_NAME no longer needed - cache moved to Aurora")
     print("  doppler run -- python -m uvicorn src.api.app:app --reload")
     print()
     print("Or use the start script (recommended):")

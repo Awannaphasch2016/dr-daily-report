@@ -1,0 +1,180 @@
+# Infrastructure TDD Pipeline
+#
+# This workflow implements the infrastructure TDD strategy:
+# 1. OPA Policy Validation (pre-apply) - Blocks PRs with policy violations
+# 2. Terratest Integration Tests (post-apply) - Verifies deployed infrastructure
+#
+# Triggers:
+# - PRs changing terraform/** files - runs OPA only (fast feedback)
+# - Pushes to telegram branch - runs OPA + Terratest (full validation)
+
+name: Infrastructure TDD
+
+on:
+  pull_request:
+    paths:
+      - 'terraform/**'
+      - '.github/workflows/terraform-test.yml'
+  push:
+    branches:
+      - telegram
+      - telegram-staging
+    paths:
+      - 'terraform/**'
+      - '.github/workflows/terraform-test.yml'
+
+env:
+  AWS_REGION: ap-southeast-1
+  TF_VERSION: 1.6.0
+  GO_VERSION: '1.21'
+  CONFTEST_VERSION: 0.46.2
+
+jobs:
+  # =============================================================================
+  # OPA Policy Validation - Runs on every PR and push
+  # =============================================================================
+  opa-validate:
+    name: OPA Policy Validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false  # Required for terraform show -json
+
+      - name: Install Conftest
+        run: |
+          wget -q https://github.com/open-policy-agent/conftest/releases/download/v${{ env.CONFTEST_VERSION }}/conftest_${{ env.CONFTEST_VERSION }}_Linux_x86_64.tar.gz
+          tar xzf conftest_${{ env.CONFTEST_VERSION }}_Linux_x86_64.tar.gz
+          sudo mv conftest /usr/local/bin/
+          conftest --version
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Terraform Init
+        working-directory: terraform
+        run: |
+          terraform init \
+            -backend-config="bucket=dr-daily-report-tf-state" \
+            -backend-config="key=dev/terraform.tfstate" \
+            -backend-config="region=${{ env.AWS_REGION }}"
+
+      - name: Terraform Plan (JSON output)
+        working-directory: terraform
+        run: |
+          terraform plan \
+            -var-file=envs/dev/terraform.tfvars \
+            -out=tfplan.binary \
+            -no-color
+          terraform show -json tfplan.binary > tfplan.json
+
+      - name: Run OPA Policies
+        working-directory: terraform
+        run: |
+          echo "::group::Running OPA policy validation"
+          conftest test tfplan.json \
+            --policy policies/ \
+            --all-namespaces \
+            --no-fail \
+            --output stdout
+          echo "::endgroup::"
+
+          # Run again with strict mode to fail on denies
+          conftest test tfplan.json \
+            --policy policies/ \
+            --all-namespaces \
+            --output table
+
+      - name: Upload Plan JSON (for debugging)
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: terraform-plan-json
+          path: terraform/tfplan.json
+          retention-days: 7
+
+  # =============================================================================
+  # Terratest Integration Tests - Runs only on push to main branches
+  # =============================================================================
+  terratest:
+    name: Terratest Integration
+    needs: opa-validate
+    runs-on: ubuntu-latest
+    # Only run on pushes to main branches (not on PRs)
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/telegram' || github.ref == 'refs/heads/telegram-staging')
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: terraform/tests/go.sum
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Download Go Dependencies
+        working-directory: terraform/tests
+        run: go mod download
+
+      - name: Run Terratest
+        working-directory: terraform/tests
+        env:
+          AWS_REGION: ${{ env.AWS_REGION }}
+          ENVIRONMENT: dev
+          # API URL for HTTP tests (optional - tests skip if not set)
+          API_URL: ${{ secrets.DEV_API_URL }}
+        run: |
+          go test -v -timeout 15m ./... \
+            -parallel 4 \
+            2>&1 | tee test-output.txt
+
+      - name: Upload Test Results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: terratest-results
+          path: terraform/tests/test-output.txt
+          retention-days: 7
+
+  # =============================================================================
+  # Summary Job - Reports overall status
+  # =============================================================================
+  summary:
+    name: Test Summary
+    needs: [opa-validate, terratest]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Check Results
+        run: |
+          if [ "${{ needs.opa-validate.result }}" == "failure" ]; then
+            echo "::error::OPA policy validation failed"
+            exit 1
+          fi
+
+          if [ "${{ needs.terratest.result }}" == "failure" ]; then
+            echo "::error::Terratest integration tests failed"
+            exit 1
+          fi
+
+          if [ "${{ needs.terratest.result }}" == "skipped" ]; then
+            echo "::notice::Terratest skipped (PR only runs OPA)"
+          fi
+
+          echo "::notice::All infrastructure tests passed!"

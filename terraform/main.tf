@@ -213,8 +213,9 @@ resource "aws_lambda_function" "line_bot" {
   role          = aws_iam_role.lambda_role.arn
 
   # Container image deployment from ECR
+  # Note: CI/CD sets lambda_image_tag to timestamped version (e.g., v20251201182404)
   package_type = "Image"
-  image_uri    = "${aws_ecr_repository.lambda.repository_url}:latest"
+  image_uri    = "${aws_ecr_repository.lambda.repository_url}:${var.lambda_image_tag}"
 
   image_config {
     command = ["lambda_handler.lambda_handler"]

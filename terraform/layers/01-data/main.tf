@@ -68,31 +68,10 @@ resource "aws_dynamodb_table" "telegram_watchlist" {
 }
 
 ###############################################################################
-# Cache Table - API response caching
+# Cache Table - REMOVED (Data Storage Architecture Redesign)
+# Cache functionality moved to Aurora ticker_data_cache table
+# See db/migrations/002_schema_redesign.sql
 ###############################################################################
-
-resource "aws_dynamodb_table" "telegram_cache" {
-  name           = "${var.project_name}-telegram-cache-${var.environment}"
-  billing_mode   = "PAY_PER_REQUEST"
-  hash_key       = "cache_key"
-
-  attribute {
-    name = "cache_key"
-    type = "S"
-  }
-
-  ttl {
-    attribute_name = "expires_at"
-    enabled        = true
-  }
-
-  tags = merge(local.common_tags, {
-    Name      = "${var.project_name}-telegram-cache-${var.environment}"
-    App       = "telegram-api"
-    Component = "cache-storage"
-    DataType  = "temporary"
-  })
-}
 
 ###############################################################################
 # IAM Policy for DynamoDB Access (attached by app layer)
@@ -121,8 +100,8 @@ resource "aws_iam_policy" "dynamodb_access" {
           "dynamodb:Scan"
         ]
         Resource = [
-          aws_dynamodb_table.telegram_watchlist.arn,
-          aws_dynamodb_table.telegram_cache.arn
+          aws_dynamodb_table.telegram_watchlist.arn
+          # NOTE: telegram_cache.arn removed - cache moved to Aurora
         ]
       }
     ]

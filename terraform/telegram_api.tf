@@ -38,6 +38,22 @@ resource "aws_iam_role_policy_attachment" "telegram_lambda_dynamodb" {
   policy_arn = aws_iam_policy.dynamodb_access.arn
 }
 
+# Attach VPC execution policy (required for Lambda in VPC to access Aurora)
+resource "aws_iam_role_policy_attachment" "telegram_lambda_vpc" {
+  count = var.aurora_enabled ? 1 : 0
+
+  role       = aws_iam_role.telegram_lambda_role.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
+}
+
+# Attach Aurora access policy
+resource "aws_iam_role_policy_attachment" "telegram_lambda_aurora_access" {
+  count = var.aurora_enabled ? 1 : 0
+
+  role       = aws_iam_role.telegram_lambda_role.name
+  policy_arn = aws_iam_policy.lambda_aurora_access[0].arn
+}
+
 # Custom policy for S3 PDF storage access and ECR access
 resource "aws_iam_role_policy" "telegram_lambda_custom" {
   name = "${var.project_name}-telegram-api-custom-policy-${var.environment}"
@@ -94,8 +110,9 @@ resource "aws_lambda_function" "telegram_api" {
   role          = aws_iam_role.telegram_lambda_role.arn
 
   # Container image deployment from ECR
+  # Note: CI/CD sets lambda_image_tag to timestamped version (e.g., v20251201182404)
   package_type = "Image"
-  image_uri    = "${aws_ecr_repository.lambda.repository_url}:latest"
+  image_uri    = "${aws_ecr_repository.lambda.repository_url}:${var.lambda_image_tag}"
 
   image_config {
     command = ["telegram_lambda_handler.handler"]
@@ -123,7 +140,7 @@ resource "aws_lambda_function" "telegram_api" {
 
       # DynamoDB Tables
       DYNAMODB_WATCHLIST_TABLE = aws_dynamodb_table.telegram_watchlist.name
-      DYNAMODB_CACHE_TABLE     = aws_dynamodb_table.telegram_cache.name
+      # NOTE: DYNAMODB_CACHE_TABLE removed - cache moved to Aurora ticker_data_cache
       JOBS_TABLE_NAME          = aws_dynamodb_table.report_jobs.name
 
       # SQS Queue for Async Reports
@@ -139,9 +156,27 @@ resource "aws_lambda_function" "telegram_api" {
       LANGSMITH_TRACING_V2 = var.langsmith_tracing_enabled ? "true" : "false"
       LANGSMITH_API_KEY    = var.langsmith_api_key
 
+      # Aurora MySQL connection (for cache-first report lookup)
+      AURORA_HOST     = var.aurora_enabled ? aws_rds_cluster.aurora[0].endpoint : ""
+      AURORA_PORT     = "3306"
+      AURORA_DATABASE = var.aurora_database_name
+      AURORA_USER     = var.aurora_master_username
+      AURORA_PASSWORD = var.aurora_enabled ? var.AURORA_MASTER_PASSWORD : ""
+
       # Environment
       ENVIRONMENT = var.environment
       LOG_LEVEL   = "INFO"
+    }
+  }
+
+  # VPC Configuration for Aurora access (required to connect to Aurora in VPC)
+  # IMPORTANT: Only use subnets with NAT Gateway routes (local.private_subnets_with_nat)
+  # Lambda needs internet access for yfinance, OpenRouter, DynamoDB, and SQS APIs
+  dynamic "vpc_config" {
+    for_each = var.aurora_enabled ? [1] : []
+    content {
+      subnet_ids         = local.private_subnets_with_nat
+      security_group_ids = [aws_security_group.lambda_aurora[0].id]
     }
   }
 
@@ -155,7 +190,9 @@ resource "aws_lambda_function" "telegram_api" {
   depends_on = [
     aws_ecr_repository.lambda,
     aws_iam_role_policy_attachment.telegram_lambda_basic,
-    aws_iam_role_policy_attachment.telegram_lambda_dynamodb
+    aws_iam_role_policy_attachment.telegram_lambda_dynamodb,
+    aws_iam_role_policy_attachment.telegram_lambda_vpc,
+    aws_iam_role_policy_attachment.telegram_lambda_aurora_access
   ]
 }
 

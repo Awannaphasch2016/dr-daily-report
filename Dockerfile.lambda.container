@@ -13,6 +13,7 @@ RUN pip install --no-cache-dir --prefer-binary -r requirements.txt
 
 # Copy application code (changes most frequently, so placed last)
 COPY src/ ${LAMBDA_TASK_ROOT}/src/
+COPY scripts/ ${LAMBDA_TASK_ROOT}/scripts/
 COPY data/tickers.csv ${LAMBDA_TASK_ROOT}/data/tickers.csv
 COPY fonts/ ${LAMBDA_TASK_ROOT}/fonts/
 

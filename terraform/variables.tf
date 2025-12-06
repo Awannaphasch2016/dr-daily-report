@@ -157,3 +157,16 @@ variable "langsmith_api_key" {
   sensitive   = true
   default     = ""
 }
+
+###############################################################################
+# Lambda Container Image Configuration
+###############################################################################
+
+variable "lambda_image_tag" {
+  description = "Docker image tag for Lambda functions (set by CI/CD, e.g., 'v20251201182404'). Use 'latest' only for initial bootstrap."
+  type        = string
+  default     = "latest"
+
+  # Note: CI/CD should override this with timestamped tag:
+  # terraform apply -var="lambda_image_tag=v20251201182404"
+}

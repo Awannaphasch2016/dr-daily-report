@@ -1,0 +1,72 @@
+# CodeBuild buildspec for VPC Integration Tests
+#
+# Purpose:
+#   Runs Terratest (Go) integration tests that require VPC access to Aurora.
+#   Triggered by GitHub Actions after successful deployments.
+#
+# Environment Variables (set by CodeBuild project):
+#   - AURORA_HOST, AURORA_PORT, AURORA_DATABASE, AURORA_USER, AURORA_PASSWORD
+#   - ENVIRONMENT (dev, staging, prod)
+#   - TELEGRAM_API_URL (API Gateway endpoint)
+#   - AWS_REGION
+#
+# Tests Run:
+#   - TestCacheFirst* - Cache-first behavior with Aurora fixtures
+#   - TestAurora* - Direct Aurora query tests
+
+version: 0.2
+
+phases:
+  install:
+    runtime-versions:
+      golang: 1.21
+    commands:
+      - echo "📦 Installing Go dependencies..."
+      - cd terraform/tests
+      - go mod download
+      - go install gotest.tools/gotestsum@latest
+
+  pre_build:
+    commands:
+      - echo "🔍 Verifying VPC connectivity to Aurora..."
+      - echo "AURORA_HOST=${AURORA_HOST}"
+      - echo "AURORA_DATABASE=${AURORA_DATABASE}"
+      - echo "ENVIRONMENT=${ENVIRONMENT}"
+      - |
+        # Quick connectivity check (timeout after 10 seconds)
+        timeout 10 bash -c "echo > /dev/tcp/${AURORA_HOST}/3306" && \
+          echo "✅ Aurora is reachable at ${AURORA_HOST}:3306" || \
+          (echo "❌ Cannot reach Aurora at ${AURORA_HOST}:3306 - VPC config may be incorrect" && exit 1)
+
+  build:
+    commands:
+      - echo "🧪 Running VPC integration tests..."
+      - cd terraform/tests
+      - |
+        # Run tests that require VPC access
+        # gotestsum provides better output formatting and JUnit XML reports
+        gotestsum --junitfile report.xml --format testname -- \
+          -v \
+          -timeout 15m \
+          -run "TestCacheFirst|TestAurora" \
+          ./...
+
+  post_build:
+    commands:
+      - echo "✅ VPC integration tests completed at $(date)"
+      - |
+        if [ -f terraform/tests/report.xml ]; then
+          echo "📊 Test results saved to report.xml"
+          # Print summary
+          grep -E '<testsuite|<testcase' terraform/tests/report.xml | head -20 || true
+        fi
+
+reports:
+  terratest-vpc-tests:
+    files:
+      - "terraform/tests/report.xml"
+    file-format: JUNITXML
+
+cache:
+  paths:
+    - '/go/pkg/mod/**/*'

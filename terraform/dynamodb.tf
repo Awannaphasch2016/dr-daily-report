@@ -31,30 +31,9 @@ resource "aws_dynamodb_table" "telegram_watchlist" {
   })
 }
 
-# Cache table - stores API response cache
-resource "aws_dynamodb_table" "telegram_cache" {
-  name           = "${var.project_name}-telegram-cache-${var.environment}"
-  billing_mode   = "PAY_PER_REQUEST"
-  hash_key       = "cache_key"
-
-  attribute {
-    name = "cache_key"
-    type = "S" # String - e.g., "report:NVDA19" or "rankings:top_gainers"
-  }
-
-  # TTL for automatic cache expiration
-  ttl {
-    attribute_name = "expires_at"
-    enabled        = true
-  }
-
-  tags = merge(local.common_tags, {
-    Name      = "${var.project_name}-telegram-cache-${var.environment}"
-    App       = "telegram-api"
-    Component = "cache-storage"
-    DataType  = "temporary"
-  })
-}
+# NOTE: telegram_cache table REMOVED as part of Data Storage Architecture Redesign
+# Cache functionality moved to Aurora ticker_data_cache table
+# See db/migrations/002_schema_redesign.sql
 
 # IAM policy for Lambda to access DynamoDB tables
 resource "aws_iam_policy" "dynamodb_access" {
@@ -81,8 +60,8 @@ resource "aws_iam_policy" "dynamodb_access" {
           "dynamodb:Scan"
         ]
         Resource = [
-          aws_dynamodb_table.telegram_watchlist.arn,
-          aws_dynamodb_table.telegram_cache.arn
+          aws_dynamodb_table.telegram_watchlist.arn
+          # NOTE: telegram_cache.arn removed - cache moved to Aurora
         ]
       }
     ]
@@ -101,17 +80,10 @@ output "watchlist_table_name" {
   description = "Name of the watchlist DynamoDB table"
 }
 
-output "cache_table_name" {
-  value       = aws_dynamodb_table.telegram_cache.name
-  description = "Name of the cache DynamoDB table"
-}
-
 output "watchlist_table_arn" {
   value       = aws_dynamodb_table.telegram_watchlist.arn
   description = "ARN of the watchlist DynamoDB table"
 }
 
-output "cache_table_arn" {
-  value       = aws_dynamodb_table.telegram_cache.arn
-  description = "ARN of the cache DynamoDB table"
-}
+# NOTE: cache_table_name and cache_table_arn outputs removed
+# Cache functionality moved to Aurora ticker_data_cache table

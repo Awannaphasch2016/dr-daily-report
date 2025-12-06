@@ -186,6 +186,144 @@ resource "aws_cloudfront_distribution" "webapp" {
 }
 
 ###############################################################################
+# CloudFront Distribution - TEST (for E2E testing before promoting to users)
+###############################################################################
+
+# Two-CloudFront Pattern: Mirrors Lambda's $LATEST vs "live" alias
+# - webapp_test: E2E tests hit this (invalidated immediately on S3 sync)
+# - webapp: Users hit this (invalidated only after E2E tests pass)
+# Both point to the same S3 bucket - just different cache invalidation timing
+
+resource "aws_cloudfront_distribution" "webapp_test" {
+  enabled             = true
+  is_ipv6_enabled     = true
+  default_root_object = "index.html"
+  comment             = "Telegram Mini App TEST - ${var.environment} (E2E testing)"
+  price_class         = "PriceClass_200"
+
+  origin {
+    domain_name = aws_s3_bucket.webapp.bucket_regional_domain_name
+    origin_id   = "S3-webapp-test"
+
+    s3_origin_config {
+      origin_access_identity = aws_cloudfront_origin_access_identity.webapp.cloudfront_access_identity_path
+    }
+  }
+
+  # Default cache behavior for static assets
+  default_cache_behavior {
+    allowed_methods  = ["GET", "HEAD", "OPTIONS"]
+    cached_methods   = ["GET", "HEAD"]
+    target_origin_id = "S3-webapp-test"
+
+    forwarded_values {
+      query_string = false
+      cookies {
+        forward = "none"
+      }
+    }
+
+    viewer_protocol_policy = "redirect-to-https"
+    min_ttl                = 0
+    default_ttl            = 3600
+    max_ttl                = 86400
+    compress               = true
+  }
+
+  # Cache behavior for HTML files (shorter TTL)
+  ordered_cache_behavior {
+    path_pattern     = "*.html"
+    allowed_methods  = ["GET", "HEAD", "OPTIONS"]
+    cached_methods   = ["GET", "HEAD"]
+    target_origin_id = "S3-webapp-test"
+
+    forwarded_values {
+      query_string = false
+      cookies {
+        forward = "none"
+      }
+    }
+
+    viewer_protocol_policy = "redirect-to-https"
+    min_ttl                = 0
+    default_ttl            = 300
+    max_ttl                = 3600
+    compress               = true
+  }
+
+  # Cache behavior for JS/CSS
+  ordered_cache_behavior {
+    path_pattern     = "*.js"
+    allowed_methods  = ["GET", "HEAD", "OPTIONS"]
+    cached_methods   = ["GET", "HEAD"]
+    target_origin_id = "S3-webapp-test"
+
+    forwarded_values {
+      query_string = false
+      cookies {
+        forward = "none"
+      }
+    }
+
+    viewer_protocol_policy = "redirect-to-https"
+    min_ttl                = 0
+    default_ttl            = 86400
+    max_ttl                = 604800
+    compress               = true
+  }
+
+  ordered_cache_behavior {
+    path_pattern     = "*.css"
+    allowed_methods  = ["GET", "HEAD", "OPTIONS"]
+    cached_methods   = ["GET", "HEAD"]
+    target_origin_id = "S3-webapp-test"
+
+    forwarded_values {
+      query_string = false
+      cookies {
+        forward = "none"
+      }
+    }
+
+    viewer_protocol_policy = "redirect-to-https"
+    min_ttl                = 0
+    default_ttl            = 86400
+    max_ttl                = 604800
+    compress               = true
+  }
+
+  # SPA routing
+  custom_error_response {
+    error_code         = 404
+    response_code      = 200
+    response_page_path = "/index.html"
+  }
+
+  custom_error_response {
+    error_code         = 403
+    response_code      = 200
+    response_page_path = "/index.html"
+  }
+
+  restrictions {
+    geo_restriction {
+      restriction_type = "none"
+    }
+  }
+
+  viewer_certificate {
+    cloudfront_default_certificate = true
+  }
+
+  tags = merge(local.common_tags, {
+    Name      = "${var.project_name}-webapp-test-cloudfront-${var.environment}"
+    App       = "telegram-api"
+    Component = "frontend-cdn-test"
+    Purpose   = "e2e-testing"
+  })
+}
+
+###############################################################################
 # Outputs
 ###############################################################################
 
@@ -211,5 +349,21 @@ output "cloudfront_distribution_domain" {
 
 output "webapp_url" {
   value       = "https://${aws_cloudfront_distribution.webapp.domain_name}"
-  description = "Full URL for the Telegram Mini App"
+  description = "Full URL for the Telegram Mini App (users)"
+}
+
+# TEST CloudFront outputs (for E2E testing)
+output "cloudfront_test_distribution_id" {
+  value       = aws_cloudfront_distribution.webapp_test.id
+  description = "ID of the TEST CloudFront distribution (for E2E cache invalidation)"
+}
+
+output "cloudfront_test_distribution_domain" {
+  value       = aws_cloudfront_distribution.webapp_test.domain_name
+  description = "TEST CloudFront domain name (for E2E testing)"
+}
+
+output "webapp_test_url" {
+  value       = "https://${aws_cloudfront_distribution.webapp_test.domain_name}"
+  description = "Full URL for E2E testing (invalidated before user-facing URL)"
 }

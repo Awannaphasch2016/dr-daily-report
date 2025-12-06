@@ -482,7 +482,7 @@ def mock_env_vars():
         'OPENAI_API_KEY': 'test-api-key',
         'PDF_BUCKET_NAME': 'test-bucket',
         'DYNAMODB_WATCHLIST_TABLE': 'test-watchlist-table',
-        'DYNAMODB_CACHE_TABLE': 'test-cache-table',
+        # NOTE: DYNAMODB_CACHE_TABLE removed - cache moved to Aurora ticker_data_cache
         'JOBS_TABLE_NAME': 'test-jobs-table',
         'REPORT_JOBS_QUEUE_URL': 'https://sqs.test.amazonaws.com/test-queue',
         'ENVIRONMENT': 'test'

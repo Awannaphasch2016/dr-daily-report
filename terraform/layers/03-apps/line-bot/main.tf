@@ -62,7 +62,7 @@ locals {
   pdf_bucket_name     = data.terraform_remote_state.platform.outputs.pdf_bucket_name
   pdf_bucket_arn      = data.terraform_remote_state.platform.outputs.pdf_bucket_arn
   watchlist_table     = data.terraform_remote_state.data.outputs.watchlist_table_name
-  cache_table         = data.terraform_remote_state.data.outputs.cache_table_name
+  # NOTE: cache_table removed - cache moved to Aurora ticker_data_cache
   dynamodb_policy_arn = data.terraform_remote_state.data.outputs.dynamodb_policy_arn
 }
 
@@ -187,7 +187,7 @@ resource "aws_lambda_function" "line_bot" {
       CACHE_BACKEND             = "hybrid"
       CACHE_TTL_HOURS           = "24"
       DYNAMODB_WATCHLIST_TABLE  = local.watchlist_table
-      DYNAMODB_CACHE_TABLE      = local.cache_table
+      # NOTE: DYNAMODB_CACHE_TABLE removed - cache moved to Aurora
       LANGSMITH_TRACING_V2      = var.langsmith_tracing_enabled ? "true" : "false"
       LANGSMITH_API_KEY         = var.langsmith_api_key
       ENVIRONMENT               = var.environment

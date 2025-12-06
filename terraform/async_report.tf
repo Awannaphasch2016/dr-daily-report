@@ -101,6 +101,22 @@ resource "aws_iam_role_policy_attachment" "report_worker_basic" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
 
+# Attach VPC execution policy (required for Lambda in VPC)
+resource "aws_iam_role_policy_attachment" "report_worker_vpc" {
+  count = var.aurora_enabled ? 1 : 0
+
+  role       = aws_iam_role.report_worker_role.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
+}
+
+# Attach Aurora access policy to report worker role
+resource "aws_iam_role_policy_attachment" "report_worker_aurora_access" {
+  count = var.aurora_enabled ? 1 : 0
+
+  role       = aws_iam_role.report_worker_role.name
+  policy_arn = aws_iam_policy.lambda_aurora_access[0].arn
+}
+
 # Custom policy for Report Worker Lambda
 resource "aws_iam_role_policy" "report_worker_policy" {
   name = "${var.project_name}-report-worker-policy-${var.environment}"
@@ -160,8 +176,9 @@ resource "aws_lambda_function" "report_worker" {
   role          = aws_iam_role.report_worker_role.arn
 
   # Container image deployment from ECR (same image as API)
+  # Note: CI/CD sets lambda_image_tag to timestamped version (e.g., v20251201182404)
   package_type = "Image"
-  image_uri    = "${aws_ecr_repository.lambda.repository_url}:latest"
+  image_uri    = "${aws_ecr_repository.lambda.repository_url}:${var.lambda_image_tag}"
 
   image_config {
     command = ["report_worker_handler.handler"]
@@ -171,7 +188,7 @@ resource "aws_lambda_function" "report_worker" {
   publish = true
 
   memory_size = 1024       # Higher memory for LLM processing
-  timeout     = 60         # 60 second timeout for report generation
+  timeout     = 120        # 120 second timeout for report generation (LLM takes ~60s)
 
   environment {
     variables = {
@@ -181,6 +198,24 @@ resource "aws_lambda_function" "report_worker" {
       PDF_BUCKET_NAME          = aws_s3_bucket.pdf_reports.id
       LANGSMITH_TRACING_V2     = var.langsmith_tracing_enabled ? "true" : "false"
       LANGSMITH_API_KEY        = var.langsmith_api_key
+
+      # Aurora MySQL connection (for caching reports)
+      AURORA_HOST     = var.aurora_enabled ? aws_rds_cluster.aurora[0].endpoint : ""
+      AURORA_PORT     = "3306"
+      AURORA_DATABASE = var.aurora_database_name
+      AURORA_USER     = var.aurora_master_username
+      AURORA_PASSWORD = var.aurora_enabled ? var.AURORA_MASTER_PASSWORD : ""
+    }
+  }
+
+  # VPC Configuration for Aurora access (required to connect to Aurora in VPC)
+  # IMPORTANT: Only use subnets with NAT Gateway routes (local.private_subnets_with_nat)
+  # Lambda needs internet access for yfinance, OpenRouter, and DynamoDB APIs
+  dynamic "vpc_config" {
+    for_each = var.aurora_enabled ? [1] : []
+    content {
+      subnet_ids         = local.private_subnets_with_nat
+      security_group_ids = [aws_security_group.lambda_aurora[0].id]
     }
   }
 
