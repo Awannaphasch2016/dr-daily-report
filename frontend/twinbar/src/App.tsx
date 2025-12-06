@@ -5,8 +5,11 @@ import { CategoryNav } from './components/CategoryNav';
 import { SortBar } from './components/SortBar';
 import { MarketsGrid } from './components/MarketsGrid';
 import { MarketModal } from './components/MarketModal';
-import { useMarketStore, mockMarkets } from './stores/marketStore';
+import { useMarketStore } from './stores/marketStore';
 import type { Market, MarketCategory, SortOption } from './types/market';
+import { useTelegramWebApp } from './hooks/useTelegramWebApp';
+import { useTelegramTheme } from './hooks/useTelegramTheme';
+import { apiClient } from './api/client';
 
 function App() {
   const {
@@ -15,25 +18,37 @@ function App() {
     category,
     sortBy,
     isLoading,
-    setMarkets,
     setSelectedMarket,
     setCategory,
     setSortBy,
-    setLoading,
+    fetchMarkets,
+    // fetchReport, // TODO: Use when implementing detailed report loading
   } = useMarketStore();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
 
-  // Load initial data
+  // Initialize Telegram WebApp SDK
+  const { webApp, initData, user, isTelegram, isReady } = useTelegramWebApp();
+  useTelegramTheme(); // Apply Telegram theme
+
+  // Initialize API client and load data
   useEffect(() => {
-    setLoading(true);
-    // Simulate API call - replace with actual API
-    setTimeout(() => {
-      setMarkets(mockMarkets);
-      setLoading(false);
-    }, 500);
-  }, [setMarkets, setLoading]);
+    if (!isReady) return;
+
+    // Configure API authentication
+    if (isTelegram && initData) {
+      apiClient.setInitData(initData);
+      console.log('✅ Telegram auth configured');
+    } else {
+      // Development mode - use fake user ID
+      apiClient.setDevUserId('dev_user_12345');
+      console.log('🔧 Development mode - using dev user ID');
+    }
+
+    // Fetch markets from API
+    fetchMarkets();
+  }, [isReady, isTelegram, initData, fetchMarkets]);
 
   // Filter and sort markets
   const filteredMarkets = useMemo(() => {
@@ -92,12 +107,37 @@ function App() {
   const handleSelectMarket = (market: Market) => {
     setSelectedMarket(market);
     setIsModalOpen(true);
+
+    // Optionally fetch full report when market is selected
+    // fetchReport(market.id);
   };
 
   const handleCloseModal = () => {
     setIsModalOpen(false);
     setSelectedMarket(null);
   };
+
+  // Telegram back button integration
+  useEffect(() => {
+    if (!webApp) return;
+
+    if (isModalOpen) {
+      // Show back button when modal is open
+      webApp.BackButton.show();
+      webApp.BackButton.onClick(handleCloseModal);
+    } else {
+      // Hide back button when modal is closed
+      webApp.BackButton.hide();
+      webApp.BackButton.offClick(handleCloseModal);
+    }
+
+    // Cleanup
+    return () => {
+      if (webApp && webApp.BackButton) {
+        webApp.BackButton.offClick(handleCloseModal);
+      }
+    };
+  }, [webApp, isModalOpen]);
 
   const handleBuy = (marketId: string, outcome: 'yes' | 'no') => {
     const market = markets.find((m) => m.id === marketId);
@@ -110,6 +150,20 @@ function App() {
 
   return (
     <div id="app" className="min-h-screen flex flex-col">
+      {/* Development mode banner */}
+      {!isTelegram && (
+        <div className="bg-amber-500 text-white px-4 py-2 text-center text-sm font-medium">
+          🔧 Development Mode - Not running in Telegram
+        </div>
+      )}
+
+      {/* User greeting (Telegram only) */}
+      {isTelegram && user && (
+        <div className="bg-[var(--tg-theme-button-color)] text-[var(--tg-theme-button-text-color)] px-4 py-2 text-center text-sm">
+          👋 Hello, {user.firstName}!
+        </div>
+      )}
+
       <Header />
       <SearchBar onSearch={handleSearch} />
       <CategoryNav active={category} onChange={handleCategoryChange} />

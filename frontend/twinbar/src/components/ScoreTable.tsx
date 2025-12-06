@@ -58,12 +58,12 @@ export function ScoreTable({ scores }: ScoreTableProps) {
   }
 
   return (
-    <div data-testid="score-table" className="space-y-1">
+    <div data-testid="score-table" className="space-y-0.5">
       {scores.map((score, index) => (
         <div
           key={index}
           data-testid="score-row"
-          className="grid grid-cols-[1fr_auto_auto] gap-2 items-center text-sm"
+          className="grid grid-cols-[1fr_auto_auto] gap-1 items-center text-xs"
         >
           {/* Column 1: Metric name (abbreviated) */}
           <div

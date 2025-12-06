@@ -32,6 +32,37 @@
   }
 }
 
+/* Telegram WebApp Theme Variables
+ * These will be overridden by JavaScript when running in Telegram
+ * See: src/hooks/useTelegramTheme.ts
+ */
+:root {
+  --tg-theme-bg-color: #ffffff;
+  --tg-theme-text-color: #000000;
+  --tg-theme-hint-color: #999999;
+  --tg-theme-link-color: #2481cc;
+  --tg-theme-button-color: #40a7e3;
+  --tg-theme-button-text-color: #ffffff;
+  --tg-theme-secondary-bg-color: #f1f1f1;
+}
+
+/* Telegram theme classes */
+body.tg-dark {
+  --color-bg: var(--tg-theme-bg-color, #0f0f1a);
+  --color-bg-secondary: var(--tg-theme-secondary-bg-color, #1a1a2e);
+  --color-text: var(--tg-theme-text-color, #f3f4f6);
+  --color-text-secondary: var(--tg-theme-hint-color, #9ca3af);
+  --color-primary: var(--tg-theme-link-color, #1652f0);
+}
+
+body.tg-light {
+  --color-bg: var(--tg-theme-bg-color, #ffffff);
+  --color-bg-secondary: var(--tg-theme-secondary-bg-color, #f3f4f6);
+  --color-text: var(--tg-theme-text-color, #1a1a2e);
+  --color-text-secondary: var(--tg-theme-hint-color, #6b7280);
+  --color-primary: var(--tg-theme-link-color, #1652f0);
+}
+
 /* Base styles */
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif;

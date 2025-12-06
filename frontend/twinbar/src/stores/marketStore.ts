@@ -1,5 +1,7 @@
 import { create } from 'zustand';
 import type { Market, MarketCategory, SortOption } from '../types/market';
+import { apiClient, APIError } from '../api/client';
+// import type { RankedTicker } from '../api/types';  // Not used when mock data enabled
 import { mockNVDAReport, mockAAPLReport } from '../mocks/reportData';
 
 interface MarketState {
@@ -17,9 +19,51 @@ interface MarketState {
   setSortBy: (sort: SortOption) => void;
   setLoading: (loading: boolean) => void;
   setError: (error: string | null) => void;
+
+  // API Actions
+  fetchMarkets: () => Promise<void>;
+  fetchReport: (ticker: string) => Promise<void>;
 }
 
-export const useMarketStore = create<MarketState>((set) => ({
+/* Commented out while using mock data
+function _transformRankedTickerToMarket(rankedTicker: RankedTicker): Market {
+  const {
+    ticker,
+    company_name,
+    price,
+    price_change_pct,
+    stance,
+    estimated_upside_pct,
+    risk_level,
+  } = rankedTicker;
+
+  const yesOdds = price_change_pct > 0 ? 50 + Math.min(price_change_pct * 2, 45) : 50 - Math.min(Math.abs(price_change_pct) * 2, 45);
+  const noOdds = 100 - yesOdds;
+
+  return {
+    id: ticker,
+    title: `${company_name} (${ticker})`,
+    description: `Current price: ${price}. ${stance ? `Stance: ${stance}` : ''}`,
+    category: 'finance',
+    yesOdds: Math.round(yesOdds),
+    noOdds: Math.round(noOdds),
+    volume: Math.abs(price_change_pct) * 100000,
+    liquidity: price * 1000,
+    endsAt: undefined,
+    createdAt: new Date().toISOString(),
+    status: 'open',
+    report: undefined,
+    socialProof: estimated_upside_pct ? {
+      agreementCount: Math.floor(Math.abs(estimated_upside_pct) * 10),
+      capitalInvested: Math.abs(estimated_upside_pct) * 50000,
+      capitalCapacity: 500000,
+      convictionLevel: risk_level === 'low' ? 'high' : risk_level === 'high' ? 'low' : 'medium',
+    } : undefined,
+  };
+}
+*/
+
+export const useMarketStore = create<MarketState>((set, get) => ({
   markets: [],
   selectedMarket: null,
   category: 'all',
@@ -33,9 +77,65 @@ export const useMarketStore = create<MarketState>((set) => ({
   setSortBy: (sortBy) => set({ sortBy }),
   setLoading: (isLoading) => set({ isLoading }),
   setError: (error) => set({ error }),
+
+  /**
+   * Fetch markets - USING MOCK DATA for UI preview
+   *
+   * Using pre-designed mock data to showcase TwinBar UI in Telegram Mini App
+   */
+  fetchMarkets: async () => {
+    set({ isLoading: true, error: null });
+
+    // Simulate API delay
+    await new Promise(resolve => setTimeout(resolve, 500));
+
+    set({ markets: mockMarkets, isLoading: false });
+    console.log(`✅ Loaded ${mockMarkets.length} mock markets for UI preview`);
+  },
+
+  /**
+   * Fetch detailed report for a ticker
+   *
+   * Updates the selected market with full report data
+   */
+  fetchReport: async (ticker: string) => {
+    const { selectedMarket } = get();
+    if (!selectedMarket || selectedMarket.id !== ticker) {
+      console.warn(`⚠️ No market selected or ticker mismatch: ${ticker}`);
+      return;
+    }
+
+    set({ isLoading: true, error: null });
+
+    try {
+      console.log(`📊 Fetching report for ${ticker}...`);
+      const reportData = await apiClient.generateReport(ticker);
+
+      // Transform ReportResponse → ReportData (for now, just use it as-is)
+      // TODO: Map ReportResponse fields to ReportData interface
+      const updatedMarket: Market = {
+        ...selectedMarket,
+        report: reportData as any, // Type assertion for now
+      };
+
+      set({
+        selectedMarket: updatedMarket,
+        isLoading: false,
+      });
+
+      console.log(`✅ Report loaded for ${ticker}`);
+    } catch (error) {
+      const errorMessage = error instanceof APIError
+        ? `${error.code}: ${error.message}`
+        : 'Failed to load report';
+
+      set({ error: errorMessage, isLoading: false });
+      console.error(`❌ Failed to fetch report for ${ticker}:`, error);
+    }
+  },
 }));
 
-// Mock data for development
+// Mock data for UI preview in Telegram Mini App
 export const mockMarkets: Market[] = [
   {
     id: '1',

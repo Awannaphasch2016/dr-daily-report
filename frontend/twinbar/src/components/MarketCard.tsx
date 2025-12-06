@@ -33,12 +33,12 @@ export function MarketCard({ market, onSelect, onBuy, onAgree }: MarketCardProps
         {market.title}
       </div>
 
-      {/* HORIZONTAL LAYOUT: Chart LEFT (40%), Score Table RIGHT (60%) */}
+      {/* HORIZONTAL LAYOUT: Chart LEFT (65%), Score Table RIGHT (35%) */}
       {market.report && (
-        <div data-testid="horizontal-content" className="flex gap-3 mb-3">
-          {/* LEFT: Mini Chart (40% width) - Shows portfolio performance with projections */}
+        <div data-testid="horizontal-content" className="flex gap-2 mb-3">
+          {/* LEFT: Mini Chart (65% width) - Shows portfolio performance with projections */}
           {market.report.price_history && market.report.price_history.length > 0 && (
-            <div className="w-2/5 flex-shrink-0">
+            <div className="w-[65%] flex-shrink-0">
               <MiniChart
                 data={market.report.price_history}
                 projections={market.report.projections}
@@ -48,7 +48,7 @@ export function MarketCard({ market, onSelect, onBuy, onAgree }: MarketCardProps
             </div>
           )}
 
-          {/* RIGHT: Score Table (60% width) */}
+          {/* RIGHT: Score Table (35% width) - Tighter layout */}
           {market.report.key_scores && market.report.key_scores.length > 0 && (
             <div className="flex-1">
               <ScoreTable scores={market.report.key_scores.slice(0, 5)} />
