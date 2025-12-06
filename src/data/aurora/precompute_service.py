@@ -583,6 +583,42 @@ class PrecomputeService:
 
         return state
 
+    def _extract_stance_from_state(self, state: Dict[str, Any]) -> str:
+        """Extract overall stance from agent state.
+
+        Uses technical indicators to determine bullish/bearish/neutral stance.
+        Logic mirrors transformer.py _extract_stance() method.
+
+        Args:
+            state: AgentState dict from workflow
+
+        Returns:
+            'bullish' | 'bearish' | 'neutral'
+        """
+        try:
+            indicators = state.get('indicators', {})
+
+            # Extract key indicators
+            rsi = indicators.get('rsi')
+            sma_20 = indicators.get('sma_20')
+            current_price = indicators.get('current_price')
+
+            # Determine stance based on technical signals
+            if rsi and sma_20 and current_price:
+                # Bullish: RSI > 70 AND price > SMA20
+                if rsi > 70 and current_price > sma_20:
+                    return 'bullish'
+                # Bearish: RSI < 30 AND price < SMA20
+                elif rsi < 30 and current_price < sma_20:
+                    return 'bearish'
+
+            # Default to neutral
+            return 'neutral'
+
+        except Exception as e:
+            logger.debug(f"Could not extract stance: {e}")
+            return 'neutral'
+
     def compute_and_store_report(
         self,
         symbol: str,
@@ -641,6 +677,15 @@ class PrecomputeService:
             # Calculate and add projections + price history to report_json
             if isinstance(result, dict):
                 result = self._enhance_report_json_with_portfolio_data(result)
+
+                # Add user_facing_scores if present (critical for UI ScoreTable)
+                if 'user_facing_scores' not in result and result.get('indicators'):
+                    logger.debug(f"user_facing_scores not in state for {symbol}, may need to extract from indicators")
+
+                # Add stance if not present (critical for UI chart colors)
+                if 'stance' not in result:
+                    result['stance'] = self._extract_stance_from_state(result)
+                    logger.debug(f"Added stance={result['stance']} for {symbol}")
 
             # Generate PDF if requested
             pdf_s3_key = None

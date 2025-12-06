@@ -184,11 +184,9 @@ class TickerAnalysisAgent:
         # Run the graph
         final_state = self.graph.invoke(initial_state)
 
-        # Return error or report
-        if final_state.get("error"):
-            return f"❌ เกิดข้อผิดพลาด: {final_state['error']}"
-
-        return final_state.get("report", "ไม่สามารถสร้างรายงานได้")
+        # Return full state dict for downstream processing (precompute service needs full state)
+        # Error handling moved to callers who expect string vs dict
+        return final_state
 
     def generate_pdf_report(self, ticker: str, output_path: str = None) -> bytes:
         """
