@@ -85,15 +85,15 @@ class TestRankingsEndpoint:
         with patch('src.api.app.get_rankings_service') as mock:
             service = Mock()
             service.get_rankings = AsyncMock(return_value=[
-                Mock(
-                    ticker='NVDA19',
-                    company_name='NVIDIA',
-                    price=150.0,
-                    price_change_pct=3.5,
-                    volume=1000000,
-                    volume_ratio=1.5,
-                    currency='USD'
-                )
+                {
+                    'ticker': 'NVDA19',
+                    'company_name': 'NVIDIA',
+                    'price': 150.0,
+                    'price_change_pct': 3.5,
+                    'volume': 1000000,
+                    'volume_ratio': 1.5,
+                    'currency': 'USD'
+                }
             ])
             mock.return_value = service
             yield service
