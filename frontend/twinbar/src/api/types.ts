@@ -132,6 +132,41 @@ export interface ReportResponse {
 // Rankings Types
 // ============================================================================
 
+export interface ScoringMetric {
+  category: string;
+  score: number;
+  max_score: number;
+  rationale?: string;
+}
+
+export interface PriceDataPoint {
+  date: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+  return_pct?: number;
+  portfolio_nav?: number;
+  is_projection?: boolean;
+}
+
+export interface ProjectionBand {
+  date: string;
+  expected_return: number;
+  best_case_return: number;
+  worst_case_return: number;
+  expected_nav: number;
+  best_case_nav: number;
+  worst_case_nav: number;
+}
+
+export interface ChartData {
+  price_history: PriceDataPoint[];
+  projections: ProjectionBand[];
+  initial_investment: number;
+}
+
 export interface RankedTicker {
   ticker: string;
   company_name: string;
@@ -141,6 +176,10 @@ export interface RankedTicker {
   stance?: 'bullish' | 'bearish' | 'neutral';
   estimated_upside_pct?: number;
   risk_level?: 'low' | 'medium' | 'high';
+
+  // NEW: Lightweight report data from Aurora cache
+  chart_data?: ChartData;
+  key_scores?: ScoringMetric[];
 }
 
 export interface RankingsResponse {

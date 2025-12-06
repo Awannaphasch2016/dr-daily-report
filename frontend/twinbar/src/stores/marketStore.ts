@@ -34,6 +34,8 @@ function _transformRankedTickerToMarket(rankedTicker: RankedTicker): Market {
     price,
     price_change_pct,
     stance,
+    chart_data,
+    key_scores,
   } = rankedTicker;
 
   // Map price change to yes/no odds (positive change = bullish odds)
@@ -41,6 +43,15 @@ function _transformRankedTickerToMarket(rankedTicker: RankedTicker): Market {
     ? 50 + Math.min(price_change_pct * 2, 45)
     : 50 - Math.min(Math.abs(price_change_pct) * 2, 45);
   const noOdds = 100 - yesOdds;
+
+  // NEW: Use chart_data and key_scores from Aurora cache if available
+  const report = (chart_data || key_scores) ? {
+    price_history: chart_data?.price_history || [],
+    projections: chart_data?.projections || [],
+    initial_investment: chart_data?.initial_investment || 1000.0,
+    key_scores: key_scores || [],
+    // Other report fields undefined (not needed for cards, loaded on demand)
+  } as any : undefined;
 
   return {
     id: ticker,
@@ -54,7 +65,7 @@ function _transformRankedTickerToMarket(rankedTicker: RankedTicker): Market {
     endsAt: undefined,
     createdAt: new Date().toISOString(),
     status: 'open',
-    report: undefined, // Report loaded separately via fetchReport()
+    report, // NEW: Use cached report data from API
     socialProof: {
       // Top-level fields (use price_change_pct since upside is null)
       agreementCount: Math.floor(Math.abs(price_change_pct) * 50),
