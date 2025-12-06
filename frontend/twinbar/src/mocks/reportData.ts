@@ -1,18 +1,25 @@
 /**
  * Mock report data for testing enhanced UI
- * Simulates backend ReportResponse structure
+ * Simulates backend ReportResponse structure with portfolio metrics and projections
  */
 
 import type { ReportData, PriceDataPoint } from '../types/report';
+import { enhanceHistoricalData, calculateProjections } from '../utils/projectionCalculator';
 
 /**
  * Generate mock price history (30 days of OHLCV data)
+ * Enhanced with portfolio return % and NAV tracking
  */
-function generateMockPriceHistory(basePrice: number, trend: 'up' | 'down' | 'sideways'): PriceDataPoint[] {
+function generateMockPriceHistory(
+  basePrice: number,
+  trend: 'up' | 'down' | 'sideways',
+  initialInvestment: number = 1000
+): PriceDataPoint[] {
   const data: PriceDataPoint[] = [];
   const now = new Date();
   let currentPrice = basePrice;
 
+  // Generate raw OHLCV data
   for (let i = 30; i >= 0; i--) {
     const date = new Date(now);
     date.setDate(date.getDate() - i);
@@ -44,12 +51,16 @@ function generateMockPriceHistory(basePrice: number, trend: 'up' | 'down' | 'sid
     currentPrice = close;
   }
 
-  return data;
+  // Enhance with portfolio metrics (return_pct, portfolio_nav)
+  return enhanceHistoricalData(data, initialInvestment);
 }
 
 /**
- * Mock report for NVDA (bullish example)
+ * Mock report for NVDA (bullish example with projections)
  */
+const nvdaPriceHistory = generateMockPriceHistory(485, 'up', 1000);
+const nvdaProjections = calculateProjections(nvdaPriceHistory, 1000, 7);
+
 export const mockNVDAReport: ReportData = {
   ticker: 'NVDA',
   company_name: 'NVIDIA Corporation',
@@ -57,7 +68,9 @@ export const mockNVDAReport: ReportData = {
   price_change_pct: 2.35,
   stance: 'bullish',
 
-  price_history: generateMockPriceHistory(485, 'up'),
+  price_history: nvdaPriceHistory,
+  projections: nvdaProjections,
+  initial_investment: 1000,
 
   key_scores: [
     {
@@ -266,8 +279,11 @@ Technical Setup:
 };
 
 /**
- * Mock report for AAPL (neutral example)
+ * Mock report for AAPL (neutral example with projections)
  */
+const aaplPriceHistory = generateMockPriceHistory(185, 'sideways', 1000);
+const aaplProjections = calculateProjections(aaplPriceHistory, 1000, 7);
+
 export const mockAAPLReport: ReportData = {
   ticker: 'AAPL',
   company_name: 'Apple Inc',
@@ -275,7 +291,9 @@ export const mockAAPLReport: ReportData = {
   price_change_pct: -0.45,
   stance: 'neutral',
 
-  price_history: generateMockPriceHistory(185, 'sideways'),
+  price_history: aaplPriceHistory,
+  projections: aaplProjections,
+  initial_investment: 1000,
 
   key_scores: [
     {

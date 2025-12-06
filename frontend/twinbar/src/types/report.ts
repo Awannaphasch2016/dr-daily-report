@@ -94,6 +94,7 @@ export interface Peer {
 
 /**
  * Price data point for charting
+ * Extended to support portfolio return tracking and projections
  */
 export interface PriceDataPoint {
   date: string; // ISO date
@@ -102,6 +103,25 @@ export interface PriceDataPoint {
   low: number;
   close: number;
   volume: number;
+
+  // Portfolio metrics for MiniChart dual Y-axis display
+  return_pct?: number; // Algorithm return % from entry point (e.g., 8.5 = 8.5%)
+  portfolio_nav?: number; // Portfolio NAV in dollars (e.g., 1085 = $1,085)
+  is_projection?: boolean; // True if future projection, false if historical data
+}
+
+/**
+ * Projection confidence band for future return scenarios
+ * Used in MiniChart to show statistical confidence intervals (±1 std dev)
+ */
+export interface ProjectionBand {
+  date: string; // ISO date (future date)
+  expected_return: number; // Expected trajectory (trend line) in %
+  best_case_return: number; // Upper band (+1 std dev) in %
+  worst_case_return: number; // Lower band (-1 std dev) in %
+  expected_nav: number; // Expected portfolio NAV in dollars
+  best_case_nav: number; // Best case portfolio NAV in dollars
+  worst_case_nav: number; // Worst case portfolio NAV in dollars
 }
 
 /**
@@ -116,7 +136,9 @@ export interface ReportData {
   stance: 'bullish' | 'bearish' | 'neutral'; // Overall recommendation
 
   // Charting data
-  price_history: PriceDataPoint[]; // Historical OHLCV data
+  price_history: PriceDataPoint[]; // Historical OHLCV data with portfolio metrics
+  projections?: ProjectionBand[]; // 7-day future projections (optional)
+  initial_investment?: number; // Starting portfolio value for NAV calculation (default: 1000)
 
   // Key scores (for card display)
   key_scores: ScoringMetric[]; // Top 3-5 most important scores

@@ -36,10 +36,15 @@ export function MarketCard({ market, onSelect, onBuy, onAgree }: MarketCardProps
       {/* HORIZONTAL LAYOUT: Chart LEFT (40%), Score Table RIGHT (60%) */}
       {market.report && (
         <div data-testid="horizontal-content" className="flex gap-3 mb-3">
-          {/* LEFT: Mini Chart (40% width) */}
+          {/* LEFT: Mini Chart (40% width) - Shows portfolio performance with projections */}
           {market.report.price_history && market.report.price_history.length > 0 && (
             <div className="w-2/5 flex-shrink-0">
-              <MiniChart data={market.report.price_history} stance={market.report.stance} />
+              <MiniChart
+                data={market.report.price_history}
+                projections={market.report.projections}
+                initialInvestment={market.report.initial_investment || 1000}
+                stance={market.report.stance}
+              />
             </div>
           )}
 
