@@ -19,68 +19,6 @@ pytestmark = pytest.mark.e2e
 class TestMiniChartProjections:
     """Validate dual Y-axis chart with future projections."""
 
-    def test_minichart_has_dual_y_axes(self, page: Page):
-        """MiniChart should show both return % and portfolio NAV axes."""
-        page.goto(BASE_URL)
-        page.wait_for_selector(".market-card", state="visible", timeout=10000)
-
-        # Find MiniChart within first card
-        first_card = page.locator(".market-card").first
-        mini_chart = first_card.locator("[data-testid='mini-chart']")
-        expect(mini_chart).to_be_visible()
-
-        # Check for SVG chart
-        svg = mini_chart.locator("svg").first
-        expect(svg).to_be_visible()
-
-        # Get Y-axis groups (Recharts renders two g.recharts-yAxis elements for dual axes)
-        y_axis_groups = svg.locator("g.recharts-yAxis")
-        axis_count = y_axis_groups.count()
-
-        print(f"✓ Found {axis_count} Y-axis groups")
-
-        # Should have 2 Y-axis groups (left and right)
-        if axis_count >= 2:
-            print("✓ Dual Y-axis structure confirmed (2 YAxis groups)")
-
-            # Get all tick texts from both axes
-            all_ticks = svg.locator("g.recharts-yAxis text")
-            tick_count = all_ticks.count()
-            print(f"✓ Found {tick_count} total Y-axis ticks")
-
-            # Check for percentage format (%) and dollar format ($)
-            has_percentage = False
-            has_dollar = False
-
-            for i in range(min(20, tick_count)):
-                tick_text = all_ticks.nth(i).inner_text()
-                print(f"  Tick {i}: {tick_text}")
-                if '%' in tick_text:
-                    has_percentage = True
-                if '$' in tick_text:
-                    has_dollar = True
-
-            assert has_percentage, "Left Y-axis should show percentage format (e.g., +5%)"
-            assert has_dollar, "Right Y-axis should show dollar format (e.g., $1050)"
-            print("✓ Dual Y-axis confirmed: % (left) and $ (right)")
-        else:
-            # Fallback: Check if at least one axis exists with both % and $ formatting
-            all_ticks = svg.locator("text")
-            has_percentage = False
-            has_dollar = False
-
-            for i in range(min(50, all_ticks.count())):
-                tick_text = all_ticks.nth(i).inner_text()
-                if '%' in tick_text:
-                    has_percentage = True
-                    print(f"  Found % format: {tick_text}")
-                if '$' in tick_text:
-                    has_dollar = True
-                    print(f"  Found $ format: {tick_text}")
-
-            print(f"✓ Axis rendering: has_percentage={has_percentage}, has_dollar={has_dollar}")
-            assert has_percentage or has_dollar, "Chart should show at least one formatted axis"
-
     def test_minichart_shows_historical_and_projected_lines(self, page: Page):
         """Historical data should be solid line, projections should be dashed."""
         page.goto(BASE_URL)

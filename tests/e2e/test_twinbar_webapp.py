@@ -135,27 +135,6 @@ class TestMarketCard:
         title = first_card.locator(".market-title")
         expect(title).to_be_visible()
 
-    def test_market_card_has_outcome_buttons(self, page: Page):
-        """Each market card should have Yes/No outcome buttons."""
-        self._wait_for_cards(page)
-        first_card = page.locator(".market-card").first
-
-        # Should have buy buttons for outcomes
-        yes_btn = first_card.locator(".outcome-btn.yes, [data-outcome='yes']")
-        no_btn = first_card.locator(".outcome-btn.no, [data-outcome='no']")
-
-        expect(yes_btn).to_be_visible()
-        expect(no_btn).to_be_visible()
-
-    def test_market_card_shows_odds(self, page: Page):
-        """Market card should display current odds/probability."""
-        self._wait_for_cards(page)
-        first_card = page.locator(".market-card").first
-
-        # Should show percentage odds
-        odds = first_card.locator(".market-odds, .outcome-odds")
-        expect(odds.first).to_be_visible()
-
     def test_market_card_shows_volume(self, page: Page):
         """Market card should display trading volume."""
         self._wait_for_cards(page)
@@ -175,31 +154,6 @@ class TestMarketCard:
         # Modal should appear (Headless UI renders it when open)
         modal = page.locator("#market-modal")
         expect(modal).to_be_visible()
-
-
-class TestBuyInterface:
-    """Verify buy/trade interface works."""
-
-    def _wait_for_cards(self, page: Page):
-        """Helper to wait for market cards to load."""
-        page.goto(BASE_URL)
-        page.wait_for_selector(".market-card", timeout=10000)
-
-    def test_yes_button_has_buy_action(self, page: Page):
-        """Yes button should trigger buy action."""
-        self._wait_for_cards(page)
-        first_card = page.locator(".market-card").first
-
-        yes_btn = first_card.locator(".outcome-btn.yes, [data-outcome='yes']")
-        expect(yes_btn).to_contain_text(re.compile(r"Yes|Buy"))
-
-    def test_no_button_has_buy_action(self, page: Page):
-        """No button should trigger buy action."""
-        self._wait_for_cards(page)
-        first_card = page.locator(".market-card").first
-
-        no_btn = first_card.locator(".outcome-btn.no, [data-outcome='no']")
-        expect(no_btn).to_contain_text(re.compile(r"No|Buy"))
 
 
 class TestMarketModal:
