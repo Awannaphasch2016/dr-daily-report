@@ -556,11 +556,27 @@ class PrecomputeService:
             calc = ProjectionCalculator(initial_investment=1000.0)
             projections = calc.calculate_projections(close_prices, dates, days_ahead=7)
 
-            # Add to state
+            # Convert DataFrame to OHLCV dict list for price_history
+            price_history = []
+            for idx, row in history_df.iterrows():
+                price_history.append({
+                    'date': idx.strftime('%Y-%m-%d') if hasattr(idx, 'strftime') else str(idx),
+                    'open': float(row['Open']),
+                    'high': float(row['High']),
+                    'low': float(row['Low']),
+                    'close': float(row['Close']),
+                    'volume': int(row['Volume']),
+                })
+
+            # Enhance with portfolio metrics (cumulative value, returns, etc.)
+            price_history_enhanced = calc.enhance_historical_data(price_history)
+
+            # Add to state - ALL required fields for chart rendering
+            state['price_history'] = price_history_enhanced
             state['projections'] = projections
             state['initial_investment'] = 1000.0
 
-            logger.info(f"✅ Added {len(projections)} projections to report_json")
+            logger.info(f"✅ Added {len(price_history_enhanced)} price_history points and {len(projections)} projections to report_json")
 
         except Exception as e:
             logger.warning(f"Failed to calculate projections for precompute: {e}")
