@@ -94,15 +94,76 @@ class RankingsService:
         age = (datetime.now() - self._cache_timestamp).total_seconds()
         return age < self.cache_ttl_seconds
 
-    async def _fetch_ticker_data(self, symbol: str) -> Optional[Dict]:
+    async def _fetch_from_cache(self, symbol: str) -> Optional[Dict]:
         """
-        Fetch real-time data for a single ticker
+        Query Aurora cache for precomputed report data.
+
+        Returns lightweight chart and score data from cached reports,
+        or None if cache miss.
 
         Args:
             symbol: User-friendly symbol (e.g., 'NVDA19', 'SIA19')
 
         Returns:
-            Dict with ticker data or None if fetch fails
+            Dict with 'chart_data' and 'key_scores' or None on cache miss
+        """
+        from src.data.aurora.precompute_service import PrecomputeService
+        from datetime import date as date_class
+
+        try:
+            service = PrecomputeService()
+            cached = service.get_cached_report(symbol, date_class.today())
+
+            if cached and cached.get('report_json'):
+                report_json = cached['report_json']
+
+                # Parse JSON if stored as string
+                if isinstance(report_json, str):
+                    import json
+                    report_json = json.loads(report_json)
+
+                # Extract chart data
+                chart_data = None
+                if any(k in report_json for k in ['price_history', 'projections', 'initial_investment']):
+                    chart_data = {
+                        'price_history': report_json.get('price_history', []),
+                        'projections': report_json.get('projections', []),
+                        'initial_investment': report_json.get('initial_investment', 1000.0),
+                    }
+
+                # Extract top 3 scores
+                key_scores = None
+                user_facing_scores = report_json.get('user_facing_scores')
+                if user_facing_scores:
+                    # user_facing_scores is a dict like {'Technical': {...}, 'Fundamental': {...}}
+                    # Convert to list and take top 3
+                    if isinstance(user_facing_scores, dict):
+                        scores_list = list(user_facing_scores.values())[:3]
+                        key_scores = scores_list
+                    elif isinstance(user_facing_scores, list):
+                        key_scores = user_facing_scores[:3]
+
+                logger.info(f"✅ Cache hit for {symbol}: chart_data={chart_data is not None}, key_scores={key_scores is not None}")
+
+                return {
+                    'chart_data': chart_data,
+                    'key_scores': key_scores
+                }
+
+        except Exception as e:
+            logger.warning(f"⚠️ Cache miss for {symbol}: {e}")
+
+        return None
+
+    async def _fetch_ticker_data(self, symbol: str) -> Optional[Dict]:
+        """
+        Fetch real-time data for a single ticker with cached report data
+
+        Args:
+            symbol: User-friendly symbol (e.g., 'NVDA19', 'SIA19')
+
+        Returns:
+            Dict with ticker data, chart_data, and key_scores (or None if fetch fails)
         """
         try:
             # Get Yahoo ticker from mapping
@@ -134,7 +195,10 @@ class RankingsService:
             price_change_pct = ((price - prev_close) / prev_close) * 100
             volume_ratio = volume / avg_volume if avg_volume > 0 else 0
 
-            return {
+            # Fetch cached report data (chart + scores)
+            cached_data = await self._fetch_from_cache(symbol)
+
+            result = {
                 'ticker': symbol,  # Return user-friendly symbol (NVDA19, not NVDA)
                 'company_name': company_name,
                 'price': float(price),
@@ -142,6 +206,15 @@ class RankingsService:
                 'currency': currency,
                 'volume_ratio': round(volume_ratio, 2),
             }
+
+            # Add cached data if available
+            if cached_data:
+                if cached_data.get('chart_data'):
+                    result['chart_data'] = cached_data['chart_data']
+                if cached_data.get('key_scores'):
+                    result['key_scores'] = cached_data['key_scores']
+
+            return result
 
         except Exception as e:
             logger.error(f"Error fetching {symbol} ({yahoo_ticker}): {e}")
@@ -184,7 +257,7 @@ class RankingsService:
 
         return valid_results
 
-    def _calculate_top_gainers(self, ticker_data: List[Dict], limit: Optional[int] = None) -> List[RankingItem]:
+    def _calculate_top_gainers(self, ticker_data: List[Dict], limit: Optional[int] = None) -> List[Dict]:
         """
         Calculate top gainers by price change percentage
 
@@ -193,7 +266,7 @@ class RankingsService:
             limit: Number of results to return (None = all)
 
         Returns:
-            Sorted list of RankingItem by highest price change
+            Sorted list of ticker data dicts by highest price change
         """
         # Filter only positive changes
         gainers = [t for t in ticker_data if t['price_change_pct'] > 0]
@@ -201,12 +274,12 @@ class RankingsService:
         # Sort by price_change_pct descending
         gainers.sort(key=lambda x: x['price_change_pct'], reverse=True)
 
-        # Convert to RankingItem
+        # Apply limit
         if limit is not None:
             gainers = gainers[:limit]
-        return [RankingItem(**t) for t in gainers]
+        return gainers
 
-    def _calculate_top_losers(self, ticker_data: List[Dict], limit: Optional[int] = None) -> List[RankingItem]:
+    def _calculate_top_losers(self, ticker_data: List[Dict], limit: Optional[int] = None) -> List[Dict]:
         """
         Calculate top losers by price change percentage
 
@@ -215,7 +288,7 @@ class RankingsService:
             limit: Number of results to return (None = all)
 
         Returns:
-            Sorted list of RankingItem by lowest price change
+            Sorted list of ticker data dicts by lowest price change
         """
         # Filter only negative changes
         losers = [t for t in ticker_data if t['price_change_pct'] < 0]
@@ -223,12 +296,12 @@ class RankingsService:
         # Sort by price_change_pct ascending (most negative first)
         losers.sort(key=lambda x: x['price_change_pct'])
 
-        # Convert to RankingItem
+        # Apply limit
         if limit is not None:
             losers = losers[:limit]
-        return [RankingItem(**t) for t in losers]
+        return losers
 
-    def _calculate_volume_surge(self, ticker_data: List[Dict], limit: Optional[int] = None) -> List[RankingItem]:
+    def _calculate_volume_surge(self, ticker_data: List[Dict], limit: Optional[int] = None) -> List[Dict]:
         """
         Calculate volume surge by volume ratio
 
@@ -237,7 +310,7 @@ class RankingsService:
             limit: Number of results to return (None = all)
 
         Returns:
-            Sorted list of RankingItem by highest volume ratio
+            Sorted list of ticker data dicts by highest volume ratio
         """
         # Filter tickers with volume ratio > 1.5 (50% above average)
         volume_surge = [t for t in ticker_data if t['volume_ratio'] > 1.5]
@@ -245,12 +318,12 @@ class RankingsService:
         # Sort by volume_ratio descending
         volume_surge.sort(key=lambda x: x['volume_ratio'], reverse=True)
 
-        # Convert to RankingItem
+        # Apply limit
         if limit is not None:
             volume_surge = volume_surge[:limit]
-        return [RankingItem(**t) for t in volume_surge]
+        return volume_surge
 
-    def _calculate_trending(self, ticker_data: List[Dict], limit: Optional[int] = None) -> List[RankingItem]:
+    def _calculate_trending(self, ticker_data: List[Dict], limit: Optional[int] = None) -> List[Dict]:
         """
         Calculate trending tickers by momentum score
 
@@ -262,30 +335,28 @@ class RankingsService:
             limit: Number of results to return (None = all)
 
         Returns:
-            Sorted list of RankingItem by highest momentum score
+            Sorted list of ticker data dicts by highest momentum score
         """
-        # Calculate momentum score for each ticker
+        # Calculate momentum score for each ticker (create copies to avoid mutating original)
+        trending_data = []
         for ticker in ticker_data:
-            ticker['momentum_score'] = ticker['price_change_pct'] + ticker['volume_ratio']
+            t_copy = ticker.copy()
+            t_copy['momentum_score'] = ticker['price_change_pct'] + ticker['volume_ratio']
+            trending_data.append(t_copy)
 
         # Sort by momentum_score descending
-        ticker_data.sort(key=lambda x: x['momentum_score'], reverse=True)
+        trending_data.sort(key=lambda x: x['momentum_score'], reverse=True)
 
-        # Convert to RankingItem (remove momentum_score field)
-        results = []
-        items = ticker_data if limit is None else ticker_data[:limit]
-        for t in items:
-            item_data = {k: v for k, v in t.items() if k != 'momentum_score'}
-            results.append(RankingItem(**item_data))
-
-        return results
+        # Apply limit and remove momentum_score (internal metric)
+        items = trending_data if limit is None else trending_data[:limit]
+        return [{k: v for k, v in t.items() if k != 'momentum_score'} for t in items]
 
     async def get_rankings(
         self,
         category: RankingCategory,
         limit: int = 10,
         force_refresh: bool = False
-    ) -> List[RankingItem]:
+    ) -> List[Dict]:
         """
         Get market rankings for a specific category
 
@@ -295,7 +366,7 @@ class RankingsService:
             force_refresh: Force refresh even if cache is valid
 
         Returns:
-            List of RankingItem sorted by category criteria
+            List of ticker data dicts sorted by category criteria (includes chart_data and key_scores if cached)
 
         Raises:
             ValueError: If category is invalid

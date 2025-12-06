@@ -557,17 +557,19 @@ async def get_rankings(
 
         logger.info(f"Rankings {category}: {len(ranking_items)} results")
 
-        # Transform RankingItem to RankedTicker (remove volume_ratio, add optional fields as None)
+        # Transform dict to RankedTicker (includes chart_data and key_scores from cache)
         tickers = [
             RankedTicker(
-                ticker=item.ticker,
-                company_name=item.company_name,
-                price=item.price,
-                price_change_pct=item.price_change_pct,
-                currency=item.currency,
+                ticker=item['ticker'],
+                company_name=item['company_name'],
+                price=item['price'],
+                price_change_pct=item['price_change_pct'],
+                currency=item['currency'],
                 stance=None,  # Not available for rankings
                 estimated_upside_pct=None,  # Not available for rankings
-                risk_level=None  # Not available for rankings
+                risk_level=None,  # Not available for rankings
+                chart_data=item.get('chart_data'),  # From Aurora cache
+                key_scores=item.get('key_scores')   # From Aurora cache
             )
             for item in ranking_items
         ]
