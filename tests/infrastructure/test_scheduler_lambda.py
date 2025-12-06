@@ -147,3 +147,86 @@ class TestSchedulerAuroraConnectivity:
         assert 'statusCode' in payload or 'body' in payload, (
             f"Aurora setup action did not return expected response: {payload}"
         )
+
+
+@pytest.mark.integration
+class TestSchedulerPrecomputeSuccess:
+    """Test suite for verifying precompute actually succeeds
+
+    TDD Tests that catch schema mismatches and silent failures.
+    Previous gap: tests verified Lambda CAN invoke but not that
+    database writes SUCCEED.
+    """
+
+    @pytest.fixture(autouse=True)
+    def setup(self):
+        """Set up AWS clients"""
+        self.lambda_client = boto3.client('lambda', region_name='ap-southeast-1')
+        self.function_name = 'dr-daily-report-ticker-scheduler-dev'
+
+    def test_precompute_succeeds_without_schema_errors(self):
+        """Test that precompute doesn't fail with schema errors
+
+        Regression Test: Catches database schema mismatches like:
+        - "Unknown column 'date' in 'field list'"
+        - FK constraint failures (silent, rowcount=0)
+        - ENUM value mismatches (silent, rowcount=0)
+
+        This test verifies the database schema matches what precompute
+        service expects. Previous gap: tests verified Lambda CAN invoke
+        but not that precompute SUCCEEDS.
+        """
+        # Invoke precompute with a real ticker
+        response = self.lambda_client.invoke(
+            FunctionName=self.function_name,
+            InvocationType='RequestResponse',
+            Payload=json.dumps({
+                'action': 'precompute',
+                'symbol': 'NVDA',  # Real ticker (should succeed)
+                'include_report': False  # Faster, no LLM call
+            })
+        )
+
+        payload = json.loads(response['Payload'].read().decode('utf-8'))
+
+        # Should not have FunctionError
+        assert 'FunctionError' not in response, (
+            f"Precompute failed with exception: {payload}"
+        )
+
+        # Response should have body with success indicator
+        assert 'body' in payload, f"No body in response: {payload}"
+        body = payload['body']
+
+        # Check for schema errors in response
+        if isinstance(body, dict):
+            # Check details for schema-related errors
+            details = body.get('details', [])
+            if details and len(details) > 0:
+                first_detail = details[0]
+                error_msg = first_detail.get('error', '')
+
+                # Fail if schema mismatch detected
+                if 'Unknown column' in error_msg:
+                    pytest.fail(
+                        f"Database schema mismatch detected: {error_msg}. "
+                        f"The code references a column that doesn't exist in Aurora. "
+                        f"Check precompute_service.py SQL queries."
+                    )
+
+                # Fail if FK constraint detected (indicates schema mismatch)
+                if 'foreign key constraint' in error_msg.lower():
+                    pytest.fail(
+                        f"Foreign key constraint failure: {error_msg}. "
+                        f"This may indicate ticker_id doesn't exist in ticker_master."
+                    )
+
+            # Verify at least one success
+            success_count = body.get('success', 0)
+            total_count = body.get('total', 0)
+
+            assert success_count > 0 or total_count == 0, (
+                f"Precompute processed {total_count} tickers but 0 succeeded. "
+                f"This indicates all database writes failed (likely schema mismatch). "
+                f"Details: {details}"
+            )
