@@ -74,64 +74,6 @@ function calculateSMA(data: PriceDataPoint[], period: number): number[] {
   return sma;
 }
 
-/**
- * Custom Candlestick Shape Component
- * Renders individual candlestick with wick and body (TradingView style)
- */
-const Candlestick = (props: any) => {
-  const { x, y, width, height, payload } = props;
-
-  if (!payload || width <= 0) return null;
-
-  const isGreen = payload.isGreen;
-  // TradingView-style colors: teal-green for bullish, red for bearish
-  const candleColor = isGreen ? '#26a69a' : '#ef5350';
-
-  // Calculate positions
-  const candleWidth = Math.max(width * 0.7, 3); // Wider body, min 3px
-  const candleX = x + (width - candleWidth) / 2; // Center the body
-  const wickX = x + width / 2; // Center the wick
-
-  // Handle doji case (open ≈ close, very small body)
-  const isDoji = height < 1;
-
-  return (
-    <g className="candlestick">
-      {/* Wick (vertical line from low to high) */}
-      <line
-        x1={wickX}
-        y1={y - (payload.wickHigh - payload.candleTop) * (height / payload.candleHeight)}
-        x2={wickX}
-        y2={y + height + (payload.candleBottom - payload.wickLow) * (height / payload.candleHeight)}
-        stroke={candleColor}
-        strokeWidth={1}
-      />
-
-      {/* Body (rectangle from open to close, or line for doji) */}
-      {isDoji ? (
-        // Doji: horizontal line when open ≈ close
-        <line
-          x1={x}
-          x2={x + width}
-          y1={y}
-          y2={y}
-          stroke={candleColor}
-          strokeWidth={1}
-        />
-      ) : (
-        <rect
-          x={candleX}
-          y={y}
-          width={candleWidth}
-          height={height}
-          fill={candleColor}
-          stroke="none"
-          className="candlestick"
-        />
-      )}
-    </g>
-  );
-};
 
 export function FullChart({ data, indicators = { sma20: true, sma50: true } }: FullChartProps) {
   // Format data and calculate indicators
@@ -217,11 +159,82 @@ export function FullChart({ data, indicators = { sma20: true, sma50: true } }: F
             labelFormatter={(label) => `Date: ${label}`}
           />
 
-          {/* Candlesticks using Bar with custom shape */}
+          {/* Candlesticks - render from low to high for full range */}
           <Bar
-            dataKey="candleBottom"
-            fill="#10b981"
-            shape={<Candlestick />}
+            dataKey="high"
+            shape={(props: any) => {
+              const { x, width, payload } = props;
+              if (!payload || width <= 0) return <g />; // Return empty group instead of null
+
+              // We need to manually calculate Y positions using the chart's scale
+              // Since we don't have direct access to yScale in Bar shape,
+              // we'll use the relative positioning approach
+
+              // Get the Y-axis domain from the chart
+              const domain = yDomain;
+              const priceRange = domain[1] - domain[0];
+
+              // Estimate chart height (this is approximate)
+              // The actual plot area is smaller than h-96 due to margins
+              const chartHeight = 300; // Approximate plot area height in pixels
+
+              // Calculate pixel positions for OHLC values
+              const priceToPixel = (price: number) => {
+                const ratio = (domain[1] - price) / priceRange;
+                return ratio * chartHeight + 10; // +10 for top margin
+              };
+
+              const highY = priceToPixel(payload.high);
+              const lowY = priceToPixel(payload.low);
+              const openY = priceToPixel(payload.open);
+              const closeY = priceToPixel(payload.close);
+
+              const candleTop = Math.min(openY, closeY);
+              const candleBottom = Math.max(openY, closeY);
+
+              const isGreen = payload.close >= payload.open;
+              const candleColor = isGreen ? '#26a69a' : '#ef5350';
+
+              const candleWidth = Math.max(width * 0.7, 3);
+              const candleX = x + (width - candleWidth) / 2;
+              const wickX = x + width / 2;
+
+              return (
+                <g className="candlestick">
+                  {/* Wick from high to low */}
+                  <line
+                    x1={wickX}
+                    y1={highY}
+                    x2={wickX}
+                    y2={lowY}
+                    stroke={candleColor}
+                    strokeWidth={1}
+                  />
+                  {/* Body from open to close */}
+                  {candleBottom - candleTop < 1 ? (
+                    // Doji: horizontal line
+                    <line
+                      x1={x}
+                      x2={x + width}
+                      y1={candleTop}
+                      y2={candleTop}
+                      stroke={candleColor}
+                      strokeWidth={1}
+                    />
+                  ) : (
+                    <rect
+                      x={candleX}
+                      y={candleTop}
+                      width={candleWidth}
+                      height={candleBottom - candleTop}
+                      fill={candleColor}
+                      stroke="none"
+                      className="candlestick"
+                    />
+                  )}
+                </g>
+              );
+            }}
             isAnimationActive={false}
           />
 
