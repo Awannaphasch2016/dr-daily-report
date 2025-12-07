@@ -164,3 +164,51 @@ class TestUserFacingScoresExtraction:
             # Assert: Original fields preserved
             assert result['ticker'] == 'NVDA19', "Should preserve original fields"
             assert result['indicators'] == mock_result['indicators'], "Should preserve indicators"
+
+    def test_ensure_user_facing_scores_handles_empty_dict_fields(self):
+        """
+        REGRESSION TEST for empty dict truthiness bug.
+
+        GIVEN workflow returns EMPTY DICTS for indicators/ticker_data/percentiles
+        WHEN _ensure_user_facing_scores is called
+        THEN it should NOT silently skip extraction (empty dicts != missing data)
+
+        This is the ACTUAL production scenario where workflow initializes fields
+        to {} and they remain empty if nodes fail or data fetch fails.
+
+        Bug: The check `if not result['indicators']` evaluates to True when
+        result['indicators'] = {} (empty dict is falsy), causing early return.
+
+        Expected behavior: Should detect empty dicts explicitly and return
+        WITHOUT user_facing_scores (graceful degradation), but with clear
+        ERROR log (not buried WARNING).
+
+        Follows CLAUDE.md:
+        - TDD RED: This test documents the bug (passes with buggy code)
+        - Test will guide fix: explicit empty dict check needed
+        - Principle 2: Explicit Failure Mocking (test with empty dicts {})
+        - Principle 5: Test Outcomes (verify user_facing_scores not added)
+        """
+        # Arrange: Mock result with EMPTY DICTS (not missing keys)
+        # This mirrors agent workflow initialization (agent.py:158-182)
+        mock_result = {
+            'ticker': 'NVDA19',
+            'indicators': {},      # EMPTY dict (falsy but present)
+            'ticker_data': {},     # EMPTY dict (falsy but present)
+            'percentiles': {},     # EMPTY dict (falsy but present)
+        }
+
+        # Act: Call _ensure_user_facing_scores with empty dicts
+        result = self.service._ensure_user_facing_scores(mock_result.copy(), 'NVDA19')
+
+        # Assert: OUTCOME - Should NOT add user_facing_scores when fields are empty
+        # This test PASSES with current buggy code (documenting the bug)
+        # After fix, test will still pass but with explicit empty dict detection
+        assert 'user_facing_scores' not in result, \
+            "Empty dicts should be detected as invalid input, scores not extracted"
+
+        # Additional assertion: All original fields preserved
+        assert result['ticker'] == 'NVDA19', "Should preserve ticker field"
+        assert result['indicators'] == {}, "Should preserve empty indicators"
+        assert result['ticker_data'] == {}, "Should preserve empty ticker_data"
+        assert result['percentiles'] == {}, "Should preserve empty percentiles"

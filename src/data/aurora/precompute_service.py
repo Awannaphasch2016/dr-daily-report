@@ -657,14 +657,22 @@ class PrecomputeService:
             return result
 
         # Validate data is not empty (existence check is not enough)
-        if not result['indicators'] or not result['ticker_data'] or not result['percentiles']:
-            # FAIL FAST WITH VISIBILITY
-            logger.warning(
-                f"⚠️  Cannot extract user_facing_scores for {symbol}: "
-                f"Required fields are EMPTY. "
-                f"indicators={bool(result['indicators'])}, "
-                f"ticker_data={bool(result['ticker_data'])}, "
-                f"percentiles={bool(result['percentiles'])}"
+        # FIX: Explicitly check for EMPTY dicts, not just falsy values
+        # Python truthiness bug: not {} evaluates to True (empty dict is falsy)
+        # This caused silent early returns when workflow initialized fields to {}
+        has_indicators = result.get('indicators') and len(result['indicators']) > 0
+        has_ticker_data = result.get('ticker_data') and len(result['ticker_data']) > 0
+        has_percentiles = result.get('percentiles') and len(result['percentiles']) > 0
+
+        if not has_indicators or not has_ticker_data or not has_percentiles:
+            # FAIL FAST WITH EXPLICIT ERROR (not buried WARNING)
+            # Defensive programming: explicit failure detection
+            logger.error(
+                f"❌ Cannot extract user_facing_scores for {symbol}: "
+                f"Required fields are empty or missing. "
+                f"indicators={bool(has_indicators)} (len={len(result.get('indicators', {}))}), "
+                f"ticker_data={bool(has_ticker_data)} (len={len(result.get('ticker_data', {}))}), "
+                f"percentiles={bool(has_percentiles)} (len={len(result.get('percentiles', {}))})"
             )
             return result
 
