@@ -3,6 +3,8 @@
 Lambda handler for scheduled ticker data fetching.
 
 Triggered by EventBridge (daily at 8 AM Bangkok time) or manual invocation.
+
+Supports parallel precompute via SQS fan-out for fast cache population.
 """
 
 import json
