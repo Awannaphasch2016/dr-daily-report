@@ -92,6 +92,26 @@ export function MiniChart({
   initialInvestment,
   stance,
 }: MiniChartProps) {
+  // ALWAYS render component - show empty state if no data
+  // Principle: Observability > conditional rendering (CLAUDE.md:342-346)
+  // User sees component exists + knows data is missing (not a UI bug)
+  const isEmpty = !data || data.length === 0;
+
+  if (isEmpty) {
+    return (
+      <div
+        data-testid="mini-chart"
+        className="mini-chart mini-chart--empty w-full h-24 mb-3 flex items-center justify-center border border-dashed border-[var(--color-border)] rounded"
+        aria-label="Portfolio performance chart (no data)"
+      >
+        <div className="empty-state text-center text-xs text-[var(--color-text-secondary)]">
+          <div className="empty-state__icon text-lg mb-1">📊</div>
+          <div className="empty-state__text">No chart data available</div>
+        </div>
+      </div>
+    );
+  }
+
   const chartColor = useMemo(() => getChartColor(stance), [stance]);
   const chartData = useMemo(
     () => mergeDataForChart(data, projections),

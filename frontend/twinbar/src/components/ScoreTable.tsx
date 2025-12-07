@@ -53,8 +53,20 @@ function getDotColor(score: number, maxScore: number): string {
 }
 
 export function ScoreTable({ scores }: ScoreTableProps) {
-  if (!scores || scores.length === 0) {
-    return null;
+  // ALWAYS render component - show empty state if no scores
+  // Principle: Observability > conditional rendering (CLAUDE.md:342-346)
+  // User sees component exists + knows data is missing (not a UI bug)
+  const isEmpty = !scores || scores.length === 0;
+
+  if (isEmpty) {
+    return (
+      <div data-testid="score-table" className="score-table score-table--empty flex items-center justify-center p-3">
+        <div className="empty-state text-center text-xs text-[var(--color-text-secondary)]">
+          <div className="empty-state__icon text-lg mb-1">📈</div>
+          <div className="empty-state__text">No scoring data available</div>
+        </div>
+      </div>
+    );
   }
 
   return (
