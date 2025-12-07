@@ -432,6 +432,414 @@ def store_report(self, symbol, text):
 
 ---
 
+## Defensive Programming
+
+### Core Principle: Fail-Fast vs Silent Failure
+
+**The fundamental rule: When something goes wrong, fail immediately and visibly.**
+
+Silent failures (fallbacks that hide problems) violate CI/CD principles where each stage must validate before the next executes. A deployment pipeline that silently falls back to production when test infrastructure is missing defeats the entire purpose of testing.
+
+### Configuration Validation Pattern
+
+**Principle:** Validate required configuration on startup, not on first use.
+
+Missing secrets or environment variables should cause immediate, loud failures with actionable error messages. This prevents cascading failures and misdiagnosis.
+
+**Why this matters:**
+- Missing `CLOUDFRONT_TEST_DISTRIBUTION_ID` → Silent fallback to APP CloudFront → Tests run against production → Wrong conclusions about bugs
+- Missing `DATABASE_URL` → Application starts → First request fails → Users see errors
+- Missing `API_KEY` → Silently degrades → Partial data returned → Data integrity issues
+
+**Implementation locations (all complementary):**
+
+| Layer | When to Validate | Example |
+|-------|------------------|---------|
+| CI/CD | Before deploying | GitHub Actions job fails if secrets missing |
+| Application Startup | On import/initialization | `config.py` validates env vars, raises on missing |
+| Test Setup | In pytest fixtures | `conftest.py` validates test env, skips if unavailable |
+| Infrastructure | Terraform apply | Preconditions check outputs exist before use |
+
+### Anti-Pattern: Silent Fallback
+
+**Never use fallback logic that hides configuration errors in production paths.**
+
+```yaml
+# BAD: Silent fallback (from deploy.yml issue)
+if [ -n "${TEST_DIST_ID}" ]; then
+    # Invalidate TEST CloudFront
+else
+    echo "⚠️ TEST CloudFront not configured, using APP CloudFront"  # Silent warning
+    # Falls back to APP ❌ Users see untested code!
+fi
+
+# GOOD: Fail-fast
+if [ -z "${TEST_DIST_ID}" ]; then
+    echo "❌ FATAL: CLOUDFRONT_TEST_DISTRIBUTION_ID not configured"
+    echo "Cannot deploy without TEST CloudFront for E2E validation"
+    exit 1  # Explicit failure
+fi
+```
+
+**Why fallbacks are dangerous:**
+- Production path (APP CloudFront) gets tested instead of new code (TEST CloudFront)
+- Violates "TEST → Validate → Promote" pattern
+- Creates false confidence: CI passes but tested wrong thing
+- Debugging becomes harder: symptoms don't match actual problem
+
+### When Fallbacks ARE Appropriate
+
+**Fail-safe (graceful degradation) for expected failures users can tolerate:**
+
+```python
+# GOOD: Graceful degradation for external API timeout
+def fetch_news(ticker: str) -> List[dict]:
+    """Fetch news with timeout fallback"""
+    try:
+        return news_api.fetch(ticker, timeout=5)
+    except TimeoutError:
+        logger.warning(f"News API timeout for {ticker}, returning cached data")
+        return cache.get_news(ticker) or []  # Stale data > no data
+
+# BAD: Silent failure for critical system component
+def fetch_user_portfolio(user_id: str) -> dict:
+    """Fetch user portfolio"""
+    try:
+        return database.query(user_id)
+    except DatabaseError:
+        logger.warning("Database error, returning empty portfolio")  # ❌ Silent data loss!
+        return {}  # User thinks they have no holdings
+```
+
+**Decision matrix:**
+
+| Scenario | Strategy | Why |
+|----------|----------|-----|
+| Missing required config | Fail-Fast | Configuration errors should never reach production |
+| External API timeout | Fail-Safe | Users tolerate stale data better than no data |
+| Invalid user input | Fail-Fast | User needs to know input is rejected |
+| Optional feature unavailable | Fail-Safe | Core functionality still works |
+
+### Design by Contract
+
+**Define preconditions explicitly and check them at system boundaries.**
+
+**Trust Boundaries:** Everything outside is dangerous (validate), everything inside is safe (trust).
+
+```python
+# System boundary: API endpoint
+def generate_report(ticker: str, user_id: str) -> dict:
+    """
+    Generate report for ticker.
+
+    Preconditions:
+        - ticker must be in supported ticker list
+        - user_id must be authenticated
+
+    Postconditions:
+        - Returns dict with 'report' key
+        - Never returns None (raises exception on failure)
+    """
+    # Validate at boundary
+    if not is_ticker_supported(ticker):
+        raise TickerNotSupportedError(ticker)  # Explicit failure
+
+    if not is_authenticated(user_id):
+        raise Unauthorized(user_id)  # Explicit failure
+
+    # Inside boundary: trust inputs
+    report = _generate_report_internal(ticker)  # No validation needed
+
+    # Postcondition check
+    assert 'report' in report, "Postcondition violated: missing 'report' key"
+    return report
+
+# Internal function: trusts caller
+def _generate_report_internal(ticker: str) -> dict:
+    """Internal: assumes ticker is valid (caller validated)"""
+    # NO validation - waste of cycles, creates false confidence
+```
+
+**Why this works:**
+- Validation cost paid once at boundary, not repeatedly
+- Internal functions stay simple and fast
+- Bugs caught at point of entry, not deep in call stack
+- Clear contract: public functions validate, private functions trust
+
+### Configuration Validation Examples
+
+**GitHub Actions (validate-secrets job):**
+```yaml
+validate-secrets:
+  name: Validate Required Secrets
+  runs-on: ubuntu-latest
+  steps:
+    - name: Check required secrets
+      run: |
+        MISSING=()
+
+        [ -z "${{ secrets.CLOUDFRONT_TEST_DISTRIBUTION_ID }}" ] && MISSING+=("CLOUDFRONT_TEST_DISTRIBUTION_ID")
+        [ -z "${{ secrets.TELEGRAM_API_URL }}" ] && MISSING+=("TELEGRAM_API_URL")
+        [ -z "${{ secrets.AWS_ACCESS_KEY_ID }}" ] && MISSING+=("AWS_ACCESS_KEY_ID")
+
+        if [ ${#MISSING[@]} -gt 0 ]; then
+          echo "❌ Missing required secrets:"
+          printf '  - %s\n' "${MISSING[@]}"
+          exit 1
+        fi
+
+        echo "✅ All required secrets configured"
+
+deploy-frontend:
+  needs: validate-secrets  # Won't run if secrets missing
+```
+
+**Python Application (config.py):**
+```python
+# src/config.py
+import os
+from typing import Optional
+
+class ConfigurationError(Exception):
+    """Raised when required configuration is missing"""
+    pass
+
+class Config:
+    """Application configuration with validation"""
+
+    def __init__(self):
+        # Validate on initialization (fail-fast)
+        self.openrouter_api_key = self._require("OPENROUTER_API_KEY")
+        self.database_url = self._require("DATABASE_URL")
+
+        # Optional configs with defaults
+        self.log_level = os.getenv("LOG_LEVEL", "INFO")
+        self.enable_tracing = os.getenv("LANGSMITH_TRACING_V2", "false") == "true"
+
+    def _require(self, var_name: str) -> str:
+        """Get required environment variable or fail"""
+        value = os.getenv(var_name)
+        if not value:
+            raise ConfigurationError(
+                f"Missing required environment variable: {var_name}\n"
+                f"Set it in .env or via Doppler: doppler secrets set {var_name}=<value>"
+            )
+        return value
+
+# Module-level singleton (fails on import if misconfigured)
+config = Config()  # ❌ Immediate failure if env vars missing
+```
+
+**Pytest Fixtures (conftest.py):**
+```python
+# tests/conftest.py
+import pytest
+import os
+
+@pytest.fixture(scope="session", autouse=True)
+def validate_test_environment():
+    """Validate test environment before running any tests"""
+    required_vars = ["DATABASE_URL", "OPENROUTER_API_KEY"]
+    missing = [var for var in required_vars if not os.getenv(var)]
+
+    if missing:
+        pytest.fail(
+            f"Missing required test environment variables: {', '.join(missing)}\n"
+            f"Run: doppler run -- pytest"
+        )
+
+@pytest.fixture
+def skip_if_no_aurora():
+    """Skip test if Aurora not configured (CI environment)"""
+    if not os.getenv("AURORA_HOST"):
+        pytest.skip("Aurora not configured - requires live database")
+```
+
+**Terraform Preconditions:**
+```hcl
+# terraform/frontend.tf
+resource "aws_cloudfront_distribution" "webapp_test" {
+  # ... configuration
+
+  lifecycle {
+    precondition {
+      condition     = var.telegram_webapp_test_url != ""
+      error_message = "telegram_webapp_test_url must be set in terraform.tfvars"
+    }
+  }
+}
+
+output "test_distribution_id" {
+  description = "TEST CloudFront distribution ID for E2E testing"
+  value       = aws_cloudfront_distribution.webapp_test.id
+
+  precondition {
+    condition     = aws_cloudfront_distribution.webapp_test.enabled
+    error_message = "TEST CloudFront distribution must be enabled"
+  }
+}
+```
+
+### Defensive Checks in Code
+
+**NASA's Power of Ten Rules (adapted):**
+- Minimum 2 assertions per function (precondition + postcondition)
+- Never ignore return values (check rowcount, API responses, subprocess exit codes)
+- Limit nesting to 3 levels (deep nesting hides control flow)
+- No recursion (for production critical paths - stack overflow risk)
+
+**Example: Database operation with defensive checks:**
+```python
+def store_report(self, symbol: str, report_text: str) -> bool:
+    """
+    Store report in database.
+
+    Returns:
+        True if stored successfully, False otherwise
+
+    Defensive checks:
+        - Validates inputs (precondition)
+        - Checks rowcount (MySQL FK/ENUM failures are silent)
+        - Explicit return value (never undefined behavior)
+    """
+    # Precondition
+    assert symbol and report_text, "symbol and report_text cannot be empty"
+
+    # Execute
+    try:
+        cursor = self.client.execute(
+            "INSERT INTO reports (symbol, text) VALUES (%s, %s)",
+            (symbol, report_text)
+        )
+        rowcount = cursor.rowcount
+    except Exception as e:
+        logger.error(f"Database error storing {symbol}: {e}")
+        return False  # Explicit failure
+
+    # Postcondition check
+    if rowcount == 0:
+        logger.warning(f"INSERT affected 0 rows for {symbol} - FK constraint or ENUM mismatch?")
+        return False  # Catch silent failures
+
+    logger.info(f"✅ Stored report for {symbol}")
+    return True  # Explicit success
+```
+
+### Observability: Empty States vs Conditional Rendering
+
+**Principle:** Components should always render (with empty state), not disappear when data is missing.
+
+**Why:**
+- Observability: User sees component exists, knows data is missing (not a UI bug)
+- Debugging: Can inspect DOM, check testid attributes
+- UX: Better to show "No data available" than blank screen
+
+```typescript
+// GOOD: Always renders
+export function MiniChart({ data }: ChartProps) {
+  if (!data || data.length === 0) {
+    return (
+      <div data-testid="mini-chart" className="mini-chart--empty">
+        <div className="empty-state">
+          <div className="empty-state__icon">📊</div>
+          <div className="empty-state__text">No chart data available</div>
+        </div>
+      </div>
+    );
+  }
+
+  return <div data-testid="mini-chart">{/* chart rendering */}</div>;
+}
+
+// BAD: Conditional rendering (disappears from DOM)
+export function MiniChart({ data }: ChartProps) {
+  if (!data || data.length === 0) return null;  // ❌ Component vanishes
+  return <div data-testid="mini-chart">{/* chart */}</div>;
+}
+```
+
+### Input Validation (OWASP)
+
+**Validate at system boundaries:**
+- User input (API requests, form submissions)
+- External APIs (third-party responses)
+- File uploads
+- Database queries (prevent SQL injection)
+
+**Allowlist > Denylist:**
+```python
+# GOOD: Allowlist
+ALLOWED_CATEGORIES = {'top_gainers', 'top_losers', 'volume_surge', 'trending'}
+
+def get_rankings(category: str):
+    if category not in ALLOWED_CATEGORIES:
+        raise ValueError(f"Invalid category: {category}")  # Explicit rejection
+    return _fetch_rankings(category)
+
+# BAD: Denylist (always incomplete)
+BLOCKED_CATEGORIES = {'admin', 'internal'}
+
+def get_rankings(category: str):
+    if category in BLOCKED_CATEGORIES:  # What about future bad categories?
+        raise ValueError(f"Blocked category: {category}")
+    return _fetch_rankings(category)  # ❌ Allows unknown categories
+```
+
+### When to Use Assertions vs Exceptions
+
+| Use Case | Tool | Example |
+|----------|------|---------|
+| Developer mistakes (bugs) | `assert` | `assert len(data) > 0, "data cannot be empty"` |
+| User/external errors | `raise Exception` | `raise ValueError("Invalid ticker symbol")` |
+| Preconditions (internal) | `assert` | `assert is_authenticated(user)` |
+| Postconditions (verify correctness) | `assert` | `assert result['status'] == 'success'` |
+| Production invariants | `if not ... raise` | `if rowcount == 0: raise DatabaseError(...)` |
+
+**Why both:**
+- Assertions disabled with `python -O` (production optimization)
+- Exceptions always active (catch production issues)
+- Assertions document assumptions (checked in development)
+- Exceptions handle runtime conditions (checked always)
+
+### Summary: Defensive Programming Checklist
+
+**Configuration:**
+- [ ] Validate required secrets in CI before deployment
+- [ ] Validate env vars on application startup (fail-fast)
+- [ ] Provide actionable error messages (how to fix)
+
+**Error Handling:**
+- [ ] No silent fallbacks for required components
+- [ ] Explicit return values (never undefined behavior)
+- [ ] Check database rowcount (MySQL fails silently)
+- [ ] Log warnings before degrading (observability)
+
+**Boundaries:**
+- [ ] Validate all external inputs (user, API, files)
+- [ ] Use allowlisting over denylisting
+- [ ] Trust internal functions (validate once at boundary)
+
+**Observability:**
+- [ ] Components render empty states (don't disappear)
+- [ ] Log configuration at startup
+- [ ] Return detailed error responses (not generic "500 Internal Error")
+
+**Testing:**
+- [ ] Test both success and failure paths
+- [ ] Verify tests can detect failures (test sabotage)
+- [ ] Skip tests gracefully when infrastructure unavailable (not silent failure)
+
+### References
+
+- [Fail-Fast (Martin Fowler)](https://martinfowler.com/ieeeSoftware/failFast.pdf)
+- [Design by Contract (Bertrand Meyer)](https://en.wikipedia.org/wiki/Design_by_contract)
+- [NASA's Power of Ten Rules](https://en.wikipedia.org/wiki/The_Power_of_10:_Rules_for_Developing_Safety-Critical_Code)
+- [OWASP Input Validation](https://cheatsheetseries.owasp.org/cheatsheets/Input_Validation_Cheat_Sheet.html)
+- [Let It Crash Philosophy (Erlang)](http://verraes.net/2014/12/erlang-let-it-crash/)
+- [Microsoft SDL](https://www.microsoft.com/en-us/securityengineering/sdl/practices)
+
+---
+
 ## Code Organization
 
 ### Directory Structure
