@@ -14,6 +14,7 @@ Flow:
 import asyncio
 import json
 import logging
+import os
 from typing import Any
 
 from src.agent import TickerAnalysisAgent
@@ -39,6 +40,39 @@ class AgentError(Exception):
     pass
 
 
+def _validate_required_config() -> None:
+    """Validate required environment variables at startup
+
+    Defensive programming principle from CLAUDE.md:
+    'Validate configuration at startup, not on first use (prevents production surprises)'
+
+    This catches missing/empty environment variables immediately, preventing wasted
+    compute on jobs that will inevitably fail during workflow execution.
+
+    Raises:
+        ValueError: If any required environment variable is missing or empty
+    """
+    required_vars = {
+        'OPENROUTER_API_KEY': 'LLM report generation',
+        'AURORA_HOST': 'Aurora database caching',
+        'PDF_BUCKET_NAME': 'PDF report storage',
+        'JOBS_TABLE_NAME': 'Job status tracking'
+    }
+
+    missing = {var: purpose for var, purpose in required_vars.items()
+               if not os.getenv(var)}
+
+    if missing:
+        error_msg = "Missing required environment variables:\n"
+        for var, purpose in missing.items():
+            error_msg += f"  - {var} (needed for: {purpose})\n"
+        error_msg += "\nThis Lambda cannot process jobs without these environment variables."
+        logger.error(error_msg)
+        raise ValueError(error_msg)
+
+    logger.info(f"✅ All {len(required_vars)} required environment variables present")
+
+
 def handler(event: dict, context: Any) -> dict:
     """Lambda handler for SQS report generation messages
 
@@ -57,8 +91,13 @@ def handler(event: dict, context: Any) -> dict:
         Dict with processing status
 
     Raises:
+        ValueError: If required environment variables are missing
         Exception: Re-raised after marking job as failed (for DLQ)
     """
+    # Validate configuration at startup - fail fast!
+    # Defensive programming: catch missing env vars before wasting compute
+    _validate_required_config()
+
     records = event.get('Records', [])
     logger.info(f"Processing {len(records)} SQS records")
 

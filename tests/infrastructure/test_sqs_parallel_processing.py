@@ -262,3 +262,32 @@ class TestParallelProcessingEndToEnd:
         # Should have 5 invocations
         assert len(response['events']) >= 5, \
             f"Expected at least 5 concurrent invocations, got {len(response['events'])}"
+
+    @pytest.mark.integration
+    def test_worker_lambda_required_env_vars(self):
+        """Test worker Lambda has required environment variables
+
+        Defensive programming principle: Validate configuration at startup.
+        Worker Lambda must have all required env vars to avoid runtime failures.
+
+        Following pattern from test_eventbridge_scheduler.py:test_required_env_vars_present()
+        """
+        response = self.lambda_client.get_function_configuration(
+            FunctionName=self.worker_lambda_name
+        )
+        env_vars = response.get('Environment', {}).get('Variables', {})
+
+        required_vars = {
+            'OPENROUTER_API_KEY': 'LLM report generation',
+            'AURORA_HOST': 'Aurora database caching',
+            'PDF_BUCKET_NAME': 'PDF report storage',
+            'JOBS_TABLE_NAME': 'Job status tracking'
+        }
+
+        missing_vars = {var: purpose for var, purpose in required_vars.items()
+                       if var not in env_vars or not env_vars[var]}
+
+        assert len(missing_vars) == 0, \
+            f"Worker Lambda missing required environment variables:\n" + \
+            "\n".join(f"  - {var} (needed for: {purpose})"
+                     for var, purpose in missing_vars.items())
