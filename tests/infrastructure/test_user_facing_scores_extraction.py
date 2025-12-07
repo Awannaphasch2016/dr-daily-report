@@ -2,8 +2,8 @@
 """
 Unit test for user_facing_scores extraction logic.
 
-Tests the fix for bug at src/data/aurora/precompute_service.py:682-698
-Following TDD principles from CLAUDE.md
+Tests PrecomputeService._ensure_user_facing_scores() method.
+Following TDD principles from CLAUDE.md - tests ACTUAL production code, not duplicated logic.
 """
 
 import pytest
@@ -11,16 +11,22 @@ from unittest.mock import MagicMock, patch
 
 
 class TestUserFacingScoresExtraction:
-    """Test user_facing_scores extraction in precompute service"""
+    """Test user_facing_scores extraction in PrecomputeService"""
 
-    def test_user_facing_scores_extracted_when_missing(self):
-        """
-        GREEN phase: Test that user_facing_scores are extracted when missing.
+    def setup_method(self):
+        """Setup test fixtures - follows Canonical Test Pattern from CLAUDE.md"""
+        from src.data.aurora.precompute_service import PrecomputeService
+        self.service = PrecomputeService()
 
-        This is a BEHAVIOR test (Principle 1: Test Outcomes, Not Execution)
-        We test WHAT happens (scores get added), not HOW (exact method calls)
+    def test_ensure_user_facing_scores_extracts_when_missing(self):
         """
-        # Arrange: Mock result dict without user_facing_scores
+        Test that _ensure_user_facing_scores extracts scores when missing.
+
+        Follows Principle 1: Test Outcomes, Not Execution
+        - We test WHAT happens (scores get added to result)
+        - Not HOW it happens (exact method calls)
+        """
+        # Arrange: Mock result WITHOUT user_facing_scores
         mock_result = {
             'ticker': 'NVDA19',
             'indicators': {'rsi': 65.0, 'sma_20': 100.0},
@@ -28,7 +34,7 @@ class TestUserFacingScoresExtraction:
             'percentiles': {'rsi': 0.7, 'volume': 0.8},
         }
 
-        # Mock UserFacingScorer (Principle 2: Explicit Failure Mocking)
+        # Mock UserFacingScorer (Principle 2: Mock only external boundaries)
         mock_scores = {
             'Technical': {'score': 8.5, 'category': 'Technical', 'rationale': 'Strong RSI'},
             'Fundamental': {'score': 7.2, 'category': 'Fundamental', 'rationale': 'Good fundamentals'},
@@ -43,34 +49,26 @@ class TestUserFacingScoresExtraction:
             mock_scorer_instance.calculate_all_scores.return_value = mock_scores
             MockScorer.return_value = mock_scorer_instance
 
-            # Act: Execute the extraction logic (from precompute_service.py:682-698)
-            result = mock_result.copy()
-            symbol = 'NVDA19'
-
-            if 'user_facing_scores' not in result:
-                if result.get('indicators') and result.get('ticker_data') and result.get('percentiles'):
-                    try:
-                        from src.scoring.user_facing_scorer import UserFacingScorer
-                        scorer = UserFacingScorer()
-                        scores = scorer.calculate_all_scores(
-                            ticker_data=result.get('ticker_data', {}),
-                            indicators=result.get('indicators', {}),
-                            percentiles=result.get('percentiles', {})
-                        )
-                        result['user_facing_scores'] = scores
-                    except Exception:
-                        pass
+            # Act: Call ACTUAL production method
+            result = self.service._ensure_user_facing_scores(mock_result.copy(), 'NVDA19')
 
             # Assert: OUTCOME - user_facing_scores should be in result
             assert 'user_facing_scores' in result, "user_facing_scores should be extracted when missing"
-            assert result['user_facing_scores'] == mock_scores, "Extracted scores should match"
+            assert result['user_facing_scores'] == mock_scores, "Extracted scores should match scorer output"
             assert len(result['user_facing_scores']) == 6, "Should have 6 scoring categories"
 
-    def test_user_facing_scores_not_overwritten_when_present(self):
+            # Verify scorer was called with correct args
+            mock_scorer_instance.calculate_all_scores.assert_called_once_with(
+                ticker_data=mock_result['ticker_data'],
+                indicators=mock_result['indicators'],
+                percentiles=mock_result['percentiles']
+            )
+
+    def test_ensure_user_facing_scores_preserves_existing(self):
         """
         Test that existing user_facing_scores are NOT overwritten.
 
-        Follows Principle 3: Test the actual behavior (don't replace existing data)
+        Follows Principle 1: Test Outcomes (don't replace existing data)
         """
         # Arrange: Result WITH existing user_facing_scores
         existing_scores = {
@@ -85,23 +83,20 @@ class TestUserFacingScoresExtraction:
             'percentiles': {'rsi': 0.7},
         }
 
-        # Act: Extraction logic should NOT run
-        result = mock_result.copy()
-
-        if 'user_facing_scores' not in result:
-            # This block should NOT execute
-            result['user_facing_scores'] = {'SHOULD_NOT': 'HAPPEN'}
+        # Act: Call production method
+        result = self.service._ensure_user_facing_scores(mock_result.copy(), 'NVDA19')
 
         # Assert: OUTCOME - existing scores preserved
         assert result['user_facing_scores'] == existing_scores, "Existing scores should not be overwritten"
-        assert 'SHOULD_NOT' not in result['user_facing_scores'], "Logic should not have run"
+        assert result['user_facing_scores']['Technical']['score'] == 9.0, "Original score preserved"
 
-    def test_user_facing_scores_not_extracted_when_required_data_missing(self):
+    def test_ensure_user_facing_scores_handles_missing_required_data(self):
         """
-        Test graceful failure when required data is missing.
+        Test graceful handling when required data is missing.
 
-        Follows Principle 2: Explicit Failure Mocking
         Follows Principle 5: Silent Failure Detection
+        - Missing data shouldn't raise exception
+        - Should log warning and return result unchanged
         """
         # Arrange: Mock result MISSING ticker_data and percentiles
         mock_result = {
@@ -110,25 +105,21 @@ class TestUserFacingScoresExtraction:
             # Missing: ticker_data, percentiles
         }
 
-        # Act: Extraction logic with missing data
-        result = mock_result.copy()
-
-        if 'user_facing_scores' not in result:
-            if result.get('indicators') and result.get('ticker_data') and result.get('percentiles'):
-                result['user_facing_scores'] = {}  # Should NOT execute
-            else:
-                pass  # Graceful failure - don't extract
+        # Act: Call production method
+        result = self.service._ensure_user_facing_scores(mock_result.copy(), 'NVDA19')
 
         # Assert: OUTCOME - user_facing_scores should NOT be added
         assert 'user_facing_scores' not in result, "Should not extract when required data is missing"
 
-    def test_user_facing_scores_extraction_handles_scorer_exception(self):
+    def test_ensure_user_facing_scores_handles_scorer_exception(self):
         """
-        Test that extraction handles UserFacingScorer exceptions gracefully.
+        Test that scorer exceptions are handled gracefully.
 
-        Follows Principle 2: Explicit Failure Mocking (simulate exceptions)
+        Follows Principle 2: Explicit Failure Mocking
+        - Simulate UserFacingScorer raising exception
+        - Should catch, log warning, return result unchanged
         """
-        # Arrange: Mock scorer that raises exception
+        # Arrange: Mock result with all required data
         mock_result = {
             'ticker': 'NVDA19',
             'indicators': {'rsi': 65.0},
@@ -138,24 +129,38 @@ class TestUserFacingScoresExtraction:
 
         with patch('src.scoring.user_facing_scorer.UserFacingScorer') as MockScorer:
             # Explicit failure: Scorer raises exception
-            MockScorer.side_effect = Exception("Scorer failed")
+            MockScorer.side_effect = Exception("Scorer calculation failed")
 
-            # Act: Extraction should handle exception gracefully
-            result = mock_result.copy()
+            # Act: Call production method
+            result = self.service._ensure_user_facing_scores(mock_result.copy(), 'NVDA19')
 
-            if 'user_facing_scores' not in result:
-                if result.get('indicators') and result.get('ticker_data') and result.get('percentiles'):
-                    try:
-                        from src.scoring.user_facing_scorer import UserFacingScorer
-                        scorer = UserFacingScorer()
-                        scores = scorer.calculate_all_scores(
-                            ticker_data=result.get('ticker_data', {}),
-                            indicators=result.get('indicators', {}),
-                            percentiles=result.get('percentiles', {})
-                        )
-                        result['user_facing_scores'] = scores
-                    except Exception:
-                        pass  # Graceful failure
-
-            # Assert: OUTCOME - extraction failed gracefully, no scores added
+            # Assert: OUTCOME - exception handled gracefully, no scores added
             assert 'user_facing_scores' not in result, "Should handle scorer exception gracefully"
+
+    def test_ensure_user_facing_scores_returns_updated_dict(self):
+        """
+        Test that method returns the updated result dict.
+
+        Verifies the method contract: returns modified dict
+        """
+        # Arrange
+        mock_result = {
+            'ticker': 'NVDA19',
+            'indicators': {'rsi': 65.0},
+            'ticker_data': {'sector': 'Technology'},
+            'percentiles': {'rsi': 0.7},
+        }
+
+        with patch('src.scoring.user_facing_scorer.UserFacingScorer') as MockScorer:
+            mock_scorer = MagicMock()
+            mock_scorer.calculate_all_scores.return_value = {'Technical': {'score': 8.0}}
+            MockScorer.return_value = mock_scorer
+
+            # Act
+            result = self.service._ensure_user_facing_scores(mock_result.copy(), 'NVDA19')
+
+            # Assert: Returns dict type
+            assert isinstance(result, dict), "Should return dict"
+            # Assert: Original fields preserved
+            assert result['ticker'] == 'NVDA19', "Should preserve original fields"
+            assert result['indicators'] == mock_result['indicators'], "Should preserve indicators"
