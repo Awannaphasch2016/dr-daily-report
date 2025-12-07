@@ -429,20 +429,20 @@ class TechnicalAnalyzer:
             Dict with 'indicators' (current values) and 'percentiles' (statistical analysis)
         """
         if hist_data is None or hist_data.empty:
-            return None
+            raise ValueError("Cannot calculate indicators: hist_data is empty or None")
 
         try:
             # Calculate historical indicators for all periods
             historical_df = self.calculate_historical_indicators(hist_data)
-            
+
             if historical_df is None or historical_df.empty:
-                return None
+                raise ValueError("Cannot calculate indicators: historical_df is empty or None")
 
             # Get current indicators
             current_indicators = self.calculate_all_indicators(hist_data)
-            
+
             if current_indicators is None:
-                return None
+                raise ValueError("Cannot calculate indicators: current_indicators is None")
 
             # Calculate percentiles
             percentiles = self.calculate_percentiles(historical_df, current_indicators)

@@ -145,9 +145,9 @@ class DataFetcher:
                     hist = self.fetch_via_direct_api(ticker, period)
 
             if hist is None or hist.empty:
-                logger.warning(f"⚠️  No historical data found for {ticker}")
-                print(f"⚠️  No historical data found for {ticker}")
-                return None
+                error_msg = f"No historical data returned for {ticker} (period={period})"
+                logger.error(error_msg)
+                raise ValueError(error_msg)
 
             logger.info(f"✅ Got {len(hist)} days of historical data for {ticker}")
             print(f"✅ Got {len(hist)} days of historical data for {ticker}")
