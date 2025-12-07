@@ -530,8 +530,9 @@ jobs:
 
           if [ -z "$GITHUB_TEST_DOMAIN" ]; then
             errors+=("❌ CLOUDFRONT_TEST_DOMAIN secret is missing")
-          elif [ "https://$ACTUAL_TEST_DOMAIN" != "$GITHUB_TEST_DOMAIN" ]; then
-            errors+=("❌ CLOUDFRONT_TEST_DOMAIN mismatch (AWS: https://$ACTUAL_TEST_DOMAIN, GitHub: $GITHUB_TEST_DOMAIN)")
+          elif [ "$ACTUAL_TEST_DOMAIN" != "$GITHUB_TEST_DOMAIN" ]; then
+            errors+=("❌ CLOUDFRONT_TEST_DOMAIN mismatch (AWS: $ACTUAL_TEST_DOMAIN, GitHub: $GITHUB_TEST_DOMAIN)")
+            errors+=("   Note: Secret should contain ONLY the CloudFront domain (no https://)")
           fi
 
           if [ -z "$GITHUB_APP_DIST" ]; then
@@ -548,7 +549,7 @@ jobs:
             echo ""
             echo "To fix:"
             echo "  gh secret set CLOUDFRONT_TEST_DISTRIBUTION_ID --env development --body \"$ACTUAL_TEST_DIST\""
-            echo "  gh secret set CLOUDFRONT_TEST_DOMAIN --env development --body \"https://$ACTUAL_TEST_DOMAIN\""
+            echo "  gh secret set CLOUDFRONT_TEST_DOMAIN --env development --body \"$ACTUAL_TEST_DOMAIN\""
             echo "  gh secret set CLOUDFRONT_DISTRIBUTION_ID --env development --body \"$ACTUAL_APP_DIST\""
             exit 1
           fi
