@@ -147,6 +147,7 @@ pytest --run-ratelimited            # Include rate-limited tests
 - **No silent fallbacks**: Default values should be explicit, not hidden error recovery
 - **Test failure modes**: After writing a test, intentionally break the code to verify the test catches it
 - **NEVER assume data exists without validating first**: Always verify cache/database state before operations that depend on it. Assumptions about populated data lead to silent failures in production.
+- **NEVER assume configuration is correct without validating first**: Always verify environment variables, secrets, and configuration values are set appropriately before operations. Run validation tests as gates to distinguish config failures from logic failures.
 
 **System boundary rule:** When crossing boundaries (API ↔ Database, Service ↔ External API), verify data type compatibility explicitly. Strict types like MySQL ENUMs fail silently on mismatch.
 
@@ -163,6 +164,24 @@ def trigger_ui_refresh():
     if cache_count == 0:
         raise ValueError("Cache is empty - populate before refreshing UI")
     invalidate_cloudfront()
+```
+
+**Configuration validation pattern:**
+```python
+# BAD: Assumes env vars are set
+def populate_cache():
+    # Assumes AURORA_HOST, API keys exist - may fail deep in execution
+    lambda_client.invoke(FunctionName=SCHEDULER_LAMBDA, Payload={...})
+
+# GOOD: Validates config before operations
+def populate_cache():
+    # Run validation gate first
+    validation_result = subprocess.run(['scripts/validate_deployment_ready.sh'])
+    if validation_result.returncode != 0:
+        raise ValueError("Configuration validation failed - fix env vars before populating cache")
+
+    # Now safe to proceed - failures are logic/data issues, not config
+    lambda_client.invoke(FunctionName=SCHEDULER_LAMBDA, Payload={...})
 ```
 
 ### Testing Anti-Patterns to Avoid

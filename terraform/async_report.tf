@@ -37,7 +37,8 @@ resource "aws_dynamodb_table" "report_jobs" {
 resource "aws_sqs_queue" "report_jobs_dlq" {
   name                       = "${var.project_name}-report-jobs-dlq-${var.environment}"
   message_retention_seconds  = 1209600 # 14 days (for debugging failed jobs)
-  visibility_timeout_seconds = 60
+  visibility_timeout_seconds = 900     # 15 min - matches main queue
+  receive_wait_time_seconds  = 20      # Long polling (cost optimization)
 
   tags = merge(local.common_tags, {
     Name      = "${var.project_name}-report-jobs-dlq-${var.environment}"
@@ -51,10 +52,10 @@ resource "aws_sqs_queue" "report_jobs_dlq" {
 ###############################################################################
 
 resource "aws_sqs_queue" "report_jobs" {
-  name                       = "${var.project_name}-report-jobs-${var.environment}"
-  visibility_timeout_seconds = 120 # 2x Lambda timeout (60s) for safety
-  message_retention_seconds  = 3600 # 1 hour (jobs should complete quickly)
-  receive_wait_time_seconds  = 10   # Long polling
+  name                       = "${var.project_name}-telegram-queue-${var.environment}"
+  visibility_timeout_seconds = 900      # 15 min - matches Lambda max timeout (prevents duplicate processing)
+  message_retention_seconds  = 1209600  # 14 days (for debugging failed jobs)
+  receive_wait_time_seconds  = 20       # Long polling (cost optimization)
 
   # Dead Letter Queue configuration
   # maxReceiveCount = 1: fail once → move to DLQ immediately (no retries)
@@ -270,7 +271,8 @@ resource "aws_lambda_event_source_mapping" "report_jobs_trigger" {
   # Point to "live" alias for safe deployments
   function_name    = aws_lambda_alias.report_worker_live.arn
 
-  batch_size = 1 # Process one message at a time (each report takes ~44s)
+  batch_size                         = 1 # Process one message at a time for max parallelism
+  maximum_batching_window_in_seconds = 0 # No batching delay for immediate processing
 
   # Don't report failures back to SQS - let DLQ handle it
   function_response_types = []

@@ -38,3 +38,14 @@ warn contains msg if {
     some namespace
     data.terraform[namespace].security[_].warn[msg]
 }
+
+# Include messaging policies (SQS)
+deny contains msg if {
+    some namespace
+    data.terraform[namespace].messaging[_].deny[msg]
+}
+
+warn contains msg if {
+    some namespace
+    data.terraform[namespace].messaging[_].warn[msg]
+}
