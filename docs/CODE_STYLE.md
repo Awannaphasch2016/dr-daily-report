@@ -1,0 +1,491 @@
+# Code Style & Conventions
+
+Python code style conventions, type hints, and patterns used in this project.
+
+---
+
+## Docstring Style (Google Format)
+
+**Convention:** All public functions, classes, and methods use Google-style docstrings.
+
+**Template:**
+```python
+def analyze_ticker(self, ticker: str, strategy: str = "single-stage") -> str:
+    """
+    Main entry point to analyze ticker
+
+    Args:
+        ticker: Ticker symbol to analyze
+        strategy: Report generation strategy - 'single-stage' or 'multi-stage' (default: 'single-stage')
+
+    Returns:
+        Generated report text in Thai
+
+    Raises:
+        ValueError: If ticker is invalid
+
+    Example:
+        >>> agent = TickerAnalysisAgent()
+        >>> report = agent.analyze_ticker('DBS19', strategy='multi-stage')
+    """
+```
+
+**Sections:**
+- `Args:` - Parameter descriptions (format: `name: description`)
+- `Returns:` - Return value description
+- `Raises:` - Exceptions that may be raised
+- `Example:` - Usage examples (optional)
+
+**One-line docstrings for simple functions:**
+```python
+def get_ticker_symbol(self, name: str) -> str:
+    """Extract ticker symbol from company name"""
+    return name.split()[0]
+```
+
+---
+
+## Type Hints
+
+**Convention:** Use comprehensive type hints from `typing` module throughout.
+
+### Basic Types
+```python
+from typing import Dict, Any, List, Optional
+from src.types import AgentState
+
+def process_data(
+    indicators: Dict[str, Any],
+    percentiles: Dict[str, Any],
+    news: List[Dict[str, Any]]
+) -> Optional[str]:
+    """Process data with full type hints"""
+    pass
+```
+
+### Common Type Patterns
+```python
+# Optional values
+from typing import Optional
+def fetch_data(ticker: str) -> Optional[pd.DataFrame]:
+    """Return None if data not found"""
+    return df if df is not None else None
+
+# Union types
+from typing import Union
+def process_value(value: Union[int, float, str]) -> str:
+    """Handle multiple types"""
+    return str(value)
+
+# Type aliases
+from typing import TypeAlias
+IndicatorDict: TypeAlias = Dict[str, Union[int, float]]
+
+# Literal types (for enums)
+from typing import Literal
+Strategy = Literal["single-stage", "multi-stage"]
+def generate_report(strategy: Strategy) -> str:
+    pass
+```
+
+### TypedDict for State Management
+```python
+from typing import TypedDict, Annotated, Sequence
+from operator import add
+from langchain_core.messages import BaseMessage
+
+class AgentState(TypedDict):
+    """Type-safe state dictionary for LangGraph workflow"""
+
+    # Auto-append pattern: messages are concatenated, not replaced
+    messages: Annotated[Sequence[BaseMessage], add]
+
+    # Regular fields (replaced on update)
+    ticker: str
+    ticker_data: dict
+    indicators: dict
+    percentiles: dict
+    news: list
+    comparative_data: dict
+    report: str
+    strategy: str  # 'single-stage' or 'multi-stage'
+    error: str     # Error propagation field
+```
+
+---
+
+## Workflow State Management Patterns
+
+### TypedDict with Operator.add for Message Accumulation
+
+**Pattern:** LangGraph workflows use `TypedDict` with `Annotated[Sequence[T], operator.add]` for auto-merging lists.
+
+**How `operator.add` works:**
+```python
+from typing import Annotated
+from operator import add
+
+# WITHOUT operator.add (overwrite behavior):
+state["messages"] = [msg1]  # First node
+state["messages"] = [msg2]  # Second node overwrites → [msg2]
+
+# WITH Annotated[Sequence[BaseMessage], add] (accumulation):
+state["messages"] = [msg1]  # First node
+state["messages"] = [msg2]  # Second node → [msg1, msg2] (concatenated)
+```
+
+**Why this pattern:**
+- Accumulate messages/events across workflow nodes
+- LangChain integration for conversation history
+- Type-safe message handling with IDE support
+
+### Error Propagation Pattern
+
+**Convention:** Workflow nodes accumulate errors in `state["error"]` instead of raising exceptions.
+
+**Pattern:**
+```python
+# src/workflow/workflow_nodes.py
+def fetch_data(self, state: AgentState) -> AgentState:
+    """Always return state, even on error"""
+    try:
+        ticker = state["ticker"]
+        data = self.data_fetcher.fetch_ticker_data(ticker)
+        state["ticker_data"] = data
+        logger.info(f"✅ Fetched data for {ticker}")
+    except Exception as e:
+        error_msg = f"Failed to fetch data: {e}"
+        state["error"] = error_msg  # Set error, don't raise
+        logger.error(f"❌ {error_msg}")
+
+    return state  # Always return state
+
+def generate_report(self, state: AgentState) -> AgentState:
+    """Check for upstream errors before processing"""
+    if state.get("error"):
+        logger.warning("⚠️ Skipping report generation due to upstream error")
+        return state  # Pass through error
+
+    # Normal processing...
+    report = self._generate(state)
+    state["report"] = report
+    return state
+```
+
+**Why this pattern:**
+- Enables workflow to complete (collect all errors)
+- Supports resumable workflows (can restart from failed node)
+- Better observability (see full error chain in LangSmith traces)
+
+### State Evolution Through Workflow Nodes
+
+**Convention:** Each node owns specific state fields and doesn't modify others.
+
+**Field ownership by workflow node:**
+```
+Initial State:
+  {ticker: "NVDA19", strategy: "multi-stage"}
+
+↓ fetch_data()
+  + ticker_data: {info, history, financials}
+
+↓ analyze_technical()
+  + indicators: {sma, rsi, macd, ...}
+  + percentiles: {current_percentile, ...}
+
+↓ fetch_news()
+  + news: [{title, url, source}, ...]
+
+↓ fetch_comparative_data()
+  + comparative_data: {peers, sector, correlations}
+
+↓ analyze_comparative_insights()
+  + comparative_insights: {peer_analysis, sector_position}
+
+↓ generate_chart()
+  + chart_base64: "data:image/png;base64,..."
+
+↓ generate_report()
+  + report: "📊 วิเคราะห์หุ้น NVDA..."
+  + mini_reports: {technical, fundamental, ...}  # If multi-stage
+
+↓ score_report()
+  + faithfulness_score: {score: 85, feedback: "..."}
+  + completeness_score: {score: 90, feedback: "..."}
+
+Final State:
+  {all above fields + scores}
+```
+
+**Key Principles:**
+- Each node owns specific fields (don't modify others' fields)
+- Nodes are pure functions: `(state) -> state`
+- State is immutable between nodes (create new dict if modifying)
+
+### LangSmith State Filtering
+
+**Problem:** pandas DataFrames with `Timestamp` indices are not JSON-serializable for LangSmith tracing.
+
+**Solution:** Filter non-serializable objects before tracing:
+```python
+# src/workflow/workflow_nodes.py
+def _filter_state_for_langsmith(state: dict) -> dict:
+    """
+    Remove DataFrames with Timestamp indices (not JSON-serializable)
+
+    LangSmith Error:
+      "keys must be str, int, float, bool or None, not Timestamp"
+    """
+    cleaned = state.copy()
+
+    # Remove DataFrame fields
+    if "ticker_data" in cleaned and isinstance(cleaned.get("ticker_data"), dict):
+        ticker_data_clean = {
+            k: v for k, v in cleaned["ticker_data"].items()
+            if k != "history"  # Remove pd.DataFrame
+        }
+        cleaned["ticker_data"] = ticker_data_clean
+
+    # Remove comparative DataFrames
+    if "comparative_data" in cleaned:
+        cleaned["comparative_data"] = "<removed for tracing>"
+
+    return cleaned
+
+# Usage with @traceable decorator
+from langsmith import traceable
+
+@traceable(
+    name="analyze_technical",
+    process_inputs=_filter_state_for_langsmith,
+    process_outputs=_filter_state_for_langsmith
+)
+def analyze_technical(self, state: AgentState) -> AgentState:
+    # Node implementation
+    return state
+```
+
+**Why filtering needed:**
+- pandas DataFrames with `Timestamp` indices fail JSON serialization
+- LangSmith traces require JSON-serializable state
+- Filter only affects tracing, not actual workflow state
+
+---
+
+## Error Handling Patterns
+
+### Workflow Nodes - State-Based Error Propagation
+
+**Convention:** Workflow nodes set `state["error"]` and return state (never raise exceptions).
+
+**Pattern:**
+```python
+def fetch_data(self, state: AgentState) -> AgentState:
+    """Fetch ticker data"""
+    try:
+        data = self.fetcher.fetch(state["ticker"])
+        state["ticker_data"] = data
+    except Exception as e:
+        error_msg = f"Failed to fetch data: {e}"
+        state["error"] = error_msg
+        logger.error(error_msg)
+    return state
+```
+
+### Utility Functions - Raise Exceptions
+
+**Convention:** Utility functions raise descriptive exceptions.
+
+**Pattern:**
+```python
+def load_template(path: str) -> str:
+    """Load prompt template"""
+    if not path.exists():
+        raise FileNotFoundError(f"Prompt template not found: {path}")
+    return path.read_text(encoding='utf-8')
+```
+
+**When to use each:**
+- **State-based (workflow nodes)**: Collect errors, enable workflow completion
+- **Exception-based (utilities)**: Fail fast, clear error messages
+
+---
+
+## Logging
+
+**Convention:** Use Python's logging module with descriptive emoji prefixes.
+
+**Setup:**
+```python
+import logging
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
+# Usage
+logger.info(f"   📝 Generating report for {ticker}")
+logger.warning(f"   ⚠️  Failed to fetch news: {e}")
+logger.error(f"   ❌ Error in workflow: {error}")
+```
+
+**Emoji Conventions:**
+- ✅ Success operations
+- ❌ Errors
+- ⚠️  Warnings
+- 📝 Informational
+- 🔍 Debug/investigation
+- 🚀 Initialization/startup
+- ♻️  Reuse/cache hits
+
+**Logging Levels:**
+- `DEBUG`: Detailed state dumps, intermediate values
+- `INFO`: Workflow progress, operation completions
+- `WARNING`: Recoverable errors, fallbacks used
+- `ERROR`: Failures that stop operation
+
+---
+
+## JSON Serialization (NumPy/Pandas)
+
+**Problem:** NumPy and Pandas types are not JSON-serializable by default.
+
+**Solution:** Convert to native Python types before JSON encoding.
+
+**Pattern:**
+```python
+from datetime import datetime, date
+import numpy as np
+import pandas as pd
+
+def _make_json_serializable(obj):
+    """Convert numpy/pandas/datetime objects to JSON-serializable types"""
+    if isinstance(obj, (datetime, date)):
+        return obj.isoformat()  # "2025-01-15T10:30:00"
+    elif isinstance(obj, pd.Timestamp):
+        return obj.isoformat()
+    elif isinstance(obj, np.integer):
+        return int(obj)  # np.int64 → int
+    elif isinstance(obj, np.floating):
+        return float(obj)  # np.float64 → float
+    elif isinstance(obj, np.ndarray):
+        return obj.tolist()  # array → list
+    elif isinstance(obj, dict):
+        return {k: _make_json_serializable(v) for k, v in obj.items()}
+    elif isinstance(obj, (list, tuple)):
+        return [_make_json_serializable(item) for item in obj]
+    return obj
+
+# Usage before JSON serialization
+data = {
+    'price': np.float64(150.5),
+    'volume': np.int64(1000000),
+    'date': pd.Timestamp('2025-01-15')
+}
+cleaned = _make_json_serializable(data)
+json_str = json.dumps(cleaned)  # No serialization error
+```
+
+**Common Serialization Errors:**
+```
+❌ Object of type int64 is not JSON serializable
+❌ Object of type float64 is not JSON serializable
+❌ Object of type Timestamp is not JSON serializable
+❌ Object of type ndarray is not JSON serializable
+```
+
+**When to use:**
+- Lambda responses (API Gateway requires JSON)
+- API endpoint responses (FastAPI/Flask)
+- LangSmith tracing (requires JSON state)
+- DynamoDB items (boto3 requires native types)
+
+---
+
+## Naming Conventions
+
+### Files
+- `snake_case.py` - All Python files
+- `test_*.py` - Test files (prefix with `test_`)
+
+### Classes
+- `PascalCase` - Class names (e.g., `TickerAnalysisAgent`, `MiniReportGenerator`)
+
+### Functions and Methods
+- `snake_case()` - All functions and methods
+- `_snake_case()` - Private methods (prefix with underscore)
+
+### Constants
+- `UPPER_SNAKE_CASE` - Module-level constants (e.g., `LOOKBACK_DAYS = 365`)
+
+### Type Definitions
+- `PascalCase` - TypedDict classes (e.g., `AgentState`, `ReportMetadata`)
+
+---
+
+## Module Organization Pattern
+
+**Template for all Python modules:**
+```python
+# -*- coding: utf-8 -*-  # For files with Thai content
+"""
+Module description.
+
+Detailed explanation of module purpose and key components.
+"""
+
+# 1. Standard library imports
+import logging
+import json
+from datetime import datetime
+from pathlib import Path
+
+# 2. Third-party imports
+import pandas as pd
+from langchain_openai import ChatOpenAI
+from langchain_core.messages import BaseMessage
+
+# 3. Local imports
+from src.types import AgentState
+from src.data.data_fetcher import DataFetcher
+
+
+# Module-level constants
+LOOKBACK_DAYS = 365
+DEFAULT_STRATEGY = "multi-stage"
+
+# Module-level logger
+logger = logging.getLogger(__name__)
+
+
+class MainClass:
+    """Class description."""
+
+    def __init__(self, dependencies):
+        """Initialize with dependencies."""
+        self.dependency = dependencies
+
+    def public_method(self, param: Type) -> ReturnType:
+        """Public method with full docstring."""
+        pass
+
+    def _private_method(self, param: Type) -> ReturnType:
+        """Private helper method (brief docstring)."""
+        pass
+```
+
+**Import Order:**
+1. Standard library
+2. Third-party packages
+3. Local imports (src.*)
+
+**Blank lines:**
+- 2 blank lines between top-level functions/classes
+- 1 blank line between methods within a class
+
+---
+
+## See Also
+
+- [Testing Guidelines](../TESTING.md) - Test structure and conventions
+- [Workflow Patterns](../architecture/WORKFLOW_PATTERNS.md) - LangGraph workflow architecture
+- [Data Layer](../architecture/DATA_LAYER.md) - State management and caching

@@ -1,0 +1,210 @@
+# Lambda Best Practices
+
+Production patterns for AWS Lambda deployment.
+
+---
+
+## NumPy/Pandas JSON Serialization
+
+Lambda responses must be JSON-serializable. Convert NumPy/Pandas types before returning:
+
+```python
+# Pattern used in: mini_report_generator.py, transformer.py, all Lambda handlers
+from datetime import datetime, date
+import numpy as np
+import pandas as pd
+
+def _make_json_serializable(obj):
+    """Convert numpy/pandas/datetime objects to JSON-serializable types"""
+    if isinstance(obj, (datetime, date)):
+        return obj.isoformat()  # "2025-01-15T10:30:00"
+    elif isinstance(obj, pd.Timestamp):
+        return obj.isoformat()
+    elif isinstance(obj, np.integer):
+        return int(obj)  # np.int64 → int
+    elif isinstance(obj, np.floating):
+        return float(obj)  # np.float64 → float
+    elif isinstance(obj, np.ndarray):
+        return obj.tolist()  # array → list
+    elif isinstance(obj, dict):
+        return {k: _make_json_serializable(v) for k, v in obj.items()}
+    elif isinstance(obj, (list, tuple)):
+        return [_make_json_serializable(item) for item in obj]
+    return obj
+
+# Usage before JSON serialization
+data = {
+    'price': np.float64(150.5),
+    'volume': np.int64(1000000),
+    'date': pd.Timestamp('2025-01-15')
+}
+cleaned = _make_json_serializable(data)
+json_str = json.dumps(cleaned)  # No serialization error
+```
+
+**Common Serialization Errors:**
+```
+❌ Object of type int64 is not JSON serializable
+❌ Object of type float64 is not JSON serializable
+❌ Object of type Timestamp is not JSON serializable
+❌ Object of type ndarray is not JSON serializable
+```
+
+---
+
+## Cold Start Optimization
+
+Optimize Lambda cold starts with module-level initialization:
+
+```python
+# src/agent.py - Module-level initialization
+import logging
+logger = logging.getLogger(__name__)
+
+# Heavy imports at module level (loaded once per container)
+from langchain_openai import ChatOpenAI
+from langgraph.graph import StateGraph
+
+# Service singletons (persist across invocations)
+_agent_instance: Optional[TickerAnalysisAgent] = None
+
+def get_agent() -> TickerAnalysisAgent:
+    """Get or create agent singleton (cold start optimization)"""
+    global _agent_instance
+    if _agent_instance is None:
+        logger.info("🚀 Cold start: Initializing agent...")
+        _agent_instance = TickerAnalysisAgent()
+        logger.info("✅ Agent initialized")
+    return _agent_instance
+
+# Lambda handler
+def lambda_handler(event, context):
+    agent = get_agent()  # Reuses existing instance if warm
+    return agent.process(event)
+```
+
+**Cold Start Timeline:**
+```
+First invocation (cold):
+  Container creation: ~2s
+  Python runtime: ~500ms
+  Import packages: ~3s
+  Initialize services: ~2s
+  Total: ~7.5s
+
+Subsequent invocations (warm):
+  Container reuse: 0s
+  Singleton reuse: 0s
+  Total: ~200ms (37x faster)
+```
+
+**Best Practices:**
+- Import heavy libraries at module level (pandas, numpy, langchain)
+- Use service singletons (CSV data, DB connections)
+- Avoid re-reading static files (tickers.csv loaded once)
+- Pre-compile regex patterns at module level
+
+---
+
+## Environment Detection
+
+Detect Lambda vs local environment for path/config decisions:
+
+```python
+# src/data/database.py
+import os
+
+def __init__(self, db_path: Optional[str] = None):
+    if db_path is None:
+        # Auto-detect environment
+        if os.environ.get('AWS_LAMBDA_FUNCTION_NAME'):
+            # Lambda: Use ephemeral /tmp storage
+            db_path = "/tmp/ticker_data.db"
+            logger.info("📦 Lambda environment: Using /tmp/ticker_data.db")
+        else:
+            # Local: Use persistent data directory
+            db_path = "data/ticker_data.db"
+            logger.info("💻 Local environment: Using data/ticker_data.db")
+
+    self.db_path = db_path
+```
+
+**Lambda /tmp Limitations:**
+- 512 MB max size
+- Ephemeral (cleared on container recycle)
+- Not shared across concurrent invocations
+- Good for: SQLite cache, temp files, downloads
+- Bad for: Persistent user data (use S3/DynamoDB)
+
+---
+
+## Response Transformer Pattern
+
+Convert internal workflow state to API response format:
+
+```python
+# src/api/transformer.py
+class ResponseTransformer:
+    """Transform AgentState (LangGraph) → Pydantic models (API)"""
+
+    async def transform_report(
+        self,
+        state: AgentState,
+        ticker_info: dict
+    ) -> ReportResponse:
+        """Extract structured data from workflow state"""
+
+        # Extract stance from multiple sources
+        stance_info = self._extract_stance(
+            report_text=state["report"],
+            indicators=state.get("indicators", {}),
+            percentiles=state.get("percentiles", {})
+        )
+
+        # Parse Thai report text into structured sections
+        summary_sections = self._extract_summary_sections(state["report"])
+
+        # Build technical metrics from indicators
+        technical_metrics = self._build_technical_metrics(
+            state.get("indicators", {}),
+            state.get("percentiles", {})
+        )
+
+        # Async peer lookup (correlation-based)
+        peer_selector = get_peer_selector()
+        peer_tickers = await peer_selector.find_peers_async(
+            ticker=ticker_info['symbol'],
+            max_peers=5
+        )
+
+        # Return structured Pydantic response
+        return ReportResponse(
+            ticker=ticker_info['symbol'],
+            company_name=ticker_info['name'],
+            stance=stance_info['stance'],
+            summary_sections=summary_sections,
+            technical_metrics=technical_metrics,
+            peers=peer_tickers,
+            generation_metadata=self._build_metadata(state)
+        )
+
+    def _extract_stance(self, report_text: str, indicators: dict, percentiles: dict) -> dict:
+        """Multi-source stance extraction with fallback"""
+        # Priority 1: Parse from Thai report text
+        # Priority 2: Infer from technical indicators
+        # Priority 3: Default to 'neutral'
+```
+
+**Pattern Benefits:**
+- Separates internal representation (AgentState) from API contract (Pydantic)
+- Async enrichment (peer lookup) without blocking workflow
+- Multi-source data extraction with fallbacks
+- Type-safe transformation (Pydantic validation)
+
+---
+
+## See Also
+
+- [Deployment Workflow](WORKFLOW.md) - Complete deployment process
+- [Performance Optimization](PERFORMANCE.md) - Advanced optimization techniques
+- [CLAUDE.md](.claude/CLAUDE.md) - Architectural principles
