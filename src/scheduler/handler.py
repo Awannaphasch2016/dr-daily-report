@@ -605,6 +605,53 @@ def _handle_debug_prices(event: Dict[str, Any], start_time: datetime) -> Dict[st
         }
 
 
+def _validate_configuration() -> None:
+    """
+    Validate required environment variables at Lambda startup.
+
+    Fails fast if critical configuration is missing, following defensive programming principle:
+    "Validate configuration at startup, not on first use"
+
+    Raises:
+        RuntimeError: If required environment variables are missing
+    """
+    # Aurora connection (required for all operations)
+    aurora_vars = ['AURORA_HOST', 'AURORA_USER', 'AURORA_PASSWORD', 'AURORA_DATABASE']
+
+    # SQS queue (required for parallel_precompute action)
+    queue_vars = ['REPORT_JOBS_QUEUE_URL']
+
+    # DynamoDB tables (required for job tracking)
+    dynamo_vars = ['JOBS_TABLE_NAME']
+
+    # API keys (required for LLM report generation)
+    api_vars = ['OPENROUTER_API_KEY']
+
+    # Storage (required for PDF generation)
+    storage_vars = ['PDF_BUCKET_NAME']
+
+    # Collect ALL required vars
+    all_required_vars = aurora_vars + queue_vars + dynamo_vars + api_vars + storage_vars
+
+    missing_vars = [var for var in all_required_vars if not os.environ.get(var)]
+
+    if missing_vars:
+        error_msg = (
+            f"❌ CONFIGURATION ERROR: Missing required environment variables: {missing_vars}\n"
+            f"Lambda cannot start without these variables.\n"
+            f"Required vars: Aurora={aurora_vars}, SQS={queue_vars}, "
+            f"DynamoDB={dynamo_vars}, API={api_vars}, Storage={storage_vars}"
+        )
+        logger.error(error_msg)
+        raise RuntimeError(error_msg)
+
+    # Log successful validation
+    logger.info("✅ Configuration validation passed - all required environment variables present")
+    logger.info(f"Aurora: {os.environ.get('AURORA_HOST')}")
+    logger.info(f"Jobs table: {os.environ.get('JOBS_TABLE_NAME')}")
+    logger.info(f"Queue: {os.environ.get('REPORT_JOBS_QUEUE_URL')}")
+
+
 def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """
     Lambda handler for ticker data fetching and Aurora setup.
@@ -627,6 +674,18 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     start_time = datetime.now()
     logger.info(f"Scheduler Lambda invoked at {start_time.isoformat()}")
     logger.info(f"Event: {json.dumps(event)}")
+
+    # Validate configuration at startup (fail-fast principle)
+    try:
+        _validate_configuration()
+    except RuntimeError as e:
+        return {
+            'statusCode': 500,
+            'body': {
+                'message': 'Configuration validation failed',
+                'error': str(e)
+            }
+        }
 
     # Handle debug prices action
     if event.get('action') == 'debug_prices':
