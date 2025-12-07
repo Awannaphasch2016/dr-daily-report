@@ -151,6 +151,104 @@ pytest --run-ratelimited            # Include rate-limited tests
 
 **System boundary rule:** When crossing boundaries (API ↔ Database, Service ↔ External API), verify data type compatibility explicitly. Strict types like MySQL ENUMs fail silently on mismatch.
 
+**AWS Services Success ≠ No Errors:** AWS services returning successful HTTP status codes (200, 202) does not guarantee error-free execution. Always validate CloudWatch logs, response payloads, and operation outcomes before concluding success.
+
+**Log validation pattern:**
+```python
+# BAD: Assumes 200 = success
+response = lambda_client.invoke(FunctionName='worker', Payload='{}')
+assert response['StatusCode'] == 200  # ✗ Weak validation
+
+# GOOD: Validates logs + payload
+response = lambda_client.invoke(FunctionName='worker', Payload='{}')
+assert response['StatusCode'] == 200
+
+# Check CloudWatch logs for errors
+logs = cloudwatch_client.filter_log_events(
+    logGroupName=f'/aws/lambda/worker',
+    startTime=int((datetime.now() - timedelta(minutes=5)).timestamp() * 1000),
+    filterPattern='ERROR'
+)
+assert len(logs['events']) == 0, f"Found {len(logs['events'])} errors in logs"
+
+# Validate response payload
+payload = json.loads(response['Payload'].read())
+assert 'errorMessage' not in payload, f"Lambda error: {payload.get('errorMessage')}"
+assert payload.get('jobs_failed', 0) == 0, f"{payload['jobs_failed']} jobs failed"
+```
+
+**Infrastructure test pattern:**
+```python
+@pytest.mark.integration
+def test_worker_lambda_executes_without_errors(self):
+    """Verify Lambda not only succeeds but has no errors in logs"""
+    # Invoke Lambda
+    response = self.lambda_client.invoke(
+        FunctionName=self.worker_lambda_name,
+        Payload=json.dumps({'ticker': 'NVDA19'})
+    )
+
+    # Level 1: Status code (weak)
+    assert response['StatusCode'] == 200
+
+    # Level 2: Response payload (stronger)
+    payload = json.loads(response['Payload'].read())
+    assert 'errorMessage' not in payload
+
+    # Level 3: CloudWatch logs (strongest)
+    logs_client = boto3.client('logs')
+    log_events = logs_client.filter_log_events(
+        logGroupName=f'/aws/lambda/{self.worker_lambda_name}',
+        startTime=int((datetime.now() - timedelta(minutes=1)).timestamp() * 1000),
+        filterPattern='ERROR'
+    )
+
+    assert len(log_events['events']) == 0, \
+        f"Found errors in Lambda logs:\n" + \
+        "\n".join(event['message'] for event in log_events['events'])
+```
+
+**CI/CD pattern:**
+```yaml
+# .github/workflows/deploy.yml
+- name: Deploy Lambda
+  run: |
+    aws lambda update-function-code --function-name worker --image-uri $IMAGE_URI
+    aws lambda wait function-updated --function-name worker
+
+- name: Smoke Test with Log Validation
+  run: |
+    # Invoke Lambda
+    aws lambda invoke --function-name worker --payload '{}' /tmp/response.json
+
+    # Check response
+    if grep -q "errorMessage" /tmp/response.json; then
+      echo "❌ Lambda returned error"
+      cat /tmp/response.json
+      exit 1
+    fi
+
+    # Check CloudWatch logs for errors (last 2 minutes)
+    START_TIME=$(($(date +%s) - 120))000
+    ERROR_COUNT=$(aws logs filter-log-events \
+      --log-group-name /aws/lambda/worker \
+      --start-time $START_TIME \
+      --filter-pattern "ERROR" \
+      --query 'length(events)' \
+      --output text)
+
+    if [ "$ERROR_COUNT" -gt 0 ]; then
+      echo "❌ Found $ERROR_COUNT errors in CloudWatch logs"
+      aws logs filter-log-events \
+        --log-group-name /aws/lambda/worker \
+        --start-time $START_TIME \
+        --filter-pattern "ERROR"
+      exit 1
+    fi
+
+    echo "✅ Lambda executed without errors (validated: status code + payload + logs)"
+```
+
 **Data existence validation pattern:**
 ```python
 # BAD: Assumes cache is populated
