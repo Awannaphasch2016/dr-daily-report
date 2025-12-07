@@ -416,8 +416,16 @@ class WorkflowNodes:
             self._log_node_skip("analyze_technical", state, "Previous error in workflow")
             return state
 
+        # VALIDATION GATE - check prerequisite data exists and is non-empty
+        ticker_data = state.get("ticker_data")
+        if not ticker_data or len(ticker_data) == 0:
+            error_msg = f"Cannot analyze technical: ticker_data is empty or missing for {state.get('ticker')}"
+            logger.error(error_msg)
+            state["error"] = error_msg
+            self._log_node_error("analyze_technical", state, error_msg)
+            return state
+
         start_time = time.perf_counter()
-        ticker_data = state["ticker_data"]
         hist_data = ticker_data.get('history')
 
         if hist_data is None or hist_data.empty:
@@ -620,6 +628,24 @@ class WorkflowNodes:
 
         if state.get("error"):
             self._log_node_skip("generate_report", state, "Previous error in workflow")
+            return state
+
+        # VALIDATION GATE - check prerequisite data exists and is non-empty
+        ticker_data = state.get("ticker_data")
+        indicators = state.get("indicators")
+
+        if not ticker_data or len(ticker_data) == 0:
+            error_msg = f"Cannot generate report: ticker_data is empty or missing for {state.get('ticker')}"
+            logger.error(error_msg)
+            state["error"] = error_msg
+            self._log_node_error("generate_report", state, error_msg)
+            return state
+
+        if not indicators or len(indicators) == 0:
+            error_msg = f"Cannot generate report: indicators is empty or missing for {state.get('ticker')}"
+            logger.error(error_msg)
+            state["error"] = error_msg
+            self._log_node_error("generate_report", state, error_msg)
             return state
 
         # Check strategy: 'single-stage' (default) or 'multi-stage'
