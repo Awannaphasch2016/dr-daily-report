@@ -921,6 +921,26 @@ class ResponseTransformer:
         indicators = report_json.get('indicators', {})
         percentiles = report_json.get('percentiles', {})
 
+        # Extract user_facing_scores from cached report_json
+        # This mirrors the fresh report path (transform_report line 189-192)
+        user_facing_scores = report_json.get('user_facing_scores', {})
+
+        # Build key_scores (top 3) and all_scores (all categories)
+        # Uses existing _build_scores() method that fresh reports use
+        if user_facing_scores:
+            # Create minimal state dict with just user_facing_scores
+            # _build_scores() only needs state['user_facing_scores']
+            state_for_scoring = {'user_facing_scores': user_facing_scores}
+            scores_data = self._build_scores(state_for_scoring)
+            key_scores = scores_data.get('key_scores', [])
+            all_scores = scores_data.get('all_scores', [])
+            logger.debug(f"Extracted {len(key_scores)} key_scores and {len(all_scores)} all_scores from cached report")
+        else:
+            # Graceful degradation when user_facing_scores missing
+            key_scores = []
+            all_scores = []
+            logger.warning(f"No user_facing_scores in cached report for {ticker_info.get('ticker')}")
+
         # Extract stance and confidence from report
         stance_info = self._extract_stance(report_text, indicators, percentiles)
 
@@ -988,6 +1008,8 @@ class ResponseTransformer:
             overall_sentiment=overall_sentiment,
             risk=risk,
             peers=peers,
+            key_scores=key_scores,
+            all_scores=all_scores,
             data_sources=data_sources,
             pdf_report_url=pdf_report_url,
             generation_metadata=generation_metadata
