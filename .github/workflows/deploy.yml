@@ -549,8 +549,6 @@ jobs:
   e2e-test-dev:
     name: E2E Tests (Dev)
     needs: [deploy-dev-frontend]
-    # Run if deploy-dev-frontend succeeded, OR if it was skipped (backend-only deploy)
-    if: always() && (needs.deploy-dev-frontend.result == 'success' || needs.deploy-dev-frontend.result == 'skipped')
     runs-on: ubuntu-latest
     environment: development
 
@@ -570,9 +568,17 @@ jobs:
 
       - name: Run E2E Tests
         env:
-          # Use test_url if available (frontend was deployed), otherwise use APP CloudFront
-          E2E_BASE_URL: ${{ needs.deploy-dev-frontend.outputs.test_url || format('https://{0}', vars.CLOUDFRONT_DOMAIN) }}
+          E2E_BASE_URL: ${{ needs.deploy-dev-frontend.outputs.test_url }}
         run: |
+          # Fail fast if E2E_BASE_URL is empty (TEST CloudFront not configured)
+          if [ -z "${E2E_BASE_URL}" ]; then
+            echo "❌ FATAL: E2E_BASE_URL is empty!"
+            echo "   This means TEST CloudFront is not configured."
+            echo "   NEVER skip E2E tests - configure TEST CloudFront first."
+            echo "   See CLAUDE.md: Two CloudFront distributions required."
+            exit 1
+          fi
+
           echo "🧪 Running E2E tests against: ${E2E_BASE_URL}"
           pytest tests/e2e/ -m e2e -v --tb=short || {
             echo "❌ E2E tests failed! APP CloudFront will NOT be updated."
