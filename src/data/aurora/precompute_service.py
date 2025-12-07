@@ -625,6 +625,12 @@ class PrecomputeService:
         Extracts user_facing_scores from indicators/ticker_data/percentiles if missing.
         Critical for UI ScoreTable display.
 
+        DEFENSIVE PROGRAMMING:
+        - Validates required data exists AND is non-empty before attempting extraction
+        - Logs explicit warnings/errors when data is missing (fail fast with visibility)
+        - Verifies operation succeeded (explicit failure detection)
+        - Never silently fails
+
         Args:
             result: Report result dict from workflow
             symbol: Ticker symbol (for logging)
@@ -632,23 +638,85 @@ class PrecomputeService:
         Returns:
             Updated result dict with user_facing_scores added if possible
         """
-        if 'user_facing_scores' not in result:
-            # Check if we have required data for extraction
-            if result.get('indicators') and result.get('ticker_data') and result.get('percentiles'):
-                try:
-                    from src.scoring.user_facing_scorer import UserFacingScorer
-                    scorer = UserFacingScorer()
-                    scores = scorer.calculate_all_scores(
-                        ticker_data=result.get('ticker_data', {}),
-                        indicators=result.get('indicators', {}),
-                        percentiles=result.get('percentiles', {})
-                    )
-                    result['user_facing_scores'] = scores
-                    logger.debug(f"Extracted user_facing_scores for {symbol}: {len(scores)} categories")
-                except Exception as e:
-                    logger.warning(f"Failed to extract user_facing_scores for {symbol}: {e}")
-            else:
-                logger.warning(f"Missing required data for user_facing_scores extraction for {symbol}")
+        # FAIL FAST: Check if already present
+        if 'user_facing_scores' in result:
+            logger.debug(f"✅ user_facing_scores already present for {symbol}")
+            return result
+
+        # EXPLICIT VALIDATION: Check required data exists
+        required_fields = ['indicators', 'ticker_data', 'percentiles']
+        missing_fields = [f for f in required_fields if not result.get(f)]
+
+        if missing_fields:
+            # FAIL FAST WITH VISIBILITY - WARNING level (not DEBUG)
+            logger.warning(
+                f"⚠️  Cannot extract user_facing_scores for {symbol}: "
+                f"Missing required data: {missing_fields}. "
+                f"Available fields: {list(result.keys())}"
+            )
+            return result
+
+        # Validate data is not empty (existence check is not enough)
+        if not result['indicators'] or not result['ticker_data'] or not result['percentiles']:
+            # FAIL FAST WITH VISIBILITY
+            logger.warning(
+                f"⚠️  Cannot extract user_facing_scores for {symbol}: "
+                f"Required fields are EMPTY. "
+                f"indicators={bool(result['indicators'])}, "
+                f"ticker_data={bool(result['ticker_data'])}, "
+                f"percentiles={bool(result['percentiles'])}"
+            )
+            return result
+
+        try:
+            from src.scoring.user_facing_scorer import UserFacingScorer
+
+            logger.info(f"🔄 Extracting user_facing_scores for {symbol}...")
+
+            scorer = UserFacingScorer()
+            scores = scorer.calculate_all_scores(
+                ticker_data=result.get('ticker_data', {}),
+                indicators=result.get('indicators', {}),
+                percentiles=result.get('percentiles', {})
+            )
+
+            # EXPLICIT FAILURE DETECTION - Check operation outcome
+            if not scores:
+                logger.error(
+                    f"❌ UserFacingScorer returned EMPTY scores for {symbol}! "
+                    f"This should not happen with valid data."
+                )
+                return result
+
+            if not isinstance(scores, dict):
+                logger.error(
+                    f"❌ UserFacingScorer returned INVALID type for {symbol}: {type(scores)}. "
+                    f"Expected dict."
+                )
+                return result
+
+            # Add to result
+            result['user_facing_scores'] = scores
+
+            # VERIFY ADDITION SUCCEEDED - Explicit failure detection
+            if 'user_facing_scores' not in result:
+                logger.error(
+                    f"❌ CRITICAL: Failed to add user_facing_scores to result dict for {symbol}! "
+                    f"Dict assignment failed."
+                )
+                return result
+
+            logger.info(
+                f"✅ Successfully extracted user_facing_scores for {symbol}: "
+                f"{len(scores)} categories"
+            )
+
+        except Exception as e:
+            # NEVER SILENT FAILURE - ERROR level with stack trace
+            logger.error(
+                f"❌ Exception while extracting user_facing_scores for {symbol}: {e}",
+                exc_info=True  # Include stack trace
+            )
 
         return result
 
