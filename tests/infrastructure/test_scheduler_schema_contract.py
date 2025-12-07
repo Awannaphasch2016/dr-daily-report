@@ -22,7 +22,6 @@ class TestSchedulerSchemaContract:
         that will break UI.
         """
         from src.data.aurora.precompute_service import PrecomputeService
-        from src.data.aurora.repository import TickerRepository
 
         # Generate report via scheduler
         service = PrecomputeService()
@@ -33,8 +32,7 @@ class TestSchedulerSchemaContract:
         assert 'error' not in result, f"Precompute failed: {result.get('error')}"
 
         # Retrieve from Aurora (round-trip)
-        repo = TickerRepository()
-        cached = repo.get_cached_data('NVDA19', date.today())
+        cached = service.get_cached_report('NVDA19', date.today())
 
         assert cached is not None, "Precomputed data not found in Aurora"
 
@@ -50,16 +48,16 @@ class TestSchedulerSchemaContract:
 
         Prevents situation where some tickers work but others fail silently.
         """
-        from src.data.aurora.repository import TickerRepository
+        from src.data.aurora.precompute_service import PrecomputeService
 
-        repo = TickerRepository()
+        service = PrecomputeService()
 
         # Sample 5 recently cached tickers
         sample_tickers = ['NVDA19', 'DBS19', 'MWG19', 'TAIWAN19', 'TENCENT19']
 
         violations = []
         for ticker in sample_tickers:
-            cached = repo.get_cached_data(ticker, date.today())
+            cached = service.get_cached_report(ticker, date.today())
 
             if cached is None:
                 violations.append(f"{ticker}: Not found in cache")
