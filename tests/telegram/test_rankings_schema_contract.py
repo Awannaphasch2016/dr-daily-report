@@ -44,6 +44,11 @@ class TestRankingsSchemaContract:
         key_scores = first_ticker.get('key_scores', {}) if isinstance(first_ticker, dict) else first_ticker.key_scores
         stance = first_ticker.get('stance', 'neutral') if isinstance(first_ticker, dict) else first_ticker.stance
 
+        # Skip if cache data is incomplete (CI environment without Aurora)
+        if chart_data and len(chart_data.get('price_history', [])) == 0:
+            if not os.environ.get('AURORA_HOST') and not os.environ.get('AURORA_SECRET_ARN'):
+                pytest.skip("Aurora not configured - cache data incomplete (empty price_history)")
+
         # Build cached report format from API response
         cached_format = {
             'ticker': ticker,
@@ -101,6 +106,11 @@ class TestRankingsSchemaContract:
                 chart_data = first_ticker.get('chart_data', {}) if isinstance(first_ticker, dict) else first_ticker.chart_data
                 key_scores = first_ticker.get('key_scores', {}) if isinstance(first_ticker, dict) else first_ticker.key_scores
                 stance = first_ticker.get('stance', 'neutral') if isinstance(first_ticker, dict) else first_ticker.stance
+
+                # Skip if cache data is incomplete (CI environment without Aurora)
+                if chart_data and len(chart_data.get('price_history', [])) == 0:
+                    if not os.environ.get('AURORA_HOST') and not os.environ.get('AURORA_SECRET_ARN'):
+                        continue  # Skip this category, cache data incomplete
 
                 cached_format = {
                     'ticker': ticker,
