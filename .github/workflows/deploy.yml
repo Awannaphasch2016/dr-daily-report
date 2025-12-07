@@ -484,6 +484,28 @@ jobs:
       test_url: ${{ steps.deploy.outputs.test_url }}
 
     steps:
+      - name: Validate Required Secrets
+        run: |
+          missing=()
+          [ -z "${{ secrets.CLOUDFRONT_TEST_DISTRIBUTION_ID }}" ] && missing+=("CLOUDFRONT_TEST_DISTRIBUTION_ID")
+          [ -z "${{ secrets.CLOUDFRONT_TEST_DOMAIN }}" ] && missing+=("CLOUDFRONT_TEST_DOMAIN")
+
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "❌ Missing required GitHub secrets for TEST CloudFront:"
+            printf '   - %s\n' "${missing[@]}"
+            echo ""
+            echo "Add secrets with:"
+            echo "  gh secret set CLOUDFRONT_TEST_DISTRIBUTION_ID --env development --body \"<value>\""
+            echo "  gh secret set CLOUDFRONT_TEST_DOMAIN --env development --body \"<value>\""
+            echo ""
+            echo "Get values from Terraform:"
+            echo "  cd terraform/envs/dev && terraform output cloudfront_test_distribution_id"
+            echo "  cd terraform/envs/dev && terraform output cloudfront_test_distribution_domain"
+            exit 1
+          fi
+
+          echo "✅ All required secrets present"
+
       - name: Checkout code
         uses: actions/checkout@v4
 
