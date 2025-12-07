@@ -16,6 +16,18 @@ from src.api.job_service import Job, JobStatus
 class TestReportWorkerHandler:
     """Tests for report_worker_handler.handler()"""
 
+    @pytest.fixture(autouse=True)
+    def mock_env_vars(self, monkeypatch):
+        """Mock required environment variables (autouse for all tests)
+
+        Defensive programming validation requires these vars at handler startup.
+        Using autouse=True applies to all tests in this class automatically.
+        """
+        monkeypatch.setenv('OPENROUTER_API_KEY', 'test-key')
+        monkeypatch.setenv('AURORA_HOST', 'test-host')
+        monkeypatch.setenv('PDF_BUCKET_NAME', 'test-bucket')
+        monkeypatch.setenv('JOBS_TABLE_NAME', 'test-table')
+
     @pytest.fixture
     def mock_job_service(self):
         """Mock job service"""
@@ -190,6 +202,14 @@ class TestReportWorkerHandler:
 
 class TestSQSMessageParsing:
     """Tests for SQS message parsing"""
+
+    @pytest.fixture(autouse=True)
+    def mock_env_vars(self, monkeypatch):
+        """Mock required environment variables (autouse for all tests)"""
+        monkeypatch.setenv('OPENROUTER_API_KEY', 'test-key')
+        monkeypatch.setenv('AURORA_HOST', 'test-host')
+        monkeypatch.setenv('PDF_BUCKET_NAME', 'test-bucket')
+        monkeypatch.setenv('JOBS_TABLE_NAME', 'test-table')
 
     @pytest.fixture
     def mock_all_services(self):

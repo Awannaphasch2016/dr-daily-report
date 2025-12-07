@@ -269,6 +269,14 @@ class TestReportWorkerCaching:
 class TestReportWorkerLambdaHandler:
     """Test the Lambda handler entry point."""
 
+    @pytest.fixture(autouse=True)
+    def mock_env_vars(self, monkeypatch):
+        """Mock required environment variables (autouse for all tests)"""
+        monkeypatch.setenv('OPENROUTER_API_KEY', 'test-key')
+        monkeypatch.setenv('AURORA_HOST', 'test-host')
+        monkeypatch.setenv('PDF_BUCKET_NAME', 'test-bucket')
+        monkeypatch.setenv('JOBS_TABLE_NAME', 'test-table')
+
     @pytest.fixture
     def mock_process_record(self):
         """Mock process_record for handler tests."""
