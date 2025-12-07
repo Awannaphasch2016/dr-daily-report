@@ -46,41 +46,38 @@ export function MarketModal({ market, isOpen, onClose, onBuy, onAgree }: MarketM
           </div>
 
           {/* Single scrollable layout - ALL content in one page */}
+          {/* ALWAYS render sections - show empty states when data missing (TDD principle) */}
           {hasReport ? (
             <div id="market-body" className="modal-body p-6 space-y-8">
               {/* SECTION 1: Technical Chart - FULL WIDTH AT TOP */}
-              {market.report && market.report.price_history && (
-                <section>
-                  <h2 className="text-sm font-semibold text-[var(--color-text-secondary)] uppercase tracking-wider mb-3">
-                    Price Chart
-                  </h2>
-                  <div data-testid="full-chart-section">
-                    <FullChart
-                      data={market.report.price_history}
-                      indicators={{ sma20: true, sma50: true }}
-                    />
-                  </div>
-                </section>
-              )}
+              <section>
+                <h2 className="text-sm font-semibold text-[var(--color-text-secondary)] uppercase tracking-wider mb-3">
+                  Price Chart
+                </h2>
+                <div data-testid="full-chart-section">
+                  <FullChart
+                    data={market.report?.price_history || []}
+                    indicators={{ sma20: true, sma50: true }}
+                  />
+                </div>
+              </section>
 
               {/* SECTION 2: 2-Column Layout - Scoring (LEFT) + Peers (RIGHT) */}
               <section className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {/* LEFT: Scoring Panel */}
-                {market.report && market.report.all_scores && market.report.all_scores.length > 0 && (
-                  <div>
-                    <h2 className="text-sm font-semibold text-[var(--color-text-secondary)] uppercase tracking-wider mb-3">
-                      Key Scores
-                    </h2>
-                    <ScoringPanel scores={market.report.all_scores} />
-                  </div>
-                )}
+                <div>
+                  <h2 className="text-sm font-semibold text-[var(--color-text-secondary)] uppercase tracking-wider mb-3">
+                    Key Scores
+                  </h2>
+                  <ScoringPanel scores={market.report?.all_scores || []} />
+                </div>
 
                 {/* RIGHT: Peers */}
-                {market.report?.peers && market.report.peers.length > 0 && (
-                  <div>
-                    <h2 className="text-sm font-semibold text-[var(--color-text-secondary)] uppercase tracking-wider mb-3">
-                      Related Markets
-                    </h2>
+                <div>
+                  <h2 className="text-sm font-semibold text-[var(--color-text-secondary)] uppercase tracking-wider mb-3">
+                    Related Markets
+                  </h2>
+                  {market.report?.peers && market.report.peers.length > 0 ? (
                     <div data-testid="peers-panel" className="space-y-3">
                       {market.report.peers.map((peer, index) => (
                         <div
@@ -102,29 +99,46 @@ export function MarketModal({ market, isOpen, onClose, onBuy, onAgree }: MarketM
                         </div>
                       ))}
                     </div>
-                  </div>
-                )}
+                  ) : (
+                    <div
+                      data-testid="peers-panel"
+                      className="peers-panel--empty w-full py-12 flex items-center justify-center border border-dashed border-[var(--color-border)] rounded-lg"
+                    >
+                      <div className="empty-state text-center text-[var(--color-text-secondary)]">
+                        <div className="empty-state__icon text-4xl mb-2">🔗</div>
+                        <div className="empty-state__text text-sm">No peer data available</div>
+                        <div className="text-xs mt-1 opacity-70">Related markets will appear here</div>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </section>
 
               {/* SECTION 3: LLM Narrative */}
-              {market.report && market.report.narrative_sections && market.report.narrative_sections.length > 0 && (
-                <section>
-                  <h2 className="text-sm font-semibold text-[var(--color-text-secondary)] uppercase tracking-wider mb-3">
-                    Analysis
-                  </h2>
-                  <NarrativePanel sections={market.report.narrative_sections} />
-                </section>
-              )}
+              <section>
+                <h2 className="text-sm font-semibold text-[var(--color-text-secondary)] uppercase tracking-wider mb-3">
+                  Analysis
+                </h2>
+                <NarrativePanel sections={market.report?.narrative_sections || []} />
+              </section>
 
               {/* SECTION 4: Social Proof */}
-              {market.socialProof && (
-                <section>
-                  <h2 className="text-sm font-semibold text-[var(--color-text-secondary)] uppercase tracking-wider mb-3">
-                    Community Consensus
-                  </h2>
+              <section>
+                <h2 className="text-sm font-semibold text-[var(--color-text-secondary)] uppercase tracking-wider mb-3">
+                  Community Consensus
+                </h2>
+                {market.socialProof ? (
                   <SocialProofPanel socialProof={market.socialProof} />
-                </section>
-              )}
+                ) : (
+                  <div className="social-proof--empty w-full py-12 flex items-center justify-center border border-dashed border-[var(--color-border)] rounded-lg">
+                    <div className="empty-state text-center text-[var(--color-text-secondary)]">
+                      <div className="empty-state__icon text-4xl mb-2">👥</div>
+                      <div className="empty-state__text text-sm">No consensus data available</div>
+                      <div className="text-xs mt-1 opacity-70">Community predictions will appear here</div>
+                    </div>
+                  </div>
+                )}
+              </section>
 
               {/* SECTION 5: Market Stats + Agree Button */}
               <section>

@@ -95,10 +95,20 @@ function ScoreItem({ score }: { score: ScoringMetric }) {
 }
 
 export function ScoringPanel({ scores }: ScoringPanelProps) {
-  if (!scores || scores.length === 0) {
+  // ALWAYS render component - show empty state if no scores
+  const isEmpty = !scores || scores.length === 0;
+
+  if (isEmpty) {
     return (
-      <div className="text-center py-8 text-[var(--color-text-secondary)]">
-        No scoring data available
+      <div
+        data-testid="scoring-panel"
+        className="scoring-panel--empty w-full py-12 flex items-center justify-center border border-dashed border-[var(--color-border)] rounded-lg"
+      >
+        <div className="empty-state text-center text-[var(--color-text-secondary)]">
+          <div className="empty-state__icon text-4xl mb-2">📊</div>
+          <div className="empty-state__text text-sm">No scoring data available</div>
+          <div className="text-xs mt-1 opacity-70">Scores will appear when analysis is complete</div>
+        </div>
       </div>
     );
   }

@@ -76,6 +76,26 @@ function calculateSMA(data: PriceDataPoint[], period: number): number[] {
 
 
 export function FullChart({ data, indicators = { sma20: true, sma50: true } }: FullChartProps) {
+  // ALWAYS render component - show empty state if no data
+  // Principle: Observability > conditional rendering (CLAUDE.md:342-346)
+  const isEmpty = !data || data.length === 0;
+
+  if (isEmpty) {
+    return (
+      <div
+        data-testid="full-chart"
+        className="full-chart full-chart--empty w-full h-96 flex items-center justify-center border border-dashed border-[var(--color-border)] rounded-lg"
+        aria-label="Price chart (no data)"
+      >
+        <div className="empty-state text-center text-[var(--color-text-secondary)]">
+          <div className="empty-state__icon text-4xl mb-2">📈</div>
+          <div className="empty-state__text text-sm">No price data available</div>
+          <div className="text-xs mt-1 opacity-70">Chart will appear when data is loaded</div>
+        </div>
+      </div>
+    );
+  }
+
   // Format data and calculate indicators
   const chartData = useMemo(() => {
     const formatted = formatCandlestickData(data);

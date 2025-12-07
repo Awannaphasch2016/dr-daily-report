@@ -109,10 +109,20 @@ function NarrativeSectionComponent({ section }: { section: NarrativeSection }) {
 }
 
 export function NarrativePanel({ sections }: NarrativePanelProps) {
-  if (!sections || sections.length === 0) {
+  // ALWAYS render component - show empty state if no sections
+  const isEmpty = !sections || sections.length === 0;
+
+  if (isEmpty) {
     return (
-      <div className="text-center py-8 text-[var(--color-text-secondary)]">
-        No narrative analysis available
+      <div
+        data-testid="narrative-panel"
+        className="narrative-panel--empty w-full py-12 flex items-center justify-center border border-dashed border-[var(--color-border)] rounded-lg"
+      >
+        <div className="empty-state text-center text-[var(--color-text-secondary)]">
+          <div className="empty-state__icon text-4xl mb-2">📝</div>
+          <div className="empty-state__text text-sm">No narrative analysis available</div>
+          <div className="text-xs mt-1 opacity-70">AI-generated insights will appear here</div>
+        </div>
       </div>
     );
   }
