@@ -32,15 +32,22 @@ class TestRankingsSchemaContract:
         # Check first ticker has complete schema
         first_ticker = rankings[0]
 
+        # rankings_service.get_rankings() returns List[Dict], not Pydantic models
+        # Handle dict return type
+        ticker = first_ticker.get('ticker') if isinstance(first_ticker, dict) else first_ticker.ticker
+        chart_data = first_ticker.get('chart_data', {}) if isinstance(first_ticker, dict) else first_ticker.chart_data
+        key_scores = first_ticker.get('key_scores', {}) if isinstance(first_ticker, dict) else first_ticker.key_scores
+        stance = first_ticker.get('stance', 'neutral') if isinstance(first_ticker, dict) else first_ticker.stance
+
         # Build cached report format from API response
         cached_format = {
-            'ticker': first_ticker.ticker,
+            'ticker': ticker,
             'report_date': date.today().isoformat(),
-            'price_history': first_ticker.chart_data.get('price_history', []) if first_ticker.chart_data else [],
-            'projections': first_ticker.chart_data.get('projections', []) if first_ticker.chart_data else [],
-            'initial_investment': first_ticker.chart_data.get('initial_investment', 1000.0) if first_ticker.chart_data else 1000.0,
-            'user_facing_scores': first_ticker.key_scores if first_ticker.key_scores else {},
-            'stance': first_ticker.stance if first_ticker.stance else 'neutral',
+            'price_history': chart_data.get('price_history', []) if chart_data else [],
+            'projections': chart_data.get('projections', []) if chart_data else [],
+            'initial_investment': chart_data.get('initial_investment', 1000.0) if chart_data else 1000.0,
+            'user_facing_scores': key_scores if key_scores else {},
+            'stance': stance if stance else 'neutral',
             'report_text': '',  # Not returned by rankings API
             'strategy': 'multi-stage',
             'created_at': ''
@@ -50,7 +57,7 @@ class TestRankingsSchemaContract:
         is_valid, errors = validate_cached_report(cached_format)
 
         assert is_valid, \
-            f"Rankings API returned non-compliant data for {first_ticker.ticker}:\n" + \
+            f"Rankings API returned non-compliant data for {ticker}:\n" + \
             "\n".join(f"  - {e}" for e in errors)
 
     @pytest.mark.asyncio
@@ -78,14 +85,20 @@ class TestRankingsSchemaContract:
                 # Check first ticker from each category
                 first_ticker = rankings[0]
 
+                # Handle dict return type
+                ticker = first_ticker.get('ticker') if isinstance(first_ticker, dict) else first_ticker.ticker
+                chart_data = first_ticker.get('chart_data', {}) if isinstance(first_ticker, dict) else first_ticker.chart_data
+                key_scores = first_ticker.get('key_scores', {}) if isinstance(first_ticker, dict) else first_ticker.key_scores
+                stance = first_ticker.get('stance', 'neutral') if isinstance(first_ticker, dict) else first_ticker.stance
+
                 cached_format = {
-                    'ticker': first_ticker.ticker,
+                    'ticker': ticker,
                     'report_date': date.today().isoformat(),
-                    'price_history': first_ticker.chart_data.get('price_history', []) if first_ticker.chart_data else [],
-                    'projections': first_ticker.chart_data.get('projections', []) if first_ticker.chart_data else [],
-                    'initial_investment': first_ticker.chart_data.get('initial_investment', 1000.0) if first_ticker.chart_data else 1000.0,
-                    'user_facing_scores': first_ticker.key_scores if first_ticker.key_scores else {},
-                    'stance': first_ticker.stance if first_ticker.stance else 'neutral',
+                    'price_history': chart_data.get('price_history', []) if chart_data else [],
+                    'projections': chart_data.get('projections', []) if chart_data else [],
+                    'initial_investment': chart_data.get('initial_investment', 1000.0) if chart_data else 1000.0,
+                    'user_facing_scores': key_scores if key_scores else {},
+                    'stance': stance if stance else 'neutral',
                     'report_text': '',
                     'strategy': 'multi-stage',
                     'created_at': ''
@@ -93,7 +106,7 @@ class TestRankingsSchemaContract:
 
                 is_valid, errors = validate_cached_report(cached_format)
                 if not is_valid:
-                    violations.append(f"{category} ({first_ticker.ticker}):\n" + "\n".join(f"    - {e}" for e in errors))
+                    violations.append(f"{category} ({ticker}):\n" + "\n".join(f"    - {e}" for e in errors))
 
             except Exception as e:
                 violations.append(f"{category}: Exception - {e}")

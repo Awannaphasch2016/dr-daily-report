@@ -337,7 +337,51 @@ def test_cache_roundtrip(self):
     assert result['report_text'] == 'Analysis report'
 ```
 
-#### Principle 4: Silent Failure Detection
+#### Principle 4: Schema Testing at System Boundaries
+
+**The Litmus Test:** "If changing this breaks consumers, it's a contract (test it). If changing this doesn't affect consumers, it's implementation (don't test it)."
+
+**Kent Beck's Rule Clarified:**
+> "Tests should be sensitive to behavior changes and insensitive to structure changes."
+
+This appears to conflict with testing data schemas. The resolution:
+
+- **Within a service boundary**: Schema is implementation (SQL table structure, internal class shapes)
+- **Across service boundaries**: Schema IS the behavior (the interface contract)
+
+**When Schema Testing IS Appropriate:**
+- Producer/consumer architectures (scheduler writes data, UI reads it)
+- Event-driven systems (event shape is the contract)
+- API versioning (request/response structure is public contract)
+- Shared data stores accessed by multiple services
+
+**When Schema Testing is an Anti-Pattern:**
+- Internal database table structures (implementation detail)
+- Private class attributes (encapsulation)
+- Function parameters within same codebase (refactoring breaks tests)
+
+**Example - The Distinction:**
+
+```python
+# ❌ ANTI-PATTERN: Testing internal structure
+def test_database_columns(self):
+    """Don't: SQL schema can change without breaking behavior"""
+    cursor.execute("DESCRIBE reports")
+    assert 'created_at' in columns  # Breaks on column rename
+
+# ✅ PATTERN: Testing cross-service contract
+def test_api_response_schema(self):
+    """Do: API contract must remain stable for consumers"""
+    response = api.get_report('NVDA19')
+    assert 'created_at' in response  # External contract
+    assert isinstance(response['price_history'], list)
+    assert len(response['price_history']) >= 30
+```
+
+**Why This Matters:**
+When services communicate through shared data, changing the data format in one service can silently break others—even when each service's tests pass in isolation. Schema contract tests catch integration failures that unit tests miss.
+
+#### Principle 5: Silent Failure Detection
 
 Database operations often fail without exceptions:
 
