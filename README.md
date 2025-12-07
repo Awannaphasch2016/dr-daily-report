@@ -4,35 +4,20 @@ LINE Bot สำหรับรายงานวิเคราะห์หุ�
 
 ## Features
 
+### LINE Bot (Legacy)
 - 📊 การวิเคราะห์ทางเทคนิค (Technical Analysis)
-  - Moving Averages (SMA 20, 50, 200)
-  - RSI (Relative Strength Index)
-  - MACD
-  - Bollinger Bands
-  - Volume Analysis
-
 - 💼 การวิเคราะห์พื้นฐาน (Fundamental Analysis)
-  - P/E Ratio, EPS, Market Cap
-  - Dividend Yield
-  - Revenue & Earnings Growth
-  - Profit Margins
-
-- 🎯 ความเห็นนักวิเคราะห์
-  - Analyst Recommendations
-  - Price Targets
-  - Analyst Coverage
-
 - 🤖 AI-Powered Thai Language Reports
-  - รายงานวิเคราะห์ในภาษาไทยที่อ่านเข้าใจง่าย
-  - Key Insights และคำแนะนำ
-  - สรุปโอกาสและความเสี่ยง
+- Chat-based interface via LINE Messaging API
 
-- 📈 Professional Chart Visualization (NEW!)
-  - Candlestick price charts with volume
-  - Technical indicators overlay (SMA, Bollinger Bands)
-  - RSI and MACD subplots
-  - Base64 PNG export for easy integration
-  - See [Chart Visualization Docs](docs/CHART_VISUALIZATION.md)
+### Telegram Mini App (Active Development)
+- 📈 Interactive prediction market UI with charts
+- 🎯 Market movers rankings (top gainers/losers, volume surge)
+- 💼 Comprehensive ticker analysis with stance indicators
+- 📊 Professional chart visualization (price history + projections)
+- ⭐ User watchlist management
+- 🔍 Fast ticker search and autocomplete
+- Web-based dashboard via Telegram WebApp
 
 ## Architecture
 
@@ -53,31 +38,35 @@ User (LINE) -> API Gateway -> Lambda Function
 
 ## Tech Stack
 
-- **Python 3.9+**
+- **Python 3.11+**
 - **YFinance**: ดึงข้อมูลหุ้นจาก Yahoo Finance
 - **LangGraph**: Agent orchestration และ workflow
-- **LangChain + OpenAI**: สร้างรายงานภาษาไทย
-- **Qdrant**: Vector database สำหรับ semantic search
+- **LangChain + OpenRouter**: สร้างรายงานภาษาไทย
 - **SQLite**: Cache สำหรับข้อมูลหุ้นและรายงาน
+- **Aurora MySQL**: Persistent cache for precomputed reports
 - **AWS Lambda**: Serverless deployment
 
 ## Project Structure
 
 ```
-dr-daily-report/
-├── lambda_handler.py          # AWS Lambda entry point
-├── line_bot.py                # LINE Bot webhook handler
-├── agent.py                   # LangGraph agent logic
-├── data_fetcher.py            # Yahoo Finance data fetcher
-├── technical_analysis.py      # Technical indicators calculator
-├── database.py                # SQLite database handler
-├── vector_store.py            # Qdrant vector store
-├── config.py                  # Configuration
-├── requirements.txt           # Python dependencies
-├── tickers.csv               # Supported tickers list
-├── deploy.sh                 # Deployment script
-└── README.md                 # This file
+dr-daily-report_telegram/
+├── src/
+│   ├── integrations/          # LINE bot, Lambda handlers
+│   ├── agent.py               # LangGraph agent logic
+│   ├── workflow/              # Workflow nodes
+│   ├── data/                  # Data fetching, caching, Aurora
+│   ├── analysis/              # Technical, comparative analysis
+│   ├── report/                # Report generation
+│   ├── api/                   # Telegram Mini App API (FastAPI)
+│   └── scoring/               # Quality scoring
+├── frontend/twinbar/          # Telegram Mini App UI (React)
+├── terraform/                 # Infrastructure as Code
+├── tests/                     # Test suite
+├── justfile                   # Intent-based command recipes
+└── README.md                  # This file
 ```
+
+See `.claude/CLAUDE.md` for complete architecture documentation.
 
 ## Setup
 
@@ -128,7 +117,7 @@ dr --doppler test
 
 Manual doppler usage:
 ```bash
-doppler run --project rag-chatbot-worktree --config dev_personal --command env
+doppler run --project dr-daily-report-telegram --config dev --command env
 ```
 
 Required environment variables:
