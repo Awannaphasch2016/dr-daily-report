@@ -34,28 +34,23 @@ export function MarketCard({ market, onSelect, onBuy, onAgree }: MarketCardProps
       </div>
 
       {/* HORIZONTAL LAYOUT: Chart LEFT (65%), Score Table RIGHT (35%) */}
-      {market.report && (
-        <div data-testid="horizontal-content" className="flex gap-2 mb-3">
-          {/* LEFT: Mini Chart (65% width) - Shows portfolio performance with projections */}
-          {market.report.price_history && market.report.price_history.length > 0 && (
-            <div className="w-[65%] flex-shrink-0">
-              <MiniChart
-                data={market.report.price_history}
-                projections={market.report.projections}
-                initialInvestment={market.report.initial_investment || 1000}
-                stance={market.report.stance}
-              />
-            </div>
-          )}
-
-          {/* RIGHT: Score Table (35% width) - Tighter layout */}
-          {market.report.key_scores && market.report.key_scores.length > 0 && (
-            <div className="flex-1">
-              <ScoreTable scores={market.report.key_scores.slice(0, 5)} />
-            </div>
-          )}
+      {/* ALWAYS render components - show empty states if data missing (TDD principle) */}
+      <div data-testid="horizontal-content" className="flex gap-2 mb-3">
+        {/* LEFT: Mini Chart (65% width) - Shows portfolio performance with projections */}
+        <div className="w-[65%] flex-shrink-0">
+          <MiniChart
+            data={market.report?.price_history || []}
+            projections={market.report?.projections || []}
+            initialInvestment={market.report?.initial_investment || 1000}
+            stance={market.report?.stance || 'neutral'}
+          />
         </div>
-      )}
+
+        {/* RIGHT: Score Table (35% width) - Tighter layout */}
+        <div className="flex-1">
+          <ScoreTable scores={market.report?.key_scores?.slice(0, 5) || []} />
+        </div>
+      </div>
 
       <div className="market-meta flex items-center gap-4 mb-4 text-xs text-[var(--color-text-secondary)]">
         <span className="market-volume">Vol: {formatVolume(market.volume)}</span>
