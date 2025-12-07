@@ -571,6 +571,7 @@ jobs:
   e2e-test-dev:
     name: E2E Tests (Dev)
     needs: [deploy-dev-frontend]
+    if: needs.deploy-dev-frontend.result == 'success'
     runs-on: ubuntu-latest
     environment: development
 
@@ -920,6 +921,7 @@ jobs:
   e2e-test-staging:
     name: E2E Tests (Staging)
     needs: [deploy-staging-frontend]
+    if: needs.deploy-staging-frontend.result == 'success'
     runs-on: ubuntu-latest
     environment: staging
 
@@ -1283,6 +1285,7 @@ jobs:
   e2e-test-prod:
     name: E2E Tests (Prod)
     needs: [deploy-prod-frontend]
+    if: needs.deploy-prod-frontend.result == 'success'
     runs-on: ubuntu-latest
     environment: production
 
