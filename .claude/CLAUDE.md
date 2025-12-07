@@ -589,6 +589,106 @@ The project uses a two-layer CLI design: **Justfile** (intent-based recipes desc
 
 **Environment Variables:** Managed via Doppler. See `docs/deployment/WORKFLOW.md` for required secrets per environment.
 
+**Secret Management Principle: Separation by Consumer**
+
+Secrets are stored in two separate systems based on **who** consumes them:
+
+**Doppler (Runtime Secrets)**
+- Consumer: Application code (Lambda functions)
+- When: During request/response execution
+- Examples: `AURORA_HOST`, `OPENROUTER_API_KEY`, `PDF_BUCKET_NAME`
+- Injection: Doppler → Terraform → Lambda environment variables
+- Pattern: `ENV=dev doppler run -- python app.py`
+
+**GitHub Secrets (Deployment Secrets)**
+- Consumer: CI/CD pipeline (GitHub Actions)
+- When: During deployment automation
+- Examples: `CLOUDFRONT_DISTRIBUTION_ID`, `AWS_ACCESS_KEY_ID`
+- Access: `${{ secrets.SECRET_NAME }}` in workflows
+- Pattern: Used by deployment scripts, NOT application code
+
+**The Deciding Question**: "Does the Lambda function running in production need to know this value?"
+- YES → Store in Doppler (runtime secret)
+- NO → Store in GitHub Secrets (deployment secret)
+
+**Why This Separation:**
+- Least privilege: Lambda never sees deployment credentials
+- Clear boundaries: Doppler = app needs, GitHub = CI/CD needs
+- Security: Compromised Lambda doesn't expose deployment access
+
+**Infrastructure-Deployment Contract Validation**
+
+Before every deployment, validate that GitHub secrets match actual AWS infrastructure state. This catches configuration drift and prevents deployment failures.
+
+**Pattern: Query Reality, Validate Secrets**
+
+The first job in every deployment pipeline queries AWS for actual infrastructure IDs, then validates GitHub secrets match reality:
+
+```yaml
+jobs:
+  validate-deployment-config:
+    name: Validate Infrastructure & Secrets
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ap-southeast-1
+
+      - name: Validate CloudFront Distributions
+        env:
+          GITHUB_TEST_DIST: ${{ secrets.CLOUDFRONT_TEST_DISTRIBUTION_ID }}
+          GITHUB_APP_DIST: ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }}
+        run: |
+          # Query actual infrastructure from AWS
+          ACTUAL_TEST=$(aws cloudfront list-distributions \
+            --query 'DistributionList.Items[?Comment==`dr-daily-report TEST CloudFront - dev`].Id' \
+            --output text)
+
+          ACTUAL_APP=$(aws cloudfront list-distributions \
+            --query 'DistributionList.Items[?Comment==`dr-daily-report APP CloudFront - dev`].Id' \
+            --output text)
+
+          # Validate secrets match reality
+          if [ "$ACTUAL_TEST" != "$GITHUB_TEST_DIST" ]; then
+            echo "❌ Mismatch: CLOUDFRONT_TEST_DISTRIBUTION_ID"
+            echo "   AWS:    $ACTUAL_TEST"
+            echo "   GitHub: $GITHUB_TEST_DIST"
+            exit 1  # Fail fast - blocks entire pipeline
+          fi
+
+          if [ "$ACTUAL_APP" != "$GITHUB_APP_DIST" ]; then
+            echo "❌ Mismatch: CLOUDFRONT_DISTRIBUTION_ID"
+            exit 1
+          fi
+
+          echo "✅ All secrets match actual infrastructure"
+
+  build:
+    needs: validate-deployment-config  # Won't run if validation fails
+    # ... rest of pipeline
+```
+
+**Why This Works:**
+- ✅ Self-healing: Automatically detects when secrets are stale
+- ✅ No manual checklist: Code queries AWS, compares to secrets
+- ✅ Catches drift: Even if someone changed AWS console manually
+- ✅ Single source of truth: AWS infrastructure is reality
+- ✅ Fail fast: First job, blocks deployment if secrets wrong (< 30 seconds)
+
+**When to Use:**
+- Resources that CI/CD operates on (CloudFront invalidation, S3 sync, Lambda updates)
+- First job in deployment pipeline (before build/deploy)
+- Every deployment (not just after Terraform changes)
+
+**Resources to Validate:**
+- CloudFront distribution IDs (for cache invalidation)
+- S3 bucket names (for file sync)
+- Lambda function names (if not in Terraform variables)
+- Any AWS resource ID referenced in deployment scripts
+
 For complete deployment runbook, commands, and troubleshooting, see [Telegram Deployment Runbook](docs/deployment/TELEGRAM_DEPLOYMENT_RUNBOOK.md).
 
 ---

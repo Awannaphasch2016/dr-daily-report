@@ -484,27 +484,77 @@ jobs:
       test_url: ${{ steps.deploy.outputs.test_url }}
 
     steps:
-      - name: Validate Required Secrets
-        run: |
-          missing=()
-          [ -z "${{ secrets.CLOUDFRONT_TEST_DISTRIBUTION_ID }}" ] && missing+=("CLOUDFRONT_TEST_DISTRIBUTION_ID")
-          [ -z "${{ secrets.CLOUDFRONT_TEST_DOMAIN }}" ] && missing+=("CLOUDFRONT_TEST_DOMAIN")
+      - name: Configure AWS credentials (for infrastructure validation)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ap-southeast-1
 
-          if [ ${#missing[@]} -gt 0 ]; then
-            echo "❌ Missing required GitHub secrets for TEST CloudFront:"
-            printf '   - %s\n' "${missing[@]}"
+      - name: Validate Infrastructure & Secrets
+        env:
+          GITHUB_TEST_DIST: ${{ secrets.CLOUDFRONT_TEST_DISTRIBUTION_ID }}
+          GITHUB_TEST_DOMAIN: ${{ secrets.CLOUDFRONT_TEST_DOMAIN }}
+          GITHUB_APP_DIST: ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }}
+        run: |
+          echo "🔍 Validating CloudFront infrastructure and secrets..."
+
+          # Query actual infrastructure from AWS
+          echo "Querying AWS for actual CloudFront distributions..."
+          ACTUAL_TEST_DIST=$(aws cloudfront list-distributions \
+            --query 'DistributionList.Items[?Comment==`Telegram Mini App TEST - dev (E2E testing)`].Id' \
+            --output text)
+
+          ACTUAL_TEST_DOMAIN=$(aws cloudfront list-distributions \
+            --query 'DistributionList.Items[?Comment==`Telegram Mini App TEST - dev (E2E testing)`].DomainName' \
+            --output text)
+
+          ACTUAL_APP_DIST=$(aws cloudfront list-distributions \
+            --query 'DistributionList.Items[?Comment==`Telegram Mini App - dev`].Id' \
+            --output text)
+
+          echo "📊 Infrastructure found:"
+          echo "   TEST Distribution ID: $ACTUAL_TEST_DIST"
+          echo "   TEST Domain:          $ACTUAL_TEST_DOMAIN"
+          echo "   APP Distribution ID:  $ACTUAL_APP_DIST"
+          echo ""
+
+          # Validate secrets exist and match reality
+          errors=()
+
+          if [ -z "$GITHUB_TEST_DIST" ]; then
+            errors+=("❌ CLOUDFRONT_TEST_DISTRIBUTION_ID secret is missing")
+          elif [ "$ACTUAL_TEST_DIST" != "$GITHUB_TEST_DIST" ]; then
+            errors+=("❌ CLOUDFRONT_TEST_DISTRIBUTION_ID mismatch (AWS: $ACTUAL_TEST_DIST, GitHub: $GITHUB_TEST_DIST)")
+          fi
+
+          if [ -z "$GITHUB_TEST_DOMAIN" ]; then
+            errors+=("❌ CLOUDFRONT_TEST_DOMAIN secret is missing")
+          elif [ "https://$ACTUAL_TEST_DOMAIN" != "$GITHUB_TEST_DOMAIN" ]; then
+            errors+=("❌ CLOUDFRONT_TEST_DOMAIN mismatch (AWS: https://$ACTUAL_TEST_DOMAIN, GitHub: $GITHUB_TEST_DOMAIN)")
+          fi
+
+          if [ -z "$GITHUB_APP_DIST" ]; then
+            errors+=("❌ CLOUDFRONT_DISTRIBUTION_ID secret is missing")
+          elif [ "$ACTUAL_APP_DIST" != "$GITHUB_APP_DIST" ]; then
+            errors+=("❌ CLOUDFRONT_DISTRIBUTION_ID mismatch (AWS: $ACTUAL_APP_DIST, GitHub: $GITHUB_APP_DIST)")
+          fi
+
+          # Report results
+          if [ ${#errors[@]} -gt 0 ]; then
             echo ""
-            echo "Add secrets with:"
-            echo "  gh secret set CLOUDFRONT_TEST_DISTRIBUTION_ID --env development --body \"<value>\""
-            echo "  gh secret set CLOUDFRONT_TEST_DOMAIN --env development --body \"<value>\""
+            echo "❌ VALIDATION FAILED - Infrastructure/secrets mismatch:"
+            printf '   %s\n' "${errors[@]}"
             echo ""
-            echo "Get values from Terraform:"
-            echo "  cd terraform/envs/dev && terraform output cloudfront_test_distribution_id"
-            echo "  cd terraform/envs/dev && terraform output cloudfront_test_distribution_domain"
+            echo "To fix:"
+            echo "  gh secret set CLOUDFRONT_TEST_DISTRIBUTION_ID --env development --body \"$ACTUAL_TEST_DIST\""
+            echo "  gh secret set CLOUDFRONT_TEST_DOMAIN --env development --body \"https://$ACTUAL_TEST_DOMAIN\""
+            echo "  gh secret set CLOUDFRONT_DISTRIBUTION_ID --env development --body \"$ACTUAL_APP_DIST\""
             exit 1
           fi
 
-          echo "✅ All required secrets present"
+          echo "✅ All secrets match actual infrastructure"
+          echo "   Safe to proceed with deployment"
 
       - name: Checkout code
         uses: actions/checkout@v4
