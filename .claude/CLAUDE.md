@@ -1263,60 +1263,11 @@ def fetch_ticker_data(self, ticker: str, period: str = "1y"):
 
 ## CLI Usage
 
-### Two-Layer Design
-**Justfile** (Intent layer - WHEN/WHY to run commands)
-```bash
-just dev          # Start local development server
-just test-changes # Run tests before committing
-just build        # Build deployment package
-```
+The project uses a two-layer CLI design: **Justfile** (intent-based recipes describing WHEN/WHY) and **dr CLI** (explicit syntax for HOW).
 
-**dr CLI** (Implementation layer - HOW commands work)
-```bash
-dr --doppler dev server
-dr test
-dr build
-```
+**For complete command reference**, see [docs/cli.md](docs/cli.md).
 
-### Universal dr CLI Patterns
-```bash
-# Global flags (before command)
-dr --doppler <command>         # Run with Doppler env vars
-dr --trace <command>           # Enable LangSmith tracing
-dr --no-trace <command>        # Disable LangSmith tracing
-
-# Command structure
-dr <group> <command> [options]
-
-# Examples
-dr dev server                           # Start Flask dev server
-dr test file test_agent.py             # Run specific test
-dr util report DBS19 --strategy multi-stage  # Generate report
-dr --doppler langsmith list-runs       # List LangSmith traces
-dr build --minimal                      # Build minimal Lambda package
-```
-
-### Common Workflows
-```bash
-# Daily development
-just daily                # Pull, setup, test
-
-# Pre-commit
-just pre-commit          # Syntax check + tests
-
-# Testing
-dr test                  # All tests
-dr test file <file>      # Specific test
-dr test integration DBS19 # Integration test
-
-# Report generation
-dr --doppler util report <TICKER>                    # Single-stage
-dr --doppler util report <TICKER> --strategy multi-stage  # Multi-stage
-
-# Build & deploy
-just build               # Build Lambda package
-just ship-it            # Build + deploy to AWS
-```
+**For common workflows**, see `justfile` or run `just --list`.
 
 ---
 
@@ -3150,32 +3101,4 @@ analyze TICKER FORMAT="text":
 
 ---
 
-## Quick Reference
-
-| Task | Command |
-|------|---------|
-| Start dev server | `just dev` or `dr --doppler dev server` |
-| Run all tests | `just test-changes` or `dr test` |
-| Run specific test | `dr test file <filename>` |
-| Generate report | `dr --doppler util report <TICKER>` |
-| Build Lambda package | `just build` or `dr build` |
-| Check syntax | `just check` |
-| Clean artifacts | `just clean` |
-| View project structure | `just tree` |
-| LangSmith traces | `dr --doppler langsmith list-runs` |
-| Deploy code | `git push origin telegram` (CI/CD auto-deploys to all envs) |
-| Deploy infra to dev | `cd terraform && terraform init -backend-config=envs/dev/backend.hcl && terraform apply -var-file=envs/dev/terraform.tfvars` |
-| Deploy infra to staging | `terraform init -backend-config=envs/staging/backend.hcl -reconfigure && terraform apply -var-file=envs/staging/terraform.tfvars` |
-| Deploy infra to prod | `terraform init -backend-config=envs/prod/backend.hcl -reconfigure && terraform apply -var-file=envs/prod/terraform.tfvars` |
-| Check TF state | `terraform state list` |
-| Rollback Lambda | `./scripts/rollback.sh <env> <version>` (e.g., `./scripts/rollback.sh dev 5`) |
-| OPA validate | `just opa-validate dev` |
-| Run Terratest | `just terratest` |
-| Full infra TDD | `just infra-tdd dev` (OPA → apply → Terratest) |
-
-**Key Files to Know:**
-- `src/agent.py` - Main LangGraph agent
-- `src/workflow/workflow_nodes.py` - Workflow implementation
-- `src/types.py` - TypedDict state definitions
-- `justfile` - Intent-based command recipes
-- `dr_cli/main.py` - CLI entry point
+**For command reference**, see [docs/cli.md](docs/cli.md) and run `just --list` for available recipes.
