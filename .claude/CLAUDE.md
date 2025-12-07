@@ -146,8 +146,24 @@ pytest --run-ratelimited            # Include rate-limited tests
 - **Explicit failure detection**: Check operation outcomes (rowcount, status codes), not just absence of exceptions
 - **No silent fallbacks**: Default values should be explicit, not hidden error recovery
 - **Test failure modes**: After writing a test, intentionally break the code to verify the test catches it
+- **NEVER assume data exists without validating first**: Always verify cache/database state before operations that depend on it. Assumptions about populated data lead to silent failures in production.
 
 **System boundary rule:** When crossing boundaries (API ↔ Database, Service ↔ External API), verify data type compatibility explicitly. Strict types like MySQL ENUMs fail silently on mismatch.
+
+**Data existence validation pattern:**
+```python
+# BAD: Assumes cache is populated
+def trigger_ui_refresh():
+    # Assumes 46 tickers in cache - may fail silently
+    invalidate_cloudfront()
+
+# GOOD: Validates data exists first
+def trigger_ui_refresh():
+    cache_count = check_cache_population()
+    if cache_count == 0:
+        raise ValueError("Cache is empty - populate before refreshing UI")
+    invalidate_cloudfront()
+```
 
 ### Testing Anti-Patterns to Avoid
 
