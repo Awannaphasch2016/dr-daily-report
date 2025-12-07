@@ -19,7 +19,9 @@ interface MarketModalProps {
 export function MarketModal({ market, isOpen, onClose, onBuy, onAgree }: MarketModalProps) {
   if (!market) return null;
 
-  const hasReport = market.report !== undefined;
+  // ALWAYS show report layout with empty states (observability principle)
+  // Even when market.report is undefined, we show all sections with placeholders
+  const hasReport = true;  // Changed: was market.report !== undefined
 
   return (
     <Dialog open={isOpen} onClose={onClose} className="relative z-50">
