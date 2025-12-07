@@ -643,7 +643,7 @@ class PrecomputeService:
                         indicators=result.get('indicators', {}),
                         percentiles=result.get('percentiles', {})
                     )
-                    # SABOTAGED:                     result['user_facing_scores'] = scores
+                    result['user_facing_scores'] = scores
                     logger.debug(f"Extracted user_facing_scores for {symbol}: {len(scores)} categories")
                 except Exception as e:
                     logger.warning(f"Failed to extract user_facing_scores for {symbol}: {e}")
