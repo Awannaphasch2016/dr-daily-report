@@ -1,6 +1,9 @@
 # -*- coding: utf-8 -*-
 import pandas as pd
 import numpy as np
+import logging
+
+logger = logging.getLogger(__name__)
 
 class TechnicalAnalyzer:
     def __init__(self):
@@ -450,9 +453,10 @@ class TechnicalAnalyzer:
             }
 
         except Exception as e:
-            print(f"Error calculating indicators with percentiles: {str(e)}")
-            import traceback
-            traceback.print_exc()
+            logger.error(
+                f"Error calculating indicators with percentiles: {str(e)}",
+                exc_info=True  # Includes full traceback in CloudWatch logs
+            )
             return None
 
     def analyze_trend(self, indicators, price):

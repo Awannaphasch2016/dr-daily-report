@@ -148,8 +148,11 @@ pytest --run-ratelimited            # Include rate-limited tests
 - **Test failure modes**: After writing a test, intentionally break the code to verify the test catches it
 - **NEVER assume data exists without validating first**: Always verify cache/database state before operations that depend on it. Assumptions about populated data lead to silent failures in production.
 - **NEVER assume configuration is correct without validating first**: Always verify environment variables, secrets, and configuration values are set appropriately before operations. Run validation tests as gates to distinguish config failures from logic failures.
+- **NEVER assume code produces expected output without verifying the actual result**: Code that executes without exceptions doesn't guarantee correct output. Workflow nodes can succeed but return empty data structures. Always validate the actual output content, not just execution success. Empty dicts `{}` pass `if result:` checks but fail `if result['key']:` checks.
 
 **System boundary rule:** When crossing boundaries (API ↔ Database, Service ↔ External API), verify data type compatibility explicitly. Strict types like MySQL ENUMs fail silently on mismatch.
+
+**Code execution ≠ Correct output:** A function returning without raising an exception doesn't mean it produced the expected data. Always verify output content, not just successful execution.
 
 **AWS Services Success ≠ No Errors:** AWS services returning successful HTTP status codes (200, 202) does not guarantee error-free execution. Always validate CloudWatch logs, response payloads, and operation outcomes before concluding success.
 
@@ -280,6 +283,107 @@ def populate_cache():
 
     # Now safe to proceed - failures are logic/data issues, not config
     lambda_client.invoke(FunctionName=SCHEDULER_LAMBDA, Payload={...})
+```
+
+**Output verification pattern:**
+```python
+# BAD: Assumes workflow produces expected data
+def store_user_scores(agent_result):
+    # Code exists to populate user_facing_scores, so we assume it worked
+    precompute_service.store_report(
+        report_json=agent_result  # Might be empty dict!
+    )
+
+# GOOD: Validates actual output content before using it
+def store_user_scores(agent_result):
+    # Verify output content, not just execution
+    if 'user_facing_scores' not in agent_result:
+        logger.error("Agent workflow did not produce user_facing_scores")
+        raise ValueError("Missing required field: user_facing_scores")
+
+    if not agent_result['user_facing_scores']:
+        logger.error(f"user_facing_scores is empty: {agent_result['user_facing_scores']}")
+        raise ValueError("user_facing_scores must not be empty")
+
+    # Now safe - we know the data exists and is non-empty
+    precompute_service.store_report(report_json=agent_result)
+```
+
+**The Truthy Trap:**
+```python
+# BAD: Empty dict is truthy but has no content
+result = {'indicators': {}, 'ticker_data': {}, 'percentiles': {}}
+if result['indicators']:  # ✓ Passes (dict exists)
+    process(result)       # ✗ Fails (dict is empty)
+
+# GOOD: Check for actual content
+if result.get('indicators') and len(result['indicators']) > 0:
+    process(result)
+else:
+    logger.warning(f"Indicators dict is empty: {result.get('indicators')}")
+    # Handle empty data appropriately
+```
+
+**Silent None Propagation Anti-Pattern:**
+```python
+# BAD: Returns None hides failures
+def fetch_ticker_data(ticker: str):
+    hist = yf.download(ticker, period='1y')
+    if hist is None or hist.empty:
+        logger.warning(f"No data for {ticker}")
+        return None  # ✗ Caller doesn't know WHY it failed
+
+def process_ticker(ticker: str):
+    data = fetch_ticker_data(ticker)
+    if not data:  # Silent failure - logged as warning, workflow continues
+        return {'ticker': ticker, 'indicators': {}}  # Empty dict propagates
+    # ... rest of processing
+
+# GOOD: Raise explicit exceptions
+def fetch_ticker_data(ticker: str):
+    hist = yf.download(ticker, period='1y')
+    if hist is None or hist.empty:
+        error_msg = f"No historical data returned for {ticker}"
+        logger.error(error_msg)
+        raise ValueError(error_msg)  # ✓ Caller MUST handle this
+
+def process_ticker(ticker: str):
+    try:
+        data = fetch_ticker_data(ticker)
+        # ... processing
+    except ValueError as e:
+        logger.error(f"Failed to process {ticker}: {e}")
+        # Explicit error handling - set state['error'] or re-raise
+        raise  # Fail fast with visibility
+```
+
+**Workflow Validation Gates:**
+```python
+# BAD: Assumes upstream nodes succeeded
+def analyze_technical(state: AgentState) -> AgentState:
+    # No validation - assumes ticker_data is populated
+    result = analyzer.calculate_indicators(state['ticker_data'])
+    state['indicators'] = result  # Might be {} if ticker_data was empty!
+    return state
+
+# GOOD: Validate prerequisites before execution
+def analyze_technical(state: AgentState) -> AgentState:
+    # VALIDATION GATE - check prerequisite data
+    if not state.get('ticker_data') or len(state['ticker_data']) == 0:
+        error_msg = f"Cannot analyze technical: ticker_data is empty for {state['ticker']}"
+        logger.error(error_msg)
+        state['error'] = error_msg
+        return state  # Skip execution, preserve error state
+
+    # Safe to proceed - prerequisite validated
+    try:
+        result = analyzer.calculate_indicators(state['ticker_data'])
+        state['indicators'] = result
+    except Exception as e:
+        logger.error(f"Technical analysis failed: {e}")
+        state['error'] = str(e)
+
+    return state
 ```
 
 ### Testing Anti-Patterns to Avoid
@@ -564,6 +668,10 @@ The project uses a two-layer CLI design: **Justfile** (intent-based recipes desc
 **Workflow State Management Philosophy:** LangGraph workflows use `TypedDict` with `Annotated[Sequence[T], operator.add]` for auto-merging message lists. State is immutable between nodes—each node returns new state dict. Errors propagate via `state["error"]` field (never raise exceptions in workflow nodes). See [Workflow Patterns](docs/CODE_STYLE.md#workflow-state-management-patterns).
 
 **Error Handling Duality:** Workflow nodes use state-based error propagation (collect all errors, enable resumable workflows). Utility functions raise descriptive exceptions (fail fast). Never mix these patterns. See [Error Handling](docs/CODE_STYLE.md#error-handling-patterns).
+
+**Silent None Propagation Anti-Pattern:** Functions that return `None` on failure create cascading silent failures in workflows. Prefer explicit exceptions in utility functions so workflow orchestrators can catch and handle them appropriately. `return None` hides failures; exceptions make them visible and catchable.
+
+**Workflow Validation Gates:** Before executing a workflow node, validate that all prerequisite data exists and is non-empty. Don't assume upstream nodes succeeded—check explicitly. Example: Before analyzing technical indicators, verify `ticker_data` is populated and non-empty.
 
 **JSON Serialization Requirement:** NumPy/Pandas types must be converted before JSON encoding (`np.int64` → `int`, `pd.Timestamp` → ISO string). Lambda responses, API endpoints, and LangSmith tracing all require JSON-serializable state. See [JSON Serialization](docs/CODE_STYLE.md#json-serialization).
 
