@@ -42,70 +42,22 @@ Maintain the **"Goldilocks Zone" of abstraction** - not too abstract, not too sp
 
 ## Project Context
 
-### Overview
-**IMPORTANT:** This project now supports TWO separate applications:
+**Multi-App Architecture:** This project supports two separate UX layers sharing a common backend:
+- **LINE Bot**: Chat-based Thai financial reports (production)
+- **Telegram Mini App**: Web-based dashboard with REST API (phase 3)
 
-1. **LINE Bot** (Original, Production): Chat-based Thai financial reports via LINE Messaging API
-2. **Telegram Mini App** (New, Phase 3): Web-based dashboard with REST API for richer interactions
+**Shared Infrastructure Principle:** Both apps use identical core agent/workflow/data layers. Resources are separated via AWS tags (`App = line-bot | telegram-api | shared`). See [Architecture Overview](docs/README.md).
 
-**Shared Infrastructure:** Both apps use the same core agent/workflow, data layer, and analysis services. Resources are separated via AWS tags (`App = line-bot | telegram-api | shared`).
-
-LINE bot generates comprehensive Thai language financial reports for day traders and investors. Uses hierarchical LLM architecture (specialist mini-reports → synthesis) for balanced data category representation.
-
-### Core Components
-- **Agent**: LangGraph workflow orchestration (`src/agent.py`)
-- **Workflow**: State-based nodes for data fetching, analysis, report generation (`src/workflow/`)
-- **Report Generation**: Single-stage or multi-stage LLM strategies (`src/report/`)
-- **Data Layer**: YFinance, SQLite caching, S3 storage (`src/data/`)
-- **Scoring**: Faithfulness, completeness, reasoning quality, QoS (`src/scoring/`)
-- **CLI**: Two-layer design (Justfile + dr CLI) (`dr_cli/`, `justfile`)
-
-### Key Technologies
-- **LangGraph**: Workflow state management with AgentState TypedDict
-- **OpenRouter**: LLM API (GPT-4o) with cost tracking
-- **LangSmith**: Optional tracing (controlled via `--trace/--no-trace`)
-- **Doppler**: Environment variable/secrets management
-- **AWS Lambda**: Serverless deployment target
-
-### AWS Permissions
-**IMPORTANT:** The user has full AWS IAM permissions and can create/modify IAM policies. When encountering AWS permission errors:
-1. **Do NOT ask** if the user wants to fix permissions - just fix them
-2. Create the necessary IAM policy with required permissions
-3. Attach the policy to the appropriate IAM user/role
-4. Re-run the failed operation
-
-Common permission patterns:
+**AWS Permissions Philosophy:** The user has full AWS IAM permissions. When encountering permission errors, create the necessary IAM policy and attach it—don't ask for permission. Common pattern:
 ```bash
-# Create IAM policy for missing permissions
 aws iam create-policy --policy-name <name> --policy-document file://policy.json
-
-# Attach to user
 aws iam attach-user-policy --user-name <user> --policy-arn <arn>
 ```
+See [AWS Setup Guide](docs/AWS_SETUP.md) for complete IAM configuration.
 
-### ⚠️ MAIN BRANCH PROTECTION - CRITICAL
+**⚠️ Branch Protection:** DO NOT touch `main` branch. Use environment branches: `telegram` (dev), `telegram-staging`, `telegram-prod`. Main contains legacy code. See [Deployment Runbook](docs/deployment/TELEGRAM_DEPLOYMENT_RUNBOOK.md).
 
-**DO NOT touch the `main` branch.** The project is temporarily using environment-based branches:
-
-| Branch | Environment | Deploys To |
-|--------|-------------|------------|
-| `telegram` | Dev | Auto-deploy on push |
-| `telegram-staging` | Staging | Auto-deploy on push |
-| `telegram-prod` | Production | Auto-deploy on push |
-
-**NEVER do any of the following:**
-- ❌ `git checkout main` followed by changes
-- ❌ `git merge <anything> main`
-- ❌ `git push origin main`
-- ❌ Create PRs targeting `main`
-- ❌ Deploy from `main` branch
-- ❌ Reference `main` in GitHub Actions workflows
-
-**Why:** Main branch contains legacy/unclean code. All Telegram Mini App development happens on `telegram` branch. Main will be cleaned up in the future when ready to follow standard CI/CD conventions.
-
-**Future migration path:** When main is ready, `telegram-prod` → `main`
-
-**If asked to use main branch:** REFUSE and explain this policy. Suggest using `telegram`, `telegram-staging`, or `telegram-prod` instead.
+For complete component inventory, technology stack, and directory structure, see [Documentation Index](docs/README.md).
 
 ---
 
