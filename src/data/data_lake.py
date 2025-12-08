@@ -118,6 +118,170 @@ class DataLakeStorage:
             logger.error(f"Unexpected error storing to data lake {s3_key}: {e}")
             return False
 
+    def store_indicators(
+        self,
+        ticker: str,
+        indicators: Dict[str, Any],
+        source_raw_data_key: Optional[str] = None,
+        computed_at: Optional[datetime] = None,
+        computation_version: str = "1.0"
+    ) -> bool:
+        """
+        Store computed indicators to data lake.
+
+        Key structure: processed/indicators/{ticker}/{date}/{timestamp}.json
+        Tags: source=computed, ticker={ticker}, computed_at={date}, source_raw_data={key}
+        Metadata: computed_at, source, ticker, source_raw_data_key, computation_version
+
+        Args:
+            ticker: Ticker symbol (e.g., 'NVDA', 'D05.SI')
+            indicators: Dict with computed indicator values
+            source_raw_data_key: S3 key of source raw data (optional, for data lineage)
+            computed_at: Timestamp when indicators were computed (defaults to now)
+            computation_version: Version of computation logic (default: "1.0")
+
+        Returns:
+            True if successful, False otherwise
+        """
+        if not self.enabled:
+            logger.debug("Data lake storage disabled (no bucket configured)")
+            return False
+
+        if computed_at is None:
+            computed_at = datetime.now()
+
+        # Generate S3 key: processed/indicators/{ticker}/{date}/{timestamp}.json
+        date_str = computed_at.strftime('%Y-%m-%d')
+        timestamp_str = computed_at.strftime('%Y%m%d_%H%M%S')
+        s3_key = f"processed/indicators/{ticker}/{date_str}/{timestamp_str}.json"
+
+        # Prepare tags for data lineage
+        tags = {
+            'source': 'computed',
+            'ticker': ticker,
+            'computed_at': date_str,
+            'computation_type': 'indicators'
+        }
+        if source_raw_data_key:
+            tags['source_raw_data'] = source_raw_data_key
+
+        # Prepare metadata
+        metadata = {
+            'computed_at': computed_at.isoformat(),
+            'source': 'indicators_computation',
+            'ticker': ticker,
+            'computation_version': computation_version,
+            'data_classification': 'computed-data'
+        }
+        if source_raw_data_key:
+            metadata['source_raw_data_key'] = source_raw_data_key
+
+        try:
+            # Convert tags to S3 tag format: "Key1=Value1&Key2=Value2"
+            tag_string = '&'.join([f"{k}={v}" for k, v in tags.items()])
+
+            # Store to S3 with versioning enabled
+            self.s3_client.put_object(
+                Bucket=self.bucket_name,
+                Key=s3_key,
+                Body=json.dumps(indicators, ensure_ascii=False, indent=2),
+                ContentType='application/json',
+                Metadata=metadata,
+                Tagging=tag_string
+            )
+
+            logger.info(f"💾 Data lake stored indicators: {s3_key} (ticker: {ticker}, date: {date_str})")
+            return True
+
+        except ClientError as e:
+            logger.error(f"Data lake storage failed for {s3_key}: {e}")
+            return False
+        except Exception as e:
+            logger.error(f"Unexpected error storing indicators to data lake {s3_key}: {e}")
+            return False
+
+    def store_percentiles(
+        self,
+        ticker: str,
+        percentiles: Dict[str, Any],
+        source_raw_data_key: Optional[str] = None,
+        computed_at: Optional[datetime] = None,
+        computation_version: str = "1.0"
+    ) -> bool:
+        """
+        Store computed percentiles to data lake.
+
+        Key structure: processed/percentiles/{ticker}/{date}/{timestamp}.json
+        Tags: source=computed, ticker={ticker}, computed_at={date}, source_raw_data={key}
+        Metadata: computed_at, source, ticker, source_raw_data_key, computation_version
+
+        Args:
+            ticker: Ticker symbol (e.g., 'NVDA', 'D05.SI')
+            percentiles: Dict with computed percentile values
+            source_raw_data_key: S3 key of source raw data (optional, for data lineage)
+            computed_at: Timestamp when percentiles were computed (defaults to now)
+            computation_version: Version of computation logic (default: "1.0")
+
+        Returns:
+            True if successful, False otherwise
+        """
+        if not self.enabled:
+            logger.debug("Data lake storage disabled (no bucket configured)")
+            return False
+
+        if computed_at is None:
+            computed_at = datetime.now()
+
+        # Generate S3 key: processed/percentiles/{ticker}/{date}/{timestamp}.json
+        date_str = computed_at.strftime('%Y-%m-%d')
+        timestamp_str = computed_at.strftime('%Y%m%d_%H%M%S')
+        s3_key = f"processed/percentiles/{ticker}/{date_str}/{timestamp_str}.json"
+
+        # Prepare tags for data lineage
+        tags = {
+            'source': 'computed',
+            'ticker': ticker,
+            'computed_at': date_str,
+            'computation_type': 'percentiles'
+        }
+        if source_raw_data_key:
+            tags['source_raw_data'] = source_raw_data_key
+
+        # Prepare metadata
+        metadata = {
+            'computed_at': computed_at.isoformat(),
+            'source': 'percentiles_computation',
+            'ticker': ticker,
+            'computation_version': computation_version,
+            'data_classification': 'computed-data'
+        }
+        if source_raw_data_key:
+            metadata['source_raw_data_key'] = source_raw_data_key
+
+        try:
+            # Convert tags to S3 tag format: "Key1=Value1&Key2=Value2"
+            tag_string = '&'.join([f"{k}={v}" for k, v in tags.items()])
+
+            # Store to S3 with versioning enabled
+            self.s3_client.put_object(
+                Bucket=self.bucket_name,
+                Key=s3_key,
+                Body=json.dumps(percentiles, ensure_ascii=False, indent=2),
+                ContentType='application/json',
+                Metadata=metadata,
+                Tagging=tag_string
+            )
+
+            logger.info(f"💾 Data lake stored percentiles: {s3_key} (ticker: {ticker}, date: {date_str})")
+            return True
+
+        except ClientError as e:
+            logger.error(f"Data lake storage failed for {s3_key}: {e}")
+            return False
+        except Exception as e:
+            logger.error(f"Unexpected error storing percentiles to data lake {s3_key}: {e}")
+            return False
+
     def is_enabled(self) -> bool:
         """
         Check if data lake storage is enabled.

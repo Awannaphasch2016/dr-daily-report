@@ -374,3 +374,198 @@ class TestS3DataLakeIntegration:
         algorithm = rules[0]['ApplyServerSideEncryptionByDefault']['SSEAlgorithm']
         assert algorithm in ['AES256', 'aws:kms'], \
             "Bucket must use either SSE-S3 (AES256) or SSE-KMS encryption"
+
+    @pytest.mark.integration
+    def test_store_processed_indicators_with_data_lineage(self):
+        """
+        GIVEN computed indicators with source raw data link
+        WHEN storing to S3 Data Lake Phase 2
+        THEN should store with correct structure and tags linking to raw data
+        """
+        # Arrange
+        ticker = 'NVDA19'
+        timestamp = datetime.now(timezone.utc)
+        date_str = timestamp.strftime('%Y-%m-%d')
+        timestamp_str = timestamp.strftime('%Y%m%d_%H%M%S')
+
+        indicators = {
+            'sma_20': 150.5,
+            'sma_50': 145.2,
+            'rsi_14': 65.3,
+            'macd': 2.5
+        }
+
+        # Simulate source raw data key (from Phase 1)
+        source_raw_key = f'raw/yfinance/{ticker}/{date_str}/{timestamp_str}.json'
+
+        # Key structure: processed/indicators/{ticker}/{date}/{timestamp}.json
+        s3_key = f'processed/indicators/{ticker}/{date_str}/{timestamp_str}.json'
+
+        # Act: Store processed indicators with data lineage
+        self.s3_client.put_object(
+            Bucket=self.bucket_name,
+            Key=s3_key,
+            Body=json.dumps(indicators),
+            ContentType='application/json',
+            Tagging=(
+                f'source=computed&'
+                f'ticker={ticker}&'
+                f'computed_at={date_str}&'
+                f'computation_type=indicators&'
+                f'source_raw_data={source_raw_key}'
+            ),
+            Metadata={
+                'computed_at': timestamp.isoformat(),
+                'source': 'indicators_computation',
+                'ticker': ticker,
+                'source_raw_data_key': source_raw_key,
+                'computation_version': '1.0',
+                'data_classification': 'computed-data'
+            }
+        )
+
+        # Assert: Verify object exists
+        response = self.s3_client.head_object(
+            Bucket=self.bucket_name,
+            Key=s3_key
+        )
+
+        assert response['ResponseMetadata']['HTTPStatusCode'] == 200, \
+            "Processed indicators should be stored successfully"
+
+        # Verify tags contain data lineage link
+        tag_response = self.s3_client.get_object_tagging(
+            Bucket=self.bucket_name,
+            Key=s3_key
+        )
+        tags = {tag['Key']: tag['Value'] for tag in tag_response['TagSet']}
+
+        assert tags['source'] == 'computed', \
+            "Tag should indicate computed source"
+        assert tags['ticker'] == ticker, \
+            f"Tag should contain ticker={ticker}"
+        assert tags['source_raw_data'] == source_raw_key, \
+            "Tag should link to source raw data (data lineage)"
+
+        # Verify metadata
+        metadata = response['Metadata']
+        assert metadata['source'] == 'indicators_computation', \
+            "Metadata should indicate indicators computation"
+        assert metadata['source_raw_data_key'] == source_raw_key, \
+            "Metadata should contain source raw data key"
+
+        # Cleanup
+        self.s3_client.delete_object(Bucket=self.bucket_name, Key=s3_key)
+
+    @pytest.mark.integration
+    def test_store_processed_percentiles_with_data_lineage(self):
+        """
+        GIVEN computed percentiles with source raw data link
+        WHEN storing to S3 Data Lake Phase 2
+        THEN should store with correct structure and tags linking to raw data
+        """
+        # Arrange
+        ticker = 'DBS19'
+        timestamp = datetime.now(timezone.utc)
+        date_str = timestamp.strftime('%Y-%m-%d')
+        timestamp_str = timestamp.strftime('%Y%m%d_%H%M%S')
+
+        percentiles = {
+            'current_price_percentile': 75.5,
+            'rsi_percentile': 68.2,
+            'macd_percentile': 55.0
+        }
+
+        source_raw_key = f'raw/yfinance/{ticker}/{date_str}/{timestamp_str}.json'
+        s3_key = f'processed/percentiles/{ticker}/{date_str}/{timestamp_str}.json'
+
+        # Act: Store processed percentiles
+        self.s3_client.put_object(
+            Bucket=self.bucket_name,
+            Key=s3_key,
+            Body=json.dumps(percentiles),
+            ContentType='application/json',
+            Tagging=(
+                f'source=computed&'
+                f'ticker={ticker}&'
+                f'computed_at={date_str}&'
+                f'computation_type=percentiles&'
+                f'source_raw_data={source_raw_key}'
+            ),
+            Metadata={
+                'computed_at': timestamp.isoformat(),
+                'source': 'percentiles_computation',
+                'ticker': ticker,
+                'source_raw_data_key': source_raw_key,
+                'computation_version': '1.0'
+            }
+        )
+
+        # Assert: Verify tags link to source
+        tag_response = self.s3_client.get_object_tagging(
+            Bucket=self.bucket_name,
+            Key=s3_key
+        )
+        tags = {tag['Key']: tag['Value'] for tag in tag_response['TagSet']}
+
+        assert tags['source_raw_data'] == source_raw_key, \
+            "Percentiles should link to source raw data via tags"
+
+        # Cleanup
+        self.s3_client.delete_object(Bucket=self.bucket_name, Key=s3_key)
+
+    @pytest.mark.integration
+    def test_data_lineage_roundtrip(self):
+        """
+        GIVEN raw data stored in Phase 1
+        WHEN storing processed indicators in Phase 2 with source link
+        THEN should be able to trace processed data back to raw source
+        """
+        # Arrange: Store raw data (Phase 1)
+        ticker = 'PTT19'
+        timestamp = datetime.now(timezone.utc)
+        date_str = timestamp.strftime('%Y-%m-%d')
+        raw_timestamp = timestamp.strftime('%Y%m%d_%H%M%S')
+
+        raw_data = {'symbol': ticker, 'price': 50.25}
+        raw_key = f'raw/yfinance/{ticker}/{date_str}/{raw_timestamp}.json'
+
+        self.s3_client.put_object(
+            Bucket=self.bucket_name,
+            Key=raw_key,
+            Body=json.dumps(raw_data),
+            ContentType='application/json'
+        )
+
+        # Act: Store processed data with link to raw (Phase 2)
+        processed_timestamp = timestamp.strftime('%Y%m%d_%H%M%S')
+        indicators = {'sma_20': 50.5}
+        processed_key = f'processed/indicators/{ticker}/{date_str}/{processed_timestamp}.json'
+
+        self.s3_client.put_object(
+            Bucket=self.bucket_name,
+            Key=processed_key,
+            Body=json.dumps(indicators),
+            ContentType='application/json',
+            Tagging=f'source=computed&ticker={ticker}&source_raw_data={raw_key}'
+        )
+
+        # Assert: Can retrieve source raw data from processed data tags
+        tag_response = self.s3_client.get_object_tagging(
+            Bucket=self.bucket_name,
+            Key=processed_key
+        )
+        tags = {tag['Key']: tag['Value'] for tag in tag_response['TagSet']}
+        source_key = tags['source_raw_data']
+
+        # Verify source raw data exists
+        raw_response = self.s3_client.head_object(
+            Bucket=self.bucket_name,
+            Key=source_key
+        )
+        assert raw_response['ResponseMetadata']['HTTPStatusCode'] == 200, \
+            "Should be able to retrieve source raw data via lineage link"
+
+        # Cleanup
+        self.s3_client.delete_object(Bucket=self.bucket_name, Key=raw_key)
+        self.s3_client.delete_object(Bucket=self.bucket_name, Key=processed_key)

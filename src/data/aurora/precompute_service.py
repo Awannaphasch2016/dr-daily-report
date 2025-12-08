@@ -97,10 +97,12 @@ class PrecomputeService:
         from src.data.aurora.client import get_aurora_client
         from src.data.aurora.repository import TickerRepository
         from src.analysis.technical_analysis import TechnicalAnalyzer
+        from src.data.data_lake import DataLakeStorage
 
         self.client = get_aurora_client()
         self.repo = TickerRepository(client=self.client)
         self.analyzer = TechnicalAnalyzer()
+        self.data_lake = DataLakeStorage()  # Phase 2: Processed data storage
 
     # =========================================================================
     # Daily Indicators
@@ -1097,14 +1099,61 @@ class PrecomputeService:
             # Compute and store indicators
             indicators = self.compute_daily_indicators(symbol, hist_df, today)
             if indicators:
+                # Store to Aurora (existing)
                 self.store_daily_indicators(symbol, indicators)
+                
+                # Store to Data Lake Phase 2 (non-blocking)
+                if self.data_lake.is_enabled():
+                    try:
+                        # Construct potential source raw data key (if available from today's fetch)
+                        # Format: raw/yfinance/{ticker}/{date}/{timestamp}.json
+                        # Note: We don't have exact timestamp, so we'll store without source link for now
+                        # Future enhancement: Track source key from scheduler fetch
+                        source_raw_key = None  # Optional - can be enhanced later
+                        
+                        data_lake_success = self.data_lake.store_indicators(
+                            ticker=symbol,
+                            indicators=indicators,
+                            source_raw_data_key=source_raw_key,
+                            computed_at=datetime.combine(today, datetime.min.time())
+                        )
+                        if data_lake_success:
+                            logger.info(f"✅ Data lake stored indicators for {symbol}")
+                        else:
+                            logger.warning(f"⚠️ Data lake storage failed for {symbol} indicators (non-blocking)")
+                    except Exception as e:
+                        # Data lake storage failures should not block Aurora storage
+                        logger.warning(f"⚠️ Data lake storage error for {symbol} indicators (non-blocking): {e}")
+                
                 results['indicators'] = True
                 logger.info(f"✅ Stored indicators for {symbol}")
 
             # Compute and store percentiles
             percentiles = self.compute_percentiles(symbol, hist_df, today)
             if percentiles:
+                # Store to Aurora (existing)
                 self.store_percentiles(symbol, percentiles)
+                
+                # Store to Data Lake Phase 2 (non-blocking)
+                if self.data_lake.is_enabled():
+                    try:
+                        # Construct potential source raw data key (optional)
+                        source_raw_key = None  # Optional - can be enhanced later
+                        
+                        data_lake_success = self.data_lake.store_percentiles(
+                            ticker=symbol,
+                            percentiles=percentiles,
+                            source_raw_data_key=source_raw_key,
+                            computed_at=datetime.combine(today, datetime.min.time())
+                        )
+                        if data_lake_success:
+                            logger.info(f"✅ Data lake stored percentiles for {symbol}")
+                        else:
+                            logger.warning(f"⚠️ Data lake storage failed for {symbol} percentiles (non-blocking)")
+                    except Exception as e:
+                        # Data lake storage failures should not block Aurora storage
+                        logger.warning(f"⚠️ Data lake storage error for {symbol} percentiles (non-blocking): {e}")
+                
                 results['percentiles'] = True
                 logger.info(f"✅ Stored percentiles for {symbol}")
 
