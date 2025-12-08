@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+"""Technical analysis module with NumPy type conversion for JSON serialization."""
 import pandas as pd
 import numpy as np
 import logging
