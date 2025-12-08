@@ -24,6 +24,7 @@ from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
+from botocore.exceptions import ClientError
 
 logger = logging.getLogger(__name__)
 
@@ -1071,8 +1072,12 @@ class PrecomputeService:
     ) -> Dict[str, Any]:
         """Compute all precomputed data for a single ticker.
 
+        Symbol-type invariant: Accepts any symbol format (DR, Yahoo, etc.)
+        and automatically resolves to Yahoo Finance format for Aurora queries.
+        Storage methods use the original symbol (they handle resolution internally).
+
         Args:
-            symbol: Ticker symbol
+            symbol: Ticker symbol in any format (e.g., 'DBS19' or 'D05.SI')
             include_report: Whether to generate full LLM report
 
         Returns:
@@ -1087,11 +1092,24 @@ class PrecomputeService:
         }
 
         try:
-            # Get historical data from Aurora
-            hist_df = self.repo.get_prices_as_dataframe(symbol, limit=400)
+            # Resolve symbol to Yahoo Finance format for Aurora queries
+            # Aurora stores prices with Yahoo Finance symbols (e.g., 'D05.SI')
+            from src.data.aurora.ticker_resolver import get_ticker_resolver
+            resolver = get_ticker_resolver()
+            ticker_info = resolver.resolve(symbol)
+            yahoo_symbol = ticker_info.yahoo_symbol if ticker_info else symbol
+            
+            logger.debug(f"Resolved {symbol} -> {yahoo_symbol} for Aurora query")
+
+            # Get historical data from Aurora using Yahoo Finance symbol
+            # VALIDATION GATE: Verify we have price data before proceeding
+            hist_df = self.repo.get_prices_as_dataframe(yahoo_symbol, limit=400)
 
             if hist_df.empty:
-                logger.warning(f"No price data for {symbol}")
+                error_msg = f"No price data for {symbol} (resolved to {yahoo_symbol})"
+                logger.warning(error_msg)
+                # Don't return early - set error in results for visibility
+                results['error'] = error_msg
                 return results
 
             today = date.today()
@@ -1102,7 +1120,7 @@ class PrecomputeService:
                 # Store to Aurora (existing)
                 self.store_daily_indicators(symbol, indicators)
                 
-                # Store to Data Lake Phase 2 (non-blocking)
+                # Store to Data Lake Phase 2 (non-blocking for S3 errors, but fail-fast for type errors)
                 if self.data_lake.is_enabled():
                     try:
                         # Construct potential source raw data key (if available from today's fetch)
@@ -1111,22 +1129,38 @@ class PrecomputeService:
                         # Future enhancement: Track source key from scheduler fetch
                         source_raw_key = None  # Optional - can be enhanced later
                         
+                        # Use Yahoo symbol for data lake storage (consistent with raw data storage)
                         data_lake_success = self.data_lake.store_indicators(
-                            ticker=symbol,
+                            ticker=yahoo_symbol,
                             indicators=indicators,
                             source_raw_data_key=source_raw_key,
                             computed_at=datetime.combine(today, datetime.min.time())
                         )
                         if data_lake_success:
-                            logger.info(f"✅ Data lake stored indicators for {symbol}")
+                            logger.info(f"✅ Data lake stored indicators for {yahoo_symbol}")
                         else:
-                            logger.warning(f"⚠️ Data lake storage failed for {symbol} indicators (non-blocking)")
+                            # Should not happen - store_indicators() raises on error now
+                            logger.warning(f"⚠️ Data lake storage returned False (unexpected)")
+                            
+                    except TypeError as e:
+                        # Type errors are CODE BUGS - fail fast, don't hide
+                        # Error Handling Duality: Utility functions raise, we should propagate
+                        logger.error(f"❌ Type error storing indicators to data lake: {e}")
+                        raise  # Don't hide code bugs - fail fast
+                        
+                    except ClientError as e:
+                        # S3 infrastructure errors - can be non-blocking
+                        # But still log as ERROR (not WARNING) for visibility
+                        logger.error(f"⚠️ S3 storage failed (non-blocking): {e}")
+                        # Continue - Aurora storage succeeded
+                        
                     except Exception as e:
-                        # Data lake storage failures should not block Aurora storage
-                        logger.warning(f"⚠️ Data lake storage error for {symbol} indicators (non-blocking): {e}")
+                        # Unexpected errors - log as ERROR, consider raising
+                        logger.error(f"❌ Unexpected error storing to data lake: {e}")
+                        raise  # Fail fast for unexpected errors
                 
                 results['indicators'] = True
-                logger.info(f"✅ Stored indicators for {symbol}")
+                logger.info(f"✅ Stored indicators for {symbol} (Yahoo: {yahoo_symbol})")
 
             # Compute and store percentiles
             percentiles = self.compute_percentiles(symbol, hist_df, today)
@@ -1134,28 +1168,44 @@ class PrecomputeService:
                 # Store to Aurora (existing)
                 self.store_percentiles(symbol, percentiles)
                 
-                # Store to Data Lake Phase 2 (non-blocking)
+                # Store to Data Lake Phase 2 (non-blocking for S3 errors, but fail-fast for type errors)
                 if self.data_lake.is_enabled():
                     try:
                         # Construct potential source raw data key (optional)
                         source_raw_key = None  # Optional - can be enhanced later
                         
+                        # Use Yahoo symbol for data lake storage (consistent with raw data storage)
                         data_lake_success = self.data_lake.store_percentiles(
-                            ticker=symbol,
+                            ticker=yahoo_symbol,
                             percentiles=percentiles,
                             source_raw_data_key=source_raw_key,
                             computed_at=datetime.combine(today, datetime.min.time())
                         )
                         if data_lake_success:
-                            logger.info(f"✅ Data lake stored percentiles for {symbol}")
+                            logger.info(f"✅ Data lake stored percentiles for {yahoo_symbol}")
                         else:
-                            logger.warning(f"⚠️ Data lake storage failed for {symbol} percentiles (non-blocking)")
+                            # Should not happen - store_percentiles() raises on error now
+                            logger.warning(f"⚠️ Data lake storage returned False (unexpected)")
+                            
+                    except TypeError as e:
+                        # Type errors are CODE BUGS - fail fast, don't hide
+                        # Error Handling Duality: Utility functions raise, we should propagate
+                        logger.error(f"❌ Type error storing percentiles to data lake: {e}")
+                        raise  # Don't hide code bugs - fail fast
+                        
+                    except ClientError as e:
+                        # S3 infrastructure errors - can be non-blocking
+                        # But still log as ERROR (not WARNING) for visibility
+                        logger.error(f"⚠️ S3 storage failed (non-blocking): {e}")
+                        # Continue - Aurora storage succeeded
+                        
                     except Exception as e:
-                        # Data lake storage failures should not block Aurora storage
-                        logger.warning(f"⚠️ Data lake storage error for {symbol} percentiles (non-blocking): {e}")
+                        # Unexpected errors - log as ERROR, consider raising
+                        logger.error(f"❌ Unexpected error storing to data lake: {e}")
+                        raise  # Fail fast for unexpected errors
                 
                 results['percentiles'] = True
-                logger.info(f"✅ Stored percentiles for {symbol}")
+                logger.info(f"✅ Stored percentiles for {symbol} (Yahoo: {yahoo_symbol})")
 
             # Compute and store comparative features
             features = self.compute_comparative_features(symbol, hist_df, today)

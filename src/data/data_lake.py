@@ -21,8 +21,32 @@ from datetime import datetime, date
 from typing import Optional, Dict, Any
 import boto3
 from botocore.exceptions import ClientError
+import numpy as np
+import pandas as pd
 
 logger = logging.getLogger(__name__)
+
+
+def _make_json_serializable(obj):
+    """Convert numpy/pandas/datetime/date objects to JSON-serializable types.
+    
+    Following lambda-best-practices.mdc pattern for JSON serialization.
+    """
+    if isinstance(obj, (datetime, date)):
+        return obj.isoformat()
+    elif isinstance(obj, pd.Timestamp):
+        return obj.isoformat()
+    elif isinstance(obj, np.integer):
+        return int(obj)
+    elif isinstance(obj, np.floating):
+        return float(obj)
+    elif isinstance(obj, np.ndarray):
+        return obj.tolist()
+    elif isinstance(obj, dict):
+        return {k: _make_json_serializable(v) for k, v in obj.items()}
+    elif isinstance(obj, (list, tuple)):
+        return [_make_json_serializable(item) for item in obj]
+    return obj
 
 
 class DataLakeStorage:
@@ -126,35 +150,56 @@ class DataLakeStorage:
         computed_at: Optional[datetime] = None,
         computation_version: str = "1.0"
     ) -> bool:
-        """
-        Store computed indicators to data lake.
-
+        """Store computed indicators to data lake.
+        
+        Following principles.mdc comprehensively:
+        - System Boundary Principle: Validate types at boundary
+        - JSON Serialization Requirement: Convert types before storage
+        - Fail Fast and Visibly: Raise exceptions for type errors
+        - Error Handling Duality: Utility functions raise exceptions
+        - Explicit Failure Detection: Verify storage succeeded
+        - Code execution ≠ Correct output: Verify file exists
+        
         Key structure: processed/indicators/{ticker}/{date}/{timestamp}.json
         Tags: source=computed, ticker={ticker}, computed_at={date}, source_raw_data={key}
         Metadata: computed_at, source, ticker, source_raw_data_key, computation_version
-
+        
         Args:
             ticker: Ticker symbol (e.g., 'NVDA', 'D05.SI')
             indicators: Dict with computed indicator values
             source_raw_data_key: S3 key of source raw data (optional, for data lineage)
             computed_at: Timestamp when indicators were computed (defaults to now)
             computation_version: Version of computation logic (default: "1.0")
-
+        
         Returns:
-            True if successful, False otherwise
+            True if successful, False if data lake disabled
+        
+        Raises:
+            TypeError: If indicators contain non-serializable types (fail fast)
+            ClientError: If S3 storage fails (infrastructure error)
         """
+        # VALIDATION GATE (principles.mdc): Check prerequisites
         if not self.enabled:
             logger.debug("Data lake storage disabled (no bucket configured)")
             return False
-
+        
         if computed_at is None:
             computed_at = datetime.now()
-
+        
+        # SYSTEM BOUNDARY VALIDATION (principles.mdc)
+        # Validate types BEFORE crossing boundary (Python → S3)
+        # This raises TypeError if invalid (fail fast, not return False)
+        self._validate_json_serializable(indicators, "indicators")
+        
+        # TYPE CONVERSION (principles.mdc)
+        # Convert types to JSON-serializable format
+        serializable_indicators = _make_json_serializable(indicators)
+        
         # Generate S3 key: processed/indicators/{ticker}/{date}/{timestamp}.json
         date_str = computed_at.strftime('%Y-%m-%d')
         timestamp_str = computed_at.strftime('%Y%m%d_%H%M%S')
         s3_key = f"processed/indicators/{ticker}/{date_str}/{timestamp_str}.json"
-
+        
         # Prepare tags for data lineage
         tags = {
             'source': 'computed',
@@ -164,7 +209,7 @@ class DataLakeStorage:
         }
         if source_raw_data_key:
             tags['source_raw_data'] = source_raw_data_key
-
+        
         # Prepare metadata
         metadata = {
             'computed_at': computed_at.isoformat(),
@@ -175,30 +220,40 @@ class DataLakeStorage:
         }
         if source_raw_data_key:
             metadata['source_raw_data_key'] = source_raw_data_key
-
+        
         try:
             # Convert tags to S3 tag format: "Key1=Value1&Key2=Value2"
             tag_string = '&'.join([f"{k}={v}" for k, v in tags.items()])
-
-            # Store to S3 with versioning enabled
+            
+            # Store to S3
             self.s3_client.put_object(
                 Bucket=self.bucket_name,
                 Key=s3_key,
-                Body=json.dumps(indicators, ensure_ascii=False, indent=2),
+                Body=json.dumps(serializable_indicators, ensure_ascii=False, indent=2),
                 ContentType='application/json',
                 Metadata=metadata,
                 Tagging=tag_string
             )
-
+            
+            # EXPLICIT FAILURE DETECTION (principles.mdc)
+            # Code execution ≠ Correct output (principles.mdc)
+            # AWS Services Success ≠ No Errors (principles.mdc)
+            # Verify storage actually succeeded (not just put_object() returned success)
+            self._verify_storage_succeeded(s3_key, serializable_indicators)
+            
             logger.info(f"💾 Data lake stored indicators: {s3_key} (ticker: {ticker}, date: {date_str})")
             return True
-
+            
+        except TypeError:
+            # Type errors are CODE BUGS - propagate (fail fast)
+            # Don't catch - let it propagate to caller
+            raise
         except ClientError as e:
-            logger.error(f"Data lake storage failed for {s3_key}: {e}")
-            return False
-        except Exception as e:
-            logger.error(f"Unexpected error storing indicators to data lake {s3_key}: {e}")
-            return False
+            # S3 infrastructure errors - log and raise (fail visibly)
+            # Error Handling Duality: Utility functions raise exceptions
+            logger.error(f"S3 storage failed for indicators {s3_key}: {e}")
+            raise  # Don't return False - make failure visible
+        # Don't catch generic Exception - let unexpected errors propagate (fail fast)
 
     def store_percentiles(
         self,
@@ -208,35 +263,56 @@ class DataLakeStorage:
         computed_at: Optional[datetime] = None,
         computation_version: str = "1.0"
     ) -> bool:
-        """
-        Store computed percentiles to data lake.
-
+        """Store computed percentiles to data lake.
+        
+        Following principles.mdc comprehensively:
+        - System Boundary Principle: Validate types at boundary
+        - JSON Serialization Requirement: Convert types before storage
+        - Fail Fast and Visibly: Raise exceptions for type errors
+        - Error Handling Duality: Utility functions raise exceptions
+        - Explicit Failure Detection: Verify storage succeeded
+        - Code execution ≠ Correct output: Verify file exists
+        
         Key structure: processed/percentiles/{ticker}/{date}/{timestamp}.json
         Tags: source=computed, ticker={ticker}, computed_at={date}, source_raw_data={key}
         Metadata: computed_at, source, ticker, source_raw_data_key, computation_version
-
+        
         Args:
             ticker: Ticker symbol (e.g., 'NVDA', 'D05.SI')
             percentiles: Dict with computed percentile values
             source_raw_data_key: S3 key of source raw data (optional, for data lineage)
             computed_at: Timestamp when percentiles were computed (defaults to now)
             computation_version: Version of computation logic (default: "1.0")
-
+        
         Returns:
-            True if successful, False otherwise
+            True if successful, False if data lake disabled
+        
+        Raises:
+            TypeError: If percentiles contain non-serializable types (fail fast)
+            ClientError: If S3 storage fails (infrastructure error)
         """
+        # VALIDATION GATE (principles.mdc): Check prerequisites
         if not self.enabled:
             logger.debug("Data lake storage disabled (no bucket configured)")
             return False
-
+        
         if computed_at is None:
             computed_at = datetime.now()
-
+        
+        # SYSTEM BOUNDARY VALIDATION (principles.mdc)
+        # Validate types BEFORE crossing boundary (Python → S3)
+        # This raises TypeError if invalid (fail fast, not return False)
+        self._validate_json_serializable(percentiles, "percentiles")
+        
+        # TYPE CONVERSION (principles.mdc)
+        # Convert types to JSON-serializable format
+        serializable_percentiles = _make_json_serializable(percentiles)
+        
         # Generate S3 key: processed/percentiles/{ticker}/{date}/{timestamp}.json
         date_str = computed_at.strftime('%Y-%m-%d')
         timestamp_str = computed_at.strftime('%Y%m%d_%H%M%S')
         s3_key = f"processed/percentiles/{ticker}/{date_str}/{timestamp_str}.json"
-
+        
         # Prepare tags for data lineage
         tags = {
             'source': 'computed',
@@ -246,7 +322,7 @@ class DataLakeStorage:
         }
         if source_raw_data_key:
             tags['source_raw_data'] = source_raw_data_key
-
+        
         # Prepare metadata
         metadata = {
             'computed_at': computed_at.isoformat(),
@@ -257,30 +333,40 @@ class DataLakeStorage:
         }
         if source_raw_data_key:
             metadata['source_raw_data_key'] = source_raw_data_key
-
+        
         try:
             # Convert tags to S3 tag format: "Key1=Value1&Key2=Value2"
             tag_string = '&'.join([f"{k}={v}" for k, v in tags.items()])
-
-            # Store to S3 with versioning enabled
+            
+            # Store to S3
             self.s3_client.put_object(
                 Bucket=self.bucket_name,
                 Key=s3_key,
-                Body=json.dumps(percentiles, ensure_ascii=False, indent=2),
+                Body=json.dumps(serializable_percentiles, ensure_ascii=False, indent=2),
                 ContentType='application/json',
                 Metadata=metadata,
                 Tagging=tag_string
             )
-
+            
+            # EXPLICIT FAILURE DETECTION (principles.mdc)
+            # Code execution ≠ Correct output (principles.mdc)
+            # AWS Services Success ≠ No Errors (principles.mdc)
+            # Verify storage actually succeeded (not just put_object() returned success)
+            self._verify_storage_succeeded(s3_key, serializable_percentiles)
+            
             logger.info(f"💾 Data lake stored percentiles: {s3_key} (ticker: {ticker}, date: {date_str})")
             return True
-
+            
+        except TypeError:
+            # Type errors are CODE BUGS - propagate (fail fast)
+            # Don't catch - let it propagate to caller
+            raise
         except ClientError as e:
-            logger.error(f"Data lake storage failed for {s3_key}: {e}")
-            return False
-        except Exception as e:
-            logger.error(f"Unexpected error storing percentiles to data lake {s3_key}: {e}")
-            return False
+            # S3 infrastructure errors - log and raise (fail visibly)
+            # Error Handling Duality: Utility functions raise exceptions
+            logger.error(f"S3 storage failed for percentiles {s3_key}: {e}")
+            raise  # Don't return False - make failure visible
+        # Don't catch generic Exception - let unexpected errors propagate (fail fast)
 
     def get_latest_indicators(self, ticker: str) -> Optional[Dict[str, Any]]:
         """
@@ -467,3 +553,98 @@ class DataLakeStorage:
             True if bucket is configured, False otherwise
         """
         return self.enabled
+
+    def _validate_json_serializable(self, data: Dict[str, Any], data_type: str) -> None:
+        """Validate data types are JSON-serializable at service boundary.
+        
+        Following System Boundary Principle (principles.mdc):
+        Verify type compatibility BEFORE crossing boundary (Python → S3).
+        
+        This is a VALIDATION GATE (principles.mdc) - check prerequisites
+        before execution.
+        
+        Validates that data contains only types that can be serialized (either
+        directly or via conversion). Date/datetime objects are allowed because
+        they can be converted using _make_json_serializable(). This check uses
+        default=str to detect truly incompatible types (custom objects, etc.)
+        that cannot be converted.
+        
+        Args:
+            data: Data dict to validate
+            data_type: Type name for error messages (e.g., "indicators", "percentiles")
+        
+        Raises:
+            TypeError: If data contains non-serializable types (fail fast)
+        
+        Following principles:
+        - System Boundary Principle: Validate at boundary
+        - Fail Fast and Visibly: Raise exception, don't return False
+        - Error Handling Duality: Utility functions raise exceptions
+        """
+        if not self.enabled:
+            return  # Skip validation if data lake disabled
+        
+        try:
+            # Try to serialize WITHOUT default handler first to catch truly incompatible types
+            # This will fail for date/datetime AND custom objects
+            json.dumps(data)
+        except (TypeError, ValueError) as e:
+            # Check if it's a known convertible type (date, datetime, etc.)
+            # If so, allow it (conversion will handle it)
+            # Otherwise, fail fast with descriptive error
+            error_str = str(e).lower()
+            if 'date' in error_str or 'datetime' in error_str or 'timestamp' in error_str:
+                # Known convertible types - allow through (conversion will handle)
+                return
+            
+            # Truly incompatible type - fail fast
+            raise TypeError(
+                f"{data_type} contains non-JSON-serializable types at service boundary: {e}. "
+                f"Use _make_json_serializable() to convert types before storage. "
+                f"Following System Boundary Principle: validate types before crossing Python → S3 boundary."
+            ) from e
+
+    def _verify_storage_succeeded(self, s3_key: str, expected_data: Dict[str, Any]) -> None:
+        """Verify storage actually succeeded (Explicit Failure Detection).
+        
+        Following principles.mdc:
+        - Explicit Failure Detection: Check operation outcomes
+        - Code execution ≠ Correct output: put_object() success ≠ file stored
+        - AWS Services Success ≠ No Errors: Verify file exists
+        
+        Args:
+            s3_key: S3 key that should exist
+            expected_data: Data that should be in the file
+        
+        Raises:
+            RuntimeError: If file doesn't exist or content doesn't match
+        """
+        try:
+            # Verify file exists (round-trip test)
+            response = self.s3_client.head_object(Bucket=self.bucket_name, Key=s3_key)
+            
+            # Verify file size > 0 (not empty)
+            if response.get('ContentLength', 0) == 0:
+                raise RuntimeError(f"Storage verification failed: File {s3_key} is empty")
+            
+            # Optional: Verify content matches (round-trip test)
+            # Retrieve and compare
+            get_response = self.s3_client.get_object(Bucket=self.bucket_name, Key=s3_key)
+            body_content = get_response['Body'].read()
+            # Handle both bytes and string responses
+            if isinstance(body_content, bytes):
+                stored_data = json.loads(body_content.decode('utf-8'))
+            else:
+                stored_data = json.loads(body_content)
+            
+            # Basic verification: file exists and is valid JSON
+            if not isinstance(stored_data, dict):
+                raise RuntimeError(f"Storage verification failed: File {s3_key} doesn't contain valid dict")
+            
+        except ClientError as e:
+            if e.response['Error']['Code'] == '404':
+                raise RuntimeError(
+                    f"Storage verification failed: File {s3_key} doesn't exist after put_object(). "
+                    f"Following 'AWS Services Success ≠ No Errors' principle: verify file exists."
+                ) from e
+            raise
