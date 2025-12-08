@@ -28,6 +28,60 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 
+def _convert_numpy_to_primitives(obj: Any) -> Any:
+    """Recursively convert NumPy/Pandas types to JSON-serializable Python primitives.
+
+    This is a defensive function applied at the system boundary (Aurora JSON storage)
+    to catch ANY NumPy/Pandas types regardless of source. Prevents MySQL Error 3140.
+
+    Args:
+        obj: Object potentially containing NumPy/Pandas types
+
+    Returns:
+        Same structure with all types converted to JSON-safe primitives
+
+    Examples:
+        >>> _convert_numpy_to_primitives(np.int64(42))
+        42
+        >>> _convert_numpy_to_primitives({'score': np.float64(7.5)})
+        {'score': 7.5}
+    """
+    # NumPy scalar types
+    if isinstance(obj, np.integer):
+        return int(obj)
+    if isinstance(obj, np.floating):
+        # Handle NaN/Inf
+        if np.isnan(obj) or np.isinf(obj):
+            return None
+        return float(obj)
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    if isinstance(obj, np.bool_):
+        return bool(obj)
+
+    # Pandas types
+    if isinstance(obj, pd.Timestamp):
+        return obj.isoformat()
+    if isinstance(obj, pd.Series):
+        return obj.tolist()
+    if isinstance(obj, pd.DataFrame):
+        return obj.to_dict(orient='records')
+
+    # Python datetime
+    if isinstance(obj, (datetime, date)):
+        return obj.isoformat()
+
+    # Recursive cases
+    if isinstance(obj, dict):
+        return {key: _convert_numpy_to_primitives(value) for key, value in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_convert_numpy_to_primitives(item) for item in obj]
+
+    # Already JSON-safe (str, int, float, bool, None)
+    return obj
+
+
+
 class PrecomputeService:
     """Service for precomputing and storing ticker analysis data."""
 
@@ -916,10 +970,10 @@ class PrecomputeService:
             symbol,
             data_date,
             report_text,
-            json.dumps(report_json, default=str),
+            json.dumps(_convert_numpy_to_primitives(report_json)),
             strategy,
             generation_time_ms,
-            json.dumps(mini_reports, default=str) if mini_reports else None,
+            json.dumps(_convert_numpy_to_primitives(mini_reports)) if mini_reports else None,
             chart_base64,
         )
 
