@@ -87,6 +87,25 @@ resource "aws_iam_role_policy" "telegram_lambda_custom" {
         ]
         Resource = aws_s3_bucket.pdf_reports.arn
       },
+      # S3 Data Lake Access (Phase 1: Raw data staging)
+      # Worker Lambda needs to store raw yfinance API responses with tagging
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:PutObject",
+          "s3:PutObjectTagging",
+          "s3:GetObject",
+          "s3:GetObjectTagging"
+        ]
+        Resource = "${module.s3_data_lake.bucket_arn}/*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:ListBucket"
+        ]
+        Resource = module.s3_data_lake.bucket_arn
+      },
       {
         Effect = "Allow"
         Action = [
@@ -133,6 +152,9 @@ resource "aws_lambda_function" "telegram_api" {
       PDF_STORAGE_BUCKET       = aws_s3_bucket.pdf_reports.id
       PDF_BUCKET_NAME          = aws_s3_bucket.pdf_reports.id
       PDF_URL_EXPIRATION_HOURS = "24"
+
+      # S3 Data Lake (Phase 1: Raw data staging)
+      DATA_LAKE_BUCKET = module.s3_data_lake.bucket_id
 
       # Cache Configuration
       CACHE_BACKEND  = "hybrid" # hybrid, s3, or sqlite

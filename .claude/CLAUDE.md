@@ -641,6 +641,10 @@ def store_report(self, symbol, text):
 
 **System Boundary Principle:** Verify data type compatibility explicitly when crossing service boundaries. Strict types (MySQL ENUMs) fail silently on mismatch—no exception, data just doesn't persist. Always validate constraints on both sides.
 
+**Type System Integration Principle:** Research type compatibility BEFORE integrating systems (APIs, databases, message queues). Type system mismatches cause silent failures. Answer: (1) What types does target accept? (2) What types does source produce? (3) How does target handle invalid types? Apply defense in depth: convert types → handle special values → validate schema → serialize strict → verify outcome. See [Type System Integration Guide](docs/TYPE_SYSTEM_INTEGRATION.md).
+
+**Research Before Iteration Principle:** When same bug persists after 2 fix attempts, STOP iterating and START researching. Invest 30-60 minutes understanding root cause (read specs, inspect real data, reproduce locally) instead of deploying more guesses. Research has upfront cost but prevents 3+ failed deployment cycles. Pattern: iteration for first hypotheses, research when hypotheses fail repeatedly.
+
 **Retry/Fallback Pattern:** Multi-level fallback for reliability (yfinance with exponential backoff → direct API → stale cache). Graceful degradation: stale data better than no data. See [Data Layer Patterns](docs/CODE_STYLE.md#retryfallback-pattern).
 
 **Service Design Patterns:** Singleton pattern for Lambda cold start optimization. Async/Sync dual methods for LangGraph (sync) + FastAPI (async). Custom exception hierarchy with centralized error handlers. See [API Architecture](docs/CODE_STYLE.md#telegram-api-architecture-patterns).

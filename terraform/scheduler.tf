@@ -30,6 +30,9 @@ resource "aws_lambda_function" "ticker_scheduler" {
       # S3 Storage (for caching)
       PDF_BUCKET_NAME = aws_s3_bucket.pdf_reports.id
 
+      # S3 Data Lake (Phase 1: Raw data staging)
+      DATA_LAKE_BUCKET = module.s3_data_lake.bucket_id
+
       # Environment
       ENVIRONMENT = var.environment
       LOG_LEVEL   = "INFO"
