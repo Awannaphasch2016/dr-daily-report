@@ -130,7 +130,26 @@ Check environment status:
 dr check env
 ```
 
-### 4. Local Testing
+### 4. Setup MCP Tools (Optional but Recommended)
+
+Enable AWS MCP tools in Cursor IDE for enhanced AWS integration:
+
+```bash
+just setup-mcp
+```
+
+Or manually:
+```bash
+# Windows
+.\scripts\setup-mcp.ps1
+
+# Linux/macOS
+./scripts/setup-mcp.sh
+```
+
+See [MCP Setup Guide](docs/MCP_SETUP.md) for detailed instructions.
+
+### 5. Local Testing
 
 Using the CLI:
 ```bash

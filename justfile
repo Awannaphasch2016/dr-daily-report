@@ -432,6 +432,24 @@ report TICKER:
 info:
     dr util info
 
+# === MCP SETUP ===
+
+# Setup AWS MCP tools for Cursor IDE (run once to enable AWS integration)
+setup-mcp:
+    @echo "🔧 Setting up AWS MCP for Cursor IDE..."
+    @if [ "$(OS)" = "Windows_NT" ]; then \
+        powershell -ExecutionPolicy Bypass -File scripts/setup-mcp.ps1; \
+    else \
+        bash scripts/setup-mcp.sh; \
+    fi
+    @echo ""
+    @echo "✅ MCP setup complete! Restart Cursor IDE to activate."
+
+# Test AWS MCP server handshake (verify MCP server is working correctly)
+test-mcp:
+    @echo "🧪 Testing AWS MCP Server Handshake..."
+    python scripts/test_mcp_handshake.py
+
 # === LANGSMITH ===
 
 # List recent LangSmith traces
