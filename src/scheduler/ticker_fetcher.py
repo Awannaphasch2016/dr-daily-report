@@ -20,6 +20,7 @@ from datetime import datetime
 
 from src.data.data_fetcher import DataFetcher
 from src.data.s3_cache import S3Cache
+from src.data.data_lake import DataLakeStorage
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +36,8 @@ class TickerFetcher:
     def __init__(
         self,
         bucket_name: Optional[str] = None,
-        enable_aurora: bool = False
+        enable_aurora: bool = False,
+        data_lake_bucket: Optional[str] = None
     ):
         """
         Initialize TickerFetcher.
@@ -43,11 +45,15 @@ class TickerFetcher:
         Args:
             bucket_name: S3 bucket for cache storage. Defaults to PDF_BUCKET_NAME env var.
             enable_aurora: Enable writing to Aurora MySQL (default: False)
+            data_lake_bucket: S3 bucket for data lake storage. Defaults to DATA_LAKE_BUCKET env var.
         """
         self.bucket_name = bucket_name or os.environ.get('PDF_BUCKET_NAME', 'line-bot-pdf-reports-755283537543')
         self.data_fetcher = DataFetcher()
         self.s3_cache = S3Cache(bucket_name=self.bucket_name, ttl_hours=24)
         self.tickers = self._load_supported_tickers()
+
+        # Data Lake storage (optional, for raw data archival)
+        self.data_lake = DataLakeStorage(bucket_name=data_lake_bucket)
 
         # Aurora MySQL integration (optional)
         self.enable_aurora = enable_aurora or os.environ.get('AURORA_ENABLED', 'false').lower() == 'true'
@@ -62,7 +68,12 @@ class TickerFetcher:
                 logger.warning(f"Failed to initialize Aurora repository: {e}")
                 self.enable_aurora = False
 
-        logger.info(f"TickerFetcher initialized with {len(self.tickers)} tickers, bucket: {self.bucket_name}, aurora: {self.enable_aurora}")
+        logger.info(
+            f"TickerFetcher initialized with {len(self.tickers)} tickers, "
+            f"bucket: {self.bucket_name}, "
+            f"data_lake: {self.data_lake.is_enabled()}, "
+            f"aurora: {self.enable_aurora}"
+        )
 
     def _load_supported_tickers(self) -> List[str]:
         """
@@ -131,7 +142,27 @@ class TickerFetcher:
                     'error': 'No data returned from Yahoo Finance'
                 }
 
-            # Make data JSON-serializable
+            # Store raw data to data lake BEFORE processing (for data lineage)
+            # This preserves the exact API response for reproducibility
+            fetched_at = datetime.now()
+            if self.data_lake.is_enabled():
+                try:
+                    # Make raw data JSON-serializable for data lake storage
+                    raw_serializable = self._make_json_serializable(data)
+                    data_lake_success = self.data_lake.store_raw_yfinance_data(
+                        ticker=ticker,
+                        data=raw_serializable,
+                        fetched_at=fetched_at
+                    )
+                    if data_lake_success:
+                        logger.info(f"✅ Data lake stored raw data for {ticker}")
+                    else:
+                        logger.warning(f"⚠️ Data lake storage failed for {ticker} (non-blocking)")
+                except Exception as e:
+                    # Data lake storage failures should not block cache storage
+                    logger.warning(f"⚠️ Data lake storage error for {ticker} (non-blocking): {e}")
+
+            # Make data JSON-serializable for cache storage
             serializable_data = self._make_json_serializable(data)
 
             # Store in S3 cache (always)

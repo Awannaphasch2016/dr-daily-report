@@ -823,9 +823,13 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     from src.scheduler.ticker_fetcher import TickerFetcher
 
     try:
-        # Initialize fetcher
+        # Initialize fetcher with data lake bucket (if configured)
         bucket_name = os.environ.get('PDF_BUCKET_NAME')
-        fetcher = TickerFetcher(bucket_name=bucket_name)
+        data_lake_bucket = os.environ.get('DATA_LAKE_BUCKET')
+        fetcher = TickerFetcher(
+            bucket_name=bucket_name,
+            data_lake_bucket=data_lake_bucket
+        )
 
         # Determine what to fetch
         if event.get('tickers'):

@@ -3,7 +3,7 @@
 
 import pytest
 from unittest.mock import Mock, patch, MagicMock
-from datetime import date
+from datetime import date, datetime
 import pandas as pd
 import numpy as np
 
@@ -23,9 +23,10 @@ class TestTickerFetcher:
         """Tear down test fixtures"""
         self.env_patcher.stop()
 
+    @patch('src.scheduler.ticker_fetcher.DataLakeStorage')
     @patch('src.scheduler.ticker_fetcher.S3Cache')
     @patch('src.scheduler.ticker_fetcher.DataFetcher')
-    def test_initialization(self, mock_data_fetcher_class, mock_s3_cache_class):
+    def test_initialization(self, mock_data_fetcher_class, mock_s3_cache_class, mock_data_lake_class):
         """Test TickerFetcher initializes correctly"""
         # Arrange
         mock_data_fetcher = MagicMock()
@@ -38,9 +39,13 @@ class TestTickerFetcher:
         mock_s3_cache = MagicMock()
         mock_s3_cache_class.return_value = mock_s3_cache
 
+        mock_data_lake = MagicMock()
+        mock_data_lake.is_enabled.return_value = True
+        mock_data_lake_class.return_value = mock_data_lake
+
         # Act
         from src.scheduler.ticker_fetcher import TickerFetcher
-        fetcher = TickerFetcher(bucket_name='test-bucket')
+        fetcher = TickerFetcher(bucket_name='test-bucket', data_lake_bucket='test-data-lake')
 
         # Assert
         assert isinstance(fetcher.tickers, list)
@@ -48,10 +53,12 @@ class TestTickerFetcher:
         assert 'NVDA' in fetcher.tickers
         assert 'D05.SI' in fetcher.tickers
         mock_data_fetcher.load_tickers.assert_called_once()
+        mock_data_lake_class.assert_called_once_with(bucket_name='test-data-lake')
 
+    @patch('src.scheduler.ticker_fetcher.DataLakeStorage')
     @patch('src.scheduler.ticker_fetcher.S3Cache')
     @patch('src.scheduler.ticker_fetcher.DataFetcher')
-    def test_fetch_ticker_success(self, mock_data_fetcher_class, mock_s3_cache_class):
+    def test_fetch_ticker_success(self, mock_data_fetcher_class, mock_s3_cache_class, mock_data_lake_class):
         """Test successful single ticker fetch"""
         # Arrange
         mock_data_fetcher = MagicMock()
@@ -67,9 +74,14 @@ class TestTickerFetcher:
         mock_s3_cache.put_json.return_value = True
         mock_s3_cache_class.return_value = mock_s3_cache
 
+        mock_data_lake = MagicMock()
+        mock_data_lake.is_enabled.return_value = True
+        mock_data_lake.store_raw_yfinance_data.return_value = True
+        mock_data_lake_class.return_value = mock_data_lake
+
         # Act
         from src.scheduler.ticker_fetcher import TickerFetcher
-        fetcher = TickerFetcher(bucket_name='test-bucket')
+        fetcher = TickerFetcher(bucket_name='test-bucket', data_lake_bucket='test-data-lake')
         result = fetcher.fetch_ticker('NVDA')
 
         # Assert
@@ -78,10 +90,13 @@ class TestTickerFetcher:
         assert result['company_name'] == 'NVIDIA Corporation'
         mock_data_fetcher.fetch_ticker_data.assert_called_once_with('NVDA')
         mock_s3_cache.put_json.assert_called_once()
+        # Verify data lake storage was called BEFORE cache storage
+        mock_data_lake.store_raw_yfinance_data.assert_called_once()
 
+    @patch('src.scheduler.ticker_fetcher.DataLakeStorage')
     @patch('src.scheduler.ticker_fetcher.S3Cache')
     @patch('src.scheduler.ticker_fetcher.DataFetcher')
-    def test_fetch_ticker_no_data(self, mock_data_fetcher_class, mock_s3_cache_class):
+    def test_fetch_ticker_no_data(self, mock_data_fetcher_class, mock_s3_cache_class, mock_data_lake_class):
         """Test ticker fetch when no data returned"""
         # Arrange
         mock_data_fetcher = MagicMock()
@@ -91,6 +106,10 @@ class TestTickerFetcher:
 
         mock_s3_cache = MagicMock()
         mock_s3_cache_class.return_value = mock_s3_cache
+
+        mock_data_lake = MagicMock()
+        mock_data_lake.is_enabled.return_value = False
+        mock_data_lake_class.return_value = mock_data_lake
 
         # Act
         from src.scheduler.ticker_fetcher import TickerFetcher
@@ -103,9 +122,10 @@ class TestTickerFetcher:
         assert 'error' in result
         mock_s3_cache.put_json.assert_not_called()
 
+    @patch('src.scheduler.ticker_fetcher.DataLakeStorage')
     @patch('src.scheduler.ticker_fetcher.S3Cache')
     @patch('src.scheduler.ticker_fetcher.DataFetcher')
-    def test_fetch_ticker_exception(self, mock_data_fetcher_class, mock_s3_cache_class):
+    def test_fetch_ticker_exception(self, mock_data_fetcher_class, mock_s3_cache_class, mock_data_lake_class):
         """Test ticker fetch handles exceptions"""
         # Arrange
         mock_data_fetcher = MagicMock()
@@ -115,6 +135,10 @@ class TestTickerFetcher:
 
         mock_s3_cache = MagicMock()
         mock_s3_cache_class.return_value = mock_s3_cache
+
+        mock_data_lake = MagicMock()
+        mock_data_lake.is_enabled.return_value = False
+        mock_data_lake_class.return_value = mock_data_lake
 
         # Act
         from src.scheduler.ticker_fetcher import TickerFetcher
@@ -126,9 +150,43 @@ class TestTickerFetcher:
         assert result['ticker'] == 'NVDA'
         assert 'API Error' in result['error']
 
+    @patch('src.scheduler.ticker_fetcher.DataLakeStorage')
     @patch('src.scheduler.ticker_fetcher.S3Cache')
     @patch('src.scheduler.ticker_fetcher.DataFetcher')
-    def test_fetch_tickers_multiple(self, mock_data_fetcher_class, mock_s3_cache_class):
+    def test_fetch_ticker_data_lake_storage_failure_non_blocking(self, mock_data_fetcher_class, mock_s3_cache_class, mock_data_lake_class):
+        """Test that data lake storage failures don't block cache storage"""
+        # Arrange
+        mock_data_fetcher = MagicMock()
+        mock_data_fetcher.load_tickers.return_value = {'NVDA19': 'NVDA'}
+        mock_data_fetcher.fetch_ticker_data.return_value = {
+            'close': 150.0,
+            'company_name': 'NVIDIA Corporation'
+        }
+        mock_data_fetcher_class.return_value = mock_data_fetcher
+
+        mock_s3_cache = MagicMock()
+        mock_s3_cache.put_json.return_value = True
+        mock_s3_cache_class.return_value = mock_s3_cache
+
+        mock_data_lake = MagicMock()
+        mock_data_lake.is_enabled.return_value = True
+        mock_data_lake.store_raw_yfinance_data.side_effect = Exception('Data lake error')
+        mock_data_lake_class.return_value = mock_data_lake
+
+        # Act
+        from src.scheduler.ticker_fetcher import TickerFetcher
+        fetcher = TickerFetcher(bucket_name='test-bucket', data_lake_bucket='test-data-lake')
+        result = fetcher.fetch_ticker('NVDA')
+
+        # Assert: Cache storage should still succeed even if data lake fails
+        assert result['status'] == 'success'
+        mock_s3_cache.put_json.assert_called_once()
+        mock_data_lake.store_raw_yfinance_data.assert_called_once()
+
+    @patch('src.scheduler.ticker_fetcher.DataLakeStorage')
+    @patch('src.scheduler.ticker_fetcher.S3Cache')
+    @patch('src.scheduler.ticker_fetcher.DataFetcher')
+    def test_fetch_tickers_multiple(self, mock_data_fetcher_class, mock_s3_cache_class, mock_data_lake_class):
         """Test fetching multiple tickers"""
         # Arrange
         mock_data_fetcher = MagicMock()
@@ -145,6 +203,10 @@ class TestTickerFetcher:
         mock_s3_cache = MagicMock()
         mock_s3_cache.put_json.return_value = True
         mock_s3_cache_class.return_value = mock_s3_cache
+
+        mock_data_lake = MagicMock()
+        mock_data_lake.is_enabled.return_value = False
+        mock_data_lake_class.return_value = mock_data_lake
 
         # Act
         from src.scheduler.ticker_fetcher import TickerFetcher
@@ -260,7 +322,14 @@ class TestSchedulerHandler:
     def setup_method(self):
         """Set up test fixtures"""
         self.env_patcher = patch.dict('os.environ', {
-            'PDF_BUCKET_NAME': 'test-bucket'
+            'PDF_BUCKET_NAME': 'test-bucket',
+            'AURORA_HOST': 'test-host',
+            'AURORA_USER': 'test-user',
+            'AURORA_PASSWORD': 'test-password',
+            'AURORA_DATABASE': 'test-db',
+            'REPORT_JOBS_QUEUE_URL': 'https://sqs.test/queue',
+            'JOBS_TABLE_NAME': 'test-jobs-table',
+            'OPENROUTER_API_KEY': 'test-key'
         })
         self.env_patcher.start()
 
@@ -325,8 +394,13 @@ class TestSchedulerHandler:
     @patch('src.scheduler.ticker_fetcher.DataFetcher')
     def test_handler_error_handling(self, mock_data_fetcher_class, mock_s3_cache_class):
         """Test handler handles exceptions gracefully"""
-        # Arrange - make initialization fail
-        mock_data_fetcher_class.side_effect = Exception('Initialization failed')
+        # Arrange - make TickerFetcher initialization fail (after config validation)
+        mock_data_fetcher = MagicMock()
+        mock_data_fetcher.load_tickers.side_effect = Exception('Initialization failed')
+        mock_data_fetcher_class.return_value = mock_data_fetcher
+
+        mock_s3_cache = MagicMock()
+        mock_s3_cache_class.return_value = mock_s3_cache
 
         from src.scheduler.handler import lambda_handler
 
