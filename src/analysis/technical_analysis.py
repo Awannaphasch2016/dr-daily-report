@@ -408,23 +408,25 @@ class TechnicalAnalyzer:
             # Get latest indicators
             latest = df.iloc[-1]
 
+            # CONTRACT: Convert all NumPy types to Python primitives
+            # This is critical for JSON serialization to MySQL Aurora JSON column
             indicators = {
-                'sma_20': latest['SMA_20'],
-                'sma_50': latest['SMA_50'],
-                'sma_200': latest['SMA_200'],
-                'rsi': latest['RSI'],
-                'macd': latest['MACD'],
-                'macd_signal': latest['MACD_Signal'],
-                'bb_upper': latest['BB_Upper'],
-                'bb_middle': latest['BB_Middle'],
-                'bb_lower': latest['BB_Lower'],
-                'volume_sma': latest['Volume_SMA'],
-                'current_price': latest['Close'],
-                'volume': latest['Volume'],
+                'sma_20': float(latest['SMA_20']),
+                'sma_50': float(latest['SMA_50']),
+                'sma_200': float(latest['SMA_200']),
+                'rsi': float(latest['RSI']),
+                'macd': float(latest['MACD']),
+                'macd_signal': float(latest['MACD_Signal']),
+                'bb_upper': float(latest['BB_Upper']),
+                'bb_middle': float(latest['BB_Middle']),
+                'bb_lower': float(latest['BB_Lower']),
+                'volume_sma': float(latest['Volume_SMA']),
+                'current_price': float(latest['Close']),
+                'volume': float(latest['Volume']),
                 # New uncertainty indicators
-                'uncertainty_score': latest['Uncertainty_Score'],
-                'atr': latest['ATR'],
-                'vwap': latest['VWAP']
+                'uncertainty_score': float(latest['Uncertainty_Score']),
+                'atr': float(latest['ATR']),
+                'vwap': float(latest['VWAP'])
             }
 
             return indicators
