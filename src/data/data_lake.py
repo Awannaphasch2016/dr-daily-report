@@ -17,7 +17,7 @@ Key Features:
 
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, date
 from typing import Optional, Dict, Any
 import boto3
 from botocore.exceptions import ClientError
@@ -281,6 +281,183 @@ class DataLakeStorage:
         except Exception as e:
             logger.error(f"Unexpected error storing percentiles to data lake {s3_key}: {e}")
             return False
+
+    def get_latest_indicators(self, ticker: str) -> Optional[Dict[str, Any]]:
+        """
+        Get the most recent indicators for a ticker from data lake.
+
+        Searches all indicator files for the ticker and returns the one with
+        the latest LastModified timestamp.
+
+        Args:
+            ticker: Ticker symbol (e.g., 'NVDA', 'D05.SI')
+
+        Returns:
+            Dict with indicator values or None if not found
+        """
+        if not self.enabled:
+            logger.debug("Data lake storage disabled (no bucket configured)")
+            return None
+
+        try:
+            # List all indicator files for this ticker
+            prefix = f"processed/indicators/{ticker}/"
+            response = self.s3_client.list_objects_v2(
+                Bucket=self.bucket_name,
+                Prefix=prefix
+            )
+
+            if 'Contents' not in response or len(response['Contents']) == 0:
+                logger.debug(f"No indicators found for {ticker}")
+                return None
+
+            # Find the file with the latest LastModified timestamp
+            latest_file = max(
+                response['Contents'],
+                key=lambda obj: obj['LastModified']
+            )
+
+            # Retrieve the latest file
+            obj_response = self.s3_client.get_object(
+                Bucket=self.bucket_name,
+                Key=latest_file['Key']
+            )
+
+            # Parse JSON content
+            content = obj_response['Body'].read().decode('utf-8')
+            indicators = json.loads(content)
+
+            logger.info(f"📥 Retrieved latest indicators for {ticker} from {latest_file['Key']}")
+            return indicators
+
+        except ClientError as e:
+            logger.error(f"Failed to retrieve indicators for {ticker}: {e}")
+            return None
+        except Exception as e:
+            logger.error(f"Unexpected error retrieving indicators for {ticker}: {e}")
+            return None
+
+    def get_indicators_by_date(
+        self,
+        ticker: str,
+        target_date: date
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Get indicators for a specific date from data lake.
+
+        If multiple files exist for the same date, returns the latest one
+        based on timestamp.
+
+        Args:
+            ticker: Ticker symbol (e.g., 'NVDA', 'D05.SI')
+            target_date: Date to retrieve indicators for
+
+        Returns:
+            Dict with indicator values or None if not found
+        """
+        if not self.enabled:
+            logger.debug("Data lake storage disabled (no bucket configured)")
+            return None
+
+        try:
+            # List indicator files for this ticker and date
+            date_str = target_date.isoformat()
+            prefix = f"processed/indicators/{ticker}/{date_str}/"
+            response = self.s3_client.list_objects_v2(
+                Bucket=self.bucket_name,
+                Prefix=prefix
+            )
+
+            if 'Contents' not in response or len(response['Contents']) == 0:
+                logger.debug(f"No indicators found for {ticker} on {date_str}")
+                return None
+
+            # Find the file with the latest LastModified timestamp for this date
+            latest_file = max(
+                response['Contents'],
+                key=lambda obj: obj['LastModified']
+            )
+
+            # Retrieve the file
+            obj_response = self.s3_client.get_object(
+                Bucket=self.bucket_name,
+                Key=latest_file['Key']
+            )
+
+            # Parse JSON content
+            content = obj_response['Body'].read().decode('utf-8')
+            indicators = json.loads(content)
+
+            logger.info(f"📥 Retrieved indicators for {ticker} on {date_str} from {latest_file['Key']}")
+            return indicators
+
+        except ClientError as e:
+            logger.error(f"Failed to retrieve indicators for {ticker} on {target_date}: {e}")
+            return None
+        except Exception as e:
+            logger.error(f"Unexpected error retrieving indicators for {ticker} on {target_date}: {e}")
+            return None
+
+    def get_percentiles_by_date(
+        self,
+        ticker: str,
+        target_date: date
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Get percentiles for a specific date from data lake.
+
+        If multiple files exist for the same date, returns the latest one
+        based on timestamp.
+
+        Args:
+            ticker: Ticker symbol (e.g., 'NVDA', 'D05.SI')
+            target_date: Date to retrieve percentiles for
+
+        Returns:
+            Dict with percentile values or None if not found
+        """
+        if not self.enabled:
+            logger.debug("Data lake storage disabled (no bucket configured)")
+            return None
+
+        try:
+            # List percentile files for this ticker and date
+            date_str = target_date.isoformat()
+            prefix = f"processed/percentiles/{ticker}/{date_str}/"
+            response = self.s3_client.list_objects_v2(
+                Bucket=self.bucket_name,
+                Prefix=prefix
+            )
+
+            if 'Contents' not in response or len(response['Contents']) == 0:
+                logger.debug(f"No percentiles found for {ticker} on {date_str}")
+                return None
+
+            # Find the file with the latest LastModified timestamp for this date
+            latest_file = max(
+                response['Contents'],
+                key=lambda obj: obj['LastModified']
+            )
+
+            # Retrieve the file
+            obj_response = self.s3_client.get_object(
+                Bucket=self.bucket_name,
+                Key=latest_file['Key']
+            )
+
+            # Parse JSON content
+            content = obj_response['Body'].read().decode('utf-8')
+            percentiles = json.loads(content)
+
+            logger.info(f"📥 Retrieved percentiles for {ticker} on {date_str} from {latest_file['Key']}")
+            return percentiles
+
+        except ClientError as e:
+            logger.error(f"Failed to retrieve percentiles for {ticker} on {target_date}: {e}")
+            return None
+        except Exception as e:
+            logger.error(f"Unexpected error retrieving percentiles for {ticker} on {target_date}: {e}")
+            return None
 
     def is_enabled(self) -> bool:
         """

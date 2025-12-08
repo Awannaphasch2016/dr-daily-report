@@ -569,3 +569,94 @@ class TestS3DataLakeIntegration:
         # Cleanup
         self.s3_client.delete_object(Bucket=self.bucket_name, Key=raw_key)
         self.s3_client.delete_object(Bucket=self.bucket_name, Key=processed_key)
+
+    @pytest.mark.integration
+    def test_retrieve_latest_indicators_roundtrip(self):
+        """
+        GIVEN indicators stored in Phase 2
+        WHEN retrieving latest indicators via get_latest_indicators()
+        THEN should return the most recent indicators
+        """
+        # Arrange: Store multiple indicator files
+        ticker = 'NVDA19'
+        timestamp1 = datetime.now(timezone.utc)
+        timestamp2 = timestamp1.replace(minute=timestamp1.minute + 5)  # 5 minutes later
+        
+        date_str = timestamp1.strftime('%Y-%m-%d')
+        timestamp1_str = timestamp1.strftime('%Y%m%d_%H%M%S')
+        timestamp2_str = timestamp2.strftime('%Y%m%d_%H%M%S')
+
+        indicators1 = {'sma_20': 150.0, 'rsi_14': 60.0}
+        indicators2 = {'sma_20': 155.0, 'rsi_14': 65.0}  # Later data
+
+        key1 = f'processed/indicators/{ticker}/{date_str}/{timestamp1_str}.json'
+        key2 = f'processed/indicators/{ticker}/{date_str}/{timestamp2_str}.json'
+
+        # Store both files
+        self.s3_client.put_object(
+            Bucket=self.bucket_name,
+            Key=key1,
+            Body=json.dumps(indicators1),
+            ContentType='application/json'
+        )
+        self.s3_client.put_object(
+            Bucket=self.bucket_name,
+            Key=key2,
+            Body=json.dumps(indicators2),
+            ContentType='application/json'
+        )
+
+        # Act: Retrieve latest using DataLakeStorage
+        from src.data.data_lake import DataLakeStorage
+        import os
+        os.environ['DATA_LAKE_BUCKET'] = self.bucket_name
+
+        data_lake = DataLakeStorage(bucket_name=self.bucket_name)
+        result = data_lake.get_latest_indicators(ticker)
+
+        # Assert: Should return latest indicators (indicators2)
+        assert result is not None, "Should retrieve indicators"
+        assert result['sma_20'] == 155.0, "Should return latest indicators (155.0, not 150.0)"
+        assert result['rsi_14'] == 65.0, "Should return latest indicators"
+
+        # Cleanup
+        self.s3_client.delete_object(Bucket=self.bucket_name, Key=key1)
+        self.s3_client.delete_object(Bucket=self.bucket_name, Key=key2)
+
+    @pytest.mark.integration
+    def test_retrieve_indicators_by_date(self):
+        """
+        GIVEN indicators stored for a specific date
+        WHEN retrieving indicators by date
+        THEN should return indicators for that date
+        """
+        # Arrange
+        ticker = 'DBS19'
+        target_date = date.today()
+        timestamp = datetime.now(timezone.utc)
+        timestamp_str = timestamp.strftime('%Y%m%d_%H%M%S')
+
+        indicators = {'sma_20': 50.5, 'rsi_14': 70.0}
+        key = f'processed/indicators/{ticker}/{target_date.isoformat()}/{timestamp_str}.json'
+
+        self.s3_client.put_object(
+            Bucket=self.bucket_name,
+            Key=key,
+            Body=json.dumps(indicators),
+            ContentType='application/json'
+        )
+
+        # Act
+        from src.data.data_lake import DataLakeStorage
+        import os
+        os.environ['DATA_LAKE_BUCKET'] = self.bucket_name
+
+        data_lake = DataLakeStorage(bucket_name=self.bucket_name)
+        result = data_lake.get_indicators_by_date(ticker, target_date)
+
+        # Assert
+        assert result is not None, "Should retrieve indicators for date"
+        assert result['sma_20'] == 50.5, "Should return correct indicators"
+
+        # Cleanup
+        self.s3_client.delete_object(Bucket=self.bucket_name, Key=key)
