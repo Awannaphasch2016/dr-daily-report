@@ -77,7 +77,14 @@ def _convert_numpy_to_primitives(obj: Any) -> Any:
     if isinstance(obj, (list, tuple)):
         return [_convert_numpy_to_primitives(item) for item in obj]
 
-    # Already JSON-safe (str, int, float, bool, None)
+    # Python float NaN/Inf check (must come before returning obj)
+    if isinstance(obj, float):
+        import math
+        if math.isnan(obj) or math.isinf(obj):
+            return None
+        return obj
+
+    # Already JSON-safe (str, int, bool, None)
     return obj
 
 
