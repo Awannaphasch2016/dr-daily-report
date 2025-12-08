@@ -1,0 +1,7 @@
+# Deployment Trigger File
+
+This file exists solely to trigger deployments when needed.
+
+Last trigger: 2025-12-08 - Deploy primitives fix (commit 3cb231c)
+Reason: Primitives fix never deployed (Run 20013036110 failed)
+Expected: Backend with schema + primitives fixes deployed
