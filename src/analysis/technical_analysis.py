@@ -174,25 +174,35 @@ class TechnicalAnalyzer:
             return None
 
     def _calculate_single_percentile(self, historical_values, current_value, frequency_functions=None):
-        """Calculate percentile for a single indicator"""
+        """Calculate percentile for a single indicator
+
+        Returns:
+            Dict with all values as Python primitives (int, float) - never NumPy types.
+            Contract: Safe for JSON serialization and Aurora MySQL JSON storage.
+        """
         if len(historical_values) == 0:
             return None
 
         # Calculate percentile using numpy instead of scipy
         percentile = (np.sum(historical_values <= current_value) / len(historical_values)) * 100
+
+        # CONTRACT: Convert NumPy → Python primitives at SOURCE
+        # Following CLAUDE.md: "Convert at source where data is created, not at boundaries"
         result = {
-            'current_value': current_value,
-            'percentile': percentile,
-            'mean': historical_values.mean(),
-            'std': historical_values.std(),
-            'min': historical_values.min(),
-            'max': historical_values.max()
+            'current_value': float(current_value),          # np.float64 → float
+            'percentile': float(percentile),                # np.float64 → float
+            'mean': float(historical_values.mean()),        # np.float64 → float
+            'std': float(historical_values.std()),          # np.float64 → float
+            'min': float(historical_values.min()),          # np.float64 → float
+            'max': float(historical_values.max())           # np.float64 → float
         }
-        
+
         if frequency_functions:
             for key, func in frequency_functions.items():
-                result[key] = func(historical_values).sum() / len(historical_values) * 100
-        
+                # Convert frequency percentages to Python float
+                freq_value = func(historical_values).sum() / len(historical_values) * 100
+                result[key] = float(freq_value)
+
         return result
     
     def _calculate_rsi_percentile(self, valid_data, current_indicators):
