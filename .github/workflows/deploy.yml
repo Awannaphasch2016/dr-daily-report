@@ -217,8 +217,9 @@ jobs:
     needs: [build]
     runs-on: ubuntu-latest
     environment: development
-    # Temporarily disabled to deploy Lambda handler first (bootstrap)
-    if: false
+    # Re-enabled after Lambda handler bootstrap (Run 20014097620)
+    # Validates Aurora schema matches code expectations
+    if: github.event_name == 'push' && needs.detect-changes.outputs.backend == 'true'
 
     steps:
       - name: Checkout code

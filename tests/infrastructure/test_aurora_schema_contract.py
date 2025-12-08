@@ -72,22 +72,25 @@ class TestAuroraSchemaContract:
         (1054, "Unknown column 'date' in 'field list'")
 
         Code reference: src/data/aurora/precompute_service.py:856
-        INSERT INTO precomputed_reports (ticker_id, symbol, date, report_date, ...)
+        INSERT INTO precomputed_reports (ticker_id, symbol, report_date, ...)
+
+        Actual Aurora schema confirmed via Lambda describe_table:
+        - report_date (date) - NOT 'date'
+        - computed_at (timestamp) - NOT 'report_generated_at'
         """
         schema = self._query_aurora_schema('precomputed_reports')
 
         # Extract column names from schema
         actual_columns = set(schema.keys()) if isinstance(schema, dict) else set()
 
-        # Required columns from code (precompute_service.py:856)
+        # Required columns from code (matches actual Aurora schema)
         required_columns = {
             'ticker_id',
             'symbol',
-            'date',              # ← CODE EXPECTS THIS (new schema)
-            'report_date',       # ← BACKWARDS COMPAT (old schema)
+            'report_date',       # ← ACTUAL AURORA COLUMN
             'status',
             'error_message',
-            'report_generated_at'  # ← CODE EXPECTS THIS (new schema)
+            'computed_at'        # ← ACTUAL AURORA COLUMN
         }
 
         missing = required_columns - actual_columns
@@ -100,21 +103,21 @@ class TestAuroraSchemaContract:
             f"   Migration: ALTER TABLE precomputed_reports ADD COLUMN date DATE;"
 
     def test_precomputed_reports_date_column_type(self):
-        """GIVEN Aurora precomputed_reports table with 'date' column
+        """GIVEN Aurora precomputed_reports table with 'report_date' column
         WHEN we check column type
-        THEN 'date' must be DATE type (not VARCHAR, not DATETIME)
+        THEN 'report_date' must be DATE type (not VARCHAR, not DATETIME)
 
         Defensive: Even if column exists, wrong type causes failures
         """
         schema = self._query_aurora_schema('precomputed_reports')
 
-        if 'date' not in schema:
-            pytest.skip("'date' column doesn't exist yet (schema migration pending)")
+        if 'report_date' not in schema:
+            pytest.skip("'report_date' column doesn't exist yet")
 
-        date_column_type = schema.get('date', {}).get('Type', '')
+        date_column_type = schema.get('report_date', {}).get('Type', '')
 
         assert 'date' in date_column_type.lower(), \
-            f"❌ Column 'date' has wrong type: {date_column_type}\n" \
+            f"❌ Column 'report_date' has wrong type: {date_column_type}\n" \
             f"   Expected: DATE\n" \
             f"   Got: {date_column_type}"
 

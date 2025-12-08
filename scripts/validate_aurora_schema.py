@@ -68,7 +68,11 @@ def validate_precomputed_reports_schema(schema: Dict[str, Any]) -> bool:
     """Validate precomputed_reports table schema.
 
     Code reference: src/data/aurora/precompute_service.py:856
-    INSERT INTO precomputed_reports (ticker_id, symbol, date, report_date, ...)
+    INSERT INTO precomputed_reports (ticker_id, symbol, report_date, ...)
+
+    Actual Aurora schema confirmed via Lambda describe_table:
+    - report_date (date) - NOT 'date'
+    - computed_at (timestamp) - NOT 'report_generated_at'
 
     Args:
         schema: Table schema from Aurora
@@ -78,15 +82,14 @@ def validate_precomputed_reports_schema(schema: Dict[str, Any]) -> bool:
     """
     actual_columns = set(schema.keys()) if isinstance(schema, dict) else set()
 
-    # Required columns from code
+    # Required columns from code (matches actual Aurora schema)
     required_columns = {
         'ticker_id',
         'symbol',
-        'date',              # NEW SCHEMA (code expects this!)
-        'report_date',       # BACKWARDS COMPAT
+        'report_date',       # Actual column name in Aurora
         'status',
         'error_message',
-        'report_generated_at',  # NEW SCHEMA
+        'computed_at',       # Actual column name in Aurora
         'report_json'        # Stores user_facing_scores
     }
 

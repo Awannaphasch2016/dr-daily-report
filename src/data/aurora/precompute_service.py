@@ -847,20 +847,19 @@ class PrecomputeService:
     ):
         """Update report status in database.
 
-        Uses the new schema with 'date' (data date) and 'report_generated_at'.
-        Also supports legacy 'report_date' column during migration period.
+        Uses actual Aurora schema: report_date (date) and computed_at (timestamp).
+        Schema confirmed via Lambda describe_table: 21 columns including report_date, computed_at.
         """
-        # Use new schema columns (date, report_generated_at)
-        # Also set report_date for backwards compatibility during migration
+        # Use actual schema columns (report_date, computed_at)
         query = """
-            INSERT INTO precomputed_reports (ticker_id, symbol, date, report_date, status, error_message, report_generated_at)
-            VALUES (%s, %s, %s, %s, %s, %s, NOW())
+            INSERT INTO precomputed_reports (ticker_id, symbol, report_date, status, error_message, computed_at)
+            VALUES (%s, %s, %s, %s, %s, NOW())
             ON DUPLICATE KEY UPDATE
                 status = VALUES(status),
                 error_message = VALUES(error_message),
-                report_generated_at = NOW()
+                computed_at = NOW()
         """
-        self.client.execute(query, (ticker_id, symbol, data_date, data_date, status, error_message), commit=True)
+        self.client.execute(query, (ticker_id, symbol, data_date, status, error_message), commit=True)
 
     def _store_completed_report(
         self,
