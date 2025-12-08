@@ -20,6 +20,102 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+def _handle_describe_table(event: Dict[str, Any], start_time: datetime) -> Dict[str, Any]:
+    """Query Aurora table schema for CI/CD schema validation (NO MOCKING).
+
+    Following CLAUDE.md Principle 4: Schema Testing at System Boundaries
+    - System boundary: Python code → Aurora MySQL
+    - Contract: Table schema must match code expectations
+    - This handler enables real schema queries from CI/CD pipelines
+
+    Args:
+        event: Lambda event with required param:
+            - table: Table name to describe (e.g., "precomputed_reports")
+        start_time: When the Lambda was invoked
+
+    Returns:
+        Response dict with schema info:
+        {
+            'statusCode': 200,
+            'body': {
+                'schema': {
+                    'column_name': {'Type': 'varchar(255)', 'Null': 'NO', 'Key': 'PRI'},
+                    ...
+                }
+            }
+        }
+
+    Example usage (from CI/CD):
+        aws lambda invoke \\
+          --function-name dr-daily-report-ticker-scheduler-dev \\
+          --payload '{"action":"describe_table","table":"precomputed_reports"}' \\
+          /tmp/schema.json
+    """
+    import traceback
+
+    try:
+        from src.data.aurora.client import get_aurora_client
+
+        table_name = event.get('table')
+        if not table_name:
+            return {
+                'statusCode': 400,
+                'body': {
+                    'message': 'Missing required parameter: table',
+                    'error': 'Must provide table name to describe'
+                }
+            }
+
+        client = get_aurora_client()
+
+        # Query table schema using DESCRIBE (MySQL DDL command)
+        query = f"DESCRIBE {table_name}"
+        logger.info(f"Querying schema for table: {table_name}")
+
+        result = client.fetch_all(query, ())
+
+        # Transform to dict: {column_name: {Type, Null, Key, ...}}
+        schema = {}
+        for row in result:
+            col_name = row['Field']
+            schema[col_name] = {
+                'Type': row['Type'],
+                'Null': row['Null'],
+                'Key': row.get('Key', ''),
+                'Default': row.get('Default'),
+                'Extra': row.get('Extra', '')
+            }
+
+        end_time = datetime.now()
+        duration_seconds = (end_time - start_time).total_seconds()
+
+        logger.info(f"Schema query completed: {len(schema)} columns in {table_name}")
+
+        return {
+            'statusCode': 200,
+            'body': {
+                'message': f'Schema retrieved for {table_name}',
+                'table': table_name,
+                'column_count': len(schema),
+                'schema': schema,
+                'duration_seconds': duration_seconds
+            }
+        }
+
+    except Exception as e:
+        logger.error(f"Schema query failed for table {event.get('table')}: {e}")
+        logger.error(traceback.format_exc())
+
+        return {
+            'statusCode': 500,
+            'body': {
+                'message': f"Failed to describe table {event.get('table')}",
+                'error': str(e),
+                'traceback': traceback.format_exc()
+            }
+        }
+
+
 def _handle_debug_cache(event: Dict[str, Any], start_time: datetime) -> Dict[str, Any]:
     """Debug action to query precomputed_reports table in Aurora.
 
@@ -694,6 +790,10 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     # Handle debug cache action (query precomputed_reports table)
     if event.get('action') == 'debug_cache':
         return _handle_debug_cache(event, start_time)
+
+    # Handle describe table action (for schema contract testing - NO MOCKING)
+    if event.get('action') == 'describe_table':
+        return _handle_describe_table(event, start_time)
 
     # Handle ticker unification migration (Phase 4)
     if event.get('action') == 'ticker_unification':
