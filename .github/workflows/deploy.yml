@@ -217,8 +217,8 @@ jobs:
     needs: [build]
     runs-on: ubuntu-latest
     environment: development
-    # Only run if backend code changed (backend deploy will happen)
-    if: github.event_name == 'push' && needs.detect-changes.outputs.backend == 'true'
+    # Temporarily disabled to deploy Lambda handler first (bootstrap)
+    if: false
 
     steps:
       - name: Checkout code
