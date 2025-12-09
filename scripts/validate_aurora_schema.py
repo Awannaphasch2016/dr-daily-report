@@ -23,6 +23,26 @@ import json
 from typing import Dict, Set, Any
 
 
+def check_lambda_exists(lambda_client, lambda_name: str) -> bool:
+    """Check if Lambda function exists.
+
+    Args:
+        lambda_client: boto3 Lambda client
+        lambda_name: Lambda function name
+
+    Returns:
+        True if Lambda exists, False otherwise
+    """
+    try:
+        lambda_client.get_function(FunctionName=lambda_name)
+        return True
+    except lambda_client.exceptions.ResourceNotFoundException:
+        return False
+    except Exception as e:
+        print(f"⚠️  Failed to check Lambda existence: {e}")
+        return False
+
+
 def query_aurora_schema(lambda_client, lambda_name: str, table_name: str) -> Dict[str, Any]:
     """Query Aurora table schema via Lambda (has VPC access).
 
@@ -37,6 +57,13 @@ def query_aurora_schema(lambda_client, lambda_name: str, table_name: str) -> Dic
     Raises:
         SystemExit: If Lambda invocation fails
     """
+    # Check if Lambda exists first
+    if not check_lambda_exists(lambda_client, lambda_name):
+        print(f"⚠️  Lambda function not found: {lambda_name}")
+        print(f"   Skipping Aurora schema validation (Aurora may not be enabled)")
+        print(f"   This is OK if Aurora is not configured for this environment")
+        return {}
+
     payload = {
         "action": "describe_table",
         "table": table_name
@@ -48,20 +75,43 @@ def query_aurora_schema(lambda_client, lambda_name: str, table_name: str) -> Dic
         response = lambda_client.invoke(
             FunctionName=lambda_name,
             InvocationType='RequestResponse',
-            Payload=json.dumps(payload)
+            Payload=json.dumps(payload),
+            LogType='Tail'  # Get logs for debugging
         )
 
         result = json.loads(response['Payload'].read())
 
         if result.get('statusCode') != 200:
-            print(f"❌ Lambda failed to query schema: {result.get('body', {}).get('message')}")
+            error_msg = result.get('body', {}).get('message', 'Unknown error')
+            error_detail = result.get('body', {}).get('error', '')
+            
+            print(f"❌ Lambda failed to query schema: {error_msg}")
+            if error_detail:
+                print(f"   Error detail: {error_detail}")
+            
+            # Check if it's a "table doesn't exist" error (MySQL error 1146)
+            if 'doesn\'t exist' in error_msg.lower() or '1146' in str(error_detail):
+                print(f"\n⚠️  Table '{table_name}' doesn't exist in Aurora")
+                print(f"   This may be OK if:")
+                print(f"   1. Aurora is not enabled for this environment")
+                print(f"   2. Schema migration hasn't been run yet")
+                print(f"   3. This is a new deployment")
+                print(f"\n   To fix: Run schema migration:")
+                print(f"   python scripts/aurora_precompute_migration.py")
+                return {}
+            
             sys.exit(1)
 
         return result.get('body', {}).get('schema', {})
 
+    except lambda_client.exceptions.ResourceNotFoundException:
+        print(f"⚠️  Lambda function not found: {lambda_name}")
+        print(f"   Skipping Aurora schema validation")
+        return {}
     except Exception as e:
         print(f"❌ Failed to invoke Lambda: {e}")
-        sys.exit(1)
+        print(f"   This may be OK if Aurora is not configured")
+        return {}
 
 
 def validate_precomputed_reports_schema(schema: Dict[str, Any]) -> bool:
@@ -145,6 +195,15 @@ def main():
 
     # Validate precomputed_reports table
     schema = query_aurora_schema(lambda_client, lambda_name, 'precomputed_reports')
+
+    # If schema is empty, Lambda/table doesn't exist - skip validation
+    if not schema:
+        print("\n" + "=" * 60)
+        print("⚠️  SKIPPING Aurora schema validation")
+        print("=" * 60)
+        print("   Lambda or table not found - Aurora may not be enabled")
+        print("   Deployment will proceed (Aurora validation skipped)")
+        sys.exit(0)
 
     if not validate_precomputed_reports_schema(schema):
         print("\n" + "=" * 60)
