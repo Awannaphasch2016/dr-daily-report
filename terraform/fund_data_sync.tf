@@ -39,7 +39,7 @@ module "fund_data_sync_queue" {
   data_source   = "sql-server-csv"
 
   common_tags = merge(
-    var.common_tags,
+    local.common_tags,
     {
       Component   = "fund-data-sync"
       Purpose     = "etl-pipeline"
@@ -63,7 +63,7 @@ resource "aws_ecr_repository" "fund_data_sync" {
   }
 
   tags = merge(
-    var.common_tags,
+    local.common_tags,
     {
       Name      = "${var.project_name}-fund-data-sync"
       Component = "fund-data-sync"
@@ -83,20 +83,24 @@ resource "aws_lambda_function" "fund_data_sync" {
   timeout     = 120  # 2 minutes (CSV parse + batch upsert)
   memory_size = 512  # CSV parsing + NumPy/Pandas
 
-  # VPC Configuration (Aurora in private subnets)
-  vpc_config {
-    subnet_ids         = var.private_subnet_ids
-    security_group_ids = [aws_security_group.fund_data_sync_lambda.id]
+  # VPC Configuration (only when Aurora is enabled)
+  # Lambda needs VPC access to connect to Aurora MySQL
+  dynamic "vpc_config" {
+    for_each = var.aurora_enabled ? [1] : []
+    content {
+      subnet_ids         = local.private_subnets_with_nat
+      security_group_ids = [aws_security_group.lambda_aurora[0].id]
+    }
   }
 
   # Environment Variables
   environment {
     variables = {
       ENVIRONMENT          = var.environment
-      AURORA_HOST          = var.aurora_host
-      AURORA_USER          = var.aurora_user
-      AURORA_DATABASE      = var.aurora_database
-      AURORA_PASSWORD      = var.aurora_password  # Ideally from Secrets Manager
+      AURORA_HOST          = var.aurora_enabled ? aws_rds_cluster.aurora[0].endpoint : ""
+      AURORA_USER          = var.aurora_master_username
+      AURORA_DATABASE      = var.aurora_database_name
+      AURORA_PASSWORD      = var.aurora_enabled ? var.AURORA_MASTER_PASSWORD : ""
       DATA_LAKE_BUCKET     = module.s3_data_lake.bucket_id
       SQS_QUEUE_URL        = module.fund_data_sync_queue.queue_url
       LOG_LEVEL            = "INFO"
@@ -115,7 +119,7 @@ resource "aws_lambda_function" "fund_data_sync" {
   }
 
   tags = merge(
-    var.common_tags,
+    local.common_tags,
     {
       Name      = "${var.project_name}-fund-data-sync-${var.environment}"
       Component = "fund-data-sync"
@@ -156,7 +160,7 @@ resource "aws_cloudwatch_log_group" "fund_data_sync_lambda" {
   retention_in_days = 7  # 7 days retention (adjust for compliance)
 
   tags = merge(
-    var.common_tags,
+    local.common_tags,
     {
       Name      = "/aws/lambda/${var.project_name}-fund-data-sync-${var.environment}"
       Component = "fund-data-sync"
@@ -186,7 +190,7 @@ resource "aws_iam_role" "fund_data_sync_lambda" {
   })
 
   tags = merge(
-    var.common_tags,
+    local.common_tags,
     {
       Name      = "${var.project_name}-fund-data-sync-lambda-${var.environment}"
       Component = "fund-data-sync"
@@ -271,53 +275,6 @@ resource "aws_iam_role_policy" "fund_data_sync_sqs" {
       }
     ]
   })
-}
-
-# ============================================================================
-# Security Group for Lambda
-# ============================================================================
-
-resource "aws_security_group" "fund_data_sync_lambda" {
-  name        = "${var.project_name}-fund-data-sync-lambda-${var.environment}"
-  description = "Security group for Fund Data Sync Lambda"
-  vpc_id      = var.vpc_id
-
-  # Egress: Allow Lambda to connect to Aurora (port 3306)
-  egress {
-    description     = "Aurora MySQL"
-    from_port       = 3306
-    to_port         = 3306
-    protocol        = "tcp"
-    security_groups = [var.aurora_security_group_id]
-  }
-
-  # Egress: Allow Lambda to download from S3 (HTTPS)
-  egress {
-    description = "S3 HTTPS"
-    from_port   = 443
-    to_port     = 443
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  tags = merge(
-    var.common_tags,
-    {
-      Name      = "${var.project_name}-fund-data-sync-lambda-${var.environment}"
-      Component = "fund-data-sync"
-    }
-  )
-}
-
-# Allow Lambda security group in Aurora security group
-resource "aws_security_group_rule" "aurora_allow_fund_data_sync" {
-  type                     = "ingress"
-  from_port                = 3306
-  to_port                  = 3306
-  protocol                 = "tcp"
-  security_group_id        = var.aurora_security_group_id
-  source_security_group_id = aws_security_group.fund_data_sync_lambda.id
-  description              = "Allow Fund Data Sync Lambda to connect to Aurora"
 }
 
 # ============================================================================

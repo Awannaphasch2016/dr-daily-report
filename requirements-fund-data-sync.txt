@@ -1,0 +1,11 @@
+# Minimal requirements for Fund Data Sync Lambda
+# (ETL pipeline: S3 → CSV Parse → Aurora)
+
+# AWS SDK (included in Lambda runtime, but specified for local dev)
+boto3>=1.28.0
+
+# Database driver
+pymysql>=1.0.0
+
+# CSV encoding detection
+chardet>=5.0.0
