@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "aws": {
+      "command": "/home/anak/dev/dr-daily-report_telegram/scripts/mcp_wrapper_aws.sh",
+      "args": [],
+      "env": {
+        "FASTMCP_LOG_LEVEL": "ERROR",
+        "AWS_REGION": "ap-southeast-1"
+      }
+    },
+    "github": {
+      "command": "/home/anak/dev/dr-daily-report_telegram/scripts/mcp_wrapper_github.sh",
+      "args": []
+    }
+  }
+}
