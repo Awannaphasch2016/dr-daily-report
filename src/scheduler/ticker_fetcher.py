@@ -121,46 +121,50 @@ class TickerFetcher:
         """
         Fetch data for a single ticker and cache it.
 
+        Symbol-type invariant: Accepts any symbol format (DR, Yahoo, etc.)
+        and automatically resolves to Yahoo Finance format for API calls and storage.
+
         Args:
-            ticker: Yahoo Finance ticker symbol
+            ticker: Ticker symbol in any format (e.g., 'DBS19' or 'D05.SI')
 
         Returns:
             Dict with status and data/error
         """
+        # Resolve symbol to Yahoo Finance format for consistent storage
+        # DataFetcher will also resolve internally, but we need Yahoo symbol for data lake storage
+        from src.data.aurora.ticker_resolver import get_ticker_resolver
+        resolver = get_ticker_resolver()
+        ticker_info = resolver.resolve(ticker)
+        yahoo_ticker = ticker_info.yahoo_symbol if ticker_info else ticker
+        
         today = date.today().isoformat()
 
         try:
-            logger.info(f"Fetching data for {ticker}...")
+            logger.info(f"Fetching data for {ticker} -> {yahoo_ticker}...")
 
-            # Fetch from yfinance
+            # Fetch from yfinance (DataFetcher handles symbol resolution internally)
             data = self.data_fetcher.fetch_ticker_data(ticker)
-
-            if data is None:
-                return {
-                    'ticker': ticker,
-                    'status': 'failed',
-                    'error': 'No data returned from Yahoo Finance'
-                }
 
             # Store raw data to data lake BEFORE processing (for data lineage)
             # This preserves the exact API response for reproducibility
+            # Use Yahoo ticker for data lake storage (consistent with Yahoo Finance API)
             fetched_at = datetime.now()
             if self.data_lake.is_enabled():
                 try:
                     # Make raw data JSON-serializable for data lake storage
                     raw_serializable = self._make_json_serializable(data)
                     data_lake_success = self.data_lake.store_raw_yfinance_data(
-                        ticker=ticker,
+                        ticker=yahoo_ticker,  # Use resolved Yahoo symbol for storage
                         data=raw_serializable,
                         fetched_at=fetched_at
                     )
                     if data_lake_success:
-                        logger.info(f"✅ Data lake stored raw data for {ticker}")
+                        logger.info(f"✅ Data lake stored raw data for {yahoo_ticker}")
                     else:
-                        logger.warning(f"⚠️ Data lake storage failed for {ticker} (non-blocking)")
+                        logger.warning(f"⚠️ Data lake storage failed for {yahoo_ticker} (non-blocking)")
                 except Exception as e:
                     # Data lake storage failures should not block cache storage
-                    logger.warning(f"⚠️ Data lake storage error for {ticker} (non-blocking): {e}")
+                    logger.warning(f"⚠️ Data lake storage error for {yahoo_ticker} (non-blocking): {e}")
 
             # Make data JSON-serializable for cache storage
             serializable_data = self._make_json_serializable(data)
@@ -185,9 +189,10 @@ class TickerFetcher:
             logger.info(f"S3 cached {ticker} for {today}")
 
             # Store in Aurora MySQL (optional)
+            # Use Yahoo ticker for Aurora storage (Aurora stores prices with Yahoo symbols)
             aurora_rows = 0
             if self.enable_aurora and self._aurora_repo:
-                aurora_rows = self._write_to_aurora(ticker, data)
+                aurora_rows = self._write_to_aurora(yahoo_ticker, data)
 
             return {
                 'ticker': ticker,
@@ -210,7 +215,7 @@ class TickerFetcher:
         Write ticker data to Aurora MySQL.
 
         Args:
-            ticker: Yahoo Finance ticker symbol
+            ticker: Yahoo Finance ticker symbol (must be resolved before calling)
             data: Data dict from DataFetcher
 
         Returns:

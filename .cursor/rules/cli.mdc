@@ -1,0 +1,655 @@
+---
+description: DR CLI command reference and usage patterns. Use when working with CLI commands, justfile recipes, or development workflows.
+globs: ["justfile", "dr_cli/**"]
+alwaysApply: false
+---
+
+# DR CLI Documentation
+
+The DR CLI is a unified command-line interface for the Daily Report repository. It provides clean, consistent syntax for all repository operations with comprehensive help at every level.
+
+## Architecture
+
+The DR CLI uses a two-layer design:
+
+```
+┌─────────────────────────────────────────┐
+│  JUSTFILE (Descriptive/Intent Layer)    │
+│  "WHEN and WHY to run commands"         │
+│  - Intent-based recipe names            │
+│  - Human-readable descriptions          │
+│  - Workflow compositions                │
+└─────────────────┬───────────────────────┘
+                  │ calls
+                  ↓
+┌─────────────────────────────────────────┐
+│  CLI (Implementation/Syntax Layer)      │
+│  "HOW to run commands cleanly"          │
+│  - Clean, consistent syntax             │
+│  - Explicit parameters                  │
+│  - Good --help system                   │
+└─────────────────────────────────────────┘
+```
+
+**Justfile**: Provides intent-based recipes that describe WHEN and WHY you should run commands. Recipe names like `pre-commit`, `ship-it`, `test-changes` make it clear what the purpose is.
+
+**DR CLI**: Provides the clean syntax and implementation. Commands like `dr dev server`, `dr test line --type follow` are explicit and discoverable.
+
+## Installation
+
+### From Source (Development)
+
+```bash
+# Install in editable mode
+pip install -e .
+
+# Or using the justfile
+just setup
+```
+
+### Verify Installation
+
+```bash
+dr --help
+```
+
+## Global Options
+
+All commands support these global options:
+
+- `--doppler`: Run command with doppler environment variables
+  ```bash
+  dr --doppler dev server
+  dr --doppler test
+  ```
+
+## Command Reference
+
+### Development Commands (`dr dev`)
+
+Development-related operations like running the server, shell, and scripts.
+
+#### `dr dev server`
+Run the Flask server locally.
+
+```bash
+dr dev server
+dr --doppler dev server  # With environment variables
+```
+
+#### `dr dev shell`
+Start interactive Python shell with project imports.
+
+```bash
+dr dev shell
+dr --doppler dev shell
+```
+
+#### `dr dev run <script>`
+Run a Python script with PYTHONPATH set.
+
+```bash
+dr dev run scripts/test.py
+dr --doppler dev run src/agent.py
+```
+
+#### `dr dev install`
+Install project dependencies from requirements.txt.
+
+```bash
+dr dev install
+```
+
+---
+
+### Testing Commands (`dr test`)
+
+Run tests, specific test files, and LINE bot tests.
+
+#### `dr test`
+Run all tests (default behavior).
+
+```bash
+dr test                    # Run all tests
+dr --doppler test          # Run tests with doppler env
+```
+
+#### `dr test all`
+Run all tests with pytest (with options).
+
+```bash
+dr test all                # Run all tests
+dr test all -v             # Verbose output
+dr test all --tb=long      # Long traceback format
+```
+
+#### `dr test file <file>`
+Run a specific test file.
+
+```bash
+dr test file test_agent.py
+dr test file tests/test_line_bot.py
+```
+
+#### `dr test line <type>`
+Run LINE bot specific tests.
+
+Available types:
+- `follow` - Test follow event handling
+- `help` - Test help command
+- `error` - Test error handling
+- `fuzzy` - Test fuzzy matching
+- `cache` - Test caching functionality
+
+```bash
+dr test line follow
+dr test line cache
+dr --doppler test line error
+```
+
+#### `dr test message <ticker>`
+Test LINE bot message for a specific ticker.
+
+```bash
+dr test message AAPL
+dr --doppler test message GOOGL
+```
+
+#### `dr test integration <ticker>`
+Run integration test for a specific ticker.
+
+```bash
+dr test integration AAPL
+```
+
+---
+
+### Build Commands (`dr build`)
+
+Create Lambda deployment packages.
+
+#### `dr build`
+Create standard Lambda deployment package.
+
+```bash
+dr build                   # Standard build
+dr --doppler build         # Build with doppler env
+```
+
+#### `dr build --minimal`
+Create minimal Lambda package (smaller size).
+
+```bash
+dr build --minimal
+```
+
+#### `dr build --type lambda`
+Create Lambda-specific build.
+
+```bash
+dr build --type lambda
+```
+
+---
+
+### Deployment Commands (`dr deploy`)
+
+Deploy to AWS and setup webhooks.
+
+#### `dr deploy lambda-deploy`
+Deploy to AWS Lambda.
+
+Requires AWS CLI to be configured with proper credentials.
+
+```bash
+dr deploy lambda-deploy
+dr --doppler deploy lambda-deploy
+```
+
+#### `dr deploy webhook`
+Setup LINE webhook configuration.
+
+```bash
+dr deploy webhook
+dr --doppler deploy webhook
+```
+
+---
+
+### Cleanup Commands (`dr clean`)
+
+Remove build artifacts, cache, and test artifacts.
+
+#### `dr clean build`
+Clean build artifacts only (build/ directory and *.zip files).
+
+```bash
+dr clean build
+```
+
+#### `dr clean cache`
+Clean Python cache files (__pycache__, *.pyc).
+
+```bash
+dr clean cache
+```
+
+#### `dr clean all`
+Clean everything - build artifacts, cache, and test artifacts.
+
+```bash
+dr clean all
+```
+
+---
+
+### Code Quality Commands (`dr check`)
+
+Validate code syntax, environment, format, and lint.
+
+#### `dr check syntax`
+Check Python syntax for all files in src/.
+
+```bash
+dr check syntax
+```
+
+#### `dr check env`
+Check if required environment variables are set.
+
+Checks for:
+- `OPENAI_API_KEY`
+- `LINE_CHANNEL_ACCESS_TOKEN`
+- `LINE_CHANNEL_SECRET`
+
+```bash
+dr check env
+```
+
+#### `dr check format`
+Format code with black.
+
+```bash
+dr check format
+dr check format --line-length 120
+```
+
+#### `dr check lint`
+Lint code with pylint (errors only).
+
+```bash
+dr check lint
+```
+
+---
+
+### Utility Commands (`dr util`)
+
+Project information, statistics, and report generation.
+
+#### `dr util tree`
+Show project structure (max depth 2).
+
+```bash
+dr util tree
+```
+
+#### `dr util stats`
+Count lines of code in the project.
+
+```bash
+dr util stats
+```
+
+#### `dr util list-py`
+List all Python files (max 50).
+
+```bash
+dr util list-py
+```
+
+#### `dr util report <ticker>`
+Generate report for a specific ticker.
+
+```bash
+dr util report AAPL
+dr --doppler util report GOOGL
+```
+
+#### `dr util report-all`
+Generate all reports (if generate_all_reports.py exists).
+
+```bash
+dr util report-all
+dr --doppler util report-all
+```
+
+#### `dr util info`
+Show project info and common commands.
+
+```bash
+dr util info
+```
+
+---
+
+## Justfile Recipes
+
+The justfile provides intent-based recipes that compose CLI commands into workflows.
+
+### Development Workflows
+
+- `just dev` - Start local development server
+- `just setup` - Quick development setup (install dependencies)
+- `just shell` - Run interactive Python shell
+- `just daily` - Daily development routine (pull, setup, test)
+
+### Testing Workflows
+
+- `just test-changes` - Test your recent changes
+- `just pre-commit` - Run before committing (syntax check + tests)
+- `just test-file <FILE>` - Test specific file
+- `just test-line <TYPE>` - Test LINE bot features
+- `just test-ticker <TICKER>` - Test with real ticker
+
+### Build & Deployment
+
+- `just build` - Build deployment package
+- `just build-minimal` - Build minimal package
+- `just deploy-prod` - Deploy to AWS Lambda
+- `just ship-it` - Complete deploy workflow (build + deploy)
+- `just setup-webhook` - Setup LINE webhook
+- `just pre-deploy` - Pre-deployment checklist
+
+### Cleanup
+
+- `just clean` - Quick cleanup (build artifacts)
+- `just deep-clean` - Deep cleanup (all generated files)
+- `just reset` - Quick reset (clean + reinstall)
+
+### Code Quality
+
+- `just check` - Check syntax
+- `just format` - Format code with black
+- `just lint` - Lint code
+- `just check-env` - Check environment variables
+
+### Utilities
+
+- `just tree` - Show project structure
+- `just stats` - Show code statistics
+- `just report <TICKER>` - Generate ticker report
+- `just info` - Show quick reference
+
+---
+
+## Common Workflows
+
+### First Time Setup
+
+```bash
+# Install CLI
+pip install -e .
+
+# Setup project
+just setup
+
+# Verify installation
+dr --help
+```
+
+### Daily Development
+
+```bash
+# Run daily routine (pull, setup, test)
+just daily
+
+# Or manually:
+git pull
+just setup
+just test-changes
+
+# Start development server
+just dev
+```
+
+### Making Changes
+
+```bash
+# Make your changes...
+
+# Run pre-commit checks
+just pre-commit
+
+# If all passes:
+git add .
+git commit -m "Your message"
+git push
+```
+
+### Deploying
+
+```bash
+# Run pre-deployment checks
+just pre-deploy
+
+# If all passes, deploy
+just ship-it
+
+# Or deploy manually:
+just build
+just deploy-prod
+just setup-webhook
+```
+
+### Testing Specific Features
+
+```bash
+# Test LINE bot features
+just test-line follow
+just test-line cache
+
+# Test with real ticker
+just test-ticker AAPL
+
+# Test specific file
+just test-file test_agent.py
+```
+
+---
+
+## Environment Variables
+
+The CLI supports explicit doppler integration via the `--doppler` flag.
+
+### Using Doppler
+
+```bash
+# Run any command with doppler env
+dr --doppler dev server
+dr --doppler test
+dr --doppler util report AAPL
+```
+
+### Doppler Configuration
+
+Default configuration:
+- Project: `rag-chatbot-worktree`
+- Config: `dev_personal`
+
+### Required Variables
+
+- `OPENAI_API_KEY` - OpenAI API key
+- `LINE_CHANNEL_ACCESS_TOKEN` - LINE channel access token
+- `LINE_CHANNEL_SECRET` - LINE channel secret
+
+Check if variables are set:
+```bash
+dr check env
+```
+
+---
+
+## Help System
+
+Every command has comprehensive help:
+
+```bash
+# Top-level help
+dr --help
+
+# Command group help
+dr dev --help
+dr test --help
+dr build --help
+
+# Specific command help
+dr test line --help
+dr build --help
+dr check format --help
+```
+
+---
+
+## Comparison: Justfile vs CLI
+
+### When to use Justfile
+
+Use justfile recipes when you want:
+- Intent-based commands (`pre-commit`, `ship-it`, `daily`)
+- Workflow compositions (multiple commands in sequence)
+- Quick reminders of common tasks
+- Human-friendly descriptions
+
+### When to use CLI directly
+
+Use CLI commands when you want:
+- Explicit control over parameters
+- To understand exact syntax
+- To compose custom workflows
+- For scripting and automation
+
+### Examples
+
+**Justfile (Intent-focused):**
+```bash
+just pre-commit           # Clear intent: "I want to run pre-commit checks"
+just ship-it              # Clear intent: "I want to deploy this"
+```
+
+**CLI (Syntax-focused):**
+```bash
+dr check syntax && dr test    # Explicit syntax: exactly what runs
+dr build && dr deploy lambda-deploy  # Explicit: build then deploy
+```
+
+---
+
+## Extending the CLI
+
+The CLI is designed to grow with the repository complexity.
+
+### Adding New Commands
+
+1. Create or modify a command file in `dr_cli/commands/`
+2. Add the command using Click decorators
+3. Import and register in `dr_cli/main.py`
+4. Update this documentation
+
+### Adding Justfile Recipes
+
+1. Add intent-based recipe to `justfile`
+2. Call appropriate CLI commands
+3. Add clear description in comment
+
+---
+
+## Troubleshooting
+
+### CLI not found after installation
+
+```bash
+# Reinstall in editable mode
+pip install -e .
+
+# Or check if it's in PATH
+which dr
+```
+
+### Doppler not working
+
+```bash
+# Check doppler installation
+which doppler
+
+# Check doppler login
+doppler login
+
+# Verify project and config
+doppler projects
+doppler configs --project rag-chatbot-worktree
+```
+
+### Command not working
+
+```bash
+# Check command help
+dr <command> --help
+
+# Check if running from project root
+pwd  # Should be in /home/anak/dev/dr-daily-report_deploy
+
+# Try with verbose output
+dr <command> -v
+```
+
+---
+
+## For AI Agents
+
+The DR CLI provides a **narrower channel of communication** for AI agents:
+
+### Benefits for Agents
+
+1. **Predictable interface**: Commands follow consistent patterns
+2. **Clear semantics**: Command names are explicit and unambiguous
+3. **Discoverable**: `--help` at every level provides context
+4. **Composable**: Commands can be chained and scripted
+5. **Exit codes**: Proper exit codes for success/failure detection
+
+### Agent Usage Patterns
+
+**Discovery:**
+```bash
+dr --help                 # See all command groups
+dr test --help            # See test commands
+dr test line --help       # See line test options
+```
+
+**Execution:**
+```bash
+dr dev server             # Start server
+dr test                   # Run tests
+dr build                  # Build package
+```
+
+**Composition:**
+```bash
+dr check syntax && dr test && dr build  # Pre-deploy checks
+```
+
+**With Environment:**
+```bash
+dr --doppler test         # Load env vars
+dr --doppler util report AAPL  # Generate report with env
+```
+
+---
+
+## Version
+
+Current version: `0.1.0`
+
+## License
+
+See project LICENSE file.

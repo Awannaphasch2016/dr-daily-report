@@ -40,11 +40,18 @@ REPORT_WORKER_FUNCTION=$(terraform output -raw report_worker_function_name 2>/de
     echo "❌ Failed to get Report Worker function name from Terraform"
     exit 1
 }
+SCHEDULER_FUNCTION=$(terraform output -raw ticker_scheduler_function_name 2>/dev/null) || {
+    echo "⚠️ Scheduler function not found in Terraform outputs, skipping scheduler deployment"
+    SCHEDULER_FUNCTION=""
+}
 cd ..
 
 echo "📦 ECR Repository: ${ECR_REPO}"
 echo "🔧 Telegram API Function: ${TELEGRAM_API_FUNCTION}"
 echo "🔧 Report Worker Function: ${REPORT_WORKER_FUNCTION}"
+if [ -n "$SCHEDULER_FUNCTION" ]; then
+    echo "🔧 Scheduler Function: ${SCHEDULER_FUNCTION}"
+fi
 
 # Login to ECR
 echo "🔐 Logging in to ECR..."
@@ -89,6 +96,22 @@ aws lambda update-function-code \
 aws lambda wait function-updated \
     --function-name ${REPORT_WORKER_FUNCTION} \
     --region ${AWS_REGION}
+
+# Update Scheduler Lambda (if exists)
+if [ -n "$SCHEDULER_FUNCTION" ]; then
+    echo "  Updating ${SCHEDULER_FUNCTION}..."
+    aws lambda update-function-code \
+        --function-name ${SCHEDULER_FUNCTION} \
+        --image-uri ${IMAGE_TAG} \
+        --region ${AWS_REGION} \
+        --output text > /dev/null
+    
+    # Wait for update to complete
+    aws lambda wait function-updated \
+        --function-name ${SCHEDULER_FUNCTION} \
+        --region ${AWS_REGION}
+    echo "  ✅ Scheduler updated"
+fi
 
 # ============================================================================
 # SMOKE TESTS - Test via API Gateway before promoting to live
@@ -159,6 +182,17 @@ WORKER_VERSION=$(aws lambda publish-version \
     --output text)
 echo "  Report Worker: Version ${WORKER_VERSION}"
 
+# Publish Scheduler version (if exists)
+if [ -n "$SCHEDULER_FUNCTION" ]; then
+    SCHEDULER_VERSION=$(aws lambda publish-version \
+        --function-name ${SCHEDULER_FUNCTION} \
+        --description "Deployed $(date +%Y-%m-%d\ %H:%M:%S)" \
+        --region ${AWS_REGION} \
+        --query 'Version' \
+        --output text)
+    echo "  Scheduler: Version ${SCHEDULER_VERSION}"
+fi
+
 # Update aliases to point to new versions
 echo ""
 echo "🔄 Updating 'live' aliases..."
@@ -179,12 +213,25 @@ aws lambda update-alias \
     --output text > /dev/null
 echo "  Report Worker: live → v${WORKER_VERSION}"
 
+if [ -n "$SCHEDULER_FUNCTION" ]; then
+    aws lambda update-alias \
+        --function-name ${SCHEDULER_FUNCTION} \
+        --name live \
+        --function-version ${SCHEDULER_VERSION} \
+        --region ${AWS_REGION} \
+        --output text > /dev/null
+    echo "  Scheduler: live → v${SCHEDULER_VERSION}"
+fi
+
 echo ""
 echo "🎉 Backend deployed successfully!"
 echo ""
 echo "📊 Lambda Functions Updated:"
 echo "   - ${TELEGRAM_API_FUNCTION}"
 echo "   - ${REPORT_WORKER_FUNCTION}"
+if [ -n "$SCHEDULER_FUNCTION" ]; then
+    echo "   - ${SCHEDULER_FUNCTION}"
+fi
 
 # Get API URL
 cd terraform
@@ -197,9 +244,18 @@ echo ""
 echo "📊 Versions deployed:"
 echo "   Telegram API: v${TELEGRAM_VERSION}"
 echo "   Report Worker: v${WORKER_VERSION}"
+if [ -n "$SCHEDULER_FUNCTION" ]; then
+    echo "   Scheduler: v${SCHEDULER_VERSION}"
+fi
 echo ""
 echo "💡 Tips:"
 echo "   Watch logs: aws logs tail /aws/lambda/${TELEGRAM_API_FUNCTION} --follow"
+if [ -n "$SCHEDULER_FUNCTION" ]; then
+    echo "   Scheduler logs: aws logs tail /aws/lambda/${SCHEDULER_FUNCTION} --follow"
+fi
 echo ""
 echo "   Rollback:   aws lambda update-alias --function-name ${TELEGRAM_API_FUNCTION} --name live --function-version <prev>"
 echo "               aws lambda update-alias --function-name ${REPORT_WORKER_FUNCTION} --name live --function-version <prev>"
+if [ -n "$SCHEDULER_FUNCTION" ]; then
+    echo "               aws lambda update-alias --function-name ${SCHEDULER_FUNCTION} --name live --function-version <prev>"
+fi

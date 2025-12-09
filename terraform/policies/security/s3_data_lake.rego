@@ -28,19 +28,51 @@ is_data_lake_bucket(bucket_name) if {
     contains(bucket_name, "raw-data")
 }
 
-# Helper: Check if bucket has versioning enabled
+# Helper: Extract module path from resource address (handles both root and module resources)
+module_path(address) = path if {
+    # Extract everything before the last dot-separated resource type
+    parts := split(address, ".")
+    # For module resources: module.s3_data_lake.aws_s3_bucket.data_lake -> module.s3_data_lake
+    # For root resources: aws_s3_bucket.data_lake -> ""
+    count(parts) > 2
+    parts[0] == "module"
+    path := sprintf("%s.%s", [parts[0], parts[1]])
+}
+
+module_path(address) = "" if {
+    # Root-level resource (no module prefix)
+    parts := split(address, ".")
+    parts[0] != "module"
+}
+
+# Helper: Check if bucket has versioning enabled (handles module resources)
 has_versioning_enabled(bucket_address) if {
     resource := input.resource_changes[_]
     resource.type == "aws_s3_bucket_versioning"
-    contains(resource.address, bucket_address)
+    bucket_module := module_path(bucket_address)
+    versioning_module := module_path(resource.address)
+    bucket_module == versioning_module
     resource.change.after.versioning_configuration[_].status == "Enabled"
 }
 
-# Helper: Check if bucket has lifecycle policy configured
+# Fallback for root-level resources
+has_versioning_enabled(bucket_address) if {
+    resource := input.resource_changes[_]
+    resource.type == "aws_s3_bucket_versioning"
+    bucket_module := module_path(bucket_address)
+    bucket_module == ""
+    # Extract bucket name from bucket address for root-level matching
+    contains(resource.address, split(bucket_address, ".")[count(split(bucket_address, ".")) - 1])
+    resource.change.after.versioning_configuration[_].status == "Enabled"
+}
+
+# Helper: Check if bucket has lifecycle policy configured (handles module resources)
 has_lifecycle_policy(bucket_address) if {
     resource := input.resource_changes[_]
     resource.type == "aws_s3_bucket_lifecycle_configuration"
-    contains(resource.address, bucket_address)
+    bucket_module := module_path(bucket_address)
+    lifecycle_module := module_path(resource.address)
+    bucket_module == lifecycle_module
 }
 
 # Helper: Check if bucket has object tagging configured (via Lambda or default tags)
@@ -84,11 +116,13 @@ deny contains msg if {
     msg := sprintf("Data lake bucket '%s' MUST enable server-side encryption (SSE-S3 or SSE-KMS) to protect raw API data. Add aws_s3_bucket_server_side_encryption_configuration.", [resource.address])
 }
 
-# Helper: Check if bucket has server-side encryption
+# Helper: Check if bucket has server-side encryption (handles module resources)
 has_server_side_encryption(bucket_address) if {
     resource := input.resource_changes[_]
     resource.type == "aws_s3_bucket_server_side_encryption_configuration"
-    contains(resource.address, bucket_address)
+    bucket_module := module_path(bucket_address)
+    encryption_module := module_path(resource.address)
+    bucket_module == encryption_module
 }
 
 # DENY: Data lake buckets MUST block public access
@@ -102,11 +136,13 @@ deny contains msg if {
     msg := sprintf("Data lake bucket '%s' MUST block all public access. Raw data should never be publicly accessible. Add aws_s3_bucket_public_access_block with all settings = true.", [resource.address])
 }
 
-# Helper: Check if bucket has public access block
+# Helper: Check if bucket has public access block (handles module resources)
 has_public_access_block(bucket_address) if {
     resource := input.resource_changes[_]
     resource.type == "aws_s3_bucket_public_access_block"
-    contains(resource.address, bucket_address)
+    bucket_module := module_path(bucket_address)
+    pab_module := module_path(resource.address)
+    bucket_module == pab_module
     resource.change.after.block_public_acls == true
     resource.change.after.block_public_policy == true
     resource.change.after.ignore_public_acls == true

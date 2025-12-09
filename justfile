@@ -450,6 +450,11 @@ test-mcp:
     @echo "🧪 Testing AWS MCP Server Handshake..."
     python scripts/test_mcp_handshake.py
 
+# Verify MCP configuration uses Doppler (project standard)
+verify-mcp:
+    @echo "🔍 Verifying MCP Configuration (Doppler-based)..."
+    python scripts/test_mcp_doppler.py
+
 # === LANGSMITH ===
 
 # List recent LangSmith traces

@@ -53,18 +53,31 @@ class NewsFetcher:
         pass
 
     def fetch_news(self, ticker: str, max_news: int = 20) -> List[Dict]:
-        """
-        Fetch recent news for a ticker from Yahoo Finance
+        """Fetch recent news for a ticker from Yahoo Finance.
+        
+        Symbol-type invariant: Accepts any symbol format (DR, Yahoo, etc.)
+        and automatically resolves to Yahoo Finance format before API calls.
 
         Args:
-            ticker: Yahoo Finance ticker symbol (e.g., 'AAPL', 'D05.SI')
+            ticker: Ticker symbol in any format (e.g., 'DBS19' or 'D05.SI')
             max_news: Maximum number of news items to fetch
 
         Returns:
             List of news dictionaries with title, link, publisher, and timestamp
         """
+        # Resolve symbol to Yahoo Finance format (symbol-type invariant)
         try:
-            stock = yf.Ticker(ticker)
+            from src.data.aurora.ticker_resolver import get_ticker_resolver
+            resolver = get_ticker_resolver()
+            ticker_info = resolver.resolve(ticker)
+            yahoo_ticker = ticker_info.yahoo_symbol if ticker_info else ticker
+        except Exception as e:
+            # If resolver fails, use ticker as-is (might be new ticker)
+            logger.debug(f"Symbol resolution failed for {ticker}: {e}, using as-is")
+            yahoo_ticker = ticker
+        
+        try:
+            stock = yf.Ticker(yahoo_ticker)
             news = stock.news
 
             if not news:
@@ -109,7 +122,7 @@ class NewsFetcher:
             return formatted_news
 
         except Exception as e:
-            print(f"Error fetching news for {ticker}: {str(e)}")
+            logger.error(f"Error fetching news for {ticker} (resolved to {yahoo_ticker}): {str(e)}")
             return []
 
     def calculate_impact_score(self, news_item: Dict) -> float:

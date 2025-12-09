@@ -10,7 +10,8 @@ Supports parallel precompute via SQS fan-out for fast cache population.
 import json
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, date
+from decimal import Decimal
 from typing import Any, Dict
 
 import boto3
@@ -110,6 +111,173 @@ def _handle_describe_table(event: Dict[str, Any], start_time: datetime) -> Dict[
             'statusCode': 500,
             'body': {
                 'message': f"Failed to describe table {event.get('table')}",
+                'error': str(e),
+                'traceback': traceback.format_exc()
+            }
+        }
+
+
+def _handle_query_precomputed(event: Dict[str, Any], start_time: datetime) -> Dict[str, Any]:
+    """Query precomputed indicators, percentiles, and comparative features.
+
+    Args:
+        event: Lambda event with required param:
+            - symbol: Ticker symbol to query (e.g., 'DBS19')
+        start_time: When the Lambda was invoked
+
+    Returns:
+        Response dict with precomputed data and schema validation
+    """
+    import traceback
+    from datetime import date
+
+    try:
+        from src.data.aurora.client import get_aurora_client
+        from src.data.aurora.precompute_service import PrecomputeService
+        from src.data.aurora.ticker_resolver import get_ticker_resolver
+
+        symbol = event.get('symbol')
+        if not symbol:
+            return {
+                'statusCode': 400,
+                'body': {'error': 'Missing required parameter: symbol'}
+            }
+
+        client = get_aurora_client()
+        service = PrecomputeService()
+        resolver = get_ticker_resolver()
+
+        # Resolve symbol
+        ticker_info = resolver.resolve(symbol)
+        if not ticker_info:
+            return {
+                'statusCode': 404,
+                'body': {'error': f'Ticker {symbol} not found'}
+            }
+
+        yahoo_symbol = ticker_info.yahoo_symbol or symbol
+        master_id = ticker_info.ticker_id
+
+        # Get precomputed data
+        indicators = service.get_latest_indicators(symbol)
+        percentiles = service.get_latest_percentiles(symbol)
+
+        # Get comparative features
+        features_query = """
+            SELECT * FROM comparative_features
+            WHERE symbol = %s OR ticker_id = %s OR ticker_master_id = %s
+            ORDER BY feature_date DESC
+            LIMIT 1
+        """
+        features = client.fetch_one(features_query, (yahoo_symbol, master_id, master_id))
+
+        # Get table schemas for validation
+        def get_schema(table_name):
+            query = """
+                SELECT 
+                    COLUMN_NAME,
+                    DATA_TYPE,
+                    IS_NULLABLE,
+                    COLUMN_TYPE
+                FROM INFORMATION_SCHEMA.COLUMNS
+                WHERE TABLE_SCHEMA = DATABASE()
+                AND TABLE_NAME = %s
+                ORDER BY ORDINAL_POSITION
+            """
+            return client.fetch_all(query, (table_name,))
+
+        indicators_schema = get_schema('daily_indicators')
+        percentiles_schema = get_schema('indicator_percentiles')
+        features_schema = get_schema('comparative_features')
+
+        # Validate data types
+        def validate_row(row, schema):
+            """Validate row data types against schema."""
+            if not row:
+                return []
+            schema_dict = {col['COLUMN_NAME']: col for col in schema}
+            validations = []
+            for key, value in row.items():
+                if key in schema_dict:
+                    col_info = schema_dict[key]
+                    expected_type = col_info['DATA_TYPE']
+                    actual_type = type(value).__name__
+                    
+                    is_valid = True
+                    if value is not None:
+                        if expected_type in ['DECIMAL', 'FLOAT', 'DOUBLE']:
+                            is_valid = isinstance(value, (int, float))
+                        elif expected_type in ['INT', 'BIGINT']:
+                            is_valid = isinstance(value, int)
+                        elif expected_type in ['VARCHAR', 'TEXT', 'CHAR']:
+                            is_valid = isinstance(value, str)
+                        elif expected_type == 'DATE':
+                            is_valid = isinstance(value, (date, str))
+                        elif expected_type in ['DATETIME', 'TIMESTAMP']:
+                            is_valid = isinstance(value, (type(None), str))
+                    
+                    validations.append({
+                        'column': key,
+                        'expected_type': expected_type,
+                        'actual_type': actual_type,
+                        'value': str(value)[:100] if value is not None else 'NULL',
+                        'valid': is_valid
+                    })
+            return validations
+
+        indicators_validation = validate_row(indicators, indicators_schema) if indicators else []
+        percentiles_validation = validate_row(percentiles, percentiles_schema) if percentiles else []
+        features_validation = validate_row(features, features_schema) if features else []
+
+        end_time = datetime.now()
+        duration_seconds = (end_time - start_time).total_seconds()
+
+        # Convert date/datetime objects to strings for JSON serialization
+        def convert_for_json(obj):
+            """Recursively convert date/datetime objects to strings."""
+            if isinstance(obj, (date, datetime)):
+                return obj.isoformat()
+            elif isinstance(obj, dict):
+                return {k: convert_for_json(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [convert_for_json(item) for item in obj]
+            elif isinstance(obj, Decimal):
+                return float(obj)
+            else:
+                return obj
+
+        return {
+            'statusCode': 200,
+            'body': {
+                'message': 'Precomputed data retrieved',
+                'symbol': symbol,
+                'yahoo_symbol': yahoo_symbol,
+                'master_id': master_id,
+                'duration_seconds': duration_seconds,
+                'data': convert_for_json({
+                    'daily_indicators': indicators,
+                    'indicator_percentiles': percentiles,
+                    'comparative_features': features
+                }),
+                'validation': convert_for_json({
+                    'daily_indicators': indicators_validation,
+                    'indicator_percentiles': percentiles_validation,
+                    'comparative_features': features_validation
+                }),
+                'schemas': convert_for_json({
+                    'daily_indicators': indicators_schema,
+                    'indicator_percentiles': percentiles_schema,
+                    'comparative_features': features_schema
+                })
+            }
+        }
+
+    except Exception as e:
+        logger.error(f"Query precomputed failed: {e}")
+        return {
+            'statusCode': 500,
+            'body': {
+                'message': 'Query precomputed failed',
                 'error': str(e),
                 'traceback': traceback.format_exc()
             }
@@ -786,6 +954,10 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     # Handle debug prices action
     if event.get('action') == 'debug_prices':
         return _handle_debug_prices(event, start_time)
+
+    # Handle query precomputed action (query indicators, percentiles, features)
+    if event.get('action') == 'query_precomputed':
+        return _handle_query_precomputed(event, start_time)
 
     # Handle debug cache action (query precomputed_reports table)
     if event.get('action') == 'debug_cache':

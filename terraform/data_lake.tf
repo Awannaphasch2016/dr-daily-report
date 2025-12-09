@@ -33,6 +33,7 @@ module "s3_data_lake" {
   enable_cors = false
 
   common_tags = merge(local.common_tags, {
+    App                = "shared"
     Component          = "data-lake"
     Purpose            = "raw-data-staging"
     DataClassification = "public-api-data"

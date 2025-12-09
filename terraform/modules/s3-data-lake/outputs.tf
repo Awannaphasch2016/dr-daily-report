@@ -27,5 +27,5 @@ output "versioning_enabled" {
 
 output "encryption_algorithm" {
   description = "The encryption algorithm used"
-  value       = aws_s3_bucket_server_side_encryption_configuration.data_lake.rule[0].apply_server_side_encryption_by_default.sse_algorithm
+  value       = var.encryption_algorithm  # Reference variable directly since rule is a set
 }

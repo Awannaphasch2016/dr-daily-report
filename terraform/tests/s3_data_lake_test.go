@@ -19,7 +19,7 @@ package test
 
 import (
 	"fmt"
-	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -220,7 +220,7 @@ func TestS3DataLakeLambdaCanWriteWithTags(t *testing.T) {
 	_, err := client.PutObject(&s3.PutObjectInput{
 		Bucket:  aws.String(bucketName),
 		Key:     aws.String(testKey),
-		Body:    aws.ReadSeekCloser(nil), // Empty body for test
+		Body:    aws.ReadSeekCloser(strings.NewReader(testContent)),
 		Tagging: aws.String("source=yfinance&ticker=TEST_TICKER&purpose=terratest"),
 		Metadata: map[string]*string{
 			"fetched_at":        aws.String(timestamp),
@@ -310,12 +310,5 @@ func TestS3DataLakeBucketKeyStructure(t *testing.T) {
 	}
 	if hasProcessedData {
 		t.Logf("✅ Bucket contains processed data in 'processed/' prefix")
-	}
-}
-
-// Helper for getHTTPClient (referenced in lambda_test.go)
-func getHTTPClient() *http.Client {
-	return &http.Client{
-		Timeout: 30 * time.Second,
 	}
 }

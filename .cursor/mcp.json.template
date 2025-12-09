@@ -1,15 +1,29 @@
 {
   "mcpServers": {
     "aws": {
-      "command": "uvx",
-      "args": [
-        "awslabs.core-mcp-server@latest"
-      ],
+      "command": "/home/anak/dev/dr-daily-report_telegram/scripts/mcp_wrapper_aws.sh",
+      "args": [],
       "env": {
         "FASTMCP_LOG_LEVEL": "ERROR",
         "AWS_REGION": "ap-southeast-1"
       }
+    },
+    "aurora-mysql": {
+      "command": "/home/anak/dev/dr-daily-report_telegram/scripts/mcp_wrapper_aurora.sh",
+      "args": [],
+      "env": {
+        "AWS_REGION": "ap-southeast-1",
+        "AURORA_CLUSTER_IDENTIFIER": "dr-daily-report-aurora-dev",
+        "AURORA_DATABASE_NAME": "ticker_data"
+      }
+    },
+    "github": {
+      "command": "/home/anak/dev/dr-daily-report_telegram/scripts/mcp_wrapper_github.sh",
+      "args": []
+    },
+    "duckduckgo": {
+      "command": "/home/anak/dev/dr-daily-report_telegram/scripts/mcp_wrapper_duckduckgo.sh",
+      "args": []
     }
   }
 }
-
