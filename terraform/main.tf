@@ -29,6 +29,16 @@ terraform {
 
 provider "aws" {
   region = var.aws_region
+
+  # AssumeRole configuration (optional - for Phase 2 migration)
+  dynamic "assume_role" {
+    for_each = var.use_assume_role && var.terraform_role_arn != "" ? [1] : []
+    content {
+      role_arn = var.terraform_role_arn
+      # Optional: Add external_id for extra security
+      # external_id = var.terraform_external_id
+    }
+  }
 }
 
 ###############################################################################

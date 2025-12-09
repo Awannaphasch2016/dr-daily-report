@@ -170,3 +170,31 @@ variable "lambda_image_tag" {
   # Note: CI/CD should override this with timestamped tag:
   # terraform apply -var="lambda_image_tag=v20251201182404"
 }
+
+###############################################################################
+# Terraform IAM Role Configuration (AssumeRole Pattern)
+###############################################################################
+
+variable "terraform_user_name" {
+  description = "IAM user name allowed to assume TerraformDeployRole"
+  type        = string
+  default     = "anak"
+}
+
+variable "terraform_external_id" {
+  description = "External ID for AssumeRole (optional security measure)"
+  type        = string
+  default     = ""
+}
+
+variable "use_assume_role" {
+  description = "Whether to use AssumeRole pattern for Terraform operations"
+  type        = bool
+  default     = false
+}
+
+variable "terraform_role_arn" {
+  description = "ARN of Terraform deployment role (required if use_assume_role = true)"
+  type        = string
+  default     = ""
+}
