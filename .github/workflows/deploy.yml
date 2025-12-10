@@ -296,7 +296,11 @@ jobs:
     environment: development
     # Re-enabled after Lambda handler bootstrap (Run 20014097620)
     # Validates Aurora schema matches code expectations
-    if: github.event_name == 'push' && needs.detect-changes.outputs.backend == 'true'
+    # If build runs, backend changed - schema validation MUST run (blocking gate)
+    if: github.event_name == 'push' && needs.build.result == 'success'
+
+    env:
+      ENV_NAME: dev
 
     steps:
       - name: Checkout code
@@ -321,6 +325,8 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Validate Aurora schema matches code expectations
+        env:
+          SCHEDULER_LAMBDA_NAME: dr-daily-report-ticker-scheduler-${{ env.ENV_NAME }}
         run: |
           echo "🔍 Validating Aurora schema via Lambda (NO MOCKING)..."
           echo "   Following CLAUDE.md: Schema Testing at System Boundaries"
@@ -330,10 +336,20 @@ jobs:
           # Run validation script
           python scripts/validate_aurora_schema.py
 
-          # If script exits 0, schema is valid
-          # If script exits 1, deployment is BLOCKED
-          echo ""
-          echo "✅ Schema validation passed - Safe to deploy"
+          # VALIDATION GATE: Check script exit code explicitly
+          EXIT_CODE=$?
+          if [ $EXIT_CODE -eq 0 ]; then
+            echo ""
+            echo "✅ Schema validation passed - Safe to deploy"
+          elif [ $EXIT_CODE -eq 1 ]; then
+            echo ""
+            echo "❌ Schema validation failed - Deployment BLOCKED"
+            exit 1
+          else
+            echo ""
+            echo "❌ Unexpected exit code: $EXIT_CODE"
+            exit 1
+          fi
 
   ###############################################################################
   # Stage 2: Deploy to Dev (Zero-Downtime: Test Before Promote)
