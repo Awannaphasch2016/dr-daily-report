@@ -248,7 +248,7 @@ jobs:
 
       - name: Validate ECR Repository Exists (Configuration Gate)
         run: |
-          ECR_REPOSITORY="dr-daily-report-fund-data-sync-dev"
+          ECR_REPOSITORY="dr-daily-report-fund-data-sync"
           
           echo "🔍 Validating ECR repository exists: ${ECR_REPOSITORY}"
           
@@ -287,8 +287,8 @@ jobs:
           TIMESTAMP=$(date +%Y%m%d-%H%M%S)
           IMAGE_TAG="sha-${SHA_SHORT}-${TIMESTAMP}"
 
-          # Use fund-data-sync ECR repo
-          ECR_REPOSITORY="dr-daily-report-fund-data-sync-dev"
+          # Use fund-data-sync ECR repo (shared across environments, no -dev suffix)
+          ECR_REPOSITORY="dr-daily-report-fund-data-sync"
           IMAGE_URI="${{ env.ECR_REGISTRY }}/${ECR_REPOSITORY}:${IMAGE_TAG}"
 
           echo "📦 Building Fund Data Sync Docker image..."
