@@ -246,6 +246,35 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
+      - name: Validate ECR Repository Exists (Configuration Gate)
+        run: |
+          ECR_REPOSITORY="dr-daily-report-fund-data-sync-dev"
+          
+          echo "🔍 Validating ECR repository exists: ${ECR_REPOSITORY}"
+          
+          # Check if repository exists - FAIL if not found (Configuration Validation Pattern)
+          if ! aws ecr describe-repositories \
+            --repository-names "${ECR_REPOSITORY}" \
+            --region "${AWS_REGION}" \
+            > /dev/null 2>&1; then
+            echo "❌ FATAL: ECR repository does not exist: ${ECR_REPOSITORY}"
+            echo ""
+            echo "   This is CRITICAL infrastructure required for deployment."
+            echo "   The repository must be created via Terraform first:"
+            echo ""
+            echo "   cd terraform"
+            echo "   terraform apply  # Creates aws_ecr_repository.fund_data_sync"
+            echo ""
+            echo "   See: terraform/fund_data_sync.tf"
+            echo ""
+            echo "   Following CLAUDE.md: Configuration Validation Pattern"
+            echo "   - Fail fast when infrastructure is missing"
+            echo "   - Never skip critical validation gates"
+            exit 1
+          fi
+          
+          echo "✅ ECR repository validated: ${ECR_REPOSITORY}"
+
       - name: Login to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
@@ -847,7 +876,7 @@ jobs:
           pip install -r requirements-dev.txt
           playwright install chromium
 
-      - name: Run E2E Tests
+      - name: Validate E2E Test Environment
         env:
           E2E_BASE_URL: ${{ needs.deploy-dev-frontend.outputs.test_url }}
         run: |
@@ -859,13 +888,54 @@ jobs:
             echo "   See CLAUDE.md: Two CloudFront distributions required."
             exit 1
           fi
+          
+          echo "🔍 Validating E2E test environment..."
+          echo "   E2E_BASE_URL: ${E2E_BASE_URL}"
+          
+          # Verify URL is accessible (HTTP 200, 301, or 302)
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "${E2E_BASE_URL}" || echo "000")
+          if ! echo "${HTTP_CODE}" | grep -qE "^(200|301|302)$"; then
+            echo "⚠️ WARNING: E2E_BASE_URL returned HTTP ${HTTP_CODE}: ${E2E_BASE_URL}"
+            echo "   Tests may fail - verify CloudFront distribution is active"
+            echo "   Check: aws cloudfront get-distribution --id <distribution-id>"
+          else
+            echo "✅ E2E_BASE_URL is accessible (HTTP ${HTTP_CODE})"
+          fi
+          
+          # Verify Playwright is installed
+          if ! playwright --version > /dev/null 2>&1; then
+            echo "❌ FATAL: Playwright not installed"
+            exit 1
+          fi
+          
+          PLAYWRIGHT_VERSION=$(playwright --version)
+          echo "✅ Playwright installed: ${PLAYWRIGHT_VERSION}"
+          echo "✅ E2E test environment validated"
 
+      - name: Run E2E Tests
+        env:
+          E2E_BASE_URL: ${{ needs.deploy-dev-frontend.outputs.test_url }}
+        run: |
           echo "🧪 Running E2E tests against: ${E2E_BASE_URL}"
-          pytest tests/e2e/ -m e2e -v --tb=short || {
+          echo "   Test files: tests/e2e/"
+          echo "   Marker: e2e"
+          echo ""
+          
+          # Run tests with detailed output
+          pytest tests/e2e/ -m e2e -v --tb=short --log-cli-level=INFO || {
+            echo ""
             echo "❌ E2E tests failed! APP CloudFront will NOT be updated."
             echo "   Users still see the previous working version."
+            echo ""
+            echo "   Debugging steps:"
+            echo "   1. Check CloudWatch logs for API errors"
+            echo "   2. Verify frontend deployment succeeded"
+            echo "   3. Run tests locally: E2E_BASE_URL=${E2E_BASE_URL} pytest tests/e2e/ -m e2e -v --headed"
+            echo "   4. Check CloudFront distribution status"
             exit 1
           }
+          
+          echo ""
           echo "✅ E2E tests passed!"
 
   ###############################################################################
