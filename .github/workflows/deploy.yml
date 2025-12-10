@@ -47,6 +47,7 @@ jobs:
       api: ${{ steps.filter.outputs.api }}
       scheduler: ${{ steps.filter.outputs.scheduler }}
       worker: ${{ steps.filter.outputs.worker }}
+      fund_data_sync: ${{ steps.filter.outputs.fund_data_sync }}
 
     steps:
       - name: Checkout code
@@ -73,6 +74,13 @@ jobs:
               - 'src/scheduler/**'
             worker:
               - 'src/report_worker_handler.py'
+            fund_data_sync:
+              - 'src/lambda_handlers/fund_data_sync_handler.py'
+              - 'src/data/etl/fund_data_sync.py'
+              - 'src/data/etl/fund_data_parser.py'
+              - 'src/data/aurora/fund_data_repository.py'
+              - 'Dockerfile.fund-data-sync'
+              - 'requirements-fund-data-sync.txt'
             backend:
               - 'src/**'
               - 'Dockerfile*'
@@ -89,6 +97,7 @@ jobs:
           echo "   API code:          ${{ steps.filter.outputs.api }}"
           echo "   Scheduler code:    ${{ steps.filter.outputs.scheduler }}"
           echo "   Worker code:       ${{ steps.filter.outputs.worker }}"
+          echo "   Fund Data Sync:    ${{ steps.filter.outputs.fund_data_sync }}"
           echo ""
           echo "📝 Deployment Decision:"
           if [ "${{ steps.filter.outputs.backend }}" == "true" ]; then
@@ -96,6 +105,9 @@ jobs:
           fi
           if [ "${{ steps.filter.outputs.frontend }}" == "true" ]; then
             echo "   → Will deploy frontend"
+          fi
+          if [ "${{ steps.filter.outputs.fund_data_sync }}" == "true" ]; then
+            echo "   → Will deploy Fund Data Sync Lambda"
           fi
 
   ###############################################################################
@@ -210,6 +222,71 @@ jobs:
           severity: 'CRITICAL,HIGH'
 
   ###############################################################################
+  # Stage 1a: Build Fund Data Sync Image (separate Dockerfile)
+  # Only runs if fund_data_sync code changed
+  ###############################################################################
+  build-fund-data-sync:
+    name: Build Fund Data Sync Image
+    needs: [test, detect-changes]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && needs.detect-changes.outputs.fund_data_sync == 'true'
+
+    outputs:
+      image_tag: ${{ steps.build.outputs.image_tag }}
+      image_uri: ${{ steps.build.outputs.image_uri }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build, tag, and push Fund Data Sync image to ECR
+        id: build
+        run: |
+          # Generate immutable tag (same pattern as main build)
+          SHA_SHORT=$(git rev-parse --short HEAD)
+          TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+          IMAGE_TAG="sha-${SHA_SHORT}-${TIMESTAMP}"
+
+          # Use fund-data-sync ECR repo
+          ECR_REPOSITORY="dr-daily-report-fund-data-sync-dev"
+          IMAGE_URI="${{ env.ECR_REGISTRY }}/${ECR_REPOSITORY}:${IMAGE_TAG}"
+
+          echo "📦 Building Fund Data Sync Docker image..."
+          echo "   Tag: ${IMAGE_TAG}"
+          echo "   URI: ${IMAGE_URI}"
+
+          docker build \
+            -f Dockerfile.fund-data-sync \
+            -t ${IMAGE_URI} \
+            .
+
+          echo "🚀 Pushing to ECR..."
+          docker push ${IMAGE_URI}
+
+          echo "✅ Fund Data Sync image pushed: ${IMAGE_URI}"
+          echo "image_tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
+          echo "image_uri=${IMAGE_URI}" >> $GITHUB_OUTPUT
+
+      - name: Scan image for vulnerabilities
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ steps.build.outputs.image_uri }}
+          format: 'table'
+          exit-code: '0'
+          severity: 'CRITICAL,HIGH'
+
+  ###############################################################################
   # Stage 1b: Validate Aurora Schema (CI/CD Gate - NO MOCKING)
   ###############################################################################
   validate-aurora-schema:
@@ -264,11 +341,11 @@ jobs:
   deploy-dev:
     name: Deploy Dev
     needs: [build, validate-aurora-schema]
-    # Run if: build succeeded AND (schema validation succeeded OR was skipped)
+    # Run if: build succeeded AND schema validation succeeded (BLOCKING - no skip)
     if: |
       always() &&
       needs.build.result == 'success' &&
-      (needs.validate-aurora-schema.result == 'success' || needs.validate-aurora-schema.result == 'skipped')
+      needs.validate-aurora-schema.result == 'success'
     runs-on: ubuntu-latest
     environment: development
 
@@ -283,6 +360,7 @@ jobs:
       TELEGRAM_FUNCTION: dr-daily-report-telegram-api-dev
       WORKER_FUNCTION: dr-daily-report-report-worker-dev
       SCHEDULER_FUNCTION: dr-daily-report-ticker-scheduler-dev
+      FUND_DATA_SYNC_FUNCTION: dr-daily-report-fund-data-sync-dev
 
     steps:
       - name: Configure AWS credentials
@@ -447,6 +525,65 @@ jobs:
             --description "Production alias for scheduler - update to rollback"
           echo "✅ Dev Scheduler promoted: version ${NEW_VERSION}"
           echo "version=${NEW_VERSION}" >> $GITHUB_OUTPUT
+
+  ###############################################################################
+  # Stage 2a: Deploy Fund Data Sync to Dev (if changed)
+  ###############################################################################
+  deploy-fund-data-sync-dev:
+    name: Deploy Fund Data Sync (Dev)
+    needs: [build-fund-data-sync]
+    if: github.event_name == 'push' && needs.build-fund-data-sync.result == 'success'
+    runs-on: ubuntu-latest
+    environment: development
+
+    env:
+      FUND_DATA_SYNC_FUNCTION: dr-daily-report-fund-data-sync-dev
+
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Check if Fund Data Sync Lambda exists
+        id: check-lambda
+        run: |
+          if aws lambda get-function --function-name ${{ env.FUND_DATA_SYNC_FUNCTION }} 2>/dev/null; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "⚠️ Fund Data Sync Lambda ${{ env.FUND_DATA_SYNC_FUNCTION }} doesn't exist - skipping deployment"
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Update Fund Data Sync to $LATEST
+        if: steps.check-lambda.outputs.exists == 'true'
+        run: |
+          echo "🔄 Uploading Fund Data Sync code to \$LATEST..."
+          aws lambda update-function-code \
+            --function-name ${{ env.FUND_DATA_SYNC_FUNCTION }} \
+            --image-uri ${{ needs.build-fund-data-sync.outputs.image_uri }}
+          aws lambda wait function-updated --function-name ${{ env.FUND_DATA_SYNC_FUNCTION }}
+          echo "✅ Fund Data Sync code uploaded to \$LATEST"
+
+      - name: Promote Fund Data Sync to live
+        if: steps.check-lambda.outputs.exists == 'true'
+        run: |
+          NEW_VERSION=$(aws lambda publish-version \
+            --function-name ${{ env.FUND_DATA_SYNC_FUNCTION }} \
+            --query 'Version' \
+            --output text)
+          aws lambda update-alias \
+            --function-name ${{ env.FUND_DATA_SYNC_FUNCTION }} \
+            --name live \
+            --function-version ${NEW_VERSION} 2>/dev/null || \
+          aws lambda create-alias \
+            --function-name ${{ env.FUND_DATA_SYNC_FUNCTION }} \
+            --name live \
+            --function-version ${NEW_VERSION} \
+            --description "Production alias for fund data sync - update to rollback"
+          echo "✅ Dev Fund Data Sync promoted: version ${NEW_VERSION}"
 
   ###############################################################################
   # Stage 2a: VPC Integration Tests (CodeBuild - Aurora connectivity)
@@ -765,6 +902,7 @@ jobs:
       TELEGRAM_FUNCTION: dr-daily-report-telegram-api-staging
       WORKER_FUNCTION: dr-daily-report-report-worker-staging
       SCHEDULER_FUNCTION: dr-daily-report-ticker-scheduler-staging
+      FUND_DATA_SYNC_FUNCTION: dr-daily-report-fund-data-sync-staging
 
     steps:
       - name: Configure AWS credentials
@@ -943,6 +1081,68 @@ jobs:
           echo "version=${NEW_VERSION}" >> $GITHUB_OUTPUT
 
   ###############################################################################
+  # Stage 3a: Deploy Fund Data Sync to Staging (if changed)
+  ###############################################################################
+  deploy-fund-data-sync-staging:
+    name: Deploy Fund Data Sync (Staging)
+    needs: [build-fund-data-sync, deploy-staging]
+    if: |
+      always() &&
+      needs.build-fund-data-sync.result == 'success' &&
+      (needs.deploy-staging.result == 'success' || needs.deploy-staging.result == 'skipped')
+    runs-on: ubuntu-latest
+    environment: staging
+
+    env:
+      FUND_DATA_SYNC_FUNCTION: dr-daily-report-fund-data-sync-staging
+
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Check if Fund Data Sync Lambda exists
+        id: check-lambda
+        run: |
+          if aws lambda get-function --function-name ${{ env.FUND_DATA_SYNC_FUNCTION }} 2>/dev/null; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "⚠️ Fund Data Sync Lambda ${{ env.FUND_DATA_SYNC_FUNCTION }} doesn't exist - skipping deployment"
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Update Fund Data Sync to $LATEST
+        if: steps.check-lambda.outputs.exists == 'true'
+        run: |
+          echo "🔄 Uploading Fund Data Sync code to \$LATEST..."
+          aws lambda update-function-code \
+            --function-name ${{ env.FUND_DATA_SYNC_FUNCTION }} \
+            --image-uri ${{ needs.build-fund-data-sync.outputs.image_uri }}
+          aws lambda wait function-updated --function-name ${{ env.FUND_DATA_SYNC_FUNCTION }}
+          echo "✅ Fund Data Sync code uploaded to \$LATEST"
+
+      - name: Promote Fund Data Sync to live
+        if: steps.check-lambda.outputs.exists == 'true'
+        run: |
+          NEW_VERSION=$(aws lambda publish-version \
+            --function-name ${{ env.FUND_DATA_SYNC_FUNCTION }} \
+            --query 'Version' \
+            --output text)
+          aws lambda update-alias \
+            --function-name ${{ env.FUND_DATA_SYNC_FUNCTION }} \
+            --name live \
+            --function-version ${NEW_VERSION} 2>/dev/null || \
+          aws lambda create-alias \
+            --function-name ${{ env.FUND_DATA_SYNC_FUNCTION }} \
+            --name live \
+            --function-version ${NEW_VERSION} \
+            --description "Production alias for fund data sync - update to rollback"
+          echo "✅ Staging Fund Data Sync promoted: version ${NEW_VERSION}"
+
+  ###############################################################################
   # Stage 3b: Deploy Staging Frontend (TEST CloudFront only - for E2E testing)
   # Runs if frontend changed, even if backend deploy was skipped
   ###############################################################################
@@ -1106,6 +1306,7 @@ jobs:
       TELEGRAM_FUNCTION: dr-daily-report-telegram-api-prod
       WORKER_FUNCTION: dr-daily-report-report-worker-prod
       SCHEDULER_FUNCTION: dr-daily-report-ticker-scheduler-prod
+      FUND_DATA_SYNC_FUNCTION: dr-daily-report-fund-data-sync-prod
 
     steps:
       - name: Configure AWS credentials
@@ -1298,6 +1499,68 @@ jobs:
             --description "Production alias for scheduler - update to rollback"
           echo "✅ Prod Scheduler promoted: version ${NEW_VERSION}"
           echo "version=${NEW_VERSION}" >> $GITHUB_OUTPUT
+
+  ###############################################################################
+  # Stage 4a: Deploy Fund Data Sync to Prod (if changed)
+  ###############################################################################
+  deploy-fund-data-sync-prod:
+    name: Deploy Fund Data Sync (Prod)
+    needs: [build-fund-data-sync, deploy-prod]
+    if: |
+      always() &&
+      needs.build-fund-data-sync.result == 'success' &&
+      (needs.deploy-prod.result == 'success' || needs.deploy-prod.result == 'skipped')
+    runs-on: ubuntu-latest
+    environment: production
+
+    env:
+      FUND_DATA_SYNC_FUNCTION: dr-daily-report-fund-data-sync-prod
+
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Check if Fund Data Sync Lambda exists
+        id: check-lambda
+        run: |
+          if aws lambda get-function --function-name ${{ env.FUND_DATA_SYNC_FUNCTION }} 2>/dev/null; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "⚠️ Fund Data Sync Lambda ${{ env.FUND_DATA_SYNC_FUNCTION }} doesn't exist - skipping deployment"
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Update Fund Data Sync to $LATEST
+        if: steps.check-lambda.outputs.exists == 'true'
+        run: |
+          echo "🔄 Uploading Fund Data Sync code to \$LATEST..."
+          aws lambda update-function-code \
+            --function-name ${{ env.FUND_DATA_SYNC_FUNCTION }} \
+            --image-uri ${{ needs.build-fund-data-sync.outputs.image_uri }}
+          aws lambda wait function-updated --function-name ${{ env.FUND_DATA_SYNC_FUNCTION }}
+          echo "✅ Fund Data Sync code uploaded to \$LATEST"
+
+      - name: Promote Fund Data Sync to live
+        if: steps.check-lambda.outputs.exists == 'true'
+        run: |
+          NEW_VERSION=$(aws lambda publish-version \
+            --function-name ${{ env.FUND_DATA_SYNC_FUNCTION }} \
+            --query 'Version' \
+            --output text)
+          aws lambda update-alias \
+            --function-name ${{ env.FUND_DATA_SYNC_FUNCTION }} \
+            --name live \
+            --function-version ${NEW_VERSION} 2>/dev/null || \
+          aws lambda create-alias \
+            --function-name ${{ env.FUND_DATA_SYNC_FUNCTION }} \
+            --name live \
+            --function-version ${NEW_VERSION} \
+            --description "Production alias for fund data sync - update to rollback"
+          echo "✅ Prod Fund Data Sync promoted: version ${NEW_VERSION}"
 
   ###############################################################################
   # Stage 4b: Deploy Prod Frontend (TEST CloudFront only - for E2E testing)
