@@ -44,9 +44,18 @@ Deployment:
 
 import json
 import logging
+import sys
+from pathlib import Path
 from typing import Dict, Any, List
 
-from src.data.etl import get_fund_data_sync_service
+# Add /var/task to Python path for Lambda runtime
+# This ensures imports work correctly when handler is at root level
+if '/var/task' not in sys.path:
+    sys.path.insert(0, '/var/task')
+
+# Import directly from module to avoid triggering src.data.__init__.py
+# which imports modules requiring yfinance (not in fund-data-sync requirements)
+from src.data.etl.fund_data_sync import get_fund_data_sync_service
 
 # Configure logging
 logger = logging.getLogger()
@@ -82,7 +91,7 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         - Lambda always returns 200 (SQS sees partial success, not Lambda error)
     """
     logger.info('Starting Fund Data Sync Lambda handler')
-    logger.info(f'Request ID: {context.request_id}')
+    logger.info(f'Request ID: {context.aws_request_id}')
     logger.info(f'Function: {context.function_name}')
 
     # Get ETL service singleton

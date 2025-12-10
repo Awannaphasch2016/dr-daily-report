@@ -32,5 +32,11 @@ RUN pip install --no-cache-dir -r requirements-fund-data-sync.txt
 COPY src/ ${LAMBDA_TASK_ROOT}/src/
 COPY db/ ${LAMBDA_TASK_ROOT}/db/
 
-# Set handler
-CMD ["src.lambda_handlers.fund_data_sync_handler.lambda_handler"]
+# Copy handler to root (Lambda runtime expects handlers at root level)
+COPY src/lambda_handlers/fund_data_sync_handler.py ${LAMBDA_TASK_ROOT}/fund_data_sync_handler.py
+
+# Fix file permissions for Lambda runtime (Lambda runs as sbx_user, needs read access)
+RUN chmod -R 755 ${LAMBDA_TASK_ROOT}
+
+# Set handler (handler is now at root level)
+CMD ["fund_data_sync_handler.lambda_handler"]

@@ -12,12 +12,28 @@ Modules:
     - fund_data_sync: ETL service orchestration (TBD)
 """
 
-from src.data.etl.fund_data_parser import (
-    FundDataParser,
-    get_fund_data_parser,
-)
+# Lazy imports to avoid loading dependencies when not needed
+# Import directly from modules, not via __init__ to prevent eager loading
+
+def __getattr__(name):
+    """Lazy import for ETL modules."""
+    if name == 'FundDataParser':
+        from .fund_data_parser import FundDataParser
+        return FundDataParser
+    elif name == 'get_fund_data_parser':
+        from .fund_data_parser import get_fund_data_parser
+        return get_fund_data_parser
+    elif name == 'FundDataSyncService':
+        from .fund_data_sync import FundDataSyncService
+        return FundDataSyncService
+    elif name == 'get_fund_data_sync_service':
+        from .fund_data_sync import get_fund_data_sync_service
+        return get_fund_data_sync_service
+    raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
 
 __all__ = [
     'FundDataParser',
     'get_fund_data_parser',
+    'FundDataSyncService',
+    'get_fund_data_sync_service',
 ]

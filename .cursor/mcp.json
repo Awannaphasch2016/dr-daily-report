@@ -1,6 +1,7 @@
 {
   "mcpServers": {
     "aws": {
+      "type": "stdio",
       "command": "/home/anak/dev/dr-daily-report_telegram/scripts/mcp_wrapper_aws.sh",
       "args": [],
       "env": {
@@ -9,11 +10,8 @@
       }
     },
     "github": {
+      "type": "stdio",
       "command": "/home/anak/dev/dr-daily-report_telegram/scripts/mcp_wrapper_github.sh",
-      "args": []
-    },
-    "duckduckgo": {
-      "command": "/home/anak/dev/dr-daily-report_telegram/scripts/mcp_wrapper_duckduckgo.sh",
       "args": []
     }
   }

@@ -79,6 +79,11 @@ resource "aws_lambda_function" "fund_data_sync" {
   package_type  = "Image"
   image_uri     = "${aws_ecr_repository.fund_data_sync.repository_url}:latest"
 
+  # Handler configuration (handler is at root level in container)
+  image_config {
+    command = ["fund_data_sync_handler.lambda_handler"]
+  }
+
   # Resource Configuration
   timeout     = 120  # 2 minutes (CSV parse + batch upsert)
   memory_size = 512  # CSV parsing + NumPy/Pandas

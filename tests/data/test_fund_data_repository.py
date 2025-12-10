@@ -386,8 +386,14 @@ class TestFundDataRepository:
         # Verify query was called (behavior test)
         self.mock_client.fetch_all.assert_called_once()
         call_args = self.mock_client.fetch_all.call_args
-        assert 'DBS19' in call_args[0]  # Ticker parameter
-        assert 7 in call_args[0]  # Days parameter
+        # call_args is (args_tuple, kwargs_dict), so parameters are in call_args[0] or call_args[1]
+        args = call_args[0] if call_args[0] else ()
+        kwargs = call_args[1] if len(call_args) > 1 else {}
+        # Parameters are passed as tuple: (query_string, (param1, param2, ...))
+        assert len(args) >= 2, "Query should have SQL string and parameters tuple"
+        params = args[1] if isinstance(args[1], tuple) else args[1:]
+        assert 'DBS19' in params, f"Ticker 'DBS19' not in parameters: {params}"
+        assert 7 in params, f"Days 7 not in parameters: {params}"
 
     def test_get_by_date_range_uses_provided_dates(self):
         """GIVEN date range
@@ -404,8 +410,10 @@ class TestFundDataRepository:
         self.repo.get_by_date_range('DBS19', start_date=start, end_date=end)
 
         call_args = self.mock_client.fetch_all.call_args
-        assert start in call_args[0]
-        assert end in call_args[0]
+        args = call_args[0] if call_args[0] else ()
+        params = args[1] if isinstance(args[1], tuple) and len(args) >= 2 else args[1:]
+        assert start in params, f"Start date {start} not in parameters: {params}"
+        assert end in params, f"End date {end} not in parameters: {params}"
 
     def test_get_by_date_range_defaults_end_to_today(self):
         """GIVEN no end_date provided
@@ -436,7 +444,13 @@ class TestFundDataRepository:
         self.repo.get_by_s3_source(s3_key)
 
         call_args = self.mock_client.fetch_all.call_args
-        assert s3_key in call_args[0]
+        # fetch_all is called as: fetch_all(query_string, params_tuple)
+        # call_args[0] is (query_string, params_tuple)
+        args = call_args[0]
+        assert len(args) >= 2, f"Expected at least 2 args (query, params), got {len(args)}"
+        params = args[1]  # params_tuple is second argument
+        assert isinstance(params, tuple), f"Params should be tuple, got {type(params)}"
+        assert s3_key in params, f"S3 key '{s3_key}' not in parameters: {params}"
 
     # =========================================================================
     # Principle 7: Row to Dict Conversion

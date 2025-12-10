@@ -62,10 +62,12 @@ class TestFundDataParser:
         THEN raises ValueError with clear message
 
         Principle: Explicit failure detection, not silent None return
+        
+        Note: CSV.DictReader treats first row as header, so we detect missing columns instead
         """
-        csv_data = b"2025-12-09,DBS,DBS19,CLOSE,38.50"  # No header
+        csv_data = b"2025-12-09,DBS,DBS19,CLOSE,38.50"  # No header - first row treated as header
 
-        with pytest.raises(ValueError, match="CSV has no header row"):
+        with pytest.raises(ValueError, match="CSV missing required columns"):
             self.parser.parse(csv_data, self.s3_key)
 
     def test_parse_detects_missing_required_columns(self):
@@ -201,7 +203,8 @@ class TestFundDataParser:
         WHEN parsed
         THEN commas removed and converted to Decimal
         """
-        csv_data = b"d_trade,stock,ticker,col_code,value\n2025-12-09,DBS,DBS19,VOLUME,1,234,567"
+        # CSV commas are field separators, so quoted value preserves commas
+        csv_data = b'd_trade,stock,ticker,col_code,value\n2025-12-09,DBS,DBS19,VOLUME,"1,234,567"'
 
         records = self.parser.parse(csv_data, self.s3_key)
 

@@ -54,9 +54,14 @@ class FundDataParser:
                                          'value_numeric', 'value_text']
             confidence_threshold: Minimum chardet confidence to accept encoding (0.0-1.0)
         """
+        # Support both formats:
+        # 1. Separate columns: value_numeric, value_text
+        # 2. Single column: value (gets split into value_numeric or value_text)
         self.expected_columns = expected_columns or [
-            'd_trade', 'stock', 'ticker', 'col_code', 'value_numeric', 'value_text'
+            'd_trade', 'stock', 'ticker', 'col_code'
         ]
+        # Value columns are optional - can be 'value', 'value_numeric', 'value_text', or combination
+        self.value_columns = ['value', 'value_numeric', 'value_text']
         self.confidence_threshold = confidence_threshold
 
     # =========================================================================
@@ -188,10 +193,21 @@ class FundDataParser:
         header = list(reader.fieldnames)
         # Normalize column names to lowercase for case-insensitive comparison
         header_lower = [col.lower() for col in header]
-        missing_cols = set(self.expected_columns) - set(header_lower)
+        
+        # Check for required base columns (excluding value columns which are flexible)
+        required_base_columns = ['d_trade', 'stock', 'ticker', 'col_code']
+        missing_cols = set(required_base_columns) - set(header_lower)
         if missing_cols:
             raise ValueError(
                 f"CSV missing required columns: {missing_cols}. "
+                f"Found columns: {header} (normalized: {header_lower}). S3 key: {s3_key}"
+            )
+        
+        # Check that at least one value column exists
+        value_columns_found = [col for col in header_lower if col in self.value_columns]
+        if not value_columns_found:
+            raise ValueError(
+                f"CSV must have at least one value column (value, value_numeric, or value_text). "
                 f"Found columns: {header} (normalized: {header_lower}). S3 key: {s3_key}"
             )
 
@@ -243,6 +259,9 @@ class FundDataParser:
         stock = row.get('stock', '').strip()
         ticker = row.get('ticker', '').strip()
         col_code = row.get('col_code', '').strip()
+        
+        # Handle both formats: separate columns OR single 'value' column
+        value_str = row.get('value', '').strip()
         value_numeric_str = row.get('value_numeric', '').strip()
         value_text_str = row.get('value_text', '').strip()
 
@@ -273,15 +292,23 @@ class FundDataParser:
         except Exception as e:
             raise ValueError(f"Failed to parse d_trade '{d_trade_str}': {e}") from e
 
-        # Convert value_numeric and value_text from separate fields
+        # Convert value fields - handle both formats
         value_numeric = None
         value_text = None
 
-        # Parse VALUE_NUMERIC field
+        # Format 1: Single 'value' column (SQL Server export format)
+        if value_str:
+            # Try to parse as numeric first
+            parsed_numeric = self._try_parse_numeric(value_str)
+            if parsed_numeric is not None:
+                value_numeric = parsed_numeric
+            else:
+                # If not numeric, treat as text
+                value_text = value_str
+        
+        # Format 2: Separate value_numeric and value_text columns
         if value_numeric_str:
             value_numeric = self._try_parse_numeric(value_numeric_str)
-
-        # Parse VALUE_TEXT field
         if value_text_str:
             value_text = value_text_str
 
