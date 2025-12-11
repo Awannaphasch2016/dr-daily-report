@@ -3,6 +3,7 @@
 # This is the main entry point for Conftest to validate Terraform plans.
 # Policies are organized into packages:
 #   - terraform.security.*   - Security-related policies
+#     - terraform.security.mcp - MCP server security policies
 #   - terraform.tagging      - Tag enforcement policies
 #   - terraform.cost         - Cost control policies
 #

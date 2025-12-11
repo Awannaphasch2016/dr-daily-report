@@ -31,5 +31,9 @@ class AgentState(TypedDict):
     api_costs: dict  # Add API costs field
     database_metrics: dict  # Add database metrics field
     user_facing_scores: dict  # Add user-facing investment scores (0-10 scale)
+    sec_filing_data: dict  # SEC EDGAR filing data (10-K, 10-Q, etc.)
+    financial_markets_data: dict  # Chart patterns, candlestick patterns, support/resistance from Financial Markets MCP
+    portfolio_insights: dict  # Portfolio allocation, diversification, risk metrics from Portfolio Manager MCP
+    alpaca_data: dict  # Real-time quotes, options chain, market data from Alpaca MCP
     error: str
     strategy: str  # Report generation strategy: 'single-stage' or 'multi-stage'

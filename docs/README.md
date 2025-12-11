@@ -42,6 +42,13 @@ Complete documentation for DR Daily Report Telegram Mini App.
 - [Tagging Policy](../terraform/TAGGING_POLICY.md) - AWS resource tagging standards
 - [API Implementation](../src/api/README.md) - FastAPI implementation guide
 
+### MCP Infrastructure
+- [MCP Deployment Guide](architecture/MCP_DEPLOYMENT_GUIDE.md) - **Deploy and configure MCP servers** ⭐
+- [MCP Implementation Status](architecture/MCP_IMPLEMENTATION_STATUS.md) - Current implementation status
+- [MCP Infrastructure Summary](architecture/MCP_INFRASTRUCTURE_SUMMARY.md) - Executive summary and quick reference
+- [AWS MCP Infrastructure Research](architecture/AWS_MCP_INFRASTRUCTURE_RESEARCH.md) - Complete research findings
+- [MCP Financial Analysis Integration](report-generation/mcp-financial-analysis-integration.md) - MCP server selection
+
 ### Features
 - [News Feature](features/NEWS_FEATURE.md)
 - [LangSmith Integration](features/LANGSMITH_INTEGRATION.md)
@@ -62,6 +69,7 @@ Complete documentation for DR Daily Report Telegram Mini App.
 |------|--------------|
 | First-time setup | [Quick Start](QUICKSTART.md) |
 | Deploy to production | [Deployment Runbook](deployment/TELEGRAM_DEPLOYMENT_RUNBOOK.md) |
+| Deploy MCP servers | [MCP Deployment Guide](architecture/MCP_DEPLOYMENT_GUIDE.md) |
 | Fix deployment error | [Troubleshooting](TROUBLESHOOTING.md) |
 | Write E2E test | [E2E Testing](testing/E2E_TESTING.md) |
 | Understand architecture | [CLAUDE.md](.claude/CLAUDE.md) |
