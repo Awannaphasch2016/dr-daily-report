@@ -143,13 +143,32 @@ CRITICAL NARRATIVE ELEMENTS - You MUST weave these "narrative + number + histori
      * "RSI นี้สูงกว่า 70% ได้แค่ 28% ของเวลาในอดีต - แสดงภาวะ Overbought ที่หายาก"
      * "Volume 1.03x แต่ในอดีตเคยสูงถึง 2x ได้แค่ 1.9% ของเวลา - ปริมาณปัจจุบันยังไม่ใช่ระดับผิดปกติ"
 
-These 5 elements (4 market conditions + statistical context) ARE the foundation of your narrative. ALWAYS include specific numbers WITH historical context (percentiles) - this is the "narrative + number + history" Damodaran style."""
+6. **Fundamental Analysis (P/E, EPS, Market Cap, Growth)**: CRITICAL - You MUST incorporate fundamental metrics into your narrative
+   - P/E Ratio: Compare to industry average (e.g., "P/E 44.58 สูงกว่าค่าเฉลี่ยของกลุ่มเทคโนโลยี - แสดงว่านักลงทุนยินดีจ่ายแพงสำหรับการเติบโตในอนาคต")
+   - EPS: Discuss growth trajectory (e.g., "EPS 4.04 และการเติบโตของกำไรที่เกิน 60% แสดงถึงความแข็งแกร่งของบริษัท")
+   - Market Cap: Provide context (e.g., "Market Cap $4384.6B ทำให้เป็นบริษัทขนาดใหญ่ - มีเสถียรภาพแต่การเติบโตอาจช้าลง")
+   - Revenue Growth: Mention when significant (e.g., "Revenue Growth 60%+ แสดงว่าบริษัทกำลังขยายตัวเร็ว")
+   - Profit Margin: Discuss efficiency (e.g., "Profit Margin สูงแสดงว่าบริษัทจัดการต้นทุนได้ดี")
+   - Format: Weave fundamental metrics naturally into paragraphs - don't list them separately
+   - Use fundamental data to support your BUY/SELL/HOLD recommendation
+   - Example: "ในด้านพื้นฐาน P/E Ratio 44.58 สูงกว่าค่าเฉลี่ยของกลุ่ม แต่เมื่อพิจารณาการเติบโตของรายได้ที่ 60%+ และ Profit Margin ที่สูง แสดงว่าบริษัทมีศักยภาพที่จะเติบโตต่อไป"
+
+7. **Chart Patterns & Advanced Technical Analysis (Financial Markets MCP)**: When chart pattern data is provided, USE IT to enhance technical analysis
+   - Chart Patterns: Mention detected patterns (e.g., "พบรูปแบบ Head & Shoulders ซึ่งอาจบ่งชี้ถึงการเปลี่ยนทิศทางขาลง")
+   - Candlestick Patterns: Discuss implications (e.g., "รูปแบบ Doji แสดงความลังเลของตลาด - นักลงทุนไม่แน่ใจทิศทาง")
+   - Support/Resistance: Reference key levels (e.g., "ราคาตอนนี้อยู่ใกล้ระดับ Resistance ที่ $185 - หากทะลุได้อาจขึ้นต่อ")
+   - Advanced Indicators: Mention when relevant (e.g., "Fibonacci Retracement แสดงว่าราคาอยู่ที่ 61.8% ซึ่งเป็นจุดสำคัญ")
+   - Format: Integrate chart patterns into technical analysis narrative - don't create separate section
+   - Use chart patterns to support your technical analysis and risk assessment
+   - Example: "เมื่อดูจากรูปแบบกราฟ พบ Head & Shoulders pattern ซึ่งบ่งชี้ถึงการเปลี่ยนทิศทางขาลง ขณะที่ราคายังอยู่เหนือ Support ที่ $175 - หากราคาตกต่ำกว่าระดับนี้ อาจเป็นสัญญาณขาย"
+
+These 7 elements (4 market conditions + statistical context + fundamental analysis + chart patterns) ARE the foundation of your narrative. ALWAYS include specific numbers WITH historical context (percentiles) - this is the "narrative + number + history" Damodaran style."""
 
     def _build_strategy_section(self) -> str:
         """Build strategy performance section"""
         return """
 
-6. **Strategy Performance (Historical Backtesting)**: When strategy performance data is provided, USE IT to support your recommendation
+8. **Strategy Performance (Historical Backtesting)**: When strategy performance data is provided, USE IT to support your recommendation
    - CRITICAL: Only include strategy performance when it ALIGNS with your BUY/SELL recommendation
    - Weave strategy performance naturally into your narrative with "narrative + number" style
    - DO NOT mention what strategy was used - just present the performance as evidence
@@ -165,7 +184,7 @@ These 5 elements (4 market conditions + statistical context) ARE the foundation 
         """Build comparative analysis section"""
         return """
 
-7. **Comparative Analysis (Relative Performance)**: When comparative insights are provided, USE THEM to add relative context
+9. **Comparative Analysis (Relative Performance)**: When comparative insights are provided, USE THEM to add relative context
    - CRITICAL: Weave comparative insights naturally into your narrative - don't create a separate section
    - Use comparative data to show how this ticker performs RELATIVE to peers
    - Examples of how to incorporate:
@@ -195,7 +214,14 @@ Structure (in Thai):
 Write 2-3 sentences telling the STORY. MUST include: uncertainty score context + ATR% + VWAP% + volume ratio with their meanings. Include news naturally if relevant.
 
 💡 **สิ่งที่คุณต้องรู้**
-Write 3-4 flowing paragraphs (NOT numbered lists) that explain WHY this matters to an investor. MUST continuously reference the 4 market condition elements (uncertainty, ATR, VWAP, volume) with numbers throughout. Mix technical + fundamental + relative + news seamlessly.{strategy_integration}
+Write 3-4 flowing paragraphs (NOT numbered lists) that explain WHY this matters to an investor. MUST continuously reference:
+- The 4 market condition elements (uncertainty, ATR, VWAP, volume) with numbers throughout
+- Fundamental metrics (P/E ratio, EPS, Market Cap, Revenue Growth, Profit Margin) - CRITICAL: Mention at least 2-3 fundamental metrics
+- Chart patterns from Financial Markets MCP (if available) - CRITICAL: Mention detected patterns and their implications
+- Technical indicators (RSI, MACD, SMA trends)
+- Comparative analysis (relative performance vs peers)
+- News (when relevant)
+Mix all elements seamlessly - don't section them.{strategy_integration}
 
 🎯 **ควรทำอะไรตอนนี้?**
 Give ONE clear action: BUY MORE / SELL / HOLD. Explain WHY in 2-3 sentences using uncertainty score + market conditions (ATR/VWAP/volume). Reference news if it changes the decision.{strategy_recommendation}
@@ -208,7 +234,9 @@ Rules for narrative flow:
 - CRITICAL: ALWAYS include all 4 market condition metrics (uncertainty, ATR%, VWAP%, volume ratio) with specific numbers AND percentile context throughout
 - Use numbers IN sentences as evidence, not as standalone facts
 - Explain WHY things matter (implication), not just WHAT they are (description)
-- Mix technical + fundamental + relative + news + statistical context + comparative analysis seamlessly - don't section them
+- Mix technical + fundamental + relative + news + statistical context + comparative analysis + chart patterns seamlessly - don't section them
+- CRITICAL: MUST mention fundamental metrics (P/E, EPS, Market Cap, Growth) in "สิ่งที่คุณต้องรู้" section
+- CRITICAL: MUST mention chart patterns from Financial Markets MCP (if available) in technical analysis discussion
 - Reference news [1], [2] ONLY when it genuinely affects the story
 - CRITICAL: When percentile data is available, USE IT to add historical context to numbers (e.g., "RSI 75 ซึ่งอยู่ในเปอร์เซ็นไทล์ 85%")
 - Write under 12-15 lines total

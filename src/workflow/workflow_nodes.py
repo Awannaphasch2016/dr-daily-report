@@ -505,6 +505,148 @@ class WorkflowNodes:
         return state
 
     @traceable(
+        name="fetch_financial_markets_data",
+        tags=["workflow", "mcp", "technical"],
+        process_inputs=_filter_state_for_langsmith,
+        process_outputs=_filter_state_for_langsmith
+    )
+    def fetch_financial_markets_data(self, state: AgentState) -> AgentState:
+        """Fetch advanced technical data from Financial Markets MCP"""
+        self._log_node_start("fetch_financial_markets_data", state)
+        
+        if state.get("error"):
+            self._log_node_skip("fetch_financial_markets_data", state, "Previous error in workflow")
+            return state
+        
+        start_time = time.perf_counter()
+        ticker = state["ticker"]
+        yahoo_ticker = self.ticker_map.get(ticker.upper())
+        
+        if not yahoo_ticker:
+            state["financial_markets_data"] = {}
+            self._log_node_skip("fetch_financial_markets_data", state, "No yahoo_ticker found")
+            return state
+        
+        try:
+            from src.integrations.mcp_client import get_mcp_client, MCPServerError
+            
+            mcp_client = get_mcp_client()
+            
+            # Check if Financial Markets MCP server is available
+            if not mcp_client.is_server_available('financial_markets'):
+                logger.info("Financial Markets MCP server not configured, skipping")
+                state["financial_markets_data"] = {}
+                self._log_node_skip("fetch_financial_markets_data", state, "MCP server not configured")
+                return state
+            
+            logger.info(f"   📈 Fetching Financial Markets data for {ticker} ({yahoo_ticker}) via MCP")
+            
+            financial_markets_data = {}
+            
+            # Call MCP tools in sequence (with graceful degradation)
+            # Note: MCP client now parses content array automatically, returns parsed JSON dict
+            try:
+                # Get chart patterns
+                chart_patterns = mcp_client.call_tool(
+                    server='financial_markets',
+                    tool_name='get_chart_patterns',
+                    arguments={'ticker': yahoo_ticker}
+                )
+                # Check for valid data (not empty dict and no error key)
+                if chart_patterns and isinstance(chart_patterns, dict) and 'error' not in chart_patterns:
+                    financial_markets_data['chart_patterns'] = chart_patterns
+            except Exception as e:
+                logger.warning(f"Failed to fetch chart patterns: {e}")
+            
+            try:
+                # Get candlestick patterns
+                candlestick_patterns = mcp_client.call_tool(
+                    server='financial_markets',
+                    tool_name='get_candlestick_patterns',
+                    arguments={'ticker': yahoo_ticker}
+                )
+                if candlestick_patterns and isinstance(candlestick_patterns, dict) and 'error' not in candlestick_patterns:
+                    financial_markets_data['candlestick_patterns'] = candlestick_patterns
+            except Exception as e:
+                logger.warning(f"Failed to fetch candlestick patterns: {e}")
+            
+            try:
+                # Get support/resistance levels
+                support_resistance = mcp_client.call_tool(
+                    server='financial_markets',
+                    tool_name='get_support_resistance',
+                    arguments={'ticker': yahoo_ticker}
+                )
+                if support_resistance and isinstance(support_resistance, dict) and 'error' not in support_resistance:
+                    financial_markets_data['support_resistance'] = support_resistance
+            except Exception as e:
+                logger.warning(f"Failed to fetch support/resistance: {e}")
+            
+            try:
+                # Get advanced technical indicators
+                technical_indicators = mcp_client.call_tool(
+                    server='financial_markets',
+                    tool_name='get_technical_indicators',
+                    arguments={'ticker': yahoo_ticker}
+                )
+                if technical_indicators and isinstance(technical_indicators, dict) and 'error' not in technical_indicators:
+                    financial_markets_data['technical_indicators'] = technical_indicators
+            except Exception as e:
+                logger.warning(f"Failed to fetch technical indicators: {e}")
+            
+            state["financial_markets_data"] = financial_markets_data
+            
+            elapsed = time.perf_counter() - start_time
+            details = {
+                'ticker': yahoo_ticker,
+                'data_keys': list(financial_markets_data.keys()),
+                'duration_ms': f"{elapsed*1000:.2f}"
+            }
+            self._log_node_success("fetch_financial_markets_data", state, details)
+            
+        except MCPServerError as e:
+            logger.warning(f"Financial Markets MCP failed: {e}, skipping")
+            state["financial_markets_data"] = {}
+            self._log_node_skip("fetch_financial_markets_data", state, f"MCP error: {str(e)}")
+        except Exception as e:
+            logger.error(f"Unexpected error fetching Financial Markets data: {e}")
+            state["financial_markets_data"] = {}
+            self._log_node_error("fetch_financial_markets_data", state, f"Exception: {str(e)}")
+        
+        # Record timing
+        elapsed = time.perf_counter() - start_time
+        timing_metrics = state.get("timing_metrics", {})
+        timing_metrics["financial_markets_fetch"] = elapsed
+        state["timing_metrics"] = timing_metrics
+        
+        return state
+
+    @traceable(
+        name="fetch_sec_filing",
+        tags=["workflow", "mcp", "fundamental"],
+        process_inputs=_filter_state_for_langsmith,
+        process_outputs=_filter_state_for_langsmith
+    )
+    def fetch_sec_filing(self, state: AgentState) -> AgentState:
+        """
+        Fetch SEC filing - DISABLED for Thai market focus.
+        
+        This node is disabled by default. Set ENABLE_SEC_EDGAR=true to enable.
+        """
+        self._log_node_start("fetch_sec_filing", state)
+        
+        # Always skip - SEC EDGAR disabled for Thai market focus
+        state["sec_filing_data"] = {}
+        self._log_node_skip("fetch_sec_filing", state, "SEC EDGAR disabled (Thai market focus)")
+        
+        # Record timing
+        timing_metrics = state.get("timing_metrics", {})
+        timing_metrics["sec_filing_fetch"] = 0.0
+        state["timing_metrics"] = timing_metrics
+        
+        return state
+
+    @traceable(
         name="score_user_facing",
         tags=["workflow", "scoring"],
         process_inputs=_filter_state_for_langsmith,
@@ -881,7 +1023,19 @@ class WorkflowNodes:
 
         # First pass: Generate report without strategy data to determine recommendation
         comparative_insights = state.get("comparative_insights", {})
-        context = self.context_builder.prepare_context(ticker, ticker_data, indicators, percentiles, news, news_summary, strategy_performance=None, comparative_insights=comparative_insights)
+        sec_filing_data = state.get("sec_filing_data", {})
+        financial_markets_data = state.get("financial_markets_data", {})
+        portfolio_insights = state.get("portfolio_insights", {})
+        alpaca_data = state.get("alpaca_data", {})
+        context = self.context_builder.prepare_context(
+            ticker, ticker_data, indicators, percentiles, news, news_summary,
+            strategy_performance=None,
+            comparative_insights=comparative_insights,
+            sec_filing_data=sec_filing_data,
+            financial_markets_data=financial_markets_data,
+            portfolio_insights=portfolio_insights,
+            alpaca_data=alpaca_data
+        )
         uncertainty_score = indicators.get('uncertainty_score', 0)
 
         prompt = self.prompt_builder.build_prompt(context, uncertainty_score, strategy_performance=None)
@@ -909,7 +1063,13 @@ class WorkflowNodes:
         # Second pass: If aligned, regenerate with strategy data
         if include_strategy and strategy_performance:
             context_with_strategy = self.context_builder.prepare_context(
-                ticker, ticker_data, indicators, percentiles, news, news_summary, strategy_performance=strategy_performance, comparative_insights=comparative_insights
+                ticker, ticker_data, indicators, percentiles, news, news_summary,
+                strategy_performance=strategy_performance,
+                comparative_insights=comparative_insights,
+                sec_filing_data=sec_filing_data,
+                financial_markets_data=financial_markets_data,
+                portfolio_insights=portfolio_insights,
+                alpaca_data=alpaca_data
             )
             prompt_with_strategy = self.prompt_builder.build_prompt(context_with_strategy, uncertainty_score, strategy_performance=strategy_performance)
             response = self.llm.invoke([HumanMessage(content=prompt_with_strategy)])
@@ -1485,4 +1645,288 @@ class WorkflowNodes:
         }
         self._log_node_success("fetch_all_data_parallel", state, details)
 
+        return state
+
+    @traceable(
+        name="fetch_financial_markets_data",
+        tags=["workflow", "mcp", "technical"],
+        process_inputs=_filter_state_for_langsmith,
+        process_outputs=_filter_state_for_langsmith
+    )
+    def fetch_financial_markets_data(self, state: AgentState) -> AgentState:
+        """Fetch advanced technical data from Financial Markets MCP"""
+        self._log_node_start("fetch_financial_markets_data", state)
+        
+        if state.get("error"):
+            self._log_node_skip("fetch_financial_markets_data", state, "Previous error in workflow")
+            return state
+        
+        start_time = time.perf_counter()
+        ticker = state["ticker"]
+        yahoo_ticker = self.ticker_map.get(ticker.upper())
+        
+        if not yahoo_ticker:
+            state["financial_markets_data"] = {}
+            self._log_node_skip("fetch_financial_markets_data", state, "No yahoo_ticker found")
+            return state
+        
+        try:
+            from src.integrations.mcp_client import get_mcp_client, MCPServerError
+            
+            mcp_client = get_mcp_client()
+            
+            # Check if Financial Markets MCP server is available
+            if not mcp_client.is_server_available('financial_markets'):
+                logger.info("Financial Markets MCP server not configured, skipping")
+                state["financial_markets_data"] = {}
+                self._log_node_skip("fetch_financial_markets_data", state, "MCP server not configured")
+                return state
+            
+            logger.info(f"   📈 Fetching Financial Markets data for {ticker} ({yahoo_ticker}) via MCP")
+            
+            financial_markets_data = {}
+            
+            # Call MCP tools in sequence (with graceful degradation)
+            # Note: MCP client now parses content array automatically, returns parsed JSON dict
+            try:
+                # Get chart patterns
+                chart_patterns = mcp_client.call_tool(
+                    server='financial_markets',
+                    tool_name='get_chart_patterns',
+                    arguments={'ticker': yahoo_ticker}
+                )
+                # Check for valid data (not empty dict and no error key)
+                if chart_patterns and isinstance(chart_patterns, dict) and 'error' not in chart_patterns:
+                    financial_markets_data['chart_patterns'] = chart_patterns
+            except Exception as e:
+                logger.warning(f"Failed to fetch chart patterns: {e}")
+            
+            try:
+                # Get candlestick patterns
+                candlestick_patterns = mcp_client.call_tool(
+                    server='financial_markets',
+                    tool_name='get_candlestick_patterns',
+                    arguments={'ticker': yahoo_ticker}
+                )
+                if candlestick_patterns and isinstance(candlestick_patterns, dict) and 'error' not in candlestick_patterns:
+                    financial_markets_data['candlestick_patterns'] = candlestick_patterns
+            except Exception as e:
+                logger.warning(f"Failed to fetch candlestick patterns: {e}")
+            
+            try:
+                # Get support/resistance levels
+                support_resistance = mcp_client.call_tool(
+                    server='financial_markets',
+                    tool_name='get_support_resistance',
+                    arguments={'ticker': yahoo_ticker}
+                )
+                if support_resistance and isinstance(support_resistance, dict) and 'error' not in support_resistance:
+                    financial_markets_data['support_resistance'] = support_resistance
+            except Exception as e:
+                logger.warning(f"Failed to fetch support/resistance: {e}")
+            
+            try:
+                # Get advanced technical indicators
+                technical_indicators = mcp_client.call_tool(
+                    server='financial_markets',
+                    tool_name='get_technical_indicators',
+                    arguments={'ticker': yahoo_ticker}
+                )
+                if technical_indicators and isinstance(technical_indicators, dict) and 'error' not in technical_indicators:
+                    financial_markets_data['technical_indicators'] = technical_indicators
+            except Exception as e:
+                logger.warning(f"Failed to fetch technical indicators: {e}")
+            
+            state["financial_markets_data"] = financial_markets_data
+            
+            elapsed = time.perf_counter() - start_time
+            details = {
+                'ticker': yahoo_ticker,
+                'data_keys': list(financial_markets_data.keys()),
+                'duration_ms': f"{elapsed*1000:.2f}"
+            }
+            self._log_node_success("fetch_financial_markets_data", state, details)
+            
+        except MCPServerError as e:
+            logger.warning(f"Financial Markets MCP failed: {e}, skipping")
+            state["financial_markets_data"] = {}
+            self._log_node_skip("fetch_financial_markets_data", state, f"MCP error: {str(e)}")
+        except Exception as e:
+            logger.error(f"Unexpected error fetching Financial Markets data: {e}")
+            state["financial_markets_data"] = {}
+            self._log_node_error("fetch_financial_markets_data", state, f"Exception: {str(e)}")
+        
+        # Record timing
+        elapsed = time.perf_counter() - start_time
+        timing_metrics = state.get("timing_metrics", {})
+        timing_metrics["financial_markets_fetch"] = elapsed
+        state["timing_metrics"] = timing_metrics
+        
+        return state
+
+    @traceable(
+        name="fetch_portfolio_insights",
+        tags=["workflow", "mcp", "portfolio"],
+        process_inputs=_filter_state_for_langsmith,
+        process_outputs=_filter_state_for_langsmith
+    )
+    def fetch_portfolio_insights(self, state: AgentState) -> AgentState:
+        """Fetch portfolio-level insights from Portfolio Manager MCP (optional)"""
+        self._log_node_start("fetch_portfolio_insights", state)
+        
+        if state.get("error"):
+            self._log_node_skip("fetch_portfolio_insights", state, "Previous error in workflow")
+            return state
+        
+        start_time = time.perf_counter()
+        
+        try:
+            from src.integrations.mcp_client import get_mcp_client, MCPServerError
+            
+            mcp_client = get_mcp_client()
+            
+            # Check if Portfolio Manager MCP server is available
+            if not mcp_client.is_server_available('portfolio_manager'):
+                logger.info("Portfolio Manager MCP server not configured, skipping")
+                state["portfolio_insights"] = {}
+                self._log_node_skip("fetch_portfolio_insights", state, "MCP server not configured")
+                return state
+            
+            # Note: Portfolio Manager requires portfolio context (user's holdings)
+            # For now, skip if no portfolio context is available
+            # In future, this could be passed via state or API request
+            logger.info("   💼 Portfolio Manager MCP requires portfolio context - skipping for now")
+            state["portfolio_insights"] = {}
+            self._log_node_skip("fetch_portfolio_insights", state, "No portfolio context available")
+            
+        except Exception as e:
+            logger.warning(f"Error checking Portfolio Manager MCP: {e}")
+            state["portfolio_insights"] = {}
+            self._log_node_skip("fetch_portfolio_insights", state, f"Exception: {str(e)}")
+        
+        # Record timing
+        elapsed = time.perf_counter() - start_time
+        timing_metrics = state.get("timing_metrics", {})
+        timing_metrics["portfolio_insights_fetch"] = elapsed
+        state["timing_metrics"] = timing_metrics
+        
+        return state
+
+    @traceable(
+        name="fetch_alpaca_data",
+        tags=["workflow", "mcp", "realtime"],
+        process_inputs=_filter_state_for_langsmith,
+        process_outputs=_filter_state_for_langsmith
+    )
+    def fetch_alpaca_data(self, state: AgentState) -> AgentState:
+        """Fetch real-time market data and options from Alpaca MCP"""
+        self._log_node_start("fetch_alpaca_data", state)
+        
+        if state.get("error"):
+            self._log_node_skip("fetch_alpaca_data", state, "Previous error in workflow")
+            return state
+        
+        start_time = time.perf_counter()
+        ticker = state["ticker"]
+        yahoo_ticker = self.ticker_map.get(ticker.upper())
+        
+        if not yahoo_ticker:
+            state["alpaca_data"] = {}
+            self._log_node_skip("fetch_alpaca_data", state, "No yahoo_ticker found")
+            return state
+        
+        # Alpaca primarily supports US markets
+        # Check if ticker is US-listed
+        is_us_ticker = (
+            yahoo_ticker.endswith('.US') or
+            not any(yahoo_ticker.endswith(ext) for ext in ['.SI', '.HK', '.T', '.TW'])
+        )
+        
+        if not is_us_ticker:
+            logger.info(f"Skipping Alpaca data for non-US ticker: {ticker} ({yahoo_ticker})")
+            state["alpaca_data"] = {}
+            self._log_node_skip("fetch_alpaca_data", state, f"Non-US ticker: {yahoo_ticker}")
+            return state
+        
+        try:
+            from src.integrations.mcp_client import get_mcp_client, MCPServerError
+            
+            mcp_client = get_mcp_client()
+            
+            # Check if Alpaca MCP server is available
+            if not mcp_client.is_server_available('alpaca'):
+                logger.info("Alpaca MCP server not configured, skipping")
+                state["alpaca_data"] = {}
+                self._log_node_skip("fetch_alpaca_data", state, "MCP server not configured")
+                return state
+            
+            logger.info(f"   📊 Fetching Alpaca data for {ticker} ({yahoo_ticker}) via MCP")
+            
+            # Extract US ticker symbol (remove .US suffix if present)
+            us_ticker = yahoo_ticker.replace('.US', '').upper()
+            
+            alpaca_data = {}
+            
+            # Call MCP tools with graceful degradation
+            try:
+                # Get real-time quote
+                quote = mcp_client.call_tool(
+                    server='alpaca',
+                    tool_name='get_realtime_quote',
+                    arguments={'ticker': us_ticker}
+                )
+                if quote:
+                    alpaca_data['quote'] = quote
+            except Exception as e:
+                logger.warning(f"Failed to fetch real-time quote: {e}")
+            
+            try:
+                # Get options chain (for volatility analysis)
+                options_chain = mcp_client.call_tool(
+                    server='alpaca',
+                    tool_name='get_options_chain',
+                    arguments={'ticker': us_ticker}
+                )
+                if options_chain:
+                    alpaca_data['options_chain'] = options_chain
+            except Exception as e:
+                logger.warning(f"Failed to fetch options chain: {e}")
+            
+            try:
+                # Get market data
+                market_data = mcp_client.call_tool(
+                    server='alpaca',
+                    tool_name='get_market_data',
+                    arguments={'ticker': us_ticker}
+                )
+                if market_data:
+                    alpaca_data['market_data'] = market_data
+            except Exception as e:
+                logger.warning(f"Failed to fetch market data: {e}")
+            
+            state["alpaca_data"] = alpaca_data
+            
+            elapsed = time.perf_counter() - start_time
+            details = {
+                'ticker': us_ticker,
+                'data_keys': list(alpaca_data.keys()),
+                'duration_ms': f"{elapsed*1000:.2f}"
+            }
+            self._log_node_success("fetch_alpaca_data", state, details)
+            
+        except MCPServerError as e:
+            logger.warning(f"Alpaca MCP failed: {e}, skipping")
+            state["alpaca_data"] = {}
+            self._log_node_skip("fetch_alpaca_data", state, f"MCP error: {str(e)}")
+        except Exception as e:
+            logger.error(f"Unexpected error fetching Alpaca data: {e}")
+            state["alpaca_data"] = {}
+            self._log_node_error("fetch_alpaca_data", state, f"Exception: {str(e)}")
+        
+        # Record timing
+        elapsed = time.perf_counter() - start_time
+        timing_metrics = state.get("timing_metrics", {})
+        timing_metrics["alpaca_fetch"] = elapsed
+        state["timing_metrics"] = timing_metrics
+        
         return state

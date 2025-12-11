@@ -20,6 +20,7 @@ try:
     logger.info(f"📦 Package versions: langchain_openai={_lc_openai.__version__}, openai={_openai.__version__}")
 except Exception as e:
     logger.warning(f"⚠️ Could not get package versions: {e}")
+from src.types import AgentState
 from src.data.data_fetcher import DataFetcher
 from src.analysis.technical_analysis import TechnicalAnalyzer
 from src.data.database import TickerDatabase
@@ -124,6 +125,10 @@ class TickerAnalysisAgent:
         workflow.add_node("fetch_data", self.workflow_nodes.fetch_data)
         workflow.add_node("fetch_news", self.workflow_nodes.fetch_news)
         workflow.add_node("analyze_technical", self.workflow_nodes.analyze_technical)
+        workflow.add_node("fetch_sec_filing", self.workflow_nodes.fetch_sec_filing)  # MCP-enhanced node (disabled)
+        workflow.add_node("fetch_alpaca_data", self.workflow_nodes.fetch_alpaca_data)  # Alpaca MCP node
+        workflow.add_node("fetch_financial_markets_data", self.workflow_nodes.fetch_financial_markets_data)  # Financial Markets MCP node
+        workflow.add_node("fetch_portfolio_insights", self.workflow_nodes.fetch_portfolio_insights)  # Portfolio Manager MCP node
         workflow.add_node("score_user_facing", self.workflow_nodes.score_user_facing)
         workflow.add_node("fetch_comparative_data", self.workflow_nodes.fetch_comparative_data)
         workflow.add_node("analyze_comparative_insights", self.workflow_nodes.analyze_comparative_insights)
@@ -132,9 +137,13 @@ class TickerAnalysisAgent:
 
         # Add edges
         workflow.set_entry_point("fetch_data")
-        workflow.add_edge("fetch_data", "fetch_news")
+        workflow.add_edge("fetch_data", "fetch_alpaca_data")  # Alpaca after initial data fetch
+        workflow.add_edge("fetch_alpaca_data", "fetch_news")
         workflow.add_edge("fetch_news", "analyze_technical")
-        workflow.add_edge("analyze_technical", "score_user_facing")
+        workflow.add_edge("analyze_technical", "fetch_financial_markets_data")  # Financial Markets after technical analysis
+        workflow.add_edge("fetch_financial_markets_data", "fetch_sec_filing")  # SEC EDGAR (disabled)
+        workflow.add_edge("fetch_sec_filing", "fetch_portfolio_insights")  # Portfolio Manager (optional)
+        workflow.add_edge("fetch_portfolio_insights", "score_user_facing")
         workflow.add_edge("score_user_facing", "fetch_comparative_data")
         workflow.add_edge("fetch_comparative_data", "analyze_comparative_insights")
         workflow.add_edge("analyze_comparative_insights", "generate_chart")
@@ -144,7 +153,7 @@ class TickerAnalysisAgent:
         return workflow.compile()
 
     @traceable(name="analyze_ticker", tags=["agent", "workflow"])
-    def analyze_ticker(self, ticker: str, strategy: str = "single-stage") -> str:
+    def analyze_ticker(self, ticker: str, strategy: str = "single-stage") -> AgentState:
         """
         Main entry point to analyze ticker
 
@@ -153,7 +162,20 @@ class TickerAnalysisAgent:
             strategy: Report generation strategy - 'single-stage' or 'multi-stage' (default: 'single-stage')
 
         Returns:
-            Generated report text
+            Final workflow state dict (AgentState) containing:
+            - report: Generated report text (str)
+            - ticker_data: Historical price and company data (dict)
+            - indicators: Technical indicators (dict)
+            - percentiles: Statistical percentiles (dict)
+            - news: News articles (list)
+            - comparative_data: Peer comparison data (dict)
+            - chart_base64: Base64-encoded chart (str)
+            - scores: Quality scores (dict)
+            - error: Error message if workflow failed (str)
+            - Other workflow state fields
+
+        Note:
+            To extract just the report text, use: `result.get("report", "")`
         """
         initial_state = {
             "messages": [],
@@ -166,6 +188,8 @@ class TickerAnalysisAgent:
             "strategy_performance": {},
             "news": [],
             "news_summary": {},
+            "comparative_data": {},
+            "comparative_insights": {},
             "chart_base64": "",
             "report": "",
             "faithfulness_score": {},
@@ -177,6 +201,10 @@ class TickerAnalysisAgent:
             "timing_metrics": {},
             "api_costs": {},
             "database_metrics": {},
+            "sec_filing_data": {},  # SEC EDGAR filing data (MCP-enhanced, disabled)
+            "financial_markets_data": {},  # Financial Markets MCP data
+            "portfolio_insights": {},  # Portfolio Manager MCP data
+            "alpaca_data": {},  # Alpaca MCP data
             "error": "",
             "strategy": strategy  # Add strategy to state
         }
@@ -211,6 +239,8 @@ class TickerAnalysisAgent:
             "strategy_performance": {},
             "news": [],
             "news_summary": {},
+            "comparative_data": {},
+            "comparative_insights": {},
             "chart_base64": "",
             "report": "",
             "faithfulness_score": {},
@@ -222,6 +252,10 @@ class TickerAnalysisAgent:
             "timing_metrics": {},
             "api_costs": {},
             "database_metrics": {},
+            "sec_filing_data": {},  # SEC EDGAR filing data (MCP-enhanced, disabled)
+            "financial_markets_data": {},  # Financial Markets MCP data
+            "portfolio_insights": {},  # Portfolio Manager MCP data
+            "alpaca_data": {},  # Alpaca MCP data
             "error": ""
         }
 
