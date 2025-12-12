@@ -21,6 +21,80 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+def _handle_query(event: Dict[str, Any], start_time: datetime) -> Dict[str, Any]:
+    """Execute SQL query and return results.
+
+    Args:
+        event: Lambda event with required param:
+            - sql: SQL query to execute (e.g., "SHOW TABLES")
+        start_time: When the Lambda was invoked
+
+    Returns:
+        Response dict with query results:
+        {
+            'statusCode': 200,
+            'body': {
+                'results': [{...}, {...}],  # Query results as list of dicts
+                'row_count': 5
+            }
+        }
+
+    Example usage:
+        aws lambda invoke \\
+          --function-name dr-daily-report-ticker-scheduler-dev \\
+          --payload '{"action":"query","sql":"SHOW TABLES"}' \\
+          /tmp/tables.json
+    """
+    import traceback
+
+    try:
+        from src.data.aurora.client import get_aurora_client
+
+        sql = event.get('sql')
+        if not sql:
+            return {
+                'statusCode': 400,
+                'body': {
+                    'message': 'Missing required parameter: sql',
+                    'error': 'Must provide SQL query'
+                }
+            }
+
+        client = get_aurora_client()
+        logger.info(f"Executing query: {sql[:100]}...")
+
+        result = client.fetch_all(sql, ())
+
+        end_time = datetime.now()
+        duration_seconds = (end_time - start_time).total_seconds()
+
+        logger.info(f"Query completed: {len(result)} rows in {duration_seconds:.2f}s")
+
+        return {
+            'statusCode': 200,
+            'body': {
+                'message': 'Query executed successfully',
+                'sql': sql,
+                'row_count': len(result),
+                'results': result,
+                'duration_seconds': duration_seconds
+            }
+        }
+
+    except Exception as e:
+        logger.error(f"Query failed: {e}")
+        logger.error(traceback.format_exc())
+
+        return {
+            'statusCode': 500,
+            'body': {
+                'message': f"Query failed",
+                'error': str(e),
+                'traceback': traceback.format_exc()
+            }
+        }
+
+
 def _handle_describe_table(event: Dict[str, Any], start_time: datetime) -> Dict[str, Any]:
     """Query Aurora table schema for CI/CD schema validation (NO MOCKING).
 
@@ -1086,6 +1160,10 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     # Handle debug cache action (query precomputed_reports table)
     if event.get('action') == 'debug_cache':
         return _handle_debug_cache(event, start_time)
+
+    # Handle query action (execute SQL and return results)
+    if event.get('action') == 'query':
+        return _handle_query(event, start_time)
 
     # Handle describe table action (for schema contract testing - NO MOCKING)
     if event.get('action') == 'describe_table':
