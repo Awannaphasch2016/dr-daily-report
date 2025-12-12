@@ -117,6 +117,130 @@ def _handle_describe_table(event: Dict[str, Any], start_time: datetime) -> Dict[
         }
 
 
+def _handle_execute_migration(event: Dict[str, Any], start_time: datetime) -> Dict[str, Any]:
+    """Execute SQL migration file against Aurora database.
+
+    Args:
+        event: Lambda event with required param:
+            - migration_file: Path to migration SQL file (e.g., "db/migrations/004_daily_indicators_schema.sql")
+            OR
+            - sql: Raw SQL statements to execute (for inline execution)
+        start_time: When the Lambda was invoked
+
+    Returns:
+        Response dict with execution results
+
+    Example usage:
+        # Execute migration file
+        aws lambda invoke \\
+          --function-name dr-daily-report-ticker-scheduler-dev \\
+          --payload '{"action":"execute_migration","migration_file":"db/migrations/004_daily_indicators_schema.sql"}' \\
+          /tmp/migration-result.json
+
+        # Execute inline SQL
+        aws lambda invoke \\
+          --function-name dr-daily-report-ticker-scheduler-dev \\
+          --payload '{"action":"execute_migration","sql":"ALTER TABLE precomputed_reports ADD COLUMN test_col INT;"}' \\
+          /tmp/migration-result.json
+    """
+    import traceback
+    from pathlib import Path
+
+    try:
+        from src.data.aurora.client import get_aurora_client
+
+        migration_file = event.get('migration_file')
+        sql = event.get('sql')
+
+        if not migration_file and not sql:
+            return {
+                'statusCode': 400,
+                'body': {
+                    'message': 'Missing required parameter: migration_file or sql',
+                    'error': 'Must provide either migration_file path or sql statements'
+                }
+            }
+
+        # Read SQL from file if provided
+        if migration_file:
+            # Convert relative path to absolute (Lambda execution context)
+            if not migration_file.startswith('/var/task/'):
+                migration_file = f'/var/task/{migration_file}'
+
+            path = Path(migration_file)
+            if not path.exists():
+                return {
+                    'statusCode': 404,
+                    'body': {
+                        'message': f'Migration file not found: {migration_file}',
+                        'error': 'File does not exist in Lambda package'
+                    }
+                }
+
+            logger.info(f"Reading migration file: {migration_file}")
+            sql = path.read_text()
+
+        # Execute SQL statements
+        client = get_aurora_client()
+        logger.info(f"Executing migration SQL ({len(sql)} bytes)")
+
+        # Split by semicolon and execute each statement
+        statements = [s.strip() for s in sql.split(';') if s.strip() and not s.strip().startswith('--')]
+
+        executed_count = 0
+        failed_count = 0
+        errors = []
+
+        for statement in statements:
+            # Skip comments and empty lines
+            if statement.startswith('--') or not statement.strip():
+                continue
+
+            try:
+                logger.info(f"Executing: {statement[:100]}...")
+                affected_rows = client.execute(statement, commit=True)
+                executed_count += 1
+                logger.info(f"  ✓ Success (affected {affected_rows} rows)")
+            except Exception as stmt_error:
+                failed_count += 1
+                error_msg = str(stmt_error)
+                logger.error(f"  ✗ Failed: {error_msg}")
+                errors.append({
+                    'statement': statement[:200],
+                    'error': error_msg
+                })
+
+        end_time = datetime.now()
+        duration_seconds = (end_time - start_time).total_seconds()
+
+        success = failed_count == 0
+
+        return {
+            'statusCode': 200 if success else 500,
+            'body': {
+                'message': 'Migration completed' if success else 'Migration completed with errors',
+                'migration_file': event.get('migration_file'),
+                'executed_count': executed_count,
+                'failed_count': failed_count,
+                'errors': errors if errors else None,
+                'duration_seconds': duration_seconds
+            }
+        }
+
+    except Exception as e:
+        logger.error(f"Migration execution failed: {e}")
+        logger.error(traceback.format_exc())
+
+        return {
+            'statusCode': 500,
+            'body': {
+                'message': 'Migration execution failed',
+                'error': str(e),
+                'traceback': traceback.format_exc()
+            }
+        }
+
+
 def _handle_query_precomputed(event: Dict[str, Any], start_time: datetime) -> Dict[str, Any]:
     """Query precomputed indicators, percentiles, and comparative features.
 
@@ -966,6 +1090,10 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     # Handle describe table action (for schema contract testing - NO MOCKING)
     if event.get('action') == 'describe_table':
         return _handle_describe_table(event, start_time)
+
+    # Handle execute migration action (for running schema migrations via Lambda)
+    if event.get('action') == 'execute_migration':
+        return _handle_execute_migration(event, start_time)
 
     # Handle ticker unification migration (Phase 4)
     if event.get('action') == 'ticker_unification':
