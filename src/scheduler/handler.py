@@ -1265,3 +1265,4 @@ if __name__ == '__main__':
     test_event = {'tickers': ['NVDA', 'D05.SI']}
     result = lambda_handler(test_event, None)
     print(json.dumps(result, indent=2))
+# Trigger rebuild
