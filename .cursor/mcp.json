@@ -13,6 +13,14 @@
       "type": "stdio",
       "command": "/home/anak/dev/dr-daily-report_telegram/scripts/mcp_wrapper_github.sh",
       "args": []
+    },
+    "mysql": {
+      "type": "stdio",
+      "command": "/home/anak/dev/dr-daily-report_telegram/scripts/mcp_wrapper_mysql.sh",
+      "args": [],
+      "env": {
+        "FASTMCP_LOG_LEVEL": "ERROR"
+      }
     }
   }
 }
