@@ -16,6 +16,7 @@ COPY src/ ${LAMBDA_TASK_ROOT}/src/
 COPY scripts/ ${LAMBDA_TASK_ROOT}/scripts/
 COPY data/tickers.csv ${LAMBDA_TASK_ROOT}/data/tickers.csv
 COPY fonts/ ${LAMBDA_TASK_ROOT}/fonts/
+COPY db/migrations/ ${LAMBDA_TASK_ROOT}/db/migrations/
 
 # Copy Lambda handlers to root
 COPY src/lambda_handler.py ${LAMBDA_TASK_ROOT}/lambda_handler.py
