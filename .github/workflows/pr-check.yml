@@ -60,6 +60,109 @@ jobs:
         continue-on-error: true
 
   ###############################################################################
+  # Aurora Schema Contract Validation (BLOCKING)
+  ###############################################################################
+  schema-validation:
+    name: Validate Aurora Schema Contract
+    runs-on: ubuntu-latest
+    needs: validate  # Run after basic validation passes
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest boto3 pymysql
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ap-southeast-1
+
+      - name: Run Comprehensive Schema Tests
+        id: schema-tests
+        env:
+          SCHEDULER_LAMBDA_NAME: dr-daily-report-ticker-scheduler-dev
+        run: |
+          echo "🔍 Validating Aurora schema matches code expectations..."
+          echo ""
+          echo "This test auto-extracts expected columns from INSERT queries"
+          echo "and validates Aurora schema has all required columns."
+          echo ""
+
+          # Run comprehensive schema validation tests
+          pytest tests/infrastructure/test_aurora_schema_comprehensive.py \
+            -v --tb=short -m integration \
+            2>&1 | tee /tmp/schema-test-output.txt
+
+          # Capture exit code
+          TEST_EXIT_CODE=${PIPESTATUS[0]}
+
+          if [ $TEST_EXIT_CODE -eq 0 ]; then
+            echo ""
+            echo "✅ Schema validation PASSED - Aurora matches code expectations"
+          else
+            echo ""
+            echo "❌ Schema validation FAILED - see test output above"
+            echo ""
+            echo "🔧 To fix:"
+            echo "  1. Check test output for missing columns"
+            echo "  2. Create migration to add missing columns"
+            echo "  3. Run: python scripts/migrate_add_columns.py"
+            echo "  4. Push migration file to this PR"
+            echo ""
+            exit 1
+          fi
+
+      - name: Comment on PR if schema mismatch
+        if: failure() && steps.schema-tests.outcome == 'failure'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const output = fs.readFileSync('/tmp/schema-test-output.txt', 'utf8');
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `❌ **Schema Validation Failed**
+
+            The Aurora database schema does not match code expectations.
+
+            **Test Output:**
+            \`\`\`
+            ${output.slice(-2000)}
+            \`\`\`
+
+            **What to do:**
+            1. Check test output above for missing columns and file locations
+            2. Create migration to add missing columns to Aurora
+            3. Run migration against dev Aurora (via Lambda or script)
+            4. Push migration file to this PR
+            5. Tests will re-run automatically
+
+            **TDD Principle:**
+            Schema changes require migration FIRST, code changes SECOND.
+
+            **Reference:**
+            - Test file: \`tests/infrastructure/test_aurora_schema_comprehensive.py\`
+            - Migration handler: \`src/migration_handler.py\`
+            `
+            })
+
+  ###############################################################################
   # Terraform validation (if terraform files changed)
   ###############################################################################
   terraform:
