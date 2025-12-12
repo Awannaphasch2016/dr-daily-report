@@ -649,6 +649,8 @@ def store_report(self, symbol, text):
 
 **Service Design Patterns:** Singleton pattern for Lambda cold start optimization. Async/Sync dual methods for LangGraph (sync) + FastAPI (async). Custom exception hierarchy with centralized error handlers. See [API Architecture](docs/CODE_STYLE.md#telegram-api-architecture-patterns).
 
+**Database Migration Principles:** Use reconciliation migrations when database state is unknown or partially migrated. Reconciliation migrations use idempotent operations (CREATE TABLE IF NOT EXISTS, ALTER TABLE ADD COLUMN IF NOT EXISTS) to safely transition from any intermediate state to the desired schema without destructive operations. This pattern prevents migration conflicts, duplicate numbering issues, and unclear execution states. Unlike traditional sequential migrations that assume clean state, reconciliation migrations validate current schema and apply only missing changes. See [Database Migrations Guide](docs/DATABASE_MIGRATIONS.md) for detailed patterns, MySQL-specific considerations, and migration tracking strategies.
+
 For complete directory tree and file organization, run `just tree` or see [Code Style Guide](docs/CODE_STYLE.md#naming-conventions).
 
 ---
