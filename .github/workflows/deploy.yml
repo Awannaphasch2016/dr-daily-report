@@ -292,9 +292,11 @@ jobs:
   deploy-dev:
     name: Deploy Dev
     needs: [build, validate-aurora-schema]
-    # TEMPORARY: Allow deploy even if schema validation fails (to deploy execute_migration action)
-    # TODO: Remove this after running migrations - schema validation should be BLOCKING
-    if: always() && needs.build.result == 'success'
+    # BLOCKING: Schema validation must pass before deployment (TDD enforcement)
+    if: |
+      always() &&
+      needs.build.result == 'success' &&
+      needs.validate-aurora-schema.result == 'success'
     runs-on: ubuntu-latest
     environment: development
 
