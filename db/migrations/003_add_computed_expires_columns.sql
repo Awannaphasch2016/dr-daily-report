@@ -10,7 +10,8 @@
 
 ALTER TABLE precomputed_reports
   ADD COLUMN computed_at DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT 'When report computation completed',
-  ADD COLUMN expires_at DATETIME DEFAULT NULL COMMENT 'When cached report expires (TTL)';
+  ADD COLUMN expires_at DATETIME DEFAULT NULL COMMENT 'When cached report expires (TTL)',
+  ADD COLUMN error_message TEXT DEFAULT NULL COMMENT 'Error message if status=failed';
 
 -- Verify columns were added
 DESCRIBE precomputed_reports;
