@@ -386,6 +386,64 @@ def analyze_technical(state: AgentState) -> AgentState:
     return state
 ```
 
+### Remote Service Investigation Principles
+
+**Core Principle:** When debugging remote AWS services, identify the PRECISE error layer before attempting fixes. Guessing wastes time and creates false hypotheses.
+
+**Error Layer Framework:**
+
+When a remote service fails, systematically identify which layer has the issue:
+
+| Layer | How to Detect | Example Errors |
+|-------|---------------|----------------|
+| **Client/Code** | API returns structured error | Invalid parameter, malformed request |
+| **Permission** | HTTP 403, AccessDeniedException | IAM policy missing, trust policy incorrect |
+| **Network (client)** | Timeout, connection refused | WSL2 NAT, firewall, DNS |
+| **Network (AWS)** | Timeout after security group check | Security group blocks, no Internet Gateway |
+| **Instance/Service** | HTTP 400, TargetNotConnected | Agent not running, credential cache stale |
+
+**Key Patterns:**
+
+1. **HTTP Response ≠ Network Issue:** If you get an HTTP response (even an error), network to that endpoint is working. The issue MAY NOT be connectivity, but could be a different network layer or path.
+
+2. **AWS Service Registration ≠ Working:** API accepts request (200 OK) doesn't mean service is functioning. Must verify agent running, registered with AWS, credentials valid, no errors in logs.
+
+3. **Credential Cache Temporal Coupling:** Services cache credential state at startup. Attaching IAM role to running instance → agent has cached "no credentials". Solution: Restart service to force credential refresh from IMDS.
+
+4. **Environment-Specific Access Path:** Establish ONE reliable access path for your environment and master it. Don't switch methods when debugging—each has different failure modes and you lose diagnostic context.
+   - **WSL2 + AWS:** SSM Session Manager (works via HTTPS, bypasses WSL2 NAT)
+   - **Corporate Network:** VPN + bastion pattern
+   - **Local Development:** Direct SSH with proper key management
+
+   When your chosen path fails, debug THAT path systematically through all layers.
+
+5. **SSM Document Permissions Are Granular:** Having `ssm:StartSession` permission doesn't mean you can use ALL SSM documents. Each document type (interactive shell, port forwarding, SSH tunneling) requires explicit permission. Common failure: Can start interactive sessions but port forwarding fails with AccessDeniedException.
+   - `SSM-SessionManagerRunShell` → Interactive shell access
+   - `AWS-StartPortForwardingSessionToRemoteHost` → Port forwarding to remote hosts
+   - `AWS-StartSSHSession` → SSH protocol tunneling
+   - Solution: Update IAM policy to include all document ARNs you need
+
+**Example - SSM Session Manager debugging checklist:**
+```bash
+# Layer 1: Client/Code - Verify AWS CLI working
+aws sts get-caller-identity
+
+# Layer 2: Permission - Verify IAM policies
+aws iam list-attached-user-policies --user-name <username>
+aws ec2 describe-iam-instance-profile-associations --filters "Name=instance-id,Values=<instance-id>"
+
+# Layer 3: Network (client) - Verify HTTPS connectivity
+curl -I https://ssm.ap-southeast-1.amazonaws.com
+
+# Layer 4: Network (AWS) - Verify security groups, VPC
+aws ec2 describe-instances --instance-ids <instance-id> --query 'Reservations[0].Instances[0].SecurityGroups'
+
+# Layer 5: Instance/Service - Verify agent status
+aws ssm describe-instance-information --filters "Key=InstanceIds,Values=<instance-id>"
+```
+
+For concise commands to interact with AWS services (EC2, Aurora, Lambda), see [AWS Operations Guide](docs/AWS_OPERATIONS.md).
+
 ### Testing Anti-Patterns to Avoid
 
 These patterns create false confidence—tests that pass but don't catch bugs.
@@ -643,13 +701,17 @@ def store_report(self, symbol, text):
 
 **Type System Integration Principle:** Research type compatibility BEFORE integrating systems (APIs, databases, message queues). Type system mismatches cause silent failures. Answer: (1) What types does target accept? (2) What types does source produce? (3) How does target handle invalid types? Apply defense in depth: convert types → handle special values → validate schema → serialize strict → verify outcome. See [Type System Integration Guide](docs/TYPE_SYSTEM_INTEGRATION.md).
 
+**PyMySQL JSON Handling Principle:** PyMySQL (unlike mysql-connector-python) CANNOT accept Python dicts as query parameters. The correct pattern for JSON columns is: `cursor.execute("INSERT ... VALUES (%s)", (json.dumps(data),))`. PyMySQL handles parameterization and escaping correctly when data is pre-serialized with `json.dumps()`. Passing dicts directly raises `TypeError: dict can not be used as parameter`. Always verify library-specific requirements—don't assume patterns from similar libraries apply.
+
 **Research Before Iteration Principle:** When same bug persists after 2 fix attempts, STOP iterating and START researching. Invest 30-60 minutes understanding root cause (read specs, inspect real data, reproduce locally) instead of deploying more guesses. Research has upfront cost but prevents 3+ failed deployment cycles. Pattern: iteration for first hypotheses, research when hypotheses fail repeatedly.
 
 **Retry/Fallback Pattern:** Multi-level fallback for reliability (yfinance with exponential backoff → direct API → stale cache). Graceful degradation: stale data better than no data. See [Data Layer Patterns](docs/CODE_STYLE.md#retryfallback-pattern).
 
 **Service Design Patterns:** Singleton pattern for Lambda cold start optimization. Async/Sync dual methods for LangGraph (sync) + FastAPI (async). Custom exception hierarchy with centralized error handlers. See [API Architecture](docs/CODE_STYLE.md#telegram-api-architecture-patterns).
 
-**Database Migration Principles:** Use reconciliation migrations when database state is unknown or partially migrated. Reconciliation migrations use idempotent operations (CREATE TABLE IF NOT EXISTS, ALTER TABLE ADD COLUMN IF NOT EXISTS) to safely transition from any intermediate state to the desired schema without destructive operations. This pattern prevents migration conflicts, duplicate numbering issues, and unclear execution states. Unlike traditional sequential migrations that assume clean state, reconciliation migrations validate current schema and apply only missing changes. See [Database Migrations Guide](docs/DATABASE_MIGRATIONS.md) for detailed patterns, MySQL-specific considerations, and migration tracking strategies.
+**Database Migration Principles:** Use reconciliation migrations when database state is unknown or partially migrated. Reconciliation migrations use idempotent operations (CREATE TABLE IF NOT EXISTS, ALTER TABLE ADD COLUMN IF NOT EXISTS) to safely transition from any intermediate state to the desired schema without destructive operations. This pattern prevents migration conflicts, duplicate numbering issues, and unclear execution states. Unlike traditional sequential migrations that assume clean state, reconciliation migrations validate current schema and apply only missing changes. **Critical gotchas:** (1) `CREATE TABLE IF NOT EXISTS` skips entirely if table exists with different schema—use `ALTER TABLE` to fix existing tables. (2) `ALTER TABLE MODIFY COLUMN` changes column TYPE but not existing DATA—old rows retain their original values even if incompatible with new type. Always verify migrations changed what you expected with `DESCRIBE table_name` after applying. See [Database Migrations Guide](docs/DATABASE_MIGRATIONS.md) for detailed patterns, MySQL-specific considerations, and migration tracking strategies.
+
+**Aurora VPC Access Pattern:** Aurora databases are deployed in private VPC subnets and CANNOT be accessed directly from outside the VPC. Use AWS SSM Session Manager port forwarding through a bastion host to establish secure tunnels. Pattern: (1) Find SSM-managed instance: `aws ssm describe-instance-information`, (2) Start port forwarding: `aws ssm start-session --target <instance-id> --document-name AWS-StartPortForwardingSessionToRemoteHost --parameters '{"host":["<aurora-endpoint>"],"portNumber":["3306"],"localPortNumber":["3307"]}'`, (3) Connect to `localhost:3307` as if it were the Aurora endpoint. Scripts that access Aurora must expect SSM tunnel to be active (check with `ss -ltn | grep 3307`). Never attempt direct connections to Aurora endpoints—they will timeout. See `~/aurora-vd.sh` for reference implementation.
 
 For complete directory tree and file organization, run `just tree` or see [Code Style Guide](docs/CODE_STYLE.md#naming-conventions).
 
@@ -682,6 +744,18 @@ The project uses a two-layer CLI design: **Justfile** (intent-based recipes desc
 **JSON Serialization Requirement:** NumPy/Pandas types must be converted before JSON encoding (`np.int64` → `int`, `pd.Timestamp` → ISO string). Lambda responses, API endpoints, and LangSmith tracing all require JSON-serializable state. See [JSON Serialization](docs/CODE_STYLE.md#json-serialization).
 
 **Naming Conventions:** Files `snake_case.py`, classes `PascalCase`, functions `snake_case()`, constants `UPPER_SNAKE_CASE`, private methods `_snake_case()`. See [Naming Guide](docs/CODE_STYLE.md#naming-conventions).
+
+## UI/Frontend Principles
+
+**Normalized State Philosophy:** Store entity IDs instead of object copies; derive data from single source of truth via selectors. This eliminates entire class of stale copy bugs and enables automatic updates when source data changes. Example: `selectedTicker: string | null` derives market from `markets` array via `getSelectedMarket()` selector. See [UI Principles](docs/frontend/UI_PRINCIPLES.md#normalized-state-pattern).
+
+**Stale-While-Revalidate Pattern:** Show cached data immediately for instant UI feedback while fetching fresh data in background. Upgrade UI seamlessly when fresh data arrives. Handles slow APIs gracefully without blocking user interaction. Example: Display 30-day cached chart from rankings API while fetching full 365-day report in background. See [UI Principles](docs/frontend/UI_PRINCIPLES.md#stale-while-revalidate-pattern).
+
+**Monotonic Data Invariants:** Data structures that only grow or stay same, never shrink. Enforce via intelligent merge logic: only replace cached data if new data is demonstrably better (non-empty AND larger). Prevents data loss from partial API responses or race conditions. Example: `price_history.length` never decreases after being populated. See [UI Principles](docs/frontend/UI_PRINCIPLES.md#monotonic-data-invariants).
+
+**Property-Based Testing:** Use generative testing tools (fast-check) to generate 1000+ random test cases that verify invariants always hold. Define properties that must be true regardless of input, let tool find counterexamples. Catches edge cases manual tests miss. See [UI Principles](docs/frontend/UI_PRINCIPLES.md#property-based-testing) for component patterns, state management, and testing strategies.
+
+**TypeScript Component Patterns:** React components use strict TypeScript prop interfaces for type safety. Composition over inheritance. Props for configuration, children for content. Avoid prop drilling beyond 2-3 levels. See [UI Principles](docs/frontend/UI_PRINCIPLES.md#reacttypescript-patterns).
 
 ---
 
