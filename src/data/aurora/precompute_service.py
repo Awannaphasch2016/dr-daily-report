@@ -980,10 +980,10 @@ class PrecomputeService:
             symbol,
             data_date,
             report_text,
-            json.dumps(_convert_numpy_to_primitives(report_json), allow_nan=False),
+            _convert_numpy_to_primitives(report_json),  # Pass dict directly - MySQL JSON column handles encoding
             strategy,
             generation_time_ms,
-            json.dumps(_convert_numpy_to_primitives(mini_reports), allow_nan=False) if mini_reports else None,
+            _convert_numpy_to_primitives(mini_reports) if mini_reports else None,  # Pass dict directly
             chart_base64,
         )
 
