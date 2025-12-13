@@ -934,15 +934,15 @@ def _handle_parallel_precompute(event: Dict[str, Any], start_time: datetime) -> 
         submitted_jobs = []
 
         for ticker_info in tickers:
-            yahoo_symbol = ticker_info['symbol']  # DB stores Yahoo format
+            # ticker_info['symbol'] is already in DR format (SIA19, DBS19, etc.)
+            # ticker_info['yahoo_ticker'] contains Yahoo format (C6L.SI, D05.SI, etc.)
+            dr_symbol = ticker_info['symbol']
 
-            # Convert Yahoo symbol to DR symbol for worker
-            # Worker expects DR format (DBS19, NVDA19) not Yahoo format (D05.SI, NVDA)
-            dr_symbol = resolver.to_dr(yahoo_symbol)
+            # Validate symbol exists
             if not dr_symbol:
-                logger.warning(f"Cannot resolve {yahoo_symbol} to DR format, skipping")
+                logger.warning(f"Missing symbol in ticker_info: {ticker_info}")
                 jobs_failed += 1
-                failed_tickers.append(yahoo_symbol)
+                failed_tickers.append(str(ticker_info.get('id', 'unknown')))
                 continue
 
             try:
