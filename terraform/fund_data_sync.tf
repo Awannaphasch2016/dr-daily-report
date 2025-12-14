@@ -90,22 +90,20 @@ resource "aws_lambda_function" "fund_data_sync" {
 
   # VPC Configuration (only when Aurora is enabled)
   # Lambda needs VPC access to connect to Aurora MySQL
-  dynamic "vpc_config" {
-    for_each = var.aurora_enabled ? [1] : []
-    content {
+  vpc_config {
       subnet_ids         = local.private_subnets_with_nat
-      security_group_ids = [aws_security_group.lambda_aurora[0].id]
+      security_group_ids = [aws_security_group.lambda_aurora.id]
     }
-  }
+
 
   # Environment Variables
   environment {
     variables = {
       ENVIRONMENT          = var.environment
-      AURORA_HOST          = var.aurora_enabled ? aws_rds_cluster.aurora[0].endpoint : ""
+      AURORA_HOST          = aws_rds_cluster.aurora.endpoint
       AURORA_USER          = var.aurora_master_username
       AURORA_DATABASE      = var.aurora_database_name
-      AURORA_PASSWORD      = var.aurora_enabled ? var.AURORA_MASTER_PASSWORD : ""
+      AURORA_PASSWORD      = var.AURORA_MASTER_PASSWORD
       DATA_LAKE_BUCKET     = module.s3_data_lake.bucket_id
       SQS_QUEUE_URL        = module.fund_data_sync_queue.queue_url
       LOG_LEVEL            = "INFO"

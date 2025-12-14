@@ -49,24 +49,22 @@ resource "aws_lambda_function" "ticker_scheduler" {
       # Aurora MySQL (direct env vars - bypasses Secrets Manager for simplicity)
       # NOTE: Using direct env vars instead of AURORA_SECRET_ARN to avoid VPC endpoint requirement
       # TODO: Add VPC endpoint for Secrets Manager for production security
-      AURORA_HOST     = var.aurora_enabled ? aws_rds_cluster.aurora[0].endpoint : ""
+      AURORA_HOST     = aws_rds_cluster.aurora.endpoint
       AURORA_PORT     = "3306"
       AURORA_DATABASE = var.aurora_database_name
       AURORA_USER     = var.aurora_master_username
-      AURORA_PASSWORD = var.aurora_enabled ? var.AURORA_MASTER_PASSWORD : ""
+      AURORA_PASSWORD = var.AURORA_MASTER_PASSWORD
     }
   }
 
   # VPC Configuration for Aurora access
   # IMPORTANT: Only use subnets with NAT Gateway routes (local.private_subnets_with_nat)
   # Lambda needs internet access for yfinance, OpenRouter, and DynamoDB APIs
-  dynamic "vpc_config" {
-    for_each = var.aurora_enabled ? [1] : []
-    content {
+  vpc_config {
       subnet_ids         = local.private_subnets_with_nat
-      security_group_ids = [aws_security_group.lambda_aurora[0].id]
+      security_group_ids = [aws_security_group.lambda_aurora.id]
     }
-  }
+
 
   tags = merge(local.common_tags, {
     Name      = "${var.project_name}-ticker-scheduler-${var.environment}"
@@ -84,15 +82,15 @@ resource "aws_lambda_function" "ticker_scheduler" {
 
 # Attach Aurora access policy to scheduler Lambda role (when aurora is enabled)
 resource "aws_iam_role_policy_attachment" "scheduler_aurora_access" {
-  count = var.aurora_enabled ? 1 : 0
+  # Aurora always enabled
 
   role       = aws_iam_role.telegram_lambda_role.name
-  policy_arn = aws_iam_policy.lambda_aurora_access[0].arn
+  policy_arn = aws_iam_policy.lambda_aurora_access.arn
 }
 
 # Allow Lambda role to read Aurora secrets from Secrets Manager
 resource "aws_iam_role_policy" "scheduler_secrets_access" {
-  count = var.aurora_enabled ? 1 : 0
+  # Aurora always enabled
 
   name = "${var.project_name}-scheduler-secrets-${var.environment}"
   role = aws_iam_role.telegram_lambda_role.id
@@ -106,7 +104,7 @@ resource "aws_iam_role_policy" "scheduler_secrets_access" {
           "secretsmanager:GetSecretValue",
           "secretsmanager:DescribeSecret"
         ]
-        Resource = aws_secretsmanager_secret.aurora_credentials[0].arn
+        Resource = aws_secretsmanager_secret.aurora_credentials.arn
       }
     ]
   })

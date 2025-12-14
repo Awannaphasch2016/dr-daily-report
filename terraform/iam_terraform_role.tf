@@ -83,15 +83,15 @@ resource "aws_iam_policy" "ecr_access" {
   })
 }
 
-# SQS Policy
-resource "aws_iam_role_policy_attachment" "sqs_access" {
-  role       = aws_iam_role.terraform_deploy.name
-  policy_arn = aws_iam_policy.sqs_access.arn
-}
+# SQS Policy - Consolidated into inline policy (avoid 10-policy limit)
+# resource "aws_iam_role_policy_attachment" "sqs_access" {
+#   role       = aws_iam_role.terraform_deploy.name
+#   policy_arn = aws_iam_policy.sqs_access.arn
+# }
 
 resource "aws_iam_policy" "sqs_access" {
   name        = "dr-daily-report-sqs-access-Role"
-  description = "SQS permissions for dr-daily-report async infrastructure (attached to role)"
+  description = "SQS permissions for dr-daily-report async infrastructure (used by other resources, not attached to TerraformDeployRole)"
 
   policy = file("${path.module}/iam-sqs-policy.json")
 
@@ -134,22 +134,53 @@ resource "aws_iam_role_policy_attachment" "dynamodb_full_access" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonDynamoDBFullAccess"
 }
 
-# CloudWatch Logs permissions
-resource "aws_iam_role_policy_attachment" "cloudwatch_logs_full_access" {
-  role       = aws_iam_role.terraform_deploy.name
-  policy_arn = "arn:aws:iam::aws:policy/CloudWatchLogsFullAccess"
-}
+# Consolidated inline policy for EventBridge, IAM, Step Functions, CloudWatch Logs, and SQS
+# (Avoids 10-policy limit by using inline policy instead of managed policies)
+resource "aws_iam_role_policy" "additional_permissions" {
+  name = "TerraformAdditionalPermissions"
+  role = aws_iam_role.terraform_deploy.id
 
-# EventBridge permissions (for schedulers)
-resource "aws_iam_role_policy_attachment" "eventbridge_full_access" {
-  role       = aws_iam_role.terraform_deploy.name
-  policy_arn = "arn:aws:iam::aws:policy/AmazonEventBridgeFullAccess"
-}
-
-# IAM permissions (for creating Lambda execution roles)
-resource "aws_iam_role_policy_attachment" "iam_full_access" {
-  role       = aws_iam_role.terraform_deploy.name
-  policy_arn = "arn:aws:iam::aws:policy/IAMFullAccess"
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "events:*",
+          "scheduler:*"
+        ]
+        Resource = "*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "iam:*"
+        ]
+        Resource = "*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "states:*"
+        ]
+        Resource = "*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "logs:*"
+        ]
+        Resource = "*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "sqs:*"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
 }
 
 #------------------------------------------------------------------------------

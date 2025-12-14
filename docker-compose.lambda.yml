@@ -1,0 +1,112 @@
+version: '3.8'
+
+services:
+  # Report Worker Lambda (SQS trigger)
+  report-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.lambda.container
+    ports:
+      - "9001:8080"  # Lambda RIE endpoint
+    environment:
+      AWS_LAMBDA_FUNCTION_NAME: "report-worker-local"
+      AWS_REGION: "ap-southeast-1"
+      # Required env vars (use .env file or export before running)
+      OPENROUTER_API_KEY: "${OPENROUTER_API_KEY:-}"
+      AURORA_HOST: "${AURORA_HOST:-host.docker.internal}"
+      AURORA_PORT: "${AURORA_PORT:-3306}"
+      AURORA_DB_NAME: "${AURORA_DB_NAME:-daily_report}"
+      AURORA_USER: "${AURORA_USER:-admin}"
+      AURORA_PASSWORD: "${AURORA_PASSWORD:-}"
+      PDF_BUCKET_NAME: "${PDF_BUCKET_NAME:-local-test-bucket}"
+      JOBS_TABLE_NAME: "${JOBS_TABLE_NAME:-local-jobs-table}"
+    command: ["report_worker_handler.handler"]
+
+  # Telegram API Lambda (API Gateway trigger)
+  telegram-api:
+    build:
+      context: .
+      dockerfile: Dockerfile.lambda.container
+    ports:
+      - "9002:8080"  # Lambda RIE endpoint
+    environment:
+      AWS_LAMBDA_FUNCTION_NAME: "telegram-api-local"
+      AWS_REGION: "ap-southeast-1"
+      OPENROUTER_API_KEY: "${OPENROUTER_API_KEY:-}"
+      AURORA_HOST: "${AURORA_HOST:-host.docker.internal}"
+      AURORA_PORT: "${AURORA_PORT:-3306}"
+      AURORA_DB_NAME: "${AURORA_DB_NAME:-daily_report}"
+      AURORA_USER: "${AURORA_USER:-admin}"
+      AURORA_PASSWORD: "${AURORA_PASSWORD:-}"
+    command: ["telegram_lambda_handler.handler"]
+
+  # LINE Bot Lambda (Function URL trigger)
+  line-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile.lambda.container
+    ports:
+      - "9003:8080"  # Lambda RIE endpoint
+    environment:
+      AWS_LAMBDA_FUNCTION_NAME: "line-bot-local"
+      AWS_REGION: "ap-southeast-1"
+      LINE_CHANNEL_ACCESS_TOKEN: "${LINE_CHANNEL_ACCESS_TOKEN:-}"
+      LINE_CHANNEL_SECRET: "${LINE_CHANNEL_SECRET:-}"
+      OPENROUTER_API_KEY: "${OPENROUTER_API_KEY:-}"
+      PDF_STORAGE_BUCKET: "${PDF_STORAGE_BUCKET:-local-test-bucket}"
+    command: ["lambda_handler.lambda_handler"]
+
+  # Scheduler Lambdas (grouped - only start if needed)
+  ticker-fetcher:
+    build:
+      context: .
+      dockerfile: Dockerfile.lambda.container
+    ports:
+      - "9004:8080"
+    environment:
+      AWS_LAMBDA_FUNCTION_NAME: "ticker-fetcher-local"
+      AWS_REGION: "ap-southeast-1"
+      AURORA_HOST: "${AURORA_HOST:-host.docker.internal}"
+      AURORA_PORT: "${AURORA_PORT:-3306}"
+      AURORA_DB_NAME: "${AURORA_DB_NAME:-daily_report}"
+      AURORA_USER: "${AURORA_USER:-admin}"
+      AURORA_PASSWORD: "${AURORA_PASSWORD:-}"
+    command: ["src.scheduler.ticker_fetcher_handler.lambda_handler"]
+    profiles:
+      - scheduler  # Only start with --profile scheduler
+
+  query-tool:
+    build:
+      context: .
+      dockerfile: Dockerfile.lambda.container
+    ports:
+      - "9005:8080"
+    environment:
+      AWS_LAMBDA_FUNCTION_NAME: "query-tool-local"
+      AWS_REGION: "ap-southeast-1"
+      AURORA_HOST: "${AURORA_HOST:-host.docker.internal}"
+      AURORA_PORT: "${AURORA_PORT:-3306}"
+      AURORA_DB_NAME: "${AURORA_DB_NAME:-daily_report}"
+      AURORA_USER: "${AURORA_USER:-admin}"
+      AURORA_PASSWORD: "${AURORA_PASSWORD:-}"
+    command: ["src.scheduler.query_tool_handler.lambda_handler"]
+    profiles:
+      - scheduler
+
+  precompute-controller:
+    build:
+      context: .
+      dockerfile: Dockerfile.lambda.container
+    ports:
+      - "9006:8080"
+    environment:
+      AWS_LAMBDA_FUNCTION_NAME: "precompute-controller-local"
+      AWS_REGION: "ap-southeast-1"
+      AURORA_HOST: "${AURORA_HOST:-host.docker.internal}"
+      AURORA_PORT: "${AURORA_PORT:-3306}"
+      AURORA_DB_NAME: "${AURORA_DB_NAME:-daily_report}"
+      AURORA_USER: "${AURORA_USER:-admin}"
+      AURORA_PASSWORD: "${AURORA_PASSWORD:-}"
+    command: ["src.scheduler.precompute_controller_handler.lambda_handler"]
+    profiles:
+      - scheduler

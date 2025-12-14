@@ -19,12 +19,6 @@
 # Variables
 ###############################################################################
 
-variable "aurora_enabled" {
-  description = "Enable Aurora MySQL cluster (set to false to skip creation)"
-  type        = bool
-  default     = false  # Start disabled, enable when ready
-}
-
 variable "aurora_min_acu" {
   description = "Minimum ACU capacity for Aurora Serverless v2 (0.5 ACU = ~$43/month)"
   type        = number
@@ -61,8 +55,6 @@ variable "aurora_database_name" {
 ###############################################################################
 
 resource "aws_security_group" "aurora" {
-  count = var.aurora_enabled ? 1 : 0
-
   name        = "${var.project_name}-aurora-${var.environment}"
   description = "Security group for Aurora MySQL cluster"
   vpc_id      = data.aws_vpc.default.id
@@ -73,7 +65,7 @@ resource "aws_security_group" "aurora" {
     from_port       = 3306
     to_port         = 3306
     protocol        = "tcp"
-    security_groups = [aws_security_group.lambda_aurora[0].id]
+    security_groups = [aws_security_group.lambda_aurora.id]
   }
 
   # Allow access from within VPC (for local testing via bastion if needed)
@@ -102,8 +94,6 @@ resource "aws_security_group" "aurora" {
 
 # Security group for Lambda functions that need Aurora access
 resource "aws_security_group" "lambda_aurora" {
-  count = var.aurora_enabled ? 1 : 0
-
   name        = "${var.project_name}-lambda-aurora-${var.environment}"
   description = "Security group for Lambda functions accessing Aurora"
   vpc_id      = data.aws_vpc.default.id
@@ -172,8 +162,6 @@ locals {
 ###############################################################################
 
 resource "aws_db_subnet_group" "aurora" {
-  count = var.aurora_enabled ? 1 : 0
-
   name        = "${var.project_name}-aurora-${var.environment}"
   description = "Subnet group for Aurora cluster"
   subnet_ids  = data.aws_subnets.default.ids
@@ -190,8 +178,6 @@ resource "aws_db_subnet_group" "aurora" {
 ###############################################################################
 
 resource "aws_rds_cluster" "aurora" {
-  count = var.aurora_enabled ? 1 : 0
-
   cluster_identifier = "${var.project_name}-aurora-${var.environment}"
   engine             = "aurora-mysql"
   engine_mode        = "provisioned"
@@ -200,8 +186,8 @@ resource "aws_rds_cluster" "aurora" {
   master_username    = var.aurora_master_username
   master_password    = var.AURORA_MASTER_PASSWORD
 
-  db_subnet_group_name   = aws_db_subnet_group.aurora[0].name
-  vpc_security_group_ids = [aws_security_group.aurora[0].id]
+  db_subnet_group_name   = aws_db_subnet_group.aurora.name
+  vpc_security_group_ids = [aws_security_group.aurora.id]
 
   # Serverless v2 capacity configuration
   serverlessv2_scaling_configuration {
@@ -235,13 +221,11 @@ resource "aws_rds_cluster" "aurora" {
 ###############################################################################
 
 resource "aws_rds_cluster_instance" "aurora" {
-  count = var.aurora_enabled ? 1 : 0
-
   identifier         = "${var.project_name}-aurora-instance-${var.environment}"
-  cluster_identifier = aws_rds_cluster.aurora[0].id
+  cluster_identifier = aws_rds_cluster.aurora.id
   instance_class     = "db.serverless"  # Required for Serverless v2
-  engine             = aws_rds_cluster.aurora[0].engine
-  engine_version     = aws_rds_cluster.aurora[0].engine_version
+  engine             = aws_rds_cluster.aurora.engine
+  engine_version     = aws_rds_cluster.aurora.engine_version
 
   # Performance insights (optional, adds ~$0.60/month for 7-day retention)
   performance_insights_enabled          = var.environment == "prod" ? true : false
@@ -259,8 +243,6 @@ resource "aws_rds_cluster_instance" "aurora" {
 ###############################################################################
 
 resource "aws_iam_policy" "lambda_aurora_access" {
-  count = var.aurora_enabled ? 1 : 0
-
   name        = "${var.project_name}-lambda-aurora-access-${var.environment}"
   description = "Allow Lambda to access Aurora cluster"
 
@@ -273,7 +255,7 @@ resource "aws_iam_policy" "lambda_aurora_access" {
           "rds:DescribeDBClusters",
           "rds:DescribeDBInstances"
         ]
-        Resource = aws_rds_cluster.aurora[0].arn
+        Resource = aws_rds_cluster.aurora.arn
       },
       {
         Effect = "Allow"
@@ -301,8 +283,6 @@ resource "aws_iam_policy" "lambda_aurora_access" {
 ###############################################################################
 
 resource "aws_secretsmanager_secret" "aurora_credentials" {
-  count = var.aurora_enabled ? 1 : 0
-
   name        = "${var.project_name}/aurora/${var.environment}"
   description = "Aurora MySQL credentials for ${var.project_name}"
 
@@ -314,13 +294,11 @@ resource "aws_secretsmanager_secret" "aurora_credentials" {
 }
 
 resource "aws_secretsmanager_secret_version" "aurora_credentials" {
-  count = var.aurora_enabled ? 1 : 0
-
-  secret_id = aws_secretsmanager_secret.aurora_credentials[0].id
+  secret_id = aws_secretsmanager_secret.aurora_credentials.id
   secret_string = jsonencode({
     username = var.aurora_master_username
     password = var.AURORA_MASTER_PASSWORD
-    host     = aws_rds_cluster.aurora[0].endpoint
+    host     = aws_rds_cluster.aurora.endpoint
     port     = 3306
     database = var.aurora_database_name
   })
@@ -332,30 +310,35 @@ resource "aws_secretsmanager_secret_version" "aurora_credentials" {
 
 output "aurora_cluster_endpoint" {
   description = "Aurora cluster endpoint for writes"
-  value       = var.aurora_enabled ? aws_rds_cluster.aurora[0].endpoint : null
+  value       = aws_rds_cluster.aurora.endpoint
+}
+
+output "aurora_endpoint" {
+  description = "Aurora cluster endpoint alias for backwards compatibility"
+  value       = aws_rds_cluster.aurora.endpoint
 }
 
 output "aurora_cluster_reader_endpoint" {
   description = "Aurora cluster reader endpoint for reads"
-  value       = var.aurora_enabled ? aws_rds_cluster.aurora[0].reader_endpoint : null
+  value       = aws_rds_cluster.aurora.reader_endpoint
 }
 
 output "aurora_cluster_port" {
   description = "Aurora cluster port"
-  value       = var.aurora_enabled ? aws_rds_cluster.aurora[0].port : null
+  value       = aws_rds_cluster.aurora.port
 }
 
 output "aurora_security_group_id" {
   description = "Security group ID for Aurora cluster"
-  value       = var.aurora_enabled ? aws_security_group.aurora[0].id : null
+  value       = aws_security_group.aurora.id
 }
 
 output "lambda_aurora_security_group_id" {
   description = "Security group ID for Lambda functions accessing Aurora"
-  value       = var.aurora_enabled ? aws_security_group.lambda_aurora[0].id : null
+  value       = aws_security_group.lambda_aurora.id
 }
 
 output "aurora_credentials_secret_arn" {
   description = "ARN of the Secrets Manager secret containing Aurora credentials"
-  value       = var.aurora_enabled ? aws_secretsmanager_secret.aurora_credentials[0].arn : null
+  value       = aws_secretsmanager_secret.aurora_credentials.arn
 }

@@ -74,17 +74,14 @@ def _validate_required_config() -> None:
 
 
 def handler(event: dict, context: Any) -> dict:
-    """Lambda handler for SQS report generation messages
+    """Lambda handler for SQS report generation messages and migrations
 
-    Processes each SQS record:
-    1. Parse job_id and ticker from message body
-    2. Mark job as in_progress
-    3. Run analysis agent
-    4. Transform and store result
-    5. Mark job as completed/failed
+    Two modes:
+    1. SQS Mode (default): Processes SQS records for async report generation
+    2. Migration Mode: Routes to migration_handler for database migrations
 
     Args:
-        event: SQS event with Records array
+        event: SQS event with Records array OR direct invocation with 'migration' key
         context: Lambda context (unused)
 
     Returns:
@@ -94,6 +91,12 @@ def handler(event: dict, context: Any) -> dict:
         ValueError: If required environment variables are missing
         Exception: Re-raised after marking job as failed (for DLQ)
     """
+    # Check if this is a migration request (direct invocation)
+    if 'migration' in event:
+        logger.info(f"Detected migration request: {event.get('migration')}")
+        from src.migration_handler import lambda_handler as migration_lambda_handler
+        return migration_lambda_handler(event, context)
+
     # Validate configuration at startup - fail fast!
     # Defensive programming: catch missing env vars before wasting compute
     _validate_required_config()

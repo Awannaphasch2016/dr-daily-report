@@ -139,10 +139,22 @@ class ProjectionCalculator:
         # Last historical date
         # Handle both date strings and numeric indices
         last_date_str = dates[-1]
+
+        # Check if it's a numeric string (e.g., "246" from RangeIndex)
+        is_numeric = False
         if isinstance(last_date_str, (int, float)):
+            is_numeric = True
+        elif isinstance(last_date_str, str):
+            try:
+                float(last_date_str)
+                is_numeric = True
+            except ValueError:
+                pass
+
+        if is_numeric:
             # Numeric index - use today's date as fallback
             last_date = datetime.now()
-            logger.warning(f"DataFrame has numeric index, using current date as projection start")
+            logger.warning(f"DataFrame has numeric index ({last_date_str}), using current date as projection start")
         else:
             last_date = datetime.strptime(str(last_date_str), '%Y-%m-%d')
         last_day_index = len(returns) - 1

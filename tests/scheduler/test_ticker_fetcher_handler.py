@@ -1,0 +1,411 @@
+# -*- coding: utf-8 -*-
+"""
+Unit tests for ticker_fetcher_handler (Extract Layer).
+
+Tests the new focused Lambda that ONLY fetches raw ticker data.
+Part of scheduler redesign: splitting God Lambda into 4 focused Lambdas.
+
+Sprint 1 Deliverable: Verify ticker-fetcher handler correctly:
+- Fetches all tickers on empty event
+- Fetches specific tickers when provided
+- Handles configuration errors
+- Returns proper response format
+- Handles failures gracefully
+"""
+import json
+import os
+import pytest
+from datetime import datetime
+from unittest.mock import patch, MagicMock, Mock
+
+
+class TestTickerFetcherHandler:
+    """Test ticker_fetcher_handler Lambda function."""
+
+    def setup_method(self):
+        """Set up test environment variables."""
+        self.valid_env = {
+            'PDF_BUCKET_NAME': 'test-pdf-bucket',
+            'DATA_LAKE_BUCKET': 'test-data-lake-bucket',
+            'ENVIRONMENT': 'test',
+            'LOG_LEVEL': 'INFO',
+            'AURORA_HOST': 'test-aurora.cluster.amazonaws.com',
+            'AURORA_PORT': '3306',
+            'AURORA_DATABASE': 'ticker_data',
+            'AURORA_USER': 'admin',
+            'AURORA_PASSWORD': 'test-password'
+        }
+
+        self.mock_fetch_results = {
+            'success_count': 47,
+            'failed_count': 0,
+            'total': 47,
+            'date': '2025-12-13',
+            'success': [
+                {'ticker': 'NVDA', 'yahoo_ticker': 'NVDA', 'rows_written': 365},
+                {'ticker': 'DBS19', 'yahoo_ticker': 'D05.SI', 'rows_written': 365}
+            ],
+            'failed': []
+        }
+
+    @patch.dict(os.environ, {}, clear=True)
+    @patch('src.scheduler.ticker_fetcher.TickerFetcher')
+    def test_fetch_all_tickers_on_empty_event(self, mock_fetcher_class):
+        """GIVEN Lambda invoked with empty event
+        WHEN handler processes event
+        THEN it should fetch ALL tickers (default behavior)
+        """
+        # Setup mock
+        mock_fetcher = MagicMock()
+        mock_fetcher.fetch_all_tickers.return_value = self.mock_fetch_results
+        mock_fetcher_class.return_value = mock_fetcher
+
+        with patch.dict(os.environ, self.valid_env):
+            from src.scheduler.ticker_fetcher_handler import lambda_handler
+
+            event = {}  # Empty event = fetch all
+            context = MagicMock()
+
+            result = lambda_handler(event, context)
+
+            # Verify fetch_all_tickers was called (not fetch_tickers)
+            mock_fetcher.fetch_all_tickers.assert_called_once()
+            mock_fetcher.fetch_tickers.assert_not_called()
+
+            # Verify response
+            assert result['statusCode'] == 200
+            assert result['body']['message'] == 'Ticker fetch completed'
+            assert result['body']['success_count'] == 47
+            assert result['body']['failed_count'] == 0
+
+    @patch.dict(os.environ, {}, clear=True)
+    @patch('src.scheduler.ticker_fetcher.TickerFetcher')
+    def test_fetch_specific_tickers(self, mock_fetcher_class):
+        """GIVEN Lambda invoked with specific tickers
+        WHEN handler processes event
+        THEN it should fetch ONLY those tickers
+        """
+        # Setup mock
+        mock_fetcher = MagicMock()
+        specific_results = {
+            'success_count': 2,
+            'failed_count': 0,
+            'total': 2,
+            'date': '2025-12-13',
+            'success': [
+                {'ticker': 'NVDA', 'yahoo_ticker': 'NVDA', 'rows_written': 365},
+                {'ticker': 'DBS19', 'yahoo_ticker': 'D05.SI', 'rows_written': 365}
+            ],
+            'failed': []
+        }
+        mock_fetcher.fetch_tickers.return_value = specific_results
+        mock_fetcher_class.return_value = mock_fetcher
+
+        with patch.dict(os.environ, self.valid_env):
+            from src.scheduler.ticker_fetcher_handler import lambda_handler
+
+            event = {'tickers': ['NVDA', 'DBS19']}
+            context = MagicMock()
+
+            result = lambda_handler(event, context)
+
+            # Verify fetch_tickers was called with correct tickers
+            mock_fetcher.fetch_tickers.assert_called_once_with(['NVDA', 'DBS19'])
+            mock_fetcher.fetch_all_tickers.assert_not_called()
+
+            # Verify response
+            assert result['statusCode'] == 200
+            assert result['body']['success_count'] == 2
+
+    @patch.dict(os.environ, {}, clear=True)
+    @patch('src.scheduler.ticker_fetcher.TickerFetcher')
+    def test_handler_initializes_fetcher_correctly(self, mock_fetcher_class):
+        """GIVEN Lambda invocation
+        WHEN TickerFetcher is instantiated
+        THEN it should receive correct bucket names from env vars
+        """
+        mock_fetcher = MagicMock()
+        mock_fetcher.fetch_all_tickers.return_value = self.mock_fetch_results
+        mock_fetcher_class.return_value = mock_fetcher
+
+        with patch.dict(os.environ, self.valid_env):
+            from src.scheduler.ticker_fetcher_handler import lambda_handler
+
+            lambda_handler({}, MagicMock())
+
+            # Verify TickerFetcher was initialized with correct arguments
+            mock_fetcher_class.assert_called_once_with(
+                bucket_name='test-pdf-bucket',
+                data_lake_bucket='test-data-lake-bucket'
+            )
+
+    @patch.dict(os.environ, {}, clear=True)
+    @patch('src.scheduler.ticker_fetcher.TickerFetcher')
+    def test_response_includes_duration(self, mock_fetcher_class):
+        """GIVEN successful fetch
+        WHEN handler completes
+        THEN response should include duration_seconds
+        """
+        mock_fetcher = MagicMock()
+        mock_fetcher.fetch_all_tickers.return_value = self.mock_fetch_results
+        mock_fetcher_class.return_value = mock_fetcher
+
+        with patch.dict(os.environ, self.valid_env):
+            from src.scheduler.ticker_fetcher_handler import lambda_handler
+
+            result = lambda_handler({}, MagicMock())
+
+            # Verify duration is present and reasonable
+            assert 'duration_seconds' in result['body']
+            duration = result['body']['duration_seconds']
+            assert isinstance(duration, float)
+            assert duration >= 0
+            assert duration < 10  # Should be fast with mocked fetcher
+
+    @patch.dict(os.environ, {}, clear=True)
+    @patch('src.scheduler.ticker_fetcher.TickerFetcher')
+    def test_response_includes_success_and_failed_lists(self, mock_fetcher_class):
+        """GIVEN fetch results with some failures
+        WHEN handler completes
+        THEN response should include lists of successful and failed tickers
+        """
+        results_with_failures = {
+            'success_count': 45,
+            'failed_count': 2,
+            'total': 47,
+            'date': '2025-12-13',
+            'success': [
+                {'ticker': 'NVDA', 'yahoo_ticker': 'NVDA', 'rows_written': 365}
+            ],
+            'failed': [
+                {'ticker': 'INVALID', 'error': 'Ticker not found'}
+            ]
+        }
+        mock_fetcher = MagicMock()
+        mock_fetcher.fetch_all_tickers.return_value = results_with_failures
+        mock_fetcher_class.return_value = mock_fetcher
+
+        with patch.dict(os.environ, self.valid_env):
+            from src.scheduler.ticker_fetcher_handler import lambda_handler
+
+            result = lambda_handler({}, MagicMock())
+
+            # Verify response structure
+            assert result['statusCode'] == 200
+            assert 'success' in result['body']
+            assert 'failed' in result['body']
+
+            # Verify success list contains ticker names
+            success_tickers = result['body']['success']
+            assert 'NVDA' in success_tickers
+
+            # Verify failed list is passed through
+            assert result['body']['failed'] == [{'ticker': 'INVALID', 'error': 'Ticker not found'}]
+
+    @patch.dict(os.environ, {}, clear=True)
+    @patch('src.scheduler.ticker_fetcher.TickerFetcher')
+    def test_handler_catches_fetcher_exceptions(self, mock_fetcher_class):
+        """GIVEN TickerFetcher raises exception
+        WHEN handler processes event
+        THEN it should catch exception and return 500 error
+        """
+        mock_fetcher = MagicMock()
+        mock_fetcher.fetch_all_tickers.side_effect = Exception("S3 connection failed")
+        mock_fetcher_class.return_value = mock_fetcher
+
+        with patch.dict(os.environ, self.valid_env):
+            from src.scheduler.ticker_fetcher_handler import lambda_handler
+
+            result = lambda_handler({}, MagicMock())
+
+            # Verify error response
+            assert result['statusCode'] == 500
+            assert result['body']['message'] == 'Ticker fetch failed'
+            assert 'S3 connection failed' in result['body']['error']
+
+    @patch.dict(os.environ, {}, clear=True)
+    def test_missing_bucket_name_env_var(self):
+        """GIVEN Lambda with missing PDF_BUCKET_NAME env var
+        WHEN handler is invoked
+        THEN it should still execute (bucket_name = None is handled by TickerFetcher)
+        """
+        incomplete_env = self.valid_env.copy()
+        del incomplete_env['PDF_BUCKET_NAME']
+
+        with patch.dict(os.environ, incomplete_env):
+            with patch('src.scheduler.ticker_fetcher.TickerFetcher') as mock_fetcher_class:
+                mock_fetcher = MagicMock()
+                mock_fetcher.fetch_all_tickers.return_value = self.mock_fetch_results
+                mock_fetcher_class.return_value = mock_fetcher
+
+                from src.scheduler.ticker_fetcher_handler import lambda_handler
+
+                result = lambda_handler({}, MagicMock())
+
+                # Should succeed - TickerFetcher handles None bucket
+                assert result['statusCode'] == 200
+
+                # Verify TickerFetcher was called with None
+                call_kwargs = mock_fetcher_class.call_args.kwargs
+                assert call_kwargs['bucket_name'] is None
+
+    @patch.dict(os.environ, {}, clear=True)
+    @patch('src.scheduler.ticker_fetcher.TickerFetcher')
+    def test_handler_logs_event_and_results(self, mock_fetcher_class):
+        """GIVEN Lambda invocation
+        WHEN handler processes event
+        THEN it should log event details and results
+        """
+        mock_results = {
+            'success_count': 1,
+            'failed_count': 0,
+            'total': 1,
+            'date': '2025-12-13',
+            'success': [{'ticker': 'NVDA', 'yahoo_ticker': 'NVDA', 'rows_written': 365}],
+            'failed': []
+        }
+        mock_fetcher = MagicMock()
+        mock_fetcher.fetch_tickers.return_value = mock_results  # Specific tickers path
+        mock_fetcher.fetch_all_tickers.return_value = self.mock_fetch_results
+        mock_fetcher_class.return_value = mock_fetcher
+
+        with patch.dict(os.environ, self.valid_env):
+            with patch('src.scheduler.ticker_fetcher_handler.logger') as mock_logger:
+                from src.scheduler.ticker_fetcher_handler import lambda_handler
+
+                event = {'tickers': ['NVDA']}
+                lambda_handler(event, MagicMock())
+
+                # Verify logging calls
+                log_calls = [str(call) for call in mock_logger.info.call_args_list]
+                log_messages = ' '.join(log_calls)
+
+                # Should log invocation time
+                assert 'Ticker Fetcher Lambda invoked' in log_messages
+
+                # Should log event
+                assert 'Event:' in log_messages
+
+                # Should log completion with statistics
+                completion_call = log_calls[-1]  # Last info log
+                # Should show "1 success, 0 failed"
+                assert '1 success' in completion_call and '0 failed' in completion_call
+
+    def test_handler_can_be_tested_locally(self):
+        """GIVEN handler __main__ block
+        WHEN run locally
+        THEN it should execute without errors
+        """
+        # This test verifies the __main__ block structure
+        # In actual execution, we just verify the code path exists
+        from src.scheduler.ticker_fetcher_handler import lambda_handler
+
+        # The handler should be callable
+        assert callable(lambda_handler)
+
+        # The __name__ == '__main__' block should exist in the file
+        with open('src/scheduler/ticker_fetcher_handler.py') as f:
+            content = f.read()
+            assert "if __name__ == '__main__':" in content
+            assert "test_event = {'tickers': ['NVDA', 'D05.SI']}" in content
+
+
+class TestTickerFetcherHandlerResponseFormat:
+    """Test response format compliance with AWS Lambda standards."""
+
+    def setup_method(self):
+        """Set up environment."""
+        self.valid_env = {
+            'PDF_BUCKET_NAME': 'test-bucket',
+            'DATA_LAKE_BUCKET': 'test-lake',
+            'ENVIRONMENT': 'test'
+        }
+
+    @patch.dict(os.environ, {}, clear=True)
+    @patch('src.scheduler.ticker_fetcher.TickerFetcher')
+    def test_success_response_structure(self, mock_fetcher_class):
+        """GIVEN successful fetch
+        WHEN handler completes
+        THEN response should have correct structure
+        """
+        mock_fetcher = MagicMock()
+        mock_fetcher.fetch_all_tickers.return_value = {
+            'success_count': 47,
+            'failed_count': 0,
+            'total': 47,
+            'date': '2025-12-13',
+            'success': [],
+            'failed': []
+        }
+        mock_fetcher_class.return_value = mock_fetcher
+
+        with patch.dict(os.environ, self.valid_env):
+            from src.scheduler.ticker_fetcher_handler import lambda_handler
+
+            result = lambda_handler({}, MagicMock())
+
+            # Top-level keys
+            assert 'statusCode' in result
+            assert 'body' in result
+
+            # Body keys
+            body = result['body']
+            assert 'message' in body
+            assert 'success_count' in body
+            assert 'failed_count' in body
+            assert 'total' in body
+            assert 'date' in body
+            assert 'duration_seconds' in body
+            assert 'success' in body
+            assert 'failed' in body
+
+    @patch.dict(os.environ, {}, clear=True)
+    @patch('src.scheduler.ticker_fetcher.TickerFetcher')
+    def test_error_response_structure(self, mock_fetcher_class):
+        """GIVEN fetch failure
+        WHEN handler catches exception
+        THEN error response should have correct structure
+        """
+        mock_fetcher = MagicMock()
+        mock_fetcher.fetch_all_tickers.side_effect = ValueError("Test error")
+        mock_fetcher_class.return_value = mock_fetcher
+
+        with patch.dict(os.environ, self.valid_env):
+            from src.scheduler.ticker_fetcher_handler import lambda_handler
+
+            result = lambda_handler({}, MagicMock())
+
+            # Error response structure
+            assert result['statusCode'] == 500
+            assert 'body' in result
+            assert 'message' in result['body']
+            assert 'error' in result['body']
+            assert result['body']['message'] == 'Ticker fetch failed'
+            assert 'Test error' in result['body']['error']
+
+    @patch.dict(os.environ, {}, clear=True)
+    @patch('src.scheduler.ticker_fetcher.TickerFetcher')
+    def test_response_body_is_dict_not_json_string(self, mock_fetcher_class):
+        """GIVEN Lambda response
+        WHEN handler returns
+        THEN body should be dict, not JSON string (Lambda serializes it)
+        """
+        mock_fetcher = MagicMock()
+        mock_fetcher.fetch_all_tickers.return_value = {
+            'success_count': 47,
+            'failed_count': 0,
+            'total': 47,
+            'date': '2025-12-13',
+            'success': [],
+            'failed': []
+        }
+        mock_fetcher_class.return_value = mock_fetcher
+
+        with patch.dict(os.environ, self.valid_env):
+            from src.scheduler.ticker_fetcher_handler import lambda_handler
+
+            result = lambda_handler({}, MagicMock())
+
+            # Body should be dict, not string
+            assert isinstance(result['body'], dict)
+            assert not isinstance(result['body'], str)

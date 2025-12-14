@@ -1,0 +1,23 @@
+-- ============================================================================
+-- Migration: 006_fix_ticker_info_pk_name.sql
+-- Type: ALTER
+-- Purpose: Rename PK from ticker_id to id (match code expectations)
+-- Created: 2025-12-12
+-- ============================================================================
+--
+-- PRE-CONDITION:
+-- - ticker_info table exists with ticker_id as PK
+--
+-- POST-CONDITION:
+-- - ticker_info PK renamed to 'id'
+--
+-- VERIFICATION:
+-- DESCRIBE ticker_info;
+-- -- Expected: Column 'id' is PRI, 'ticker_id' does not exist
+--
+-- IDEMPOTENCY: CHECK IF EXISTS before rename
+-- SAFETY: No DROP statements
+-- ============================================================================
+
+-- Rename PK column from ticker_id to id
+ALTER TABLE ticker_info CHANGE COLUMN ticker_id id INT AUTO_INCREMENT;

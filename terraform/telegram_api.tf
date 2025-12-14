@@ -40,7 +40,7 @@ resource "aws_iam_role_policy_attachment" "telegram_lambda_dynamodb" {
 
 # Attach VPC execution policy (required for Lambda in VPC to access Aurora)
 resource "aws_iam_role_policy_attachment" "telegram_lambda_vpc" {
-  count = var.aurora_enabled ? 1 : 0
+  # Aurora always enabled
 
   role       = aws_iam_role.telegram_lambda_role.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
@@ -48,10 +48,10 @@ resource "aws_iam_role_policy_attachment" "telegram_lambda_vpc" {
 
 # Attach Aurora access policy
 resource "aws_iam_role_policy_attachment" "telegram_lambda_aurora_access" {
-  count = var.aurora_enabled ? 1 : 0
+  # Aurora always enabled
 
   role       = aws_iam_role.telegram_lambda_role.name
-  policy_arn = aws_iam_policy.lambda_aurora_access[0].arn
+  policy_arn = aws_iam_policy.lambda_aurora_access.arn
 }
 
 # Custom policy for S3 PDF storage access and ECR access
@@ -179,11 +179,11 @@ resource "aws_lambda_function" "telegram_api" {
       LANGSMITH_API_KEY    = var.langsmith_api_key
 
       # Aurora MySQL connection (for cache-first report lookup)
-      AURORA_HOST     = var.aurora_enabled ? aws_rds_cluster.aurora[0].endpoint : ""
+      AURORA_HOST     = aws_rds_cluster.aurora.endpoint
       AURORA_PORT     = "3306"
       AURORA_DATABASE = var.aurora_database_name
       AURORA_USER     = var.aurora_master_username
-      AURORA_PASSWORD = var.aurora_enabled ? var.AURORA_MASTER_PASSWORD : ""
+      AURORA_PASSWORD = var.AURORA_MASTER_PASSWORD
 
       # Environment
       ENVIRONMENT = var.environment
@@ -194,12 +194,9 @@ resource "aws_lambda_function" "telegram_api" {
   # VPC Configuration for Aurora access (required to connect to Aurora in VPC)
   # IMPORTANT: Only use subnets with NAT Gateway routes (local.private_subnets_with_nat)
   # Lambda needs internet access for yfinance, OpenRouter, DynamoDB, and SQS APIs
-  dynamic "vpc_config" {
-    for_each = var.aurora_enabled ? [1] : []
-    content {
-      subnet_ids         = local.private_subnets_with_nat
-      security_group_ids = [aws_security_group.lambda_aurora[0].id]
-    }
+  vpc_config {
+    subnet_ids         = local.private_subnets_with_nat
+    security_group_ids = [aws_security_group.lambda_aurora.id]
   }
 
   tags = merge(local.common_tags, {

@@ -759,6 +759,75 @@ WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users';
 SELECT IF(@table_exists = 1, 'SUCCESS', 'FAILED') AS migration_status;
 ```
 
+### ❌ Anti-Pattern 6: Editing Existing Migration Files
+
+**The Migration Immutability Principle:**
+> Once a migration file is committed to version control, it is immutable. Never edit it - create a new migration instead.
+
+**Why Immutability Matters:**
+- **Reproducibility**: Git history shows what schema changes were made when
+- **Auditability**: Can trace schema evolution through migration file sequence
+- **Team Coordination**: Other developers may have applied the old version
+- **Environment Divergence**: Editing creates different schemas in different environments
+
+**Bad:**
+```sql
+-- 001_create_users.sql (edited after commit)
+CREATE TABLE users (
+    id INT PRIMARY KEY,
+    username VARCHAR(50),
+    email VARCHAR(100)  -- ← Added this line after initial commit
+);
+```
+
+**What happens:**
+- Dev A applies 001 before edit (no email column)
+- Dev B applies 001 after edit (has email column)
+- Production applied 001 before edit (no email column)
+- Result: Schema divergence across environments
+
+**Good:**
+```sql
+-- 001_create_users.sql (never edited after commit)
+CREATE TABLE users (
+    id INT PRIMARY KEY,
+    username VARCHAR(50)
+);
+
+-- 002_add_email.sql (new migration)
+ALTER TABLE users ADD COLUMN IF NOT EXISTS email VARCHAR(100);
+```
+
+**Exception: Uncommitted Migrations**
+- Migration files NOT YET committed to version control CAN be edited
+- Once committed (`git commit`), they're immutable
+- If you catch a mistake before committing, edit freely
+- After commit, create a new migration file
+
+**Recovery from Edited Migrations:**
+
+If you accidentally edited a migration that was already applied:
+
+1. **Revert the edit** (restore original file)
+2. **Create new migration** with the intended change
+3. **Document in commit message** what happened and why
+
+Example:
+```bash
+# Revert bad edit
+git checkout HEAD~1 -- db/migrations/001_complete_schema.sql
+
+# Create new migration
+vim db/migrations/008_fix_ticker_id_type.sql
+
+# Commit with explanation
+git commit -m "fix: Revert 001 edit, create 008 for ticker_id type change
+
+- Accidentally edited 001_complete_schema.sql after it was applied
+- Restored original 001 to maintain migration history integrity
+- Created 008_fix_ticker_id_type.sql with intended change"
+```
+
 ---
 
 ## Testing Migrations

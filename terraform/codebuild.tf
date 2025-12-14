@@ -22,13 +22,13 @@
 ###############################################################################
 
 resource "aws_codebuild_project" "vpc_tests" {
-  count = var.aurora_enabled ? 1 : 0
+  # Aurora always enabled
 
   name          = "${var.project_name}-vpc-tests-${var.environment}"
   description   = "Run Terratest integration tests inside VPC (Aurora access)"
   build_timeout = 30 # minutes
 
-  service_role = aws_iam_role.codebuild_vpc_tests[0].arn
+  service_role = aws_iam_role.codebuild_vpc_tests.arn
 
   environment {
     compute_type    = "BUILD_GENERAL1_SMALL"
@@ -39,7 +39,7 @@ resource "aws_codebuild_project" "vpc_tests" {
     # Aurora connection (matches Lambda pattern from telegram_api.tf)
     environment_variable {
       name  = "AURORA_HOST"
-      value = aws_rds_cluster.aurora[0].endpoint
+      value = aws_rds_cluster.aurora.endpoint
     }
     environment_variable {
       name  = "AURORA_PORT"
@@ -56,7 +56,7 @@ resource "aws_codebuild_project" "vpc_tests" {
     environment_variable {
       name  = "AURORA_PASSWORD"
       type  = "SECRETS_MANAGER"
-      value = "${aws_secretsmanager_secret.aurora_credentials[0].arn}:password::"
+      value = "${aws_secretsmanager_secret.aurora_credentials.arn}:password::"
     }
     environment_variable {
       name  = "ENVIRONMENT"
@@ -76,7 +76,7 @@ resource "aws_codebuild_project" "vpc_tests" {
   vpc_config {
     vpc_id             = data.aws_vpc.default.id
     subnets            = local.private_subnets_with_nat # NAT-routed subnets
-    security_group_ids = [aws_security_group.codebuild_vpc[0].id]
+    security_group_ids = [aws_security_group.codebuild_vpc.id]
   }
 
   source {
@@ -107,7 +107,7 @@ resource "aws_codebuild_project" "vpc_tests" {
 ###############################################################################
 
 resource "aws_security_group" "codebuild_vpc" {
-  count = var.aurora_enabled ? 1 : 0
+  # Aurora always enabled
 
   name        = "${var.project_name}-codebuild-vpc-${var.environment}"
   description = "Security group for CodeBuild VPC tests - Aurora access"
@@ -133,14 +133,14 @@ resource "aws_security_group" "codebuild_vpc" {
 
 # Add CodeBuild to Aurora security group ingress
 resource "aws_security_group_rule" "aurora_from_codebuild" {
-  count = var.aurora_enabled ? 1 : 0
+  # Aurora always enabled
 
   type                     = "ingress"
   from_port                = 3306
   to_port                  = 3306
   protocol                 = "tcp"
-  security_group_id        = aws_security_group.aurora[0].id
-  source_security_group_id = aws_security_group.codebuild_vpc[0].id
+  security_group_id        = aws_security_group.aurora.id
+  source_security_group_id = aws_security_group.codebuild_vpc.id
   description              = "Allow CodeBuild VPC tests to connect to Aurora"
 }
 
@@ -149,7 +149,7 @@ resource "aws_security_group_rule" "aurora_from_codebuild" {
 ###############################################################################
 
 resource "aws_iam_role" "codebuild_vpc_tests" {
-  count = var.aurora_enabled ? 1 : 0
+  # Aurora always enabled
 
   name = "${var.project_name}-codebuild-vpc-tests-${var.environment}"
 
@@ -172,10 +172,10 @@ resource "aws_iam_role" "codebuild_vpc_tests" {
 }
 
 resource "aws_iam_role_policy" "codebuild_vpc_tests" {
-  count = var.aurora_enabled ? 1 : 0
+  # Aurora always enabled
 
   name = "codebuild-vpc-tests-policy"
-  role = aws_iam_role.codebuild_vpc_tests[0].id
+  role = aws_iam_role.codebuild_vpc_tests.id
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -209,7 +209,7 @@ resource "aws_iam_role_policy" "codebuild_vpc_tests" {
       {
         Effect   = "Allow"
         Action   = ["secretsmanager:GetSecretValue"]
-        Resource = aws_secretsmanager_secret.aurora_credentials[0].arn
+        Resource = aws_secretsmanager_secret.aurora_credentials.arn
       },
       # Read-only AWS SDK calls for tests (Lambda, API Gateway, DynamoDB)
       {
@@ -255,15 +255,15 @@ resource "aws_iam_role_policy" "codebuild_vpc_tests" {
 
 output "codebuild_project_name" {
   description = "CodeBuild project name for VPC tests (use in GitHub Actions)"
-  value       = var.aurora_enabled ? aws_codebuild_project.vpc_tests[0].name : null
+  value       = aws_codebuild_project.vpc_tests.name
 }
 
 output "codebuild_project_arn" {
   description = "CodeBuild project ARN for VPC tests"
-  value       = var.aurora_enabled ? aws_codebuild_project.vpc_tests[0].arn : null
+  value       = aws_codebuild_project.vpc_tests.arn
 }
 
 output "codebuild_security_group_id" {
   description = "Security group ID for CodeBuild VPC tests"
-  value       = var.aurora_enabled ? aws_security_group.codebuild_vpc[0].id : null
+  value       = aws_security_group.codebuild_vpc.id
 }

@@ -133,15 +133,10 @@ class RankingsService:
 
                 # Extract top 3 scores
                 key_scores = None
-                user_facing_scores = report_json.get('user_facing_scores')
-                if user_facing_scores:
-                    # user_facing_scores is a dict like {'Technical': {...}, 'Fundamental': {...}}
-                    # Convert to list and take top 3
-                    if isinstance(user_facing_scores, dict):
-                        scores_list = list(user_facing_scores.values())[:3]
-                        key_scores = scores_list
-                    elif isinstance(user_facing_scores, list):
-                        key_scores = user_facing_scores[:3]
+                key_scores_data = report_json.get('key_scores')
+                if key_scores_data and isinstance(key_scores_data, list):
+                    # key_scores is already a list of score objects
+                    key_scores = key_scores_data[:3]
 
                 logger.info(f"✅ Cache hit for {symbol}: chart_data={chart_data is not None}, key_scores={key_scores is not None}")
 

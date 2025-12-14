@@ -386,6 +386,67 @@ def analyze_technical(state: AgentState) -> AgentState:
     return state
 ```
 
+### Principles of Error Investigation
+
+**Core Principle:** Execution completion ≠ Operational success. Verify actual outcomes across multiple layers, not just the absence of exceptions.
+
+#### Principle 1: Multi-Layer Verification
+
+Errors surface at different layers. Check all layers to distinguish between "service executed" and "service succeeded":
+
+**Verification Layers:**
+1. **Exit Code/Status**: Did the process complete? (weakest signal)
+2. **Logs**: What errors were logged? At what level? (ERROR vs WARNING vs INFO)
+3. **Data State**: What actually changed in databases/files/external systems? (strongest signal)
+
+**Pattern:** Always verify the layer that matters for your operation. For data storage, check the database; for API calls, check response payload; for background jobs, check both logs and side effects.
+
+**Why this matters:** Services can complete successfully (exit code 0, status "completed") while critical operations fail internally (logged at ERROR level but caught by try-catch).
+
+#### Principle 2: Log Level Determines Discoverability
+
+Log levels are not just severity indicators—they determine whether failures are discoverable by monitoring systems:
+
+- **ERROR/CRITICAL**: Monitored, triggers alerts, visible in dashboards
+- **WARNING**: Logged but not alerted, requires manual log review
+- **INFO/DEBUG**: Invisible to standard monitoring, requires active search
+
+**Investigation Pattern:**
+- Filter logs by ERROR level first to find actual failures
+- If no ERROR logs but operation failed → possible silent failure (logged at wrong level or not logged)
+- Check both application logs and service logs (e.g., Lambda + CloudWatch, database query logs + application logs)
+
+**Why this matters:** An error logged at WARNING level is invisible to monitoring, making it a "discoverable but not discovered" failure.
+
+#### Principle 3: Status Must Reflect Critical Operation Outcomes
+
+When operations have multiple steps, overall status must reflect ALL critical steps, not just final step:
+
+**Decision framework:**
+- Is this operation critical to correctness? → Failure must propagate to overall status
+- Is this operation optional/best-effort? → Log warning, continue, status remains success
+
+**Example:** If job writes to primary storage (critical) and cache (optional):
+- Primary fails → Job status: "failed"
+- Cache fails, primary succeeds → Job status: "completed" + WARNING log
+
+**Why this matters:** Misleading status creates false confidence. Users see "completed" and assume all operations succeeded.
+
+#### Principle 4: Iterative Fix-and-Verify Cycle
+
+Multi-component systems often have layered failures. Fixing one issue reveals the next:
+
+**Pattern:**
+1. Fix identified issue
+2. Re-run operation
+3. Check logs for NEW errors (may uncover next layer)
+4. Verify actual outcome (data state, not just status)
+5. Repeat until clean execution AND verified outcome
+
+**Why this matters:** Schema mismatches, missing columns, FK constraints often surface sequentially—each fix reveals the next missing piece.
+
+**Example from investigation:** Fixed FK constraint type mismatch → revealed missing columns → revealed wrong log level → revealed schema still incomplete.
+
 ### Remote Service Investigation Principles
 
 **Core Principle:** When debugging remote AWS services, identify the PRECISE error layer before attempting fixes. Guessing wastes time and creates false hypotheses.
@@ -699,9 +760,31 @@ def store_report(self, symbol, text):
 
 **System Boundary Principle:** Verify data type compatibility explicitly when crossing service boundaries. Strict types (MySQL ENUMs) fail silently on mismatch—no exception, data just doesn't persist. Always validate constraints on both sides.
 
+**Necessary Condition Principle:** When an entity (value, variable, resource) is a necessary condition for an operation (function, query, infrastructure), the absence of that entity cannot have a fallback plan. If X is required for operation Y to produce correct results, then operation Y must fail explicitly when X is absent—it cannot silently fall back to an alternative. Fallback patterns imply "the operation can succeed without the primary entity," but if the entity is actually necessary, the fallback creates silent incorrectness where the operation appears to succeed but produces wrong results. Valid fallbacks provide the same outcome through different means (cache miss → fetch from source, primary server → backup server). Invalid fallbacks change the nature of the operation itself (missing user ID → use default user, missing primary key → search by name instead). Make necessary conditions explicit and enforced: mark as NOT NULL in schemas, make parameters required, validate at operation entry point, fail fast with clear error messages. Detection pattern: if X is required for correctness AND code has fallback logic (try X, else use Y), this reveals a design inconsistency—either X isn't actually required, or the fallback is hiding failures.
+
 **Type System Integration Principle:** Research type compatibility BEFORE integrating systems (APIs, databases, message queues). Type system mismatches cause silent failures. Answer: (1) What types does target accept? (2) What types does source produce? (3) How does target handle invalid types? Apply defense in depth: convert types → handle special values → validate schema → serialize strict → verify outcome. See [Type System Integration Guide](docs/TYPE_SYSTEM_INTEGRATION.md).
 
-**PyMySQL JSON Handling Principle:** PyMySQL (unlike mysql-connector-python) CANNOT accept Python dicts as query parameters. The correct pattern for JSON columns is: `cursor.execute("INSERT ... VALUES (%s)", (json.dumps(data),))`. PyMySQL handles parameterization and escaping correctly when data is pre-serialized with `json.dumps()`. Passing dicts directly raises `TypeError: dict can not be used as parameter`. Always verify library-specific requirements—don't assume patterns from similar libraries apply.
+**Heterogeneous Type System Compatibility Principle:** When integrating heterogeneous systems (libraries, services, programs, databases, APIs), each system has independent type requirements that cannot be inferred from similar systems. Type mismatches at system boundaries cause runtime errors, data corruption, or silent failures that may not surface until production. Explicit type conversion at boundaries (before crossing into the foreign system) prevents these failures. Pattern: (1) Read target system's type requirements, (2) Convert data to required format at boundary, (3) Verify with minimal test case, (4) Never assume patterns from similar systems apply. Common boundary mismatches: structured data (Python dicts vs JSON strings vs Protocol Buffers), numeric types (NumPy int64 vs native Python int vs JSON number), temporal types (datetime objects vs ISO strings vs Unix timestamps vs database-specific formats), path representations (Path objects vs strings vs URLs).
+
+**Examples across heterogeneous systems:**
+
+| System Type | Example | Similar System | Type Mismatch | Fix |
+|-------------|---------|----------------|---------------|-----|
+| **Database Driver** | PyMySQL | mysql-connector-python | PyMySQL rejects dicts for JSON columns | `json.dumps(data)` before passing |
+| **HTTP Client** | httpx | requests | httpx stricter about URL types | Convert to `str()` explicitly |
+| **Cloud SDK** | boto3 | AWS CLI | boto3 needs native Python types, not NumPy | Convert `np.int64` → `int()` |
+| **REST API** | FastAPI | Flask | FastAPI Pydantic expects ISO strings for datetime | Use `.isoformat()` before serializing |
+| **Message Queue** | Kafka producer | RabbitMQ | Kafka requires bytes, not strings | `str.encode('utf-8')` |
+| **CLI Tool** | subprocess | shell script | subprocess needs strings for env vars | Convert `Path` → `str()` |
+| **Dataframe Library** | polars | pandas | Different datetime handling | Convert to `pd.Timestamp()` or `.dt.timestamp()` |
+
+**Detection pattern:**
+```
+If switching from library A to library B:
+  AND code worked with library A
+  AND library B raises TypeError/ValueError
+  → Check library B's type requirements, don't assume library A's patterns apply
+```
 
 **Research Before Iteration Principle:** When same bug persists after 2 fix attempts, STOP iterating and START researching. Invest 30-60 minutes understanding root cause (read specs, inspect real data, reproduce locally) instead of deploying more guesses. Research has upfront cost but prevents 3+ failed deployment cycles. Pattern: iteration for first hypotheses, research when hypotheses fail repeatedly.
 
@@ -709,7 +792,7 @@ def store_report(self, symbol, text):
 
 **Service Design Patterns:** Singleton pattern for Lambda cold start optimization. Async/Sync dual methods for LangGraph (sync) + FastAPI (async). Custom exception hierarchy with centralized error handlers. See [API Architecture](docs/CODE_STYLE.md#telegram-api-architecture-patterns).
 
-**Database Migration Principles:** Use reconciliation migrations when database state is unknown or partially migrated. Reconciliation migrations use idempotent operations (CREATE TABLE IF NOT EXISTS, ALTER TABLE ADD COLUMN IF NOT EXISTS) to safely transition from any intermediate state to the desired schema without destructive operations. This pattern prevents migration conflicts, duplicate numbering issues, and unclear execution states. Unlike traditional sequential migrations that assume clean state, reconciliation migrations validate current schema and apply only missing changes. **Critical gotchas:** (1) `CREATE TABLE IF NOT EXISTS` skips entirely if table exists with different schema—use `ALTER TABLE` to fix existing tables. (2) `ALTER TABLE MODIFY COLUMN` changes column TYPE but not existing DATA—old rows retain their original values even if incompatible with new type. Always verify migrations changed what you expected with `DESCRIBE table_name` after applying. See [Database Migrations Guide](docs/DATABASE_MIGRATIONS.md) for detailed patterns, MySQL-specific considerations, and migration tracking strategies.
+**Database Migration Principles:** Migration files are immutable once committed to version control—never edit them, always create new migrations for schema changes. This ensures reproducibility across environments and preserves schema evolution history. Use reconciliation migrations when database state is unknown or partially migrated. Reconciliation migrations use idempotent operations (CREATE TABLE IF NOT EXISTS, ALTER TABLE ADD COLUMN IF NOT EXISTS) to safely transition from any intermediate state to the desired schema without destructive operations. This pattern prevents migration conflicts, duplicate numbering issues, and unclear execution states. Unlike traditional sequential migrations that assume clean state, reconciliation migrations validate current schema and apply only missing changes. **Critical gotchas:** (1) `CREATE TABLE IF NOT EXISTS` skips entirely if table exists with different schema—use `ALTER TABLE` to fix existing tables. (2) `ALTER TABLE MODIFY COLUMN` changes column TYPE but not existing DATA—old rows retain their original values even if incompatible with new type. Always verify migrations changed what you expected with `DESCRIBE table_name` after applying. See [Database Migrations Guide](docs/DATABASE_MIGRATIONS.md) for detailed patterns, MySQL-specific considerations, and migration tracking strategies.
 
 **Aurora VPC Access Pattern:** Aurora databases are deployed in private VPC subnets and CANNOT be accessed directly from outside the VPC. Use AWS SSM Session Manager port forwarding through a bastion host to establish secure tunnels. Pattern: (1) Find SSM-managed instance: `aws ssm describe-instance-information`, (2) Start port forwarding: `aws ssm start-session --target <instance-id> --document-name AWS-StartPortForwardingSessionToRemoteHost --parameters '{"host":["<aurora-endpoint>"],"portNumber":["3306"],"localPortNumber":["3307"]}'`, (3) Connect to `localhost:3307` as if it were the Aurora endpoint. Scripts that access Aurora must expect SSM tunnel to be active (check with `ss -ltn | grep 3307`). Never attempt direct connections to Aurora endpoints—they will timeout. See `~/aurora-vd.sh` for reference implementation.
 

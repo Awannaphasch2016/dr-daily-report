@@ -172,6 +172,119 @@ test-tier4:
     pytest --tier=4 tests/e2e -v --tb=short
     @echo "✅ Tier 4 tests passed!"
 
+# === LAMBDA RIE TESTING (Pre-Deployment Validation) ===
+# Test Lambda handlers in actual Lambda container using Runtime Interface Emulator
+# This catches import errors BEFORE deployment to AWS
+
+# Start Lambda containers locally with RIE (for testing handlers)
+lambda-up:
+    @echo "🚀 Starting Lambda RIE containers..."
+    @echo "   report-worker: http://localhost:9001"
+    @echo "   telegram-api:  http://localhost:9002"
+    @echo "   line-bot:      http://localhost:9003"
+    docker-compose -f docker-compose.lambda.yml up -d report-worker telegram-api line-bot
+    @echo "⏳ Waiting for containers to be ready..."
+    @sleep 5
+    @echo "✅ Lambda containers ready for testing!"
+
+# Stop Lambda RIE containers
+lambda-down:
+    @echo "🛑 Stopping Lambda RIE containers..."
+    docker-compose -f docker-compose.lambda.yml down
+    @echo "✅ Containers stopped"
+
+# Test Lambda handlers using RIE (catches import errors before deployment)
+test-lambda:
+    @echo "🧪 Testing Lambda handlers in RIE containers..."
+    @echo "   This validates handlers import correctly in Lambda environment"
+    @echo ""
+    @if ! docker ps | grep -q report-worker; then \
+        echo "⚠️  Containers not running. Starting them..."; \
+        just lambda-up; \
+    fi
+    pytest tests/lambda_rie/ -v --tier=2
+    @echo ""
+    @echo "✅ Lambda RIE tests passed!"
+
+# Full Lambda validation workflow: build → test → cleanup
+test-lambda-full:
+    @echo "🔍 Full Lambda validation workflow..."
+    @echo ""
+    @echo "1️⃣  Building Lambda container image..."
+    docker build -f Dockerfile.lambda.container -t lambda-local-test .
+    @echo ""
+    @echo "2️⃣  Starting RIE containers..."
+    just lambda-up
+    @echo ""
+    @echo "3️⃣  Running import validation tests..."
+    pytest tests/lambda_rie/ -v --tier=2
+    @echo ""
+    @echo "4️⃣  Cleaning up..."
+    just lambda-down
+    @echo ""
+    @echo "✅ Full Lambda validation passed!"
+
+# Quick check: Verify handlers can import in Lambda container
+lambda-check:
+    @echo "⚡ Quick Lambda import check..."
+    @docker build -q -f Dockerfile.lambda.container -t lambda-quick-test . > /dev/null
+    @docker run --rm -e PYTHONPATH=/var/task --entrypoint sh lambda-quick-test -c "python3 scripts/test_lambda_imports.py"
+
+# === AURORA DATABASE INTERACTION ===
+
+# Start SSM port forwarding to Aurora (run in background, keep terminal open)
+aurora-tunnel:
+    @echo "🔌 Starting SSM tunnel to Aurora..."
+    @echo "   Local port: 3307"
+    @echo "   Remote: dr-daily-report-aurora-dev"
+    @echo ""
+    @echo "⚠️  Keep this terminal open while using Aurora"
+    @echo "   Press Ctrl+C to stop the tunnel"
+    @echo ""
+    aws ssm start-session \
+      --target i-0dab21bdf83ce9aaf \
+      --document-name AWS-StartPortForwardingSessionToRemoteHost \
+      --parameters '{"host":["dr-daily-report-aurora-dev.cluster-c9a0288e4hqm.ap-southeast-1.rds.amazonaws.com"],"portNumber":["3306"],"localPortNumber":["3307"]}' \
+      --region ap-southeast-1
+
+# Explore Aurora database with VisiData (requires aurora-tunnel running in another terminal)
+aurora-vd *ARGS:
+    @echo "⚠️  DEPRECATED: Use 'just aurora-query \"SELECT ...\" --output vd' instead"
+    @echo ""
+    @echo "Example:"
+    @echo "   just aurora-query \"SELECT * FROM ticker_master\" --output vd"
+    @echo ""
+    @exit 1
+
+# Run SQL query against Aurora (requires aurora-tunnel running in another terminal)
+aurora-query QUERY *FLAGS:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    # Check tunnel
+    if ! nc -z 127.0.0.1 3307 2>/dev/null; then
+        echo "❌ SSM tunnel not running. Run: just aurora-tunnel"
+        exit 1
+    fi
+
+    # Parse output flag
+    output="table"
+    if echo "{{FLAGS}}" | grep -q "\--output"; then
+        output=$(echo "{{FLAGS}}" | sed -n 's/.*--output[= ]\([^ ]*\).*/\1/p')
+    fi
+
+    # Execute query with selected output format
+    if [ "$output" = "vd" ]; then
+        echo "📊 Opening in VisiData..." >&2
+        mysql -h 127.0.0.1 -P 3307 -u admin -pAuroraDevDb2025SecureX1 \
+            ticker_data --batch -e "{{QUERY}}" 2>/dev/null | vd -f tsv
+    else
+        echo "📝 Query: {{QUERY}}"
+        echo ""
+        mysql -h 127.0.0.1 -P 3307 -u admin -pAuroraDevDb2025SecureX1 \
+            ticker_data -e "{{QUERY}}"
+    fi
+
 # === PROMOTION PIPELINE ===
 # Validates tests pass in order: local → dev → staging → prod
 # Each stage must pass before promoting to the next environment

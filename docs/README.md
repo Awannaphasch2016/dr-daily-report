@@ -9,6 +9,7 @@ Complete documentation for DR Daily Report Telegram Mini App.
 - [Quick Start](QUICKSTART.md) - 5-minute setup guide
 - [CLI Reference](cli.md) - Complete command guide
 - [AWS Setup](AWS_SETUP.md) - IAM permissions and configuration
+- [AWS Operations](AWS_OPERATIONS.md) - Quick reference for AWS service commands (EC2, Aurora, Lambda)
 
 ---
 
@@ -16,6 +17,7 @@ Complete documentation for DR Daily Report Telegram Mini App.
 
 - [Architecture](.claude/CLAUDE.md) - Principles, patterns, and architectural decisions
 - [API Contract](../spec/API_CONTRACT.md) - Backend/frontend API specification
+- [UI Principles](frontend/UI_PRINCIPLES.md) - React/TypeScript patterns, state management, property-based testing
 - [Testing Guide](testing/TESTING_GUIDE.md) - How to run tests
 - [E2E Testing](testing/E2E_TESTING.md) - Playwright browser tests
 

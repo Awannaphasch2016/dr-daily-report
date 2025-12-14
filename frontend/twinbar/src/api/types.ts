@@ -122,6 +122,15 @@ export interface ReportResponse {
   risk: Risk;
   peers: Peer[];
 
+  // Price history and projections
+  price_history: PriceDataPoint[];
+  projections: ProjectionBand[];
+  initial_investment: number;
+
+  // Investment scores
+  key_scores: ScoringMetric[]; // Top 3 scores
+  all_scores: ScoringMetric[]; // All 5-6 scores
+
   // Additional data
   data_sources: string[];
   pdf_report_url?: string;

@@ -1366,7 +1366,7 @@ class PrecomputeService:
         placeholders = ', '.join(['%s'] * len(symbols_to_check))
         query = f"""
             SELECT * FROM precomputed_reports
-            WHERE (symbol IN ({placeholders}) OR (ticker_id IS NOT NULL AND ticker_id = %s))
+            WHERE (symbol IN ({placeholders}) OR ticker_id = %s)
             AND report_date = %s
             AND status = 'completed'
             ORDER BY id DESC

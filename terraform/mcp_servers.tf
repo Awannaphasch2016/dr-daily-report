@@ -52,17 +52,12 @@ resource "aws_lambda_function_url" "sec_edgar_mcp" {
   cors {
     allow_credentials = false
     allow_origins     = ["*"]
-    allow_methods     = ["POST", "OPTIONS"]
-    allow_headers     = ["content-type"]
+    allow_methods     = ["*"]  # Allow all methods (Lambda handles OPTIONS automatically)
+    allow_headers     = ["*"]
     expose_headers    = []
     max_age          = 300
   }
 
-  tags = merge(local.common_tags, {
-    Name      = "${var.project_name}-sec-edgar-mcp-url-${var.environment}"
-    App       = "mcp-server"
-    Component = "function-url"
-  })
 }
 
 ###############################################################################

@@ -42,3 +42,9 @@ telegram_webapp_urls = [
 # LangSmith Tracing
 langsmith_tracing_enabled = false
 langsmith_api_key         = ""
+
+# Aurora MySQL Configuration (always deployed, no flag)
+aurora_min_acu = 0.5  # ~$43/month
+aurora_max_acu = 2
+aurora_database_name = "ticker_data"
+aurora_master_username = "admin"

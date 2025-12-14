@@ -14,16 +14,19 @@ import { apiClient } from './api/client';
 function App() {
   const {
     markets,
-    selectedMarket,
+    getSelectedMarket, // NORMALIZED: Derive market from markets array
     category,
     sortBy,
     isLoading,
-    setSelectedMarket,
+    setSelectedTicker, // NORMALIZED: Set ticker ID
     setCategory,
     setSortBy,
     fetchMarkets,
-    // fetchReport, // TODO: Use when implementing detailed report loading
+    fetchReport, // Fetch full report with all_scores when modal opens
   } = useMarketStore();
+
+  // NORMALIZED: Derive selected market from Single Source of Truth
+  const selectedMarket = getSelectedMarket();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -48,7 +51,8 @@ function App() {
 
     // Fetch markets from API
     fetchMarkets();
-  }, [isReady, isTelegram, initData, fetchMarkets]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isReady, isTelegram, initData]);  // FIX: Removed fetchMarkets from deps to prevent re-fetch on state changes
 
   // Filter and sort markets
   const filteredMarkets = useMemo(() => {
@@ -105,16 +109,18 @@ function App() {
   };
 
   const handleSelectMarket = (market: Market) => {
-    setSelectedMarket(market);
+    // NORMALIZED: Set ticker ID instead of object copy
+    setSelectedTicker(market.id);
     setIsModalOpen(true);
 
-    // Optionally fetch full report when market is selected
-    // fetchReport(market.id);
+    // Fetch full report with all_scores when modal opens
+    fetchReport(market.id);
   };
 
   const handleCloseModal = () => {
     setIsModalOpen(false);
-    setSelectedMarket(null);
+    // NORMALIZED: Clear ticker ID
+    setSelectedTicker(null);
   };
 
   // Telegram back button integration

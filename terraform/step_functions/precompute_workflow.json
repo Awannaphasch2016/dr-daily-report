@@ -1,0 +1,93 @@
+{
+  "Comment": "Precompute workflow - parallel report generation (simplified version)",
+  "StartAt": "PrepareTickerList",
+  "States": {
+    "PrepareTickerList": {
+      "Type": "Pass",
+      "Comment": "In production, this would query ticker_resolver. For MVP, use hardcoded list or pass from input.",
+      "Parameters": {
+        "tickers": [
+          "SIA19", "STEG19", "VENTURE19", "NINTENDO19", "SMFG19", "GOLD19",
+          "INDIAESG19", "DBS19", "THAIBEV19", "UOB19", "MITSU19", "HONDA19",
+          "MUFG19", "VNM19", "TAIWAN19", "FPTVN19", "VCB19", "MWG19",
+          "TENCENT19", "CHMOBILE19", "XIAOMI19", "MEITUAN19", "HAIERS19",
+          "JPMUS19", "PFIZER19", "DISNEY19", "NVDA19", "COSTCO19", "QQQM19",
+          "GOLDUS19", "ITOCHU19", "AIA19", "CHHONGQ19", "ICBC19", "SUNNY19",
+          "JDHEAL19", "HPG19", "VHM19", "ABBV19", "DELL19", "ORCL19",
+          "SP500US19", "SGX19", "SEMB19", "BONDAS19", "UNH19"
+        ]
+      },
+      "ResultPath": "$.ticker_list",
+      "Next": "FanOutToWorkers"
+    },
+
+    "FanOutToWorkers": {
+      "Type": "Map",
+      "ItemsPath": "$.ticker_list.tickers",
+      "MaxConcurrency": 46,
+      "Parameters": {
+        "ticker.$": "$$.Map.Item.Value",
+        "execution_id.$": "$$.Execution.Name"
+      },
+      "Iterator": {
+        "StartAt": "SubmitToSQS",
+        "States": {
+          "SubmitToSQS": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::sqs:sendMessage",
+            "Parameters": {
+              "QueueUrl": "${sqs_queue_url}",
+              "MessageBody": {
+                "job_id.$": "States.Format('rpt_{}_{}', $.ticker, $.execution_id)",
+                "ticker.$": "$.ticker",
+                "execution_id.$": "$.execution_id",
+                "source": "step_functions_precompute"
+              }
+            },
+            "ResultPath": "$.sqs_result",
+            "End": true,
+            "Retry": [
+              {
+                "ErrorEquals": ["States.ALL"],
+                "IntervalSeconds": 2,
+                "MaxAttempts": 3,
+                "BackoffRate": 2.0
+              }
+            ]
+          }
+        }
+      },
+      "ResultPath": "$.fanout_results",
+      "Next": "RecordStartTime"
+    },
+
+    "RecordStartTime": {
+      "Type": "Pass",
+      "Result": {
+        "started_at.$": "$$.State.EnteredTime"
+      },
+      "ResultPath": "$.timing",
+      "Next": "WaitForWorkers"
+    },
+
+    "WaitForWorkers": {
+      "Type": "Wait",
+      "Seconds": 300,
+      "Comment": "Wait 5 minutes for all 46 workers to complete. Slowest ticker takes ~60-120s, this provides 2-3x buffer.",
+      "Next": "AggregateResults"
+    },
+
+    "AggregateResults": {
+      "Type": "Pass",
+      "Comment": "Workflow completed. Check DynamoDB jobs table or CloudWatch logs for individual worker status.",
+      "Parameters": {
+        "status": "completed",
+        "execution_id.$": "$$.Execution.Name",
+        "total_tickers": 46,
+        "message": "Precompute workflow completed. Workers ran for ~15 minutes. Check DynamoDB jobs table for individual status.",
+        "next_steps": "Query DynamoDB jobs table or check CloudWatch logs for individual ticker results"
+      },
+      "End": true
+    }
+  }
+}
