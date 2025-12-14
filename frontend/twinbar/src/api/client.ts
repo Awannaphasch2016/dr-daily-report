@@ -213,6 +213,24 @@ class APIClient {
   // ============================================================================
 
   /**
+   * Get cached report (fast, for modal display)
+   *
+   * Fetches report from Aurora cache. Returns immediately with cached data.
+   * Use this for modal display where you want instant results.
+   *
+   * @param ticker - Ticker symbol
+   * @returns Cached report response
+   *
+   * @example
+   * const report = await apiClient.getCachedReport('NVDA19');
+   */
+  async getCachedReport(ticker: string): Promise<ReportResponse> {
+    return this.request<ReportResponse>(`/report/${ticker}`, {
+      method: 'GET',
+    });
+  }
+
+  /**
    * Submit async report generation job
    *
    * **IMPORTANT:** Use this instead of sync GET /report/{ticker}

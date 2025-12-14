@@ -921,25 +921,30 @@ class ResponseTransformer:
         indicators = report_json.get('indicators', {})
         percentiles = report_json.get('percentiles', {})
 
-        # Extract user_facing_scores from cached report_json
-        # This mirrors the fresh report path (transform_report line 189-192)
-        user_facing_scores = report_json.get('user_facing_scores', {})
+        # Extract key_scores and all_scores from cached report_json
+        # Aurora stores scores as 'key_scores' (array), not 'user_facing_scores' (dict)
+        # This matches the fix applied to rankings_service.py earlier today
+        key_scores_raw = report_json.get('key_scores', [])
+        all_scores_raw = report_json.get('all_scores', [])
 
-        # Build key_scores (top 3) and all_scores (all categories)
-        # Uses existing _build_scores() method that fresh reports use
-        if user_facing_scores:
-            # Create minimal state dict with just user_facing_scores
-            # _build_scores() only needs state['user_facing_scores']
-            state_for_scoring = {'user_facing_scores': user_facing_scores}
-            scores_data = self._build_scores(state_for_scoring)
-            key_scores = scores_data.get('key_scores', [])
-            all_scores = scores_data.get('all_scores', [])
-            logger.debug(f"Extracted {len(key_scores)} key_scores and {len(all_scores)} all_scores from cached report")
+        # Convert to ScoringMetric objects if they're dicts
+        if key_scores_raw and isinstance(key_scores_raw, list):
+            key_scores = [
+                ScoringMetric(**s) if isinstance(s, dict) else s
+                for s in key_scores_raw[:3]  # Top 3
+            ]
         else:
-            # Graceful degradation when user_facing_scores missing
             key_scores = []
+
+        if all_scores_raw and isinstance(all_scores_raw, list):
+            all_scores = [
+                ScoringMetric(**s) if isinstance(s, dict) else s
+                for s in all_scores_raw
+            ]
+        else:
             all_scores = []
-            logger.warning(f"No user_facing_scores in cached report for {ticker_info.get('ticker')}")
+
+        logger.debug(f"Extracted {len(key_scores)} key_scores and {len(all_scores)} all_scores from cached report")
 
         # Extract stance and confidence from report
         stance_info = self._extract_stance(report_text, indicators, percentiles)
@@ -963,8 +968,17 @@ class ResponseTransformer:
         # Build risk assessment
         risk = self._build_risk(indicators, percentiles, report_text)
 
-        # Build peers (skip for cached reports to save time)
-        peers = []
+        # Extract peers from cached report_json if available
+        # No performance penalty since data already exists in Aurora
+        peers_raw = report_json.get('peers', [])
+        if peers_raw and isinstance(peers_raw, list):
+            peers = [
+                Peer(**p) if isinstance(p, dict) else p
+                for p in peers_raw[:5]  # Max 5 peers
+            ]
+            logger.debug(f"Extracted {len(peers)} peers from cached report")
+        else:
+            peers = []
 
         # Data sources
         data_sources = [
@@ -989,6 +1003,25 @@ class ResponseTransformer:
             cache_hit=True  # Mark as cache hit
         )
 
+        # Extract price_history and projections from cached report_json
+        # These fields are essential for chart display in the modal
+        price_history_raw = report_json.get('price_history', [])
+        projections_raw = report_json.get('projections', [])
+        initial_investment = report_json.get('initial_investment', 1000.0)
+
+        # Convert to Pydantic models if they're dicts
+        price_history = [
+            PriceDataPoint(**p) if isinstance(p, dict) else p
+            for p in price_history_raw
+        ]
+
+        projections = [
+            ProjectionBand(**p) if isinstance(p, dict) else p
+            for p in projections_raw
+        ]
+
+        logger.debug(f"Extracted {len(price_history)} price_history points and {len(projections)} projections")
+
         return ReportResponse(
             ticker=ticker,
             company_name=company_name,
@@ -1008,6 +1041,9 @@ class ResponseTransformer:
             overall_sentiment=overall_sentiment,
             risk=risk,
             peers=peers,
+            price_history=price_history,
+            projections=projections,
+            initial_investment=initial_investment,
             key_scores=key_scores,
             all_scores=all_scores,
             data_sources=data_sources,
