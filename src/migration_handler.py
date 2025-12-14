@@ -101,6 +101,98 @@ def run_add_strategy_column_migration():
         }
 
 
+def run_make_ticker_id_required_migration():
+    """Make ticker_id INT NOT NULL with FK constraint
+
+    Changes:
+    1. Change ticker_id to INT NOT NULL (matches ticker_master.id type)
+    2. Add foreign key constraint to ticker_master(id)
+
+    This enforces at schema level what code already enforces:
+    ticker_id is always populated before INSERT (code fails fast if ticker_info not found).
+
+    Type Match: ticker_master.id is INT, so ticker_id must also be INT for FK compatibility.
+    """
+    from src.data.aurora.client import get_aurora_client
+
+    logger.info("=" * 80)
+    logger.info("Migration: Make ticker_id required in precomputed_reports")
+    logger.info("=" * 80)
+
+    client = get_aurora_client()
+
+    try:
+        # Step 1: Check current column definition
+        schema_query = "DESCRIBE precomputed_reports"
+        columns = client.fetch_all(schema_query)
+        ticker_id_column = next((c for c in columns if c['Field'] == 'ticker_id'), None)
+
+        if not ticker_id_column:
+            logger.info("ticker_id column not found - will ADD it")
+            logger.info("Step 1/2: Adding ticker_id INT NOT NULL column")
+            # Add column after id column
+            client.execute(
+                "ALTER TABLE precomputed_reports ADD COLUMN ticker_id INT NOT NULL AFTER id",
+                commit=True
+            )
+            logger.info("✅ Successfully added ticker_id column")
+        else:
+            logger.info(f"Current ticker_id definition: {ticker_id_column}")
+            # Step 2: Modify existing column to INT NOT NULL (matches ticker_master.id)
+            logger.info("Step 1/2: Modifying ticker_id to INT NOT NULL")
+            client.execute(
+                "ALTER TABLE precomputed_reports MODIFY COLUMN ticker_id INT NOT NULL",
+                commit=True
+            )
+            logger.info("✅ Successfully modified ticker_id column")
+
+        # Step 3: Add foreign key constraint (if not exists)
+        logger.info("Step 2/2: Adding foreign key constraint")
+
+        # Check if FK already exists
+        fk_check_query = """
+            SELECT CONSTRAINT_NAME FROM information_schema.KEY_COLUMN_USAGE
+            WHERE TABLE_SCHEMA = DATABASE()
+            AND TABLE_NAME = 'precomputed_reports'
+            AND COLUMN_NAME = 'ticker_id'
+            AND REFERENCED_TABLE_NAME IS NOT NULL
+        """
+        existing_fks = client.fetch_all(fk_check_query)
+
+        if existing_fks:
+            logger.info(f"✅ Foreign key already exists: {existing_fks[0]['CONSTRAINT_NAME']}")
+        else:
+            client.execute(
+                """ALTER TABLE precomputed_reports
+                   ADD CONSTRAINT fk_precomputed_reports_ticker_id
+                   FOREIGN KEY (ticker_id) REFERENCES ticker_master(id)""",
+                commit=True
+            )
+            logger.info("✅ Successfully added foreign key constraint")
+
+        # Step 4: Verify changes
+        verify_columns = client.fetch_all(schema_query)
+        ticker_id_after = next((c for c in verify_columns if c['Field'] == 'ticker_id'), None)
+
+        logger.info(f"ticker_id after migration: {ticker_id_after}")
+
+        return {
+            'status': 'success',
+            'message': 'Successfully made ticker_id required with FK constraint',
+            'migration_applied': True,
+            'before': str(ticker_id_column),
+            'after': str(ticker_id_after)
+        }
+
+    except Exception as e:
+        logger.error(f"❌ Migration failed: {e}", exc_info=True)
+        return {
+            'status': 'error',
+            'message': f'Migration failed: {str(e)}',
+            'migration_applied': False
+        }
+
+
 def lambda_handler(event: dict, context: Any) -> dict:
     """Lambda handler for database migrations
 
@@ -114,6 +206,8 @@ def lambda_handler(event: dict, context: Any) -> dict:
     Examples:
         >>> lambda_handler({'migration': 'add_strategy_column'}, None)
         {'statusCode': 200, 'body': {...}}
+        >>> lambda_handler({'migration': 'make_ticker_id_required'}, None)
+        {'statusCode': 200, 'body': {...}}
     """
     logger.info(f"Migration handler invoked with event: {json.dumps(event)}")
 
@@ -125,12 +219,18 @@ def lambda_handler(event: dict, context: Any) -> dict:
             'statusCode': 200 if result['status'] == 'success' else 500,
             'body': json.dumps(result)
         }
+    elif migration == 'make_ticker_id_required':
+        result = run_make_ticker_id_required_migration()
+        return {
+            'statusCode': 200 if result['status'] == 'success' else 500,
+            'body': json.dumps(result)
+        }
     else:
         return {
             'statusCode': 400,
             'body': json.dumps({
                 'status': 'error',
                 'message': f'Unknown migration: {migration}',
-                'available_migrations': ['add_strategy_column']
+                'available_migrations': ['add_strategy_column', 'make_ticker_id_required']
             })
         }
