@@ -29,36 +29,62 @@ class TestCachedReportScores:
             'chart_base64': 'base64encodedimage...',
             'report_generated_at': '2025-12-07T10:00:00',
             'report_json': {
-                'user_facing_scores': {
-                    'Fundamental Strength': {
-                        'score': 8.5,
-                        'rationale': 'Strong earnings growth',
-                        'category': 'Fundamental Strength'
-                    },
-                    'Technical Signal': {
-                        'score': 7.2,
-                        'rationale': 'Bullish trend confirmed',
-                        'category': 'Technical Signal'
-                    },
-                    'Growth Potential': {
+                'key_scores': [
+                    {
                         'score': 9.0,
-                        'rationale': 'Expanding market share',
-                        'category': 'Growth Potential'
+                        'category': 'Growth Potential',
+                        'max_score': 10.0,
+                        'rationale': 'Expanding market share'
                     },
-                    'Risk Assessment': {
-                        'score': 6.5,
-                        'rationale': 'Moderate volatility',
-                        'category': 'Risk Assessment'
+                    {
+                        'score': 8.5,
+                        'category': 'Fundamental Strength',
+                        'max_score': 10.0,
+                        'rationale': 'Strong earnings growth'
                     },
-                    'Valuation': {
-                        'score': 5.8,
-                        'rationale': 'Slightly overvalued',
-                        'category': 'Valuation'
+                    {
+                        'score': 7.2,
+                        'category': 'Technical Signal',
+                        'max_score': 10.0,
+                        'rationale': 'Bullish trend confirmed'
                     }
-                },
+                ],
+                'all_scores': [
+                    {
+                        'score': 9.0,
+                        'category': 'Growth Potential',
+                        'max_score': 10.0,
+                        'rationale': 'Expanding market share'
+                    },
+                    {
+                        'score': 8.5,
+                        'category': 'Fundamental Strength',
+                        'max_score': 10.0,
+                        'rationale': 'Strong earnings growth'
+                    },
+                    {
+                        'score': 7.2,
+                        'category': 'Technical Signal',
+                        'max_score': 10.0,
+                        'rationale': 'Bullish trend confirmed'
+                    },
+                    {
+                        'score': 6.5,
+                        'category': 'Risk Assessment',
+                        'max_score': 10.0,
+                        'rationale': 'Moderate volatility'
+                    },
+                    {
+                        'score': 5.8,
+                        'category': 'Valuation',
+                        'max_score': 10.0,
+                        'rationale': 'Slightly overvalued'
+                    }
+                ],
                 'indicators': {},
                 'price_history': [],
-                'projections': []
+                'projections': [],
+                'initial_investment': 1000.0
             }
         }
 
