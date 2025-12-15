@@ -329,19 +329,23 @@ $LATEST (mutable staging) → Version N (immutable snapshot) → "live" alias (p
 
 **Why**: Zero-downtime, instant rollback (~100ms), test before users see.
 
-### Layered Terraform Architecture
+### Terraform Architecture
+
+**Current State**: Root terraform manages all infrastructure (single state file).
 
 ```
-terraform/layers/
-├── 00-bootstrap/    # State bucket, DynamoDB locks (manual bootstrap)
-├── 01-data/         # DynamoDB tables, data policies
-├── 02-platform/     # ECR, S3 buckets, shared infra
-└── 03-apps/         # Application-specific resources
-    ├── telegram-api/    # Lambda + API Gateway
-    └── line-bot/        # Lambda + Function URL
+terraform/
+├── main.tf              # LINE bot Lambda
+├── telegram_api.tf      # Telegram Lambda
+├── ecr.tf               # ECR repositories
+├── dynamodb.tf          # DynamoDB tables
+├── aurora.tf            # Aurora database
+├── frontend.tf          # CloudFront distributions
+└── layers/
+    └── 00-bootstrap/    # State bucket, DynamoDB locks (chicken-and-egg infra)
 ```
 
-**Why**: Independent deployability, blast radius isolation, clear dependencies.
+**Note**: Layered architecture (01-data, 02-platform, 03-apps) was planned but never implemented. Only 00-bootstrap layer exists to manage the S3 state bucket and DynamoDB locks table that root terraform uses. Removed in Dec 2024 cleanup.
 
 ### Environment Strategy
 

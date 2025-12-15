@@ -1242,32 +1242,44 @@ Telegram Mini App Interface:
 - ✅ **User Experience**: Each platform optimized for its strengths
 - ✅ **Overall**: Better UX > maintenance simplicity
 
-### Why Layered Terraform Architecture
+### Why Single Root Terraform Architecture (Historical Note)
 
-**Decision:** Use layered architecture with S3 remote state instead of flat structure.
+**Current Architecture (Dec 2024):** All infrastructure managed by root terraform in single state file.
 
 ```
-terraform/layers/
-├── 00-bootstrap/    # State bucket, DynamoDB locks (manual bootstrap)
-├── 01-data/         # DynamoDB tables, data policies
-├── 02-platform/     # ECR, S3 buckets, shared infra
-└── 03-apps/         # Application-specific resources
-    ├── telegram-api/    # Lambda + API Gateway
-    └── line-bot/        # Lambda + Function URL
+terraform/
+├── main.tf              # LINE bot Lambda
+├── telegram_api.tf      # Telegram Lambda
+├── ecr.tf               # ECR repositories
+├── dynamodb.tf          # DynamoDB tables
+├── aurora.tf            # Aurora database
+├── frontend.tf          # CloudFront distributions
+└── layers/
+    └── 00-bootstrap/    # State bucket, DynamoDB locks (local state)
 ```
 
-**Rationale:**
-- ✅ **Independent Deployability**: Update apps without touching data layer
-- ✅ **Blast Radius Isolation**: Failed apply in one layer doesn't affect others
-- ✅ **Team Collaboration**: Different teams can own different layers
-- ✅ **Clear Dependencies**: Explicit layer order (data → platform → apps)
-- ✅ **State Size**: Smaller state files = faster plans, less lock contention
+**Historical Context (Pre-Dec 2024):**
+A layered terraform architecture was planned (01-data, 02-platform, 03-apps layers) but never fully implemented. The layer directories existed with terraform code but never managed actual resources (no S3 state files). All resources were created and managed by root terraform from the start.
+
+**Dec 2024 Cleanup:**
+Removed unused layer directories (01-data, 02-platform, 03-apps) after confirming:
+- No S3 state files existed for these layers
+- All resources tracked in root terraform state
+- ~2GB of .terraform cache removed
+
+**Why Keep 00-bootstrap Layer:**
+Bootstrap layer uses LOCAL state (terraform.tfstate in its directory) to manage the S3 bucket and DynamoDB table that root terraform uses for remote state. This is the chicken-and-egg infrastructure - can't use remote state that doesn't exist yet.
+
+**Rationale for Single Root:**
+- ✅ **Simplicity**: Single terraform state, single apply
+- ✅ **No Cross-Layer Complexity**: All resources in same state, direct references
+- ✅ **Faster Development**: No need to coordinate layer dependencies
+- ✅ **Sufficient for Project Scale**: ~100 resources manageable in single state
 
 **Trade-offs:**
-- ❌ **More Files**: ~4x more .tf files than flat structure
-- ❌ **Cross-Layer Complexity**: Must use `terraform_remote_state` for dependencies
-- ❌ **Deploy Order**: Must deploy in dependency order (can't parallelize)
-- ✅ **Overall**: Safety + isolation > fewer files
+- ❌ **Blast Radius**: Failed apply affects entire infrastructure
+- ❌ **State Lock Contention**: Single lock for all changes
+- ✅ **Overall**: Simplicity > theoretical benefits of layering for this project size
 
 **Why import blocks over CLI imports:**
 ```hcl
