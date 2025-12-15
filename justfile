@@ -507,6 +507,33 @@ deep-clean:
     dr clean all
     @echo "✅ All artifacts removed"
 
+# Clean Terraform caches and artifacts (~1.9GB)
+clean-terraform:
+    @echo "🧹 Cleaning Terraform artifacts..."
+    rm -rf terraform/.terraform/
+    rm -rf terraform/layers/*/.terraform/
+    rm -f terraform/*.tfplan
+    rm -f terraform/*.backup
+    @echo "✓ Cleaned Terraform caches"
+
+# Clean Python cache files
+clean-python:
+    @echo "🧹 Cleaning Python cache..."
+    find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+    find . -type f -name "*.pyc" -delete 2>/dev/null || true
+    @echo "✓ Cleaned Python cache"
+
+# Clean test outputs
+clean-tests:
+    @echo "🧹 Cleaning test outputs..."
+    rm -rf tests/output/
+    rm -rf tests/artifacts/
+    @echo "✓ Cleaned test outputs"
+
+# Clean all caches and artifacts (Terraform + Python + tests)
+clean-all-caches: clean-terraform clean-python clean-tests
+    @echo "✅ Cleaned all caches and artifacts (~1.9GB freed)"
+
 # === CODE QUALITY ===
 
 # Check if your code has syntax errors

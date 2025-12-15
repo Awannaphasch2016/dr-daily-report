@@ -86,3 +86,26 @@ evaluation_results/*
 ground_truth_dbs/*
 
 venv
+*.png
+
+# Test artifacts (user-generated)
+test_*.png
+test_*.pdf
+*.test.png
+*.test.pdf
+*.pdf
+
+# Terraform
+.terraform/
+*.tfplan
+*.tfstate.backup
+terraform.tfstate.backup
+
+# Backup files
+*.backup
+*.bak
+
+# E2E test outputs
+tests/e2e/screenshots/
+tests/output/
+tests/artifacts/
