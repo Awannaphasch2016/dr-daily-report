@@ -10,9 +10,8 @@ from datetime import date
 from src.agent import TickerAnalysisAgent
 from src.data.ticker_matcher import TickerMatcher
 from src.data.data_fetcher import DataFetcher
-from src.data.database import TickerDatabase
+from src.data.aurora.precompute_service import PrecomputeService
 from src.formatters.pdf_storage import PDFStorage
-from src.data.s3_cache import S3Cache
 
 logger = logging.getLogger(__name__)
 
@@ -26,23 +25,9 @@ class LineBot:
         ticker_map = data_fetcher.load_tickers()
         self.ticker_matcher = TickerMatcher(ticker_map)
 
-        # Initialize S3 cache (if enabled)
-        self.s3_cache = None
-        cache_backend = os.getenv("CACHE_BACKEND", "hybrid")  # hybrid, s3, or sqlite
-        if cache_backend in ("s3", "hybrid"):
-            try:
-                pdf_bucket = os.getenv("PDF_BUCKET_NAME")
-                cache_ttl = int(os.getenv("CACHE_TTL_HOURS", "24"))
-                if pdf_bucket:
-                    self.s3_cache = S3Cache(bucket_name=pdf_bucket, ttl_hours=cache_ttl)
-                    logger.info(f"✅ S3 cache initialized (backend={cache_backend}, TTL={cache_ttl}h)")
-                else:
-                    logger.warning("PDF_BUCKET_NAME not set, S3 cache disabled")
-            except Exception as e:
-                logger.warning(f"Failed to initialize S3 cache: {e}")
-
-        # Initialize database for caching (with S3 cache integration)
-        self.db = TickerDatabase(s3_cache=self.s3_cache)
+        # Initialize Aurora precompute service (single source of truth for caching)
+        self.precompute = PrecomputeService()
+        logger.info("✅ Aurora precompute service initialized")
 
         # Initialize PDF storage (gracefully handle if S3 not available)
         try:
@@ -269,88 +254,24 @@ class LineBot:
 
             # Use fuzzy matching to find best ticker match
             matched_ticker, suggestion = self.ticker_matcher.match_with_suggestion(text)
-            
-            # Check cache first (key: ticker + today's date)
-            today = date.today().isoformat()
-            cached_report = self.db.get_cached_report(matched_ticker, today)
-            
+
+            # Check Aurora cache first (single source of truth)
+            cached_report = self.precompute.get_cached_report(matched_ticker)
+
             if cached_report:
-                # Cache hit - return cached report
-                print(f"✅ Cache hit for {matched_ticker} on {today}")
-                
+                # Cache hit - return cached report text from Aurora
+                report_text = cached_report.get('report_text')
+                logger.info(f"✅ Aurora cache hit for {matched_ticker}")
+
                 # Prepend suggestion if available
                 if suggestion:
-                    return f"{suggestion}\n\n{cached_report}"
-                
-                return cached_report
-            
-            # Cache miss - generate new report
-            print(f"❌ Cache miss for {matched_ticker} on {today}, generating new report...")
-            
-            try:
-                report = self.agent.analyze_ticker(matched_ticker)
-                
-                # Check if report is None or empty
-                if not report or not isinstance(report, str) or len(report.strip()) == 0:
-                    return self.get_error_message(matched_ticker)
-                
-                # Generate PDF and get URL (if PDF storage is available)
-                final_message = report
-                pdf_template_message = None
-                pdf_url = None
+                    return f"{suggestion}\n\n{report_text}"
 
-                if self.pdf_storage and self.pdf_storage.is_available():
-                    try:
-                        # Check if PDF already exists in S3 cache
-                        if self.s3_cache:
-                            pdf_url = self.s3_cache.get_pdf_url(matched_ticker, today)
-                            if pdf_url:
-                                logger.info(f"✅ PDF cache hit for {matched_ticker}, reusing existing PDF")
+                return report_text
 
-                        # Generate new PDF if not cached
-                        if not pdf_url:
-                            logger.info(f"📄 Generating PDF for {matched_ticker}...")
-                            pdf_bytes = self.agent.generate_pdf_report(matched_ticker)
-                            pdf_url = self.pdf_storage.upload_and_get_url(pdf_bytes, matched_ticker)
-                            logger.info(f"✅ PDF generated and uploaded: {pdf_url[:50]}...")
-
-                        # Format message with PDF link (returns tuple: report_text, template_message)
-                        final_message, pdf_template_message = self.format_message_with_pdf_link(report, pdf_url, matched_ticker)
-
-                    except Exception as pdf_error:
-                        # PDF generation failed - fallback to text-only report
-                        logger.warning(f"⚠️  PDF generation failed for {matched_ticker}: {str(pdf_error)}")
-                        # Continue with text-only report
-                        final_message = report
-                        pdf_template_message = None
-                else:
-                    logger.debug("PDF storage not available, skipping PDF generation")
-                
-                # Save to cache for future use (save original report text, not PDF link version)
-                try:
-                    self.db.save_report(matched_ticker, today, {
-                        'report_text': report,
-                        'context_json': None,
-                        'technical_summary': None,
-                        'fundamental_summary': None,
-                        'sector_analysis': None
-                    })
-                    print(f"💾 Cached report for {matched_ticker} on {today}")
-                except Exception as cache_error:
-                    # Log cache error but don't fail the request
-                    print(f"⚠️  Error caching report: {str(cache_error)}")
-                
-                # Prepend suggestion if available (suggestion already contains emoji)
-                if suggestion:
-                    final_message = f"{suggestion}\n\n{final_message}"
-                
-                # Return tuple: (message_text, template_message)
-                # template_message will be sent first, then message_text
-                return (final_message, pdf_template_message)
-            except Exception as e:
-                # Log error for debugging but don't expose technical details to user
-                print(f"Error analyzing ticker {matched_ticker}: {str(e)}")
-                return self.get_error_message(matched_ticker)
+            # Cache miss - return message (LINE Lambda is read-only, doesn't generate reports)
+            logger.info(f"❌ Aurora cache miss for {matched_ticker}, report not available")
+            return f"ขออภัยครับ รายงานสำหรับ {matched_ticker} ยังไม่พร้อมในขณะนี้\n\nกรุณาลองใหม่ภายหลัง หรือติดต่อทีมสนับสนุนค่ะ"
         except Exception as e:
             # Catch any unexpected errors in message handling
             print(f"Error handling message: {str(e)}")
@@ -476,3 +397,29 @@ class LineBot:
             "statusCode": 200,
             "body": json.dumps({"message": "OK"})
         }
+
+
+# Module-level wrapper function for Lambda handler compatibility
+def handle_webhook(event):
+    """Module-level wrapper for Lambda handler.
+
+    Lambda handler expects a module-level function, but LineBot is a class.
+    This wrapper instantiates the class and delegates to its handle_webhook method.
+
+    Args:
+        event: Lambda event dict with body, headers, requestContext
+
+    Returns:
+        Response dict with statusCode, headers, body
+    """
+    bot = LineBot()
+
+    # Extract signature from headers
+    headers = event.get('headers', {})
+    # LINE uses 'x-line-signature' header (case-insensitive)
+    signature = headers.get('x-line-signature') or headers.get('X-Line-Signature', '')
+
+    # Extract body
+    body = event.get('body', '')
+
+    return bot.handle_webhook(body, signature)

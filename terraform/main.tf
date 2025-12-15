@@ -160,6 +160,15 @@ resource "aws_iam_role_policy_attachment" "lambda_basic" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
 
+# Attach VPC execution policy (for Aurora access)
+resource "aws_iam_role_policy_attachment" "lambda_vpc" {
+  role       = aws_iam_role.lambda_role.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
+}
+
+# NOTE: DynamoDB policy attachment is in dynamodb.tf (line 72-75)
+# to avoid duplication
+
 # Custom policy for additional permissions (if needed)
 resource "aws_iam_role_policy" "lambda_custom" {
   name = "${var.function_name}-custom-policy"
@@ -234,16 +243,38 @@ resource "aws_lambda_function" "line_bot" {
   memory_size = var.lambda_memory
   timeout     = var.lambda_timeout
 
+  # VPC configuration for Aurora database access
+  # IMPORTANT: Use subnets with NAT Gateway (same as Telegram) for internet access
+  # Lambda needs internet to respond to LINE Platform webhook
+  vpc_config {
+    subnet_ids         = local.private_subnets_with_nat
+    security_group_ids = [aws_security_group.lambda_aurora.id]
+  }
+
   environment {
     variables = {
-      OPENROUTER_API_KEY        = var.OPENROUTER_API_KEY
+      # LINE Bot credentials
       LINE_CHANNEL_ACCESS_TOKEN = var.LINE_CHANNEL_ACCESS_TOKEN
       LINE_CHANNEL_SECRET       = var.LINE_CHANNEL_SECRET
+
+      # LLM API
+      OPENROUTER_API_KEY        = var.OPENROUTER_API_KEY
+
+      # Aurora database
+      AURORA_HOST               = aws_rds_cluster.aurora.endpoint
+      AURORA_DATABASE           = "ticker_data"
+      AURORA_USER               = var.aurora_master_username
+      AURORA_PASSWORD           = var.AURORA_MASTER_PASSWORD
+      AURORA_PORT               = "3306"
+
+      # PDF storage
       PDF_STORAGE_BUCKET        = aws_s3_bucket.pdf_reports.id
       PDF_BUCKET_NAME           = aws_s3_bucket.pdf_reports.id
       PDF_URL_EXPIRATION_HOURS  = "24"
-      CACHE_BACKEND             = "hybrid"  # hybrid, s3, or sqlite
-      CACHE_TTL_HOURS           = "24"
+
+      # Application config
+      ENVIRONMENT               = var.environment
+      LOG_LEVEL                 = "INFO"
     }
   }
 
