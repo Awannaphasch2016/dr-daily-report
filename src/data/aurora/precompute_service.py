@@ -26,6 +26,8 @@ import numpy as np
 import pandas as pd
 from botocore.exceptions import ClientError
 
+from src.types import extract_raw_data_for_storage
+
 logger = logging.getLogger(__name__)
 
 
@@ -842,6 +844,9 @@ class PrecomputeService:
 
             generation_time_ms = int((time.time() - start_time) * 1000)
 
+            # Capture raw data BEFORE transformation (for report regeneration)
+            raw_data = extract_raw_data_for_storage(result) if isinstance(result, dict) else {}
+
             # Extract report data
             report_text = result.get('report', '') if isinstance(result, dict) else str(result)
             mini_reports = result.get('mini_reports', {}) if isinstance(result, dict) else {}
@@ -878,6 +883,7 @@ class PrecomputeService:
                 data_date=data_date,
                 report_text=report_text,
                 report_json=result if isinstance(result, dict) else {},
+                raw_data=raw_data,  # NEW: Pass raw data for regeneration
                 strategy=strategy,
                 generation_time_ms=generation_time_ms,
                 mini_reports=mini_reports,
@@ -932,6 +938,7 @@ class PrecomputeService:
         data_date: date,
         report_text: str,
         report_json: Dict[str, Any],
+        raw_data: Dict[str, Any],  # NEW: Raw AgentState for regeneration
         strategy: str,
         generation_time_ms: int,
         mini_reports: Dict[str, Any],
@@ -944,27 +951,28 @@ class PrecomputeService:
         Returns:
             Number of rows affected (0 = failure, typically FK constraint)
 
-        Schema columns (as of 2025-12-02):
+        Schema columns (as of 2025-12-16):
             id, ticker_id, ticker_master_id, symbol, report_date,
-            report_text, report_json, strategy, model_used,
+            report_text, report_json, raw_data_json, strategy, model_used,
             generation_time_ms, token_count, cost_usd, mini_reports,
             faithfulness_score, completeness_score, reasoning_score,
             chart_base64, status, error_message, computed_at, expires_at
         """
-        # Match actual schema - only use columns that exist
+        # Match actual schema - now includes raw_data_json
         query = """
             INSERT INTO precomputed_reports (
                 ticker_id, symbol, report_date,
-                report_text, report_json, strategy,
-                generation_time_ms, mini_reports, chart_base64,
-                status, expires_at, computed_at
+                report_text, report_json, raw_data_json,
+                strategy, generation_time_ms, mini_reports,
+                chart_base64, status, expires_at, computed_at
             ) VALUES (
-                %s, %s, %s, %s, %s, %s, %s, %s, %s, 'completed',
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'completed',
                 DATE_ADD(NOW(), INTERVAL 1 DAY), NOW()
             )
             ON DUPLICATE KEY UPDATE
                 report_text = VALUES(report_text),
                 report_json = VALUES(report_json),
+                raw_data_json = VALUES(raw_data_json),
                 strategy = VALUES(strategy),
                 generation_time_ms = VALUES(generation_time_ms),
                 mini_reports = VALUES(mini_reports),
@@ -981,6 +989,7 @@ class PrecomputeService:
             data_date,
             report_text,
             json.dumps(_convert_numpy_to_primitives(report_json), allow_nan=False),
+            json.dumps(_convert_numpy_to_primitives(raw_data), allow_nan=False),  # NEW
             strategy,
             generation_time_ms,
             json.dumps(_convert_numpy_to_primitives(mini_reports), allow_nan=False) if mini_reports else None,
@@ -1033,6 +1042,10 @@ class PrecomputeService:
 
             data_date = date.today()
 
+            # Extract raw data from report_json if available
+            # API reports may already be formatted, so extract what we can
+            raw_data = extract_raw_data_for_storage(report_json) if report_json else {}
+
             # Store using the internal method with Yahoo symbol
             logger.info(f"store_report_from_api: Calling _store_completed_report for {yahoo_symbol}")
             rowcount = self._store_completed_report(
@@ -1041,6 +1054,7 @@ class PrecomputeService:
                 data_date=data_date,
                 report_text=report_text,
                 report_json=report_json,
+                raw_data=raw_data,  # NEW: Pass extracted raw data
                 strategy=strategy,
                 generation_time_ms=generation_time_ms,
                 mini_reports={},  # Not available from API worker
@@ -1640,3 +1654,96 @@ class PrecomputeService:
         cummax = prices.expanding().max()
         drawdown = (prices - cummax) / cummax
         return abs(drawdown.min()) * 100
+
+    def regenerate_report_from_cache(
+        self,
+        symbol: str,
+        strategy: str = 'single-stage',
+        language: str = 'th',
+        data_date: Optional[date] = None
+    ) -> Dict[str, Any]:
+        """
+        Regenerate report from cached raw data in Aurora (no API calls, no sink nodes).
+
+        This enables fast iteration on report quality by reusing existing data.
+        Useful for:
+        - Testing new prompts without refetching data
+        - Comparing single-stage vs multi-stage on same data
+        - Cost-efficient development (no repeated API calls)
+
+        Args:
+            symbol: Ticker symbol (e.g., "DBS19")
+            strategy: 'single-stage' or 'multi-stage'
+            language: 'th' or 'en'
+            data_date: Report date (defaults to today)
+
+        Returns:
+            Dictionary with:
+                - status: 'completed' or 'failed'
+                - report_text: Generated report
+                - generation_time_ms: Time taken
+                - strategy: Strategy used
+
+        Raises:
+            ValueError: If no cached data exists for ticker/date
+        """
+        from src.report.report_generator_simple import SimpleReportGenerator
+
+        data_date = data_date or date.today()
+        logger.info(f"Regenerating {strategy} report for {symbol} from cached data (date={data_date})")
+
+        # Read raw_data_json from Aurora (NOT report_json which is formatted)
+        query = """
+            SELECT raw_data_json
+            FROM precomputed_reports
+            WHERE symbol = %s AND report_date = %s
+            ORDER BY computed_at DESC
+            LIMIT 1
+        """
+
+        result = self.client.fetch_one(query, (symbol, data_date))
+
+        if not result:
+            error_msg = f"No cached data found for {symbol} on {data_date}"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+        # Extract raw data
+        raw_data = result.get('raw_data_json')
+
+        # Handle backward compatibility for old rows without raw_data_json
+        if raw_data is None:
+            logger.warning(
+                f"⚠️  No raw_data_json for {symbol} on {data_date}. "
+                f"This report was generated before raw data caching was implemented. "
+                f"Please regenerate the report with fresh API calls to populate raw_data_json."
+            )
+            raise ValueError(
+                f"No raw data available for {symbol} on {data_date}. "
+                f"Run 'dr util report {symbol}' to regenerate with fresh data."
+            )
+
+        # Parse JSON if it's a string
+        if isinstance(raw_data, str):
+            import json
+            raw_data = json.loads(raw_data)
+
+        # Generate report using simple generator (no sink nodes)
+        generator = SimpleReportGenerator()
+        result = generator.generate_report(
+            ticker=symbol,
+            raw_data=raw_data,
+            strategy=strategy,
+            language=language
+        )
+
+        logger.info(f"✅ Regenerated report in {result['generation_time_ms']}ms using {strategy} strategy")
+
+        return {
+            'status': 'completed',
+            'report_text': result['report'],
+            'generation_time_ms': result['generation_time_ms'],
+            'strategy': strategy,
+            'mini_reports': result.get('mini_reports', {}),
+            'api_costs': result.get('api_costs', {})
+        }

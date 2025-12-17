@@ -52,6 +52,7 @@ class TickerInfo:
     # Symbol aliases
     dr_symbol: Optional[str] = None       # Thai DR symbol (e.g., NVDA19)
     yahoo_symbol: Optional[str] = None    # Yahoo Finance symbol (e.g., NVDA)
+    eikon_symbol: Optional[str] = None    # Eikon/Refinitiv symbol (e.g., DBSM.SI)
 
     def get_symbol(self, symbol_type: str) -> Optional[str]:
         """Get symbol for a specific type.

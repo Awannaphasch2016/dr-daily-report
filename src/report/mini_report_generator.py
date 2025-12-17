@@ -29,15 +29,17 @@ class MiniReportGenerator:
     narrative in Thai based on prompt templates.
     """
 
-    def __init__(self, llm):
+    def __init__(self, llm, language: str = 'th'):
         """
         Initialize the MiniReportGenerator.
 
         Args:
             llm: Language model instance for generating narratives
+            language: Report language ('en' or 'th'), defaults to 'th'
         """
         self.llm = llm
-        self.prompts = self._load_prompt_templates()
+        self.language = language
+        self.prompts = self._load_prompt_templates(language)
 
     def _make_json_serializable(self, obj):
         """Convert numpy/pandas/datetime objects to JSON-serializable types"""
@@ -58,14 +60,17 @@ class MiniReportGenerator:
             return [self._make_json_serializable(item) for item in obj]
         return obj
 
-    def _load_prompt_templates(self) -> Dict[str, str]:
+    def _load_prompt_templates(self, language: str = 'th') -> Dict[str, str]:
         """
         Load all prompt templates from the prompt_templates directory.
+
+        Args:
+            language: Report language ('en' or 'th'), defaults to 'th'
 
         Returns:
             Dictionary mapping template names to their content
         """
-        templates_dir = Path(__file__).parent / "prompt_templates"
+        templates_dir = Path(__file__).parent / "prompt_templates" / language
 
         template_files = {
             'technical': 'technical_mini_prompt.txt',
@@ -100,13 +105,16 @@ class MiniReportGenerator:
         # Extract key fundamental metrics
         fundamental_metrics = {
             'pe_ratio': ticker_data.get('pe_ratio'),
+            'forward_pe': ticker_data.get('forward_pe'),  # NEW: From fund_data
             'eps': ticker_data.get('eps'),
             'market_cap': ticker_data.get('market_cap'),
             'dividend_yield': ticker_data.get('dividend_yield'),
             'profit_margin': ticker_data.get('profit_margin'),
             'roe': ticker_data.get('roe'),
+            'price_to_book': ticker_data.get('price_to_book'),  # NEW: From fund_data
             'debt_to_equity': ticker_data.get('debt_to_equity'),
             'revenue_growth': ticker_data.get('revenue_growth'),
+            'target_price': ticker_data.get('target_price'),  # NEW: From fund_data
             'sector': ticker_data.get('sector'),
             'industry': ticker_data.get('industry'),
         }
@@ -151,51 +159,100 @@ class MiniReportGenerator:
         strategy_performance = self._make_json_serializable(strategy_performance)
         return json.dumps(strategy_performance, indent=2, ensure_ascii=False)
 
-    def generate_technical_mini_report(self, indicators: Dict[str, Any], percentiles: Dict[str, Any]) -> str:
+    def generate_technical_mini_report(
+        self,
+        indicators: Dict[str, Any],
+        percentiles: Dict[str, Any],
+        chart_patterns: list = None,
+        pattern_statistics: dict = None,
+        financial_markets_data: dict = None
+    ) -> str:
         """
         Generate a focused technical analysis mini-report.
 
         Args:
             indicators: Dictionary of technical indicators
             percentiles: Dictionary of percentile data
+            chart_patterns: Optional list of chart patterns from MCP
+            pattern_statistics: Optional pattern statistics from MCP
+            financial_markets_data: Optional advanced technical data from Financial Markets MCP
 
         Returns:
             150-200 word Thai narrative focusing on technical analysis
         """
         technical_data = self._format_technical_data(indicators, percentiles)
+
+        # Add MCP data if available
+        mcp_data_parts = []
+        if chart_patterns:
+            mcp_data_parts.append(f"Chart Patterns: {', '.join(chart_patterns)}")
+        if pattern_statistics and len(pattern_statistics) > 0:
+            stats_str = ", ".join(f"{k}: {v}" for k, v in pattern_statistics.items())
+            mcp_data_parts.append(f"Pattern Statistics: {stats_str}")
+        if financial_markets_data and len(financial_markets_data) > 0:
+            fm_keys = list(financial_markets_data.keys())
+            mcp_data_parts.append(f"Advanced Technical Data: {', '.join(fm_keys)}")
+
+        if mcp_data_parts:
+            technical_data += "\n\n" + "\n".join(mcp_data_parts)
+
         prompt = self.prompts['technical'].replace('{technical_data}', technical_data)
 
         response = self.llm.invoke(prompt)
         return response.content if hasattr(response, 'content') else str(response)
 
-    def generate_fundamental_mini_report(self, ticker_data: Dict[str, Any]) -> str:
+    def generate_fundamental_mini_report(
+        self,
+        ticker_data: Dict[str, Any],
+        sec_filing_data: dict = None
+    ) -> str:
         """
         Generate a focused fundamental analysis mini-report.
 
         Args:
             ticker_data: Dictionary of fundamental data
+            sec_filing_data: Optional SEC filing data from SEC EDGAR MCP
 
         Returns:
             150-200 word Thai narrative focusing on fundamental analysis
         """
         fundamental_data = self._format_fundamental_data(ticker_data)
+
+        # Add SEC filing data if available
+        if sec_filing_data and len(sec_filing_data) > 0:
+            form_type = sec_filing_data.get('form_type', 'N/A')
+            filing_date = sec_filing_data.get('filing_date', 'N/A')
+            fundamental_data += f"\n\nSEC Filings: {form_type} filed on {filing_date}"
+
         prompt = self.prompts['fundamental'].replace('{fundamental_data}', fundamental_data)
 
         response = self.llm.invoke(prompt)
         return response.content if hasattr(response, 'content') else str(response)
 
-    def generate_market_conditions_mini_report(self, indicators: Dict[str, Any], percentiles: Dict[str, Any]) -> str:
+    def generate_market_conditions_mini_report(
+        self,
+        indicators: Dict[str, Any],
+        percentiles: Dict[str, Any],
+        alpaca_data: dict = None
+    ) -> str:
         """
         Generate a focused market conditions mini-report.
 
         Args:
             indicators: Dictionary of market indicators
             percentiles: Dictionary of percentile data
+            alpaca_data: Optional real-time market data from Alpaca MCP
 
         Returns:
             150-200 word Thai narrative focusing on market conditions
         """
         market_data = self._format_market_conditions_data(indicators, percentiles)
+
+        # Add Alpaca real-time data if available
+        if alpaca_data and len(alpaca_data) > 0:
+            alpaca_keys = list(alpaca_data.keys())
+            market_data += f"\n\nReal-time Market Data: {', '.join(alpaca_keys)}"
+
         prompt = self.prompts['market_conditions'].replace('{market_conditions_data}', market_data)
 
         response = self.llm.invoke(prompt)
@@ -234,17 +291,28 @@ class MiniReportGenerator:
         response = self.llm.invoke(prompt)
         return response.content if hasattr(response, 'content') else str(response)
 
-    def generate_strategy_mini_report(self, strategy_performance: Dict[str, Any]) -> str:
+    def generate_strategy_mini_report(
+        self,
+        strategy_performance: Dict[str, Any],
+        portfolio_insights: dict = None
+    ) -> str:
         """
         Generate a focused strategy performance mini-report.
 
         Args:
             strategy_performance: Dictionary of strategy backtest results
+            portfolio_insights: Optional portfolio context from Portfolio Manager MCP
 
         Returns:
             150-200 word Thai narrative focusing on strategy performance
         """
         strategy_data = self._format_strategy_data(strategy_performance)
+
+        # Add portfolio insights if available
+        if portfolio_insights and len(portfolio_insights) > 0:
+            portfolio_keys = list(portfolio_insights.keys())
+            strategy_data += f"\n\nPortfolio Context: {', '.join(portfolio_keys)}"
+
         prompt = self.prompts['strategy'].replace('{strategy_data}', strategy_data)
 
         response = self.llm.invoke(prompt)

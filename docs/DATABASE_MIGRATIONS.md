@@ -1021,6 +1021,54 @@ pytest tests/infrastructure/test_aurora_schema_comprehensive.py -v
 
 ---
 
+## Aurora as Source of Truth
+
+The `precomputed_reports` table is the **primary data store** for report generation, not a cache layer.
+
+### Schema
+
+```sql
+CREATE TABLE precomputed_reports (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    ticker_id INT NOT NULL,
+    symbol VARCHAR(20) NOT NULL,
+    report_date DATE NOT NULL,
+    report_text TEXT,              -- Final Thai report
+    report_json JSON,              -- Complete AgentState (all data sources)
+    strategy ENUM('single-stage', 'multi-stage'),
+    generation_time_ms INT,
+    chart_base64 LONGTEXT,
+    status VARCHAR(20),
+    expires_at DATETIME,           -- 24-hour TTL
+    computed_at TIMESTAMP,
+    UNIQUE KEY unique_report (ticker_id, report_date)
+);
+```
+
+### Population Flow
+
+1. **Scheduler Lambda** runs nightly (Step Function)
+2. Fetches data from **yfinance, NewsService** for all 46 tickers
+3. Generates **LLM reports** (5-15s per ticker)
+4. Stores complete `report_json` with all collected data
+5. **User APIs** read from this table (no external API calls)
+
+### Fail-Fast Pattern
+
+If `report_json` is missing or `status != 'completed'`, APIs return error instead of regenerating report.
+
+**User-facing behavior:**
+- ✅ Report exists → Return instantly (< 1 sec)
+- ❌ Report missing → Return 404 "Report not available. Please try again later."
+- ⚠️ NO fallback to external APIs during user requests
+
+This ensures:
+- Predictable latency (< 1 sec vs 5-15 sec for external APIs)
+- Cost control (no unexpected LLM calls)
+- Separation of concerns (write path = scheduler, read path = APIs)
+
+---
+
 ## References
 
 ### External Resources

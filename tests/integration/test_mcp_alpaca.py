@@ -31,6 +31,7 @@ class TestAlpacaMCPIntegration:
             context_builder=MagicMock(),
             prompt_builder=MagicMock(),
             market_analyzer=MagicMock(),
+            data_formatter=MagicMock(),
             number_injector=MagicMock(),
             cost_scorer=MagicMock(),
             scoring_service=MagicMock(),

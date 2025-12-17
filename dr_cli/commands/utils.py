@@ -100,22 +100,24 @@ def list_py():
 @click.argument('ticker')
 @click.option('--strategy', type=click.Choice(['single-stage', 'multi-stage']), default='single-stage',
               help='Report generation strategy: single-stage (default) or multi-stage')
+@click.option('--language', type=click.Choice(['th', 'en']), default='th',
+              help='Report language: th (Thai, default) or en (English)')
 @click.pass_context
-def report(ctx, ticker, strategy):
+def report(ctx, ticker, strategy, language):
     """Generate report for a ticker
 
     Generates a daily report analysis for the specified ticker symbol.
 
     Examples:
-      dr util report DBS19              # Single-stage (default)
-      dr util report DBS19 --strategy multi-stage
+      dr util report DBS19                         # Thai, single-stage (defaults)
+      dr util report DBS19 --language en           # English report
+      dr util report DBS19 --strategy multi-stage  # Multi-stage Thai report
     """
-    use_doppler = ctx.obj.get('doppler', False)
     trace = ctx.obj.get('trace')
 
     cmd = [
         sys.executable, "-c",
-        f"from src.agent import TickerAnalysisAgent; agent = TickerAnalysisAgent(); print(agent.analyze_ticker('{ticker}', strategy='{strategy}'))"
+        f"from src.agent import TickerAnalysisAgent; agent = TickerAnalysisAgent(); result = agent.analyze_ticker('{ticker}', strategy='{strategy}', language='{language}'); print(result['report'])"
     ]
 
     env = {**os.environ, "PYTHONPATH": str(PROJECT_ROOT)}
@@ -127,11 +129,56 @@ def report(ctx, ticker, strategy):
         env['LANGSMITH_TRACING_V2'] = 'false'
     # If trace is None, use existing environment variable value
 
-    if use_doppler:
-        doppler_cmd = ["doppler", "run", "--project", "rag-chatbot-worktree", "--config", "dev_personal", "--"]
-        result = subprocess.run(doppler_cmd + cmd, cwd=PROJECT_ROOT, env=env)
-    else:
-        result = subprocess.run(cmd, cwd=PROJECT_ROOT, env=env)
+    result = subprocess.run(cmd, cwd=PROJECT_ROOT, env=env)
+    sys.exit(result.returncode)
+
+
+@utils.command()
+@click.argument('ticker')
+@click.option('--strategy', type=click.Choice(['single-stage', 'multi-stage']), default='single-stage',
+              help='Report generation strategy: single-stage (default) or multi-stage')
+@click.option('--language', type=click.Choice(['th', 'en']), default='th',
+              help='Report language: th (Thai, default) or en (English)')
+@click.option('--date', type=str, default=None,
+              help='Report date (YYYY-MM-DD), defaults to today')
+@click.pass_context
+def report_cached(ctx, ticker, strategy, language, date):
+    """Regenerate report from cached data (no API calls, no sink nodes)
+
+    Uses existing data in Aurora to generate a new report. This is much faster
+    and cheaper than live generation since it skips all API calls.
+
+    Useful for:
+    - Testing new prompts without refetching data
+    - Comparing single-stage vs multi-stage on same data
+    - Cost-efficient development iteration
+
+    Examples:
+      dr util report-cached DBS19                          # Regenerate with today's data
+      dr util report-cached DBS19 --strategy multi-stage   # Try multi-stage on cached data
+      dr util report-cached DBS19 --date 2024-01-15        # Use specific date's data
+    """
+    # Build Python command
+    date_param = f"from datetime import datetime; data_date = datetime.strptime('{date}', '%Y-%m-%d').date(); " if date else "data_date = None; "
+
+    cmd = [
+        sys.executable, "-c",
+        f"from src.data.aurora.precompute_service import PrecomputeService; "
+        f"{date_param}"
+        f"service = PrecomputeService(); "
+        f"result = service.regenerate_report_from_cache('{ticker}', strategy='{strategy}', language='{language}', data_date=data_date); "
+        f"print(f'\\n✅ Generated in {{result[\"generation_time_ms\"]}}ms\\n'); "
+        f"print(result['report_text']); "
+        f"print(f'\\n📊 LLM Calls: {{result.get(\"api_costs\", {{}}).get(\"llm_calls\", \"N/A\")}}') if 'api_costs' in result else None"
+    ]
+
+    env = {**os.environ, "PYTHONPATH": str(PROJECT_ROOT)}
+
+    click.echo(f"🔄 Regenerating {strategy} report for {ticker} from cached data...")
+    result = subprocess.run(cmd, cwd=PROJECT_ROOT, env=env)
+
+    if result.returncode != 0:
+        click.echo(f"\n💡 Tip: Run 'dr util report {ticker}' first to populate cache")
 
     sys.exit(result.returncode)
 

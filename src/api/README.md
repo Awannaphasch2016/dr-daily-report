@@ -26,9 +26,10 @@ REST API backend for the DR Daily Report Telegram Mini App.
            ┌─────────────────┼─────────────────┐
            ▼                 ▼                 ▼
     ┌─────────────┐   ┌─────────────┐   ┌─────────────┐
-    │  DynamoDB   │   │    S3       │   │  yfinance   │
-    │  Watchlist  │   │  PDF Cache  │   │  API        │
-    └─────────────┘   └─────────────┘   └─────────────┘
+    │  DynamoDB   │   │    S3       │   │  Aurora     │
+    │  Watchlist  │   │  PDF Cache  │   │  MySQL      │
+    └─────────────┘   └─────────────┘   │ (Reports)   │
+                                         └─────────────┘
 ```
 
 ## API Endpoints
@@ -63,6 +64,32 @@ GET    /api/v1/watchlist          # Get user's watchlist
 POST   /api/v1/watchlist          # Add ticker {"ticker": "NVDA19"}
 DELETE /api/v1/watchlist/{ticker} # Remove ticker
 ```
+
+## Data Flow Architecture
+
+### Pre-Population (Nightly Batch)
+```
+Step Function Scheduler (runs nightly)
+    ↓
+Precompute Lambda
+    ↓
+External APIs (yfinance, NewsService, LLM)
+    ↓
+Aurora MySQL (precomputed_reports table)
+```
+
+### User Requests (API Layer)
+```
+Telegram Mini App → FastAPI → Aurora (read-only)
+LINE Bot → Lambda → Aurora (read-only)
+```
+
+**Critical:** APIs do NOT call external APIs. Aurora must be pre-populated.
+
+### Error Handling
+- **Aurora data exists**: Return report (< 1 sec)
+- **Aurora data missing**: Return 404 with message to retry later
+- **NO fallback**: APIs never call yfinance/LLM during user requests
 
 ## Authentication
 

@@ -33,6 +33,7 @@ class TestMCPReportGeneration:
         self.mock_context_builder = Mock()
         self.mock_prompt_builder = Mock()
         self.mock_market_analyzer = Mock()
+        self.mock_data_formatter = Mock()
         self.mock_number_injector = Mock()
         self.mock_cost_scorer = Mock()
         self.mock_scoring_service = Mock()
@@ -57,6 +58,7 @@ class TestMCPReportGeneration:
             context_builder=self.mock_context_builder,
             prompt_builder=self.mock_prompt_builder,
             market_analyzer=self.mock_market_analyzer,
+            data_formatter=self.mock_data_formatter,
             number_injector=self.mock_number_injector,
             cost_scorer=self.mock_cost_scorer,
             scoring_service=self.mock_scoring_service,

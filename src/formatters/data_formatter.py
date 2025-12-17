@@ -15,6 +15,9 @@ This module handles:
 
 from datetime import datetime
 from typing import List, Dict, Optional
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class DataFormatter:
@@ -78,7 +81,8 @@ class DataFormatter:
         Args:
             ticker_data: Dictionary with fundamental data
                 Keys: market_cap, pe_ratio, forward_pe, eps, dividend_yield,
-                      sector, industry, revenue_growth, earnings_growth, profit_margin
+                      roe, price_to_book, target_price, sector, industry,
+                      revenue_growth, earnings_growth, profit_margin
 
         Returns:
             Formatted fundamental section string (Thai)
@@ -89,6 +93,9 @@ class DataFormatter:
 - Forward P/E: {ticker_data.get('forward_pe', 'N/A')}
 - EPS: {ticker_data.get('eps', 'N/A')}
 - Dividend Yield: {self.format_percent(ticker_data.get('dividend_yield'))}
+- ROE: {self.format_percent(ticker_data.get('roe'))}
+- P/B Ratio: {ticker_data.get('price_to_book', 'N/A')}
+- Target Price: {self.format_number(ticker_data.get('target_price'))}
 - Sector: {ticker_data.get('sector', 'N/A')}
 - Industry: {ticker_data.get('industry', 'N/A')}
 - Revenue Growth: {self.format_percent(ticker_data.get('revenue_growth'))}
@@ -191,20 +198,32 @@ Bollinger: {technical_analyzer.analyze_bollinger(indicators)}"""
 
         return news_text
 
-    def format_percentile_context(self, percentiles: dict) -> str:
+    def format_percentile_context_th(self, percentiles: dict) -> str:
+        """Thai prompt context - no percentile section
+
+        Following CLAUDE.md principle: complete separation instead of scattered conditionals.
+
+        Args:
+            percentiles: Dictionary with percentile data (unused)
+
+        Returns:
+            Empty string (no percentile context for Thai prompts)
         """
-        Format percentile context for prompt
+        return ""
+
+    def format_percentile_context_en(self, percentiles: dict) -> str:
+        """English prompt context - include percentiles
 
         Args:
             percentiles: Dictionary with percentile data for various metrics
 
         Returns:
-            Formatted percentile analysis string (Thai)
+            Formatted percentile analysis string (English)
         """
         if not percentiles:
             return ""
 
-        context = "\n\nการวิเคราะห์เปอร์เซ็นไทล์ (Percentile Analysis - เปรียบเทียบกับประวัติศาสตร์):\n"
+        context = "\n\nPercentile Analysis (Historical Comparison):\n"
 
         if 'rsi' in percentiles:
             rsi_stats = percentiles['rsi']
@@ -246,6 +265,24 @@ Bollinger: {technical_analyzer.analyze_bollinger(indicators)}"""
 
         context += "\n**IMPORTANT**: Use these percentile values naturally in your narrative to add historical context. Don't just list them - weave them into the story!"
         return context
+
+    def format_percentile_context(self, percentiles: dict, language: str = 'en') -> str:
+        """Format percentile context for prompt (language-aware)
+
+        Router method that delegates to language-specific implementations.
+        Following CLAUDE.md principle: language decision in ONE place.
+
+        Args:
+            percentiles: Dictionary with percentile data for various metrics
+            language: 'th' for Thai (no context), 'en' for English (full context)
+
+        Returns:
+            Formatted string (empty for Thai, full context for English)
+        """
+        if language == 'th':
+            return self.format_percentile_context_th(percentiles)
+        else:
+            return self.format_percentile_context_en(percentiles)
 
     def format_comparative_insights(self, ticker: str, insights: dict) -> str:
         """

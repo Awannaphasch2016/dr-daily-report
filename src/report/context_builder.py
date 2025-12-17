@@ -12,14 +12,86 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 
+# Label translations for context building
+CONTEXT_LABELS = {
+    'en': {
+        'symbol': 'Symbol',
+        'company': 'Company',
+        'sector': 'Sector',
+        'industry': 'Industry',
+        'market_cap': 'Market Cap',
+        'pe_ratio': 'P/E Ratio',
+        'dividend_yield': 'Dividend Yield',
+        'current_price': 'Current Price',
+        'week_high': '52-Week High',
+        'week_low': '52-Week Low',
+        'volume': 'Volume',
+        'avg_volume': 'Avg Volume',
+        'beta': 'Beta',
+        # Technical indicators
+        'sma': 'SMA',
+        'rsi': 'RSI',
+        'macd': 'MACD',
+        'atr': 'ATR',
+        'bollinger': 'Bollinger Bands',
+        'vwap': 'VWAP',
+        # Market conditions
+        'uncertainty': 'Uncertainty',
+        'volatility': 'Volatility',
+        'momentum': 'Momentum',
+        'trend': 'Trend',
+    },
+    'th': {
+        'symbol': 'สัญลักษณ์',
+        'company': 'บริษัท',
+        'sector': 'ภาคธุรกิจ',
+        'industry': 'อุตสาหกรรม',
+        'market_cap': 'มูลค่าตลาด',
+        'pe_ratio': 'P/E',
+        'dividend_yield': 'ผลตอบแทนเงินปันผล',
+        'current_price': 'ราคาปัจจุบัน',
+        'week_high': 'สูงสุด 52 สัปดาห์',
+        'week_low': 'ต่ำสุด 52 สัปดาห์',
+        'volume': 'ปริมาณซื้อขาย',
+        'avg_volume': 'ปริมาณเฉลี่ย',
+        'beta': 'เบต้า',
+        # Technical indicators
+        'sma': 'SMA',
+        'rsi': 'RSI',
+        'macd': 'MACD',
+        'atr': 'ATR',
+        'bollinger': 'Bollinger Bands',
+        'vwap': 'VWAP',
+        # Market conditions
+        'uncertainty': 'ความไม่แน่นอน',
+        'volatility': 'ความผันผวน',
+        'momentum': 'โมเมนตัม',
+        'trend': 'แนวโน้ม',
+    }
+}
+
+
 class ContextBuilder:
     """Builds context for LLM report generation"""
-    
-    def __init__(self, market_analyzer: MarketAnalyzer, data_formatter: DataFormatter, technical_analyzer: TechnicalAnalyzer):
-        """Initialize with required dependencies"""
+
+    def __init__(self, market_analyzer: MarketAnalyzer, data_formatter: DataFormatter,
+                 technical_analyzer: TechnicalAnalyzer, language: str = 'th'):
+        """Initialize with required dependencies
+
+        Args:
+            market_analyzer: Market analysis service
+            data_formatter: Data formatting service
+            technical_analyzer: Technical analysis service
+            language: Report language ('en' or 'th'), defaults to 'th'
+
+        Raises:
+            KeyError: If language is not supported
+        """
         self.market_analyzer = market_analyzer
         self.data_formatter = data_formatter
         self.technical_analyzer = technical_analyzer
+        self.language = language
+        self.labels = CONTEXT_LABELS[language]  # Raises KeyError if language not supported
     
     def prepare_context(self, ticker: str, ticker_data: dict, indicators: dict, percentiles: dict, news: list, news_summary: dict, strategy_performance: dict = None, comparative_insights: dict = None, sec_filing_data: dict = None, financial_markets_data: dict = None, portfolio_insights: dict = None, alpaca_data: dict = None) -> str:
         """Prepare context for LLM with uncertainty components and percentile information"""
@@ -42,7 +114,7 @@ class ContextBuilder:
         volatility_desc = self.market_analyzer.interpret_volatility(conditions['atr'], current_price)
         vwap_desc = self.market_analyzer.interpret_vwap_pressure(conditions['price_vs_vwap_pct'], conditions['vwap'])
         volume_desc = self.market_analyzer.interpret_volume(conditions['volume_ratio'])
-        percentile_context = self.data_formatter.format_percentile_context(percentiles)
+        percentile_context = self.data_formatter.format_percentile_context(percentiles, language=self.language)
         fundamental_section = self.data_formatter.format_fundamental_section(ticker_data)
         technical_section = self.data_formatter.format_technical_section(indicators, current_price, self.technical_analyzer)
         news_section = self.data_formatter.format_news_section(news, news_summary)
@@ -120,36 +192,39 @@ Percentiles (use placeholders, current values shown for reference):"""
             percentile_val = value.get('percentile', 0) if isinstance(value, dict) else value
             context += f"\n  {{{{{key.upper()}_PERCENTILE}}}} = {percentile_val:.1f}"
 
+        # Build context with language-specific labels
+        no_comparative_data_msg = "- ไม่มีข้อมูลเปรียบเทียบ (ใช้ข้อมูลเดียวกับหุ้นตัวนี้เท่านั้น)" if self.language == 'th' else "- No comparative data available (using data from this ticker only)"
+
         context += f"""
 
 REMEMBER: Write "{{{{UNCERTAINTY}}}}/100" NOT "{ground_truth['uncertainty_score']:.1f}/100"
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-สัญลักษณ์: {ticker}
-บริษัท: {ticker_data.get('company_name', ticker)}
-ราคาปัจจุบัน: Use {{{{CURRENT_PRICE}}}} placeholder (current: {current_price:.2f})
-วันที่: {ticker_data.get('date')}
+{self.labels['symbol']}: {ticker}
+{self.labels['company']}: {ticker_data.get('company_name', ticker)}
+{self.labels['current_price']}: Use {{{{CURRENT_PRICE}}}} placeholder (current: {current_price:.2f})
+Date: {ticker_data.get('date')}
 
 {fundamental_section}
 {technical_section}
-สภาวะตลาด (Market Condition - USE PLACEHOLDERS FOR THESE VALUES):
-สถานะ: {uncertainty_level}
+Market Condition - USE PLACEHOLDERS FOR THESE VALUES:
+Status: {uncertainty_level}
 
-1. ความผันผวน (Volatility): {volatility_desc}
+1. {self.labels['volatility']} (Volatility): {volatility_desc}
 
-2. แรงซื้อ-ขาย (Buy/Sell Pressure): {vwap_desc}
+2. Buy/Sell Pressure: {vwap_desc}
 
-3. ปริมาณการซื้อขาย (Volume): {volume_desc}
+3. {self.labels['volume']} (Volume): {volume_desc}
 {percentile_context}
-การวิเคราะห์เทียบเคียง (Relative Analysis):
-- คำแนะนำนักวิเคราะห์: {(ticker_data.get('recommendation') or 'N/A').upper() if ticker_data.get('recommendation') else 'N/A'}
-- ราคาเป้าหมายเฉลี่ย: {ticker_data.get('target_mean_price', 'N/A')}
-- จำนวนนักวิเคราะห์: {ticker_data.get('analyst_count', 'N/A')}
-- ราคาสูงสุด 52 สัปดาห์: {ticker_data.get('fifty_two_week_high', 'N/A')}
-- ราคาต่ำสุด 52 สัปดาห์: {ticker_data.get('fifty_two_week_low', 'N/A')}
+Relative Analysis:
+- Analyst Recommendation: {(ticker_data.get('recommendation') or 'N/A').upper() if ticker_data.get('recommendation') else 'N/A'}
+- Target Price (Avg): {ticker_data.get('target_mean_price', 'N/A')}
+- Analyst Count: {ticker_data.get('analyst_count', 'N/A')}
+- {self.labels['week_high']}: {ticker_data.get('fifty_two_week_high', 'N/A')}
+- {self.labels['week_low']}: {ticker_data.get('fifty_two_week_low', 'N/A')}
 
-การวิเคราะห์เปรียบเทียบกับหุ้นอื่น (Comparative Analysis):
-{comparative_section if comparative_section else "- ไม่มีข้อมูลเปรียบเทียบ (ใช้ข้อมูลเดียวกับหุ้นตัวนี้เท่านั้น)"}
+Comparative Analysis:
+{comparative_section if comparative_section else no_comparative_data_msg}
 {sec_filing_section if sec_filing_section else ""}
 {financial_markets_section if financial_markets_section else ""}
 {portfolio_insights_section if portfolio_insights_section else ""}

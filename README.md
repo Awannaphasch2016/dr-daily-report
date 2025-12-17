@@ -43,7 +43,7 @@ User (LINE) -> API Gateway -> Lambda Function
 - **LangGraph**: Agent orchestration และ workflow
 - **LangChain + OpenRouter**: สร้างรายงานภาษาไทย
 - **SQLite**: Cache สำหรับข้อมูลหุ้นและรายงาน
-- **Aurora MySQL**: Persistent cache for precomputed reports
+- **Aurora MySQL**: Primary data store for reports (precomputed nightly via Step Function). User APIs read from Aurora only; no external API fallback on miss.
 - **AWS Lambda**: Serverless deployment
 
 ## Project Structure

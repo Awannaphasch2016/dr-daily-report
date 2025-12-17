@@ -2,6 +2,7 @@
 """Prompt building utilities for LLM report generation"""
 
 import logging
+from pathlib import Path
 from typing import Dict, Optional
 
 # Setup logger
@@ -11,64 +12,50 @@ logger.setLevel(logging.INFO)
 
 class PromptBuilder:
     """Builds prompts for LLM report generation"""
-    
+
+    def __init__(self, language: str = 'th'):
+        """Initialize PromptBuilder
+
+        Args:
+            language: Report language ('en' or 'th'), defaults to 'th'
+        """
+        self.language = language
+        self.main_prompt_template = self._load_main_prompt_template(language)
+
+    def _load_main_prompt_template(self, language: str = 'th') -> str:
+        """
+        Load the main prompt template from disk.
+
+        Args:
+            language: Report language ('en' or 'th'), defaults to 'th'
+
+        Returns:
+            Main prompt template string
+
+        Raises:
+            FileNotFoundError: If template file doesn't exist
+        """
+        templates_dir = Path(__file__).parent / "prompt_templates" / language
+        filepath = templates_dir / "main_prompt.txt"
+
+        if not filepath.exists():
+            raise FileNotFoundError(f"Main prompt template not found: {filepath}")
+
+        with open(filepath, 'r', encoding='utf-8') as f:
+            return f.read()
+
     def build_prompt(self, context: str, uncertainty_score: float, strategy_performance: dict = None) -> str:
-        """Build LLM prompt with optional strategy performance data"""
-        logger.info("🔨 [PromptBuilder] Building prompt")
+        """Build LLM prompt using template file"""
+        logger.info("🔨 [PromptBuilder] Building prompt from template")
         logger.info(f"   📊 Input parameters:")
         logger.info(f"      - Context length: {len(context)} characters")
         logger.info(f"      - Uncertainty score: {uncertainty_score:.2f}/100")
         logger.info(f"      - Strategy performance included: {strategy_performance is not None}")
-        
+
         if strategy_performance:
             logger.info(f"      - Strategy performance keys: {list(strategy_performance.keys())}")
-        
-        base_intro = f"""You are a world-class financial analyst like Aswath Damodaran. Write in Thai, but think like him - tell stories with data, don't just list numbers.
 
-Data:
-{context}
-
-Write a narrative-driven report that answers: "Should I BUY MORE?", "Should I SELL?", or "Should I HOLD?" and WHY?
-
-Your job is to weave TECHNICAL + FUNDAMENTAL + RELATIVE + NEWS + STATISTICAL CONTEXT into a flowing narrative that tells the STORY of this stock right now.
-
-🔢 CRITICAL: USE PLACEHOLDERS FOR ALL NUMBERS (Damodaran "narrative + number" approach)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-To ensure 100% accuracy, NEVER write actual numbers. ALWAYS use placeholders:
-
-Market Conditions:
-  - Uncertainty: {{{{UNCERTAINTY}}}}/100 (NOT "52/100")
-  - ATR: {{{{ATR_PCT}}}}% (NOT "1.30%")
-  - VWAP: {{{{VWAP_PCT}}}}% (NOT "22.06%")
-  - Volume: {{{{VOLUME_RATIO}}}}x (NOT "0.87x")
-  - RSI: {{{{RSI}}}} (NOT "65.36")
-  - MACD: {{{{MACD}}}} (NOT "6.32")
-  - Price: ${{{{CURRENT_PRICE}}}} (NOT "$53.93")
-
-Percentiles:
-  - RSI Percentile: {{{{RSI_PERCENTILE}}}}% (NOT "88.5%")
-  - Uncertainty Percentile: {{{{UNCERTAINTY_SCORE_PERCENTILE}}}}% (NOT "66.0%")
-  - ATR Percentile: {{{{ATR_PERCENT_PERCENTILE}}}}% (NOT "75.2%")
-  - VWAP Percentile: {{{{PRICE_VWAP_PERCENT_PERCENTILE}}}}% (NOT "92.1%")
-  - Volume Percentile: {{{{VOLUME_RATIO_PERCENTILE}}}}% (NOT "45.3%")
-
-Examples:
-  ❌ BAD: "ความไม่แน่นอน 52/100 ซึ่งอยู่ในเปอร์เซ็นไทล์ 66%"
-  ✅ GOOD: "ความไม่แน่นอน {{{{UNCERTAINTY}}}}/100 ซึ่งอยู่ในเปอร์เซ็นไทล์ {{{{UNCERTAINTY_SCORE_PERCENTILE}}}}%"
-
-  ❌ BAD: "ATR 1.30% อยู่ในเปอร์เซ็นไทล์ 75%"
-  ✅ GOOD: "ATR {{{{ATR_PCT}}}}% อยู่ในเปอร์เซ็นไทล์ {{{{ATR_PERCENT_PERCENTILE}}}}%"
-
-  ❌ BAD: "ราคา 22.06% เหนือ VWAP"
-  ✅ GOOD: "ราคา {{{{VWAP_PCT}}}}% เหนือ VWAP"
-
-Write naturally - just replace numbers with {{{{PLACEHOLDERS}}}}. The system will fill in exact values automatically.
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-CRITICAL NARRATIVE ELEMENTS - You MUST weave these "narrative + number + historical context" components into your story:
-
-"""
-
+        # Build all sections (keep existing logic)
         narrative_elements = self._build_base_prompt_section(uncertainty_score)
         strategy_section = self._build_strategy_section() if strategy_performance else ""
         comparative_section = self._build_comparative_section()
@@ -76,13 +63,43 @@ CRITICAL NARRATIVE ELEMENTS - You MUST weave these "narrative + number + histori
 
         # Log section details
         logger.info(f"   📋 Prompt sections:")
-        logger.info(f"      - Base intro: {len(base_intro)} chars")
+        logger.info(f"      - Template loaded: {len(self.main_prompt_template)} chars")
         logger.info(f"      - Narrative elements: {len(narrative_elements)} chars")
         logger.info(f"      - Strategy section: {len(strategy_section)} chars {'(included)' if strategy_section else '(excluded)'}")
         logger.info(f"      - Comparative section: {len(comparative_section)} chars")
         logger.info(f"      - Structure: {len(structure)} chars")
 
-        final_prompt = base_intro + narrative_elements + strategy_section + comparative_section + structure
+        # Log each template variable content for debugging
+        logger.info("━" * 70)
+        logger.info("📝 TEMPLATE VARIABLE VALUES (what gets injected into main_prompt.txt):")
+        logger.info("━" * 70)
+        logger.info("")
+        logger.info("   {CONTEXT} =")
+        logger.info(f"{context}")
+        logger.info("")
+        logger.info("   {NARRATIVE_ELEMENTS} =")
+        logger.info(f"{narrative_elements}")
+        logger.info("")
+        if strategy_section:
+            logger.info("   {STRATEGY_SECTION} =")
+            logger.info(f"{strategy_section}")
+            logger.info("")
+        logger.info("   {COMPARATIVE_SECTION} =")
+        logger.info(f"{comparative_section}")
+        logger.info("")
+        logger.info("   {PROMPT_STRUCTURE} =")
+        logger.info(f"{structure}")
+        logger.info("")
+        logger.info("━" * 70)
+
+        # Format template with variables (replaces hardcoded concatenation)
+        final_prompt = self.main_prompt_template.format(
+            CONTEXT=context,
+            NARRATIVE_ELEMENTS=narrative_elements,
+            STRATEGY_SECTION=strategy_section,
+            COMPARATIVE_SECTION=comparative_section,
+            PROMPT_STRUCTURE=structure
+        )
         
         # Log final prompt summary
         logger.info(f"   ✅ Final prompt built:")
@@ -106,7 +123,80 @@ CRITICAL NARRATIVE ELEMENTS - You MUST weave these "narrative + number + histori
         return final_prompt
     
     def _build_base_prompt_section(self, uncertainty_score: float) -> str:
-        """Build the base narrative elements section"""
+        """Route to language-specific implementation for complete separation
+
+        This ensures editing Thai prompts has ZERO effect on English prompts.
+        """
+        if self.language == 'th':
+            return self._build_base_prompt_section_th(uncertainty_score)
+        else:
+            return self._build_base_prompt_section_en(uncertainty_score)
+
+    def _build_base_prompt_section_th(self, uncertainty_score: float) -> str:
+        """Thai prompts with DEEMPHASIZED percentiles (as of 2025-12-15)
+
+        Percentiles are presented as optional context, not mandatory requirements.
+        """
+        return f"""1. **Price Uncertainty** ({uncertainty_score:.0f}/100): Sets the overall market mood
+   - Low (0-25): "ตลาดเสถียรมาก" - Stable, good for positioning
+   - Moderate (25-50): "ตลาดค่อนข้างเสถียร" - Normal movement
+   - High (50-75): "ตลาดผันผวนสูง" - High risk, be cautious
+   - Extreme (75-100): "ตลาดผันผวนรุนแรง" - Extreme risk, warn strongly
+   - Percentile information is optionally available if you find it relevant (e.g., "Uncertainty 52/100 ซึ่งอยู่ในเปอร์เซ็นไทล์ 88%")
+
+2. **Volatility (ATR %)**: The speed of price movement
+   - Include the ATR% number and explain what it means
+   - Example: "ATR 1.2% แสดงราคาเคลื่อนไหวช้ามั่นคง นักลงทุนเห็นตรงกัน"
+   - Example: "ATR 3.8% แสดงตลาดลังเล ราคากระโดดขึ้นลง 3-5% ได้ง่าย"
+   - Percentile context available if needed (e.g., "ATR 1.99% อยู่ในเปอร์เซ็นไทล์ 61%")
+
+3. **Buy/Sell Pressure (Price vs VWAP %)**: Who's winning - buyers or sellers?
+   - Include the % above/below VWAP and explain the implication
+   - Example: "ราคา 22.4% เหนือ VWAP แสดงแรงซื้อแรงมาก คนซื้อวันนี้ยอมจ่ายแพงกว่าเฉลี่ย"
+   - Example: "ราคา -2.8% ต่ำกว่า VWAP แสดงแรงขายหนัก คนขายรีบขายถูกกว่าเฉลี่ย"
+   - Percentile available to show rarity if relevant (e.g., "ราคา 5% เหนือ VWAP ซึ่งอยู่ในเปอร์เซ็นไทล์ 90%")
+
+4. **Volume (Volume Ratio)**: Is smart money interested?
+   - Include the volume ratio (e.g., 0.8x, 1.5x, 2.0x) and explain what it means
+   - Example: "ปริมาณซื้อขาย 1.8x ของเฉลี่ย แสดงนักลงทุนใหญ่กำลังเคลื่อนไหว"
+   - Example: "ปริมาณซื้อขาย 0.7x ของเฉลี่ย แสดงนักลงทุนเฉยๆ รอดูก่อน"
+   - Percentile frequency available (e.g., "ปริมาณ 1.03x อยู่ในเปอร์เซ็นไทล์ 71%")
+
+5. **Statistical Context (Percentiles)**: Optional historical perspective on current values
+   - Percentile information is available in the data if you want to add historical context
+   - Use percentiles ONLY if they meaningfully enhance your narrative
+   - This can tell the reader: "Is this value unusual compared to history?"
+   - Examples (optional):
+     * "RSI 81.12 ซึ่งอยู่ในเปอร์เซ็นไทล์ 94%"
+     * "MACD 6.32 อยู่ในเปอร์เซ็นไทล์ 77%"
+     * "Uncertainty 52/100 อยู่ในเปอร์เซ็นไทล์ 88%"
+
+6. **Fundamental Analysis (P/E, EPS, Market Cap, Growth)**: CRITICAL - You MUST incorporate fundamental metrics into your narrative
+   - P/E Ratio: Compare to industry average (e.g., "P/E 44.58 สูงกว่าค่าเฉลี่ยของกลุ่มเทคโนโลยี - แสดงว่านักลงทุนยินดีจ่ายแพงสำหรับการเติบโตในอนาคต")
+   - EPS: Discuss growth trajectory (e.g., "EPS 4.04 และการเติบโตของกำไรที่เกิน 60% แสดงถึงความแข็งแกร่งของบริษัท")
+   - Market Cap: Provide context (e.g., "Market Cap $4384.6B ทำให้เป็นบริษัทขนาดใหญ่ - มีเสถียรภาพแต่การเติบโตอาจช้าลง")
+   - Revenue Growth: Mention when significant (e.g., "Revenue Growth 60%+ แสดงว่าบริษัทกำลังขยายตัวเร็ว")
+   - Profit Margin: Discuss efficiency (e.g., "Profit Margin สูงแสดงว่าบริษัทจัดการต้นทุนได้ดี")
+   - Format: Weave fundamental metrics naturally into paragraphs - don't list them separately
+   - Use fundamental data to support your BUY/SELL/HOLD recommendation
+   - Example: "ในด้านพื้นฐาน P/E Ratio 44.58 สูงกว่าค่าเฉลี่ยของกลุ่ม แต่เมื่อพิจารณาการเติบโตของรายได้ที่ 60%+ และ Profit Margin ที่สูง แสดงว่าบริษัทมีศักยภาพที่จะเติบโตต่อไป"
+
+7. **Chart Patterns & Advanced Technical Analysis (Financial Markets MCP)**: When chart pattern data is provided, USE IT to enhance technical analysis
+   - Chart Patterns: Mention detected patterns (e.g., "พบรูปแบบ Head & Shoulders ซึ่งอาจบ่งชี้ถึงการเปลี่ยนทิศทางขาลง")
+   - Candlestick Patterns: Discuss implications (e.g., "รูปแบบ Doji แสดงความลังเลของตลาด - นักลงทุนไม่แน่ใจทิศทาง")
+   - Support/Resistance: Reference key levels (e.g., "ราคาตอนนี้อยู่ใกล้ระดับ Resistance ที่ $185 - หากทะลุได้อาจขึ้นต่อ")
+   - Advanced Indicators: Mention when relevant (e.g., "Fibonacci Retracement แสดงว่าราคาอยู่ที่ 61.8% ซึ่งเป็นจุดสำคัญ")
+   - Format: Integrate chart patterns into technical analysis narrative - don't create separate section
+   - Use chart patterns to support your technical analysis and risk assessment
+   - Example: "เมื่อดูจากรูปแบบกราฟ พบ Head & Shoulders pattern ซึ่งบ่งชี้ถึงการเปลี่ยนทิศทางขาลง ขณะที่ราคายังอยู่เหนือ Support ที่ $175 - หากราคาตกต่ำกว่าระดับนี้ อาจเป็นสัญญาณขาย"
+
+These 7 elements (4 market conditions + statistical context + fundamental analysis + chart patterns) ARE the foundation of your narrative. Include specific numbers, and use percentiles ONLY if they add meaningful context."""
+
+    def _build_base_prompt_section_en(self, uncertainty_score: float) -> str:
+        """English prompts with CRITICAL percentile emphasis (UNCHANGED from original)
+
+        Maintains all IMPORTANT/CRITICAL/MUST directives for percentile usage.
+        """
         return f"""1. **Price Uncertainty** ({uncertainty_score:.0f}/100): Sets the overall market mood
    - Low (0-25): "ตลาดเสถียรมาก" - Stable, good for positioning
    - Moderate (25-50): "ตลาดค่อนข้างเสถียร" - Normal movement
@@ -315,12 +405,19 @@ Write entirely in Thai, naturally flowing like Damodaran's style - narrative sup
         else:
             return f"ปริมาณซื้อขายเงียบ {volume_ratio:.1f}x ของค่าเฉลี่ย - นักลงทุนไม่ค่อยสนใจ อาจรอข่าวใหม่"
     
-    def _format_percentile_context(self, percentiles: dict) -> str:
-        """Format percentile context for prompt"""
+    def _format_percentile_context_th(self, percentiles: dict) -> str:
+        """Thai percentile context - empty
+
+        Following CLAUDE.md principle: complete separation instead of scattered conditionals.
+        """
+        return ""
+
+    def _format_percentile_context_en(self, percentiles: dict) -> str:
+        """English percentile context"""
         if not percentiles:
             return ""
-        
-        context = "\n\nการวิเคราะห์เปอร์เซ็นไทล์ (Percentile Analysis - เปรียบเทียบกับประวัติศาสตร์):\n"
+
+        context = "\n\nPercentile Analysis (Historical Comparison):\n"
         
         if 'rsi' in percentiles:
             rsi_stats = percentiles['rsi']
@@ -354,4 +451,17 @@ Write entirely in Thai, naturally flowing like Damodaran's style - narrative sup
         
         context += "\n**IMPORTANT**: Use these percentile values naturally in your narrative to add historical context. Don't just list them - weave them into the story!"
         return context
+
+    def _format_percentile_context(self, percentiles: dict) -> str:
+        """Format percentile context based on language
+
+        Router method that delegates to language-specific implementations.
+        Following CLAUDE.md principle: language decision in ONE place.
+
+        Uses self.language attribute to determine which implementation to call.
+        """
+        if self.language == 'th':
+            return self._format_percentile_context_th(percentiles)
+        else:
+            return self._format_percentile_context_en(percentiles)
 

@@ -33,30 +33,18 @@ def run_command(cmd: list[str], use_doppler: bool = False):
 
 
 @click.group()
-@click.option('--doppler', is_flag=True, help='Run command with doppler environment variables')
 @click.option('--workspace', default=None, help='LangSmith workspace ID (use "none" to disable, overrides LANGSMITH_WORKSPACE_ID env var)')
 @click.option('--trace/--no-trace', default=None, help='Enable/disable LangSmith tracing (overrides LANGSMITH_TRACING_V2 env var)')
 @click.pass_context
-def cli(ctx, doppler, workspace, trace):
+def cli(ctx, workspace, trace):
     """DR CLI - Daily Report unified command interface
 
     A clean, consistent interface for all repository operations.
     Use 'dr <command> --help' to see detailed help for each command.
+
+    Note: Environment variables should be provided via 'doppler run -- dr <command>'
     """
-    # If --doppler flag is set and we haven't wrapped yet, re-execute via doppler
-    if doppler and not os.environ.get('_DR_DOPPLER_WRAPPED'):
-        # Set marker to prevent infinite recursion
-        os.environ['_DR_DOPPLER_WRAPPED'] = '1'
-
-        # Remove --doppler from arguments (doppler will inject env vars)
-        args = [arg for arg in sys.argv[1:] if arg != '--doppler']
-
-        # Re-execute via doppler
-        result = run_with_doppler([sys.executable, '-m', 'dr_cli.main'] + args)
-        sys.exit(result.returncode)
-
     ctx.ensure_object(dict)
-    ctx.obj['doppler'] = doppler
     ctx.obj['workspace'] = workspace
     ctx.obj['trace'] = trace
 

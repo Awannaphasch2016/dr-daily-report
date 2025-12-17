@@ -7,13 +7,33 @@
 # Architecture:
 #   Justfile (this file) = Descriptive layer (INTENT)
 #   dr CLI              = Implementation layer (SYNTAX)
+#   Modules (modules/)  = Organized domain recipes (Aurora, Test, etc.)
+#
+# IMPORTANT: Modules require just --unstable flag (just 1.14.0+)
+#   Usage: just --unstable aurora::local util report DBS19
+#   Or set: export JUST_UNSTABLE=true
 #
 # For detailed CLI help: dr --help
 # For command-specific help: dr <command> --help
+# For module commands: just --unstable aurora::help
+
+# === MODULE IMPORTS ===
+# Organize cohesive recipes into modules for better maintainability
+mod aurora 'modules/aurora.just'
 
 # Show all available recipes
 default:
     @just --list
+
+# === QUICK REFERENCE ===
+#
+# Frequently used Aurora commands:
+#   just aurora::tunnel               - Start SSM tunnel
+#   just aurora::local util report DBS19  - Generate report
+#   just aurora::query "SELECT ..."   - Run SQL query
+#   just aurora::help                 - Show all Aurora commands
+#
+# Use Tab completion: just aurora::<Tab> to see all available commands
 
 # === DEVELOPMENT WORKFLOWS ===
 
@@ -231,59 +251,65 @@ lambda-check:
     @docker run --rm -e PYTHONPATH=/var/task --entrypoint sh lambda-quick-test -c "python3 scripts/test_lambda_imports.py"
 
 # === AURORA DATABASE INTERACTION ===
+# NOTE: Aurora recipes have been moved to modules/aurora.just
+# Use 'just aurora::' to access them, or use aliases below
 
-# Start SSM port forwarding to Aurora (run in background, keep terminal open)
+# Backward-compatible aliases (deprecated - use aurora:: namespace)
 aurora-tunnel:
-    @echo "🔌 Starting SSM tunnel to Aurora..."
-    @echo "   Local port: 3307"
-    @echo "   Remote: dr-daily-report-aurora-dev"
-    @echo ""
-    @echo "⚠️  Keep this terminal open while using Aurora"
-    @echo "   Press Ctrl+C to stop the tunnel"
-    @echo ""
-    aws ssm start-session \
-      --target i-0dab21bdf83ce9aaf \
-      --document-name AWS-StartPortForwardingSessionToRemoteHost \
-      --parameters '{"host":["dr-daily-report-aurora-dev.cluster-c9a0288e4hqm.ap-southeast-1.rds.amazonaws.com"],"portNumber":["3306"],"localPortNumber":["3307"]}' \
-      --region ap-southeast-1
+    @just --unstable aurora tunnel
 
-# Explore Aurora database with VisiData (requires aurora-tunnel running in another terminal)
-aurora-vd *ARGS:
-    @echo "⚠️  DEPRECATED: Use 'just aurora-query \"SELECT ...\" --output vd' instead"
+aurora-check:
+    @just --unstable aurora check
+
+aurora-query QUERY *FLAGS:
+    @just --unstable aurora query "{{QUERY}}" {{FLAGS}}
+
+aurora-list-tickers:
+    @just --unstable aurora list-tickers
+
+# === AURORA MIGRATION TESTING (DEPRECATED) ===
+# These recipes have been replaced by the aurora:: module.
+# Use 'just aurora::local util report TICKER' instead.
+
+# DEPRECATED: Use 'just aurora::local' with dr CLI instead
+aurora-test-ticker SYMBOL="D05.SI":
+    @echo "⚠️  DEPRECATED: This recipe uses old manual env var setup"
     @echo ""
-    @echo "Example:"
-    @echo "   just aurora-query \"SELECT * FROM ticker_master\" --output vd"
+    @echo "Use the new pattern instead:"
+    @echo "   just aurora::local --help"
     @echo ""
+    @echo "For script testing:"
+    @echo "   just aurora::check && doppler run --config dev_local -- python scripts/test_aurora_ticker.py {{SYMBOL}}"
     @exit 1
 
-# Run SQL query against Aurora (requires aurora-tunnel running in another terminal)
-aurora-query QUERY *FLAGS:
-    #!/usr/bin/env bash
-    set -euo pipefail
+# DEPRECATED: Use 'just aurora::local' with dr CLI instead
+aurora-test-peers PEERS="U11.SI,D05.SI,O39.SI":
+    @echo "⚠️  DEPRECATED: This recipe uses old manual env var setup"
+    @echo ""
+    @echo "Use scripts directly with dev_local config:"
+    @echo "   just aurora::check && doppler run --config dev_local -- python scripts/test_aurora_peers.py '{{PEERS}}'"
+    @exit 1
 
-    # Check tunnel
-    if ! nc -z 127.0.0.1 3307 2>/dev/null; then
-        echo "❌ SSM tunnel not running. Run: just aurora-tunnel"
-        exit 1
-    fi
+# DEPRECATED: Use 'just aurora::local util report' instead
+aurora-test-report SYMBOL="D05.SI":
+    @echo "⚠️  DEPRECATED: Use 'just aurora::local util report {{SYMBOL}}' instead"
+    @echo ""
+    @echo "New pattern:"
+    @echo "   just aurora::local util report {{SYMBOL}}"
+    @echo "   just aurora::local util report {{SYMBOL}} --strategy multi-stage"
+    @exit 1
 
-    # Parse output flag
-    output="table"
-    if echo "{{FLAGS}}" | grep -q "\--output"; then
-        output=$(echo "{{FLAGS}}" | sed -n 's/.*--output[= ]\([^ ]*\).*/\1/p')
-    fi
+# DEPRECATED: Use 'just aurora::local' instead
+aurora-verify-migration SYMBOL="D05.SI":
+    @echo "⚠️  DEPRECATED: This recipe is no longer needed"
+    @echo ""
+    @echo "Use standard report generation:"
+    @echo "   just aurora::local util report {{SYMBOL}}"
+    @exit 1
 
-    # Execute query with selected output format
-    if [ "$output" = "vd" ]; then
-        echo "📊 Opening in VisiData..." >&2
-        mysql -h 127.0.0.1 -P 3307 -u admin -pAuroraDevDb2025SecureX1 \
-            ticker_data --batch -e "{{QUERY}}" 2>/dev/null | vd -f tsv
-    else
-        echo "📝 Query: {{QUERY}}"
-        echo ""
-        mysql -h 127.0.0.1 -P 3307 -u admin -pAuroraDevDb2025SecureX1 \
-            ticker_data -e "{{QUERY}}"
-    fi
+# Show Aurora commands (now points to module help)
+aurora-help:
+    @just --unstable aurora help
 
 # === PROMOTION PIPELINE ===
 # Validates tests pass in order: local → dev → staging → prod
@@ -563,10 +589,17 @@ tree:
 stats:
     dr util stats
 
-# Generate report for a specific ticker
-report TICKER:
-    @echo "📊 Generating report for {{TICKER}}..."
-    dr --doppler util report {{TICKER}}
+# Generate report for a specific ticker (requires Aurora tunnel for local dev)
+#
+# NOTE: For local development with Aurora, use: just aurora::local util report TICKER
+# This recipe uses dev_personal config (production Aurora endpoint)
+report TICKER LANGUAGE='th':
+    @echo "⚠️  This recipe uses dev_personal config (production Aurora endpoint)"
+    @echo "    For local development with SSM tunnel, use:"
+    @echo "    just aurora::local util report {{TICKER}} --language {{LANGUAGE}}"
+    @echo ""
+    @echo "📊 Generating {{LANGUAGE}} report for {{TICKER}}..."
+    doppler run --project rag-chatbot-worktree --config dev_personal -- dr util report {{TICKER}} --language {{LANGUAGE}}
 
 # Show quick reference info
 info:

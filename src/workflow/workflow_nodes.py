@@ -81,7 +81,6 @@ class WorkflowNodes:
         technical_analyzer,
         news_fetcher,
         chart_generator,
-        db,
         strategy_backtester,
         strategy_analyzer,
         comparative_analyzer,
@@ -110,7 +109,6 @@ class WorkflowNodes:
         self.technical_analyzer = technical_analyzer
         self.news_fetcher = news_fetcher
         self.chart_generator = chart_generator
-        self.db = db
         self.strategy_backtester = strategy_backtester
         self.strategy_analyzer = strategy_analyzer
         self.comparative_analyzer = comparative_analyzer
@@ -311,23 +309,6 @@ class WorkflowNodes:
         info = self.data_fetcher.get_ticker_info(yahoo_ticker)
         data.update(info)
 
-        # Save to database
-        self.db.insert_ticker_data(
-            ticker, yahoo_ticker, data['date'],
-            {
-                'open': data['open'],
-                'high': data['high'],
-                'low': data['low'],
-                'close': data['close'],
-                'volume': data['volume'],
-                'market_cap': data.get('market_cap'),
-                'pe_ratio': data.get('pe_ratio'),
-                'eps': data.get('eps'),
-                'dividend_yield': data.get('dividend_yield')
-            }
-        )
-        self._db_query_count_ref[0] += 1
-
         # Record timing
         elapsed = time.perf_counter() - start_time
         timing_metrics = state.get("timing_metrics", {})
@@ -349,21 +330,26 @@ class WorkflowNodes:
 
         return state
 
-    def fetch_news(self, state: AgentState) -> AgentState:
-        """Fetch high-impact news for the ticker"""
+    def fetch_news(self, state: AgentState) -> dict:
+        """
+        Fetch high-impact news for the ticker.
+
+        Returns partial state with only modified fields (for parallel execution).
+        """
         self._log_node_start("fetch_news", state)
 
         if state.get("error"):
             self._log_node_skip("fetch_news", state, "Previous error in workflow")
-            return state
+            return {}  # Return empty dict, don't propagate error
 
         start_time = time.perf_counter()
         yahoo_ticker = self.ticker_map.get(state["ticker"].upper())
         if not yahoo_ticker:
-            state["news"] = []
-            state["news_summary"] = {}
             self._log_node_skip("fetch_news", state, "No yahoo_ticker found")
-            return state
+            return {
+                "news": [],
+                "news_summary": {}
+            }
 
         logger.info(f"   📰 Fetching news for {yahoo_ticker}")
 
@@ -377,30 +363,22 @@ class WorkflowNodes:
         # Get news summary statistics
         news_summary = self.news_fetcher.get_news_summary(high_impact_news)
 
-        # Record timing
+        # Log success with timing
         elapsed = time.perf_counter() - start_time
-        timing_metrics = state.get("timing_metrics", {})
-        timing_metrics["news_fetch"] = elapsed
-        state["timing_metrics"] = timing_metrics
+        details = {
+            'news_count': len(high_impact_news),
+            'positive': news_summary.get('positive_count', 0),
+            'negative': news_summary.get('negative_count', 0),
+            'neutral': news_summary.get('neutral_count', 0),
+            'duration_ms': f"{elapsed*1000:.2f}"
+        }
+        self._log_node_success("fetch_news", state, details)
 
-        state["news"] = high_impact_news
-        state["news_summary"] = news_summary
-
-        # Validate output
-        validation = self._validate_state_fields(state, ["news", "news_summary"], "fetch_news")
-        if all(validation.values()):
-            details = {
-                'news_count': len(high_impact_news),
-                'positive': news_summary.get('positive_count', 0),
-                'negative': news_summary.get('negative_count', 0),
-                'neutral': news_summary.get('neutral_count', 0),
-                'duration_ms': f"{elapsed*1000:.2f}"
-            }
-            self._log_node_success("fetch_news", state, details)
-        else:
-            self._log_node_error("fetch_news", state, f"Validation failed: {validation}")
-
-        return state
+        # Return only modified fields (partial state)
+        return {
+            "news": high_impact_news,
+            "news_summary": news_summary
+        }
 
     @traceable(
         name="analyze_technical",
@@ -408,31 +386,33 @@ class WorkflowNodes:
         process_inputs=_filter_state_for_langsmith,
         process_outputs=_filter_state_for_langsmith
     )
-    def analyze_technical(self, state: AgentState) -> AgentState:
-        """Analyze technical indicators with percentile analysis"""
+    def analyze_technical(self, state: AgentState) -> dict:
+        """
+        Analyze technical indicators with percentile analysis.
+
+        Returns partial state with only modified fields (for parallel execution).
+        """
         self._log_node_start("analyze_technical", state)
 
         if state.get("error"):
             self._log_node_skip("analyze_technical", state, "Previous error in workflow")
-            return state
+            return {}  # Return empty dict, don't propagate error
 
         # VALIDATION GATE - check prerequisite data exists and is non-empty
         ticker_data = state.get("ticker_data")
         if not ticker_data or len(ticker_data) == 0:
             error_msg = f"Cannot analyze technical: ticker_data is empty or missing for {state.get('ticker')}"
             logger.error(error_msg)
-            state["error"] = error_msg
             self._log_node_error("analyze_technical", state, error_msg)
-            return state
+            return {"error": error_msg}
 
         start_time = time.perf_counter()
         hist_data = ticker_data.get('history')
 
         if hist_data is None or hist_data.empty:
             error_msg = "ไม่มีข้อมูลประวัติสำหรับการวิเคราะห์"
-            state["error"] = error_msg
             self._log_node_error("analyze_technical", state, error_msg)
-            return state
+            return {"error": error_msg}
 
         logger.info(f"   📈 Analyzing technical indicators (data points: {len(hist_data)})")
 
@@ -441,9 +421,8 @@ class WorkflowNodes:
 
         if not result or not result.get('indicators'):
             error_msg = "ไม่สามารถคำนวณ indicators ได้"
-            state["error"] = error_msg
             self._log_node_error("analyze_technical", state, error_msg)
-            return state
+            return {"error": error_msg}
 
         indicators = result['indicators']
         percentiles = result.get('percentiles', {})
@@ -468,158 +447,25 @@ class WorkflowNodes:
                 logger.warning(f"   ⚠️  Error calculating strategy performance: {str(e)}")
                 strategy_performance = {}
 
-        # Save indicators to database
-        yahoo_ticker = self.ticker_map.get(state["ticker"].upper())
-        if yahoo_ticker:  # Only save if ticker is in the map
-            self.db.insert_technical_indicators(
-                yahoo_ticker, ticker_data['date'], indicators
-            )
-            self._db_query_count_ref[0] += 1
-
-        # Record timing
-        elapsed = time.perf_counter() - start_time
-        timing_metrics = state.get("timing_metrics", {})
-        timing_metrics["technical_analysis"] = elapsed
-        state["timing_metrics"] = timing_metrics
-
-        state["indicators"] = indicators
-        state["percentiles"] = percentiles
-        state["chart_patterns"] = chart_patterns
-        state["pattern_statistics"] = pattern_statistics
-        state["strategy_performance"] = strategy_performance
-
         # Validate output
-        validation = self._validate_state_fields(state, ["indicators", "percentiles"], "analyze_technical")
-        if all(validation.values()):
-            details = {
-                'indicators_count': len(indicators),
-                'percentiles_count': len(percentiles),
-                'patterns_count': len(chart_patterns),
-                'has_strategy': bool(strategy_performance),
-                'duration_ms': f"{elapsed*1000:.2f}"
-            }
-            self._log_node_success("analyze_technical", state, details)
-        else:
-            self._log_node_error("analyze_technical", state, f"Validation failed: {validation}")
-
-        return state
-
-    @traceable(
-        name="fetch_financial_markets_data",
-        tags=["workflow", "mcp", "technical"],
-        process_inputs=_filter_state_for_langsmith,
-        process_outputs=_filter_state_for_langsmith
-    )
-    def fetch_financial_markets_data(self, state: AgentState) -> AgentState:
-        """Fetch advanced technical data from Financial Markets MCP"""
-        self._log_node_start("fetch_financial_markets_data", state)
-        
-        if state.get("error"):
-            self._log_node_skip("fetch_financial_markets_data", state, "Previous error in workflow")
-            return state
-        
-        start_time = time.perf_counter()
-        ticker = state["ticker"]
-        yahoo_ticker = self.ticker_map.get(ticker.upper())
-        
-        if not yahoo_ticker:
-            state["financial_markets_data"] = {}
-            self._log_node_skip("fetch_financial_markets_data", state, "No yahoo_ticker found")
-            return state
-        
-        try:
-            from src.integrations.mcp_client import get_mcp_client, MCPServerError
-            
-            mcp_client = get_mcp_client()
-            
-            # Check if Financial Markets MCP server is available
-            if not mcp_client.is_server_available('financial_markets'):
-                logger.info("Financial Markets MCP server not configured, skipping")
-                state["financial_markets_data"] = {}
-                self._log_node_skip("fetch_financial_markets_data", state, "MCP server not configured")
-                return state
-            
-            logger.info(f"   📈 Fetching Financial Markets data for {ticker} ({yahoo_ticker}) via MCP")
-            
-            financial_markets_data = {}
-            
-            # Call MCP tools in sequence (with graceful degradation)
-            # Note: MCP client now parses content array automatically, returns parsed JSON dict
-            try:
-                # Get chart patterns
-                chart_patterns = mcp_client.call_tool(
-                    server='financial_markets',
-                    tool_name='get_chart_patterns',
-                    arguments={'ticker': yahoo_ticker}
-                )
-                # Check for valid data (not empty dict and no error key)
-                if chart_patterns and isinstance(chart_patterns, dict) and 'error' not in chart_patterns:
-                    financial_markets_data['chart_patterns'] = chart_patterns
-            except Exception as e:
-                logger.warning(f"Failed to fetch chart patterns: {e}")
-            
-            try:
-                # Get candlestick patterns
-                candlestick_patterns = mcp_client.call_tool(
-                    server='financial_markets',
-                    tool_name='get_candlestick_patterns',
-                    arguments={'ticker': yahoo_ticker}
-                )
-                if candlestick_patterns and isinstance(candlestick_patterns, dict) and 'error' not in candlestick_patterns:
-                    financial_markets_data['candlestick_patterns'] = candlestick_patterns
-            except Exception as e:
-                logger.warning(f"Failed to fetch candlestick patterns: {e}")
-            
-            try:
-                # Get support/resistance levels
-                support_resistance = mcp_client.call_tool(
-                    server='financial_markets',
-                    tool_name='get_support_resistance',
-                    arguments={'ticker': yahoo_ticker}
-                )
-                if support_resistance and isinstance(support_resistance, dict) and 'error' not in support_resistance:
-                    financial_markets_data['support_resistance'] = support_resistance
-            except Exception as e:
-                logger.warning(f"Failed to fetch support/resistance: {e}")
-            
-            try:
-                # Get advanced technical indicators
-                technical_indicators = mcp_client.call_tool(
-                    server='financial_markets',
-                    tool_name='get_technical_indicators',
-                    arguments={'ticker': yahoo_ticker}
-                )
-                if technical_indicators and isinstance(technical_indicators, dict) and 'error' not in technical_indicators:
-                    financial_markets_data['technical_indicators'] = technical_indicators
-            except Exception as e:
-                logger.warning(f"Failed to fetch technical indicators: {e}")
-            
-            state["financial_markets_data"] = financial_markets_data
-            
-            elapsed = time.perf_counter() - start_time
-            details = {
-                'ticker': yahoo_ticker,
-                'data_keys': list(financial_markets_data.keys()),
-                'duration_ms': f"{elapsed*1000:.2f}"
-            }
-            self._log_node_success("fetch_financial_markets_data", state, details)
-            
-        except MCPServerError as e:
-            logger.warning(f"Financial Markets MCP failed: {e}, skipping")
-            state["financial_markets_data"] = {}
-            self._log_node_skip("fetch_financial_markets_data", state, f"MCP error: {str(e)}")
-        except Exception as e:
-            logger.error(f"Unexpected error fetching Financial Markets data: {e}")
-            state["financial_markets_data"] = {}
-            self._log_node_error("fetch_financial_markets_data", state, f"Exception: {str(e)}")
-        
-        # Record timing
         elapsed = time.perf_counter() - start_time
-        timing_metrics = state.get("timing_metrics", {})
-        timing_metrics["financial_markets_fetch"] = elapsed
-        state["timing_metrics"] = timing_metrics
-        
-        return state
+        details = {
+            'indicators_count': len(indicators),
+            'percentiles_count': len(percentiles),
+            'patterns_count': len(chart_patterns),
+            'has_strategy': bool(strategy_performance),
+            'duration_ms': f"{elapsed*1000:.2f}"
+        }
+        self._log_node_success("analyze_technical", state, details)
+
+        # Return only modified fields (partial state)
+        return {
+            "indicators": indicators,
+            "percentiles": percentiles,
+            "chart_patterns": chart_patterns,
+            "pattern_statistics": pattern_statistics,
+            "strategy_performance": strategy_performance
+        }
 
     @traceable(
         name="fetch_sec_filing",
@@ -627,24 +473,21 @@ class WorkflowNodes:
         process_inputs=_filter_state_for_langsmith,
         process_outputs=_filter_state_for_langsmith
     )
-    def fetch_sec_filing(self, state: AgentState) -> AgentState:
+    def fetch_sec_filing(self, state: AgentState) -> dict:
         """
         Fetch SEC filing - DISABLED for Thai market focus.
-        
+
         This node is disabled by default. Set ENABLE_SEC_EDGAR=true to enable.
+
+        Returns partial state with only modified fields (for parallel execution).
         """
         self._log_node_start("fetch_sec_filing", state)
-        
+
         # Always skip - SEC EDGAR disabled for Thai market focus
-        state["sec_filing_data"] = {}
         self._log_node_skip("fetch_sec_filing", state, "SEC EDGAR disabled (Thai market focus)")
-        
-        # Record timing
-        timing_metrics = state.get("timing_metrics", {})
-        timing_metrics["sec_filing_fetch"] = 0.0
-        state["timing_metrics"] = timing_metrics
-        
-        return state
+
+        # Return only modified fields (partial state)
+        return {"sec_filing_data": {}}
 
     @traceable(
         name="score_user_facing",
@@ -652,15 +495,20 @@ class WorkflowNodes:
         process_inputs=_filter_state_for_langsmith,
         process_outputs=_filter_state_for_langsmith
     )
-    def score_user_facing(self, state: AgentState) -> AgentState:
-        """Calculate user-facing investment scores (0-10 scale)"""
+    def score_user_facing(self, state: AgentState) -> dict:
+        """
+        Calculate user-facing investment scores (0-10 scale).
+
+        Returns partial state with only modified fields (for parallel execution).
+        """
         self._log_node_start("score_user_facing", state)
 
         if state.get("error"):
             self._log_node_skip("score_user_facing", state, "Previous error in workflow")
-            return state
+            return {}  # Return empty dict, don't propagate error
 
         start_time = time.perf_counter()
+        scores = {}
 
         try:
             from src.scoring.user_facing_scorer import UserFacingScorer
@@ -673,8 +521,6 @@ class WorkflowNodes:
                 indicators=state.get("indicators", {}),
                 percentiles=state.get("percentiles", {})
             )
-
-            state["user_facing_scores"] = scores
 
             # Validate output
             if scores and len(scores) >= 5:
@@ -690,16 +536,11 @@ class WorkflowNodes:
 
         except Exception as e:
             error_msg = f"Failed to calculate scores: {e}"
-            state["error"] = error_msg
             self._log_node_error("score_user_facing", state, error_msg)
+            return {"error": error_msg}
 
-        # Record timing
-        elapsed = time.perf_counter() - start_time
-        timing_metrics = state.get("timing_metrics", {})
-        timing_metrics["user_facing_scoring"] = elapsed
-        state["timing_metrics"] = timing_metrics
-
-        return state
+        # Return only modified fields (partial state)
+        return {"user_facing_scores": scores}
 
     @traceable(
         name="generate_chart",
@@ -707,19 +548,31 @@ class WorkflowNodes:
         process_inputs=_filter_state_for_langsmith,
         process_outputs=_filter_state_for_langsmith
     )
-    def generate_chart(self, state: AgentState) -> AgentState:
-        """Generate technical analysis chart"""
+    def generate_chart(self, state: AgentState) -> dict:
+        """
+        Generate technical analysis chart.
+
+        Returns partial state with only modified fields (for parallel execution).
+        """
         self._log_node_start("generate_chart", state)
 
         if state.get("error"):
             self._log_node_skip("generate_chart", state, "Previous error in workflow")
-            return state
+            return {}  # Return empty dict, don't propagate error
 
         start_time = time.perf_counter()
+        chart_base64 = ""
+
         try:
             ticker = state["ticker"]
             ticker_data = state["ticker_data"]
-            indicators = state["indicators"]
+            indicators = state.get("indicators", {})
+
+            # Skip if no indicators (might happen in parallel execution)
+            if not indicators:
+                logger.warning(f"   ⚠️  No indicators available for {ticker}, skipping chart")
+                self._log_node_skip("generate_chart", state, "No indicators available")
+                return {"chart_base64": ""}
 
             logger.info(f"   📊 Generating chart for {ticker}")
 
@@ -730,8 +583,6 @@ class WorkflowNodes:
                 ticker_symbol=ticker,
                 days=90
             )
-
-            state["chart_base64"] = chart_base64
 
             # Validate output
             if chart_base64:
@@ -747,16 +598,11 @@ class WorkflowNodes:
         except Exception as e:
             logger.error(f"   ⚠️  Chart generation failed: {str(e)}")
             # Don't set error - chart is optional, continue without it
-            state["chart_base64"] = ""
+            chart_base64 = ""
             self._log_node_error("generate_chart", state, f"Exception: {str(e)}")
 
-        # Record timing (even if failed)
-        elapsed = time.perf_counter() - start_time
-        timing_metrics = state.get("timing_metrics", {})
-        timing_metrics["chart_generation"] = elapsed
-        state["timing_metrics"] = timing_metrics
-
-        return state
+        # Return only modified fields (partial state)
+        return {"chart_base64": chart_base64}
 
     @traceable(
         name="generate_report",
@@ -798,6 +644,68 @@ class WorkflowNodes:
         else:
             return self._generate_report_singlestage(state)
 
+    def _post_process_report_workflow(
+        self,
+        report: str,
+        state: AgentState,
+        indicators: dict,
+        strategy: str
+    ) -> str:
+        """
+        Apply all post-processing steps to generated report (Thai only).
+
+        Steps:
+        1. Calculate ground truth from indicators
+        2. Inject deterministic numbers (replace {{PLACEHOLDERS}})
+        3. Add news references
+        4. Add transparency footer with strategy label
+
+        Note: Percentile analysis removed (Thai reports don't show it)
+
+        Args:
+            report: Raw LLM-generated report
+            state: Complete workflow state
+            indicators: Technical indicators
+            strategy: 'single-stage' or 'multi-stage'
+
+        Returns:
+            Post-processed report with all enhancements
+        """
+        # Step 1: Calculate ground truth for number injection
+        conditions = self.market_analyzer.calculate_market_conditions(indicators)
+        ground_truth = {
+            'uncertainty_score': indicators.get('uncertainty_score', 0),
+            'atr_pct': (indicators.get('atr', 0) / indicators.get('current_price', 1)) * 100
+                       if indicators.get('current_price', 0) > 0 else 0,
+            'vwap_pct': conditions.get('price_vs_vwap_pct', 0),
+            'volume_ratio': conditions.get('volume_ratio', 0),
+        }
+
+        # Step 2: Replace {{PLACEHOLDERS}} with exact values
+        percentiles = state.get('percentiles', {})
+        report = self.number_injector.inject_deterministic_numbers(
+            report,
+            ground_truth,
+            indicators,
+            percentiles,
+            state.get('ticker_data') or {},
+            state.get('comparative_insights') or {}
+        )
+
+        # Step 3: Add news references
+        news = state.get('news', [])
+        if news:
+            news_references = self.news_fetcher.get_news_references(news)
+            report += f"\n\n{news_references}"
+
+        # Step 4: Add transparency footer (Thai only, no percentile section)
+        from src.report import TransparencyFooter
+        transparency = TransparencyFooter()
+        footnote = transparency.generate_data_usage_footnote(state, strategy=strategy)
+        report += footnote
+
+        return report
+
     def _generate_report_multistage(self, state: AgentState) -> AgentState:
         """
         Generate report using multi-stage approach:
@@ -816,6 +724,15 @@ class WorkflowNodes:
         news = state.get("news", [])
         news_summary = state.get("news_summary", {})
         comparative_insights = state.get("comparative_insights", {})
+        language = state.get("language", "th")
+
+        # Extract MCP data fields (equalizing input with single-stage)
+        chart_patterns = state.get("chart_patterns", [])
+        pattern_statistics = state.get("pattern_statistics", {})
+        sec_filing_data = state.get("sec_filing_data", {})
+        financial_markets_data = state.get("financial_markets_data", {})
+        portfolio_insights = state.get("portfolio_insights", {})
+        alpaca_data = state.get("alpaca_data", {})
 
         # Initialize API costs tracking
         total_input_tokens = 0
@@ -831,17 +748,25 @@ class WorkflowNodes:
             """Generate a single mini-report and return (type, content, tokens)"""
             try:
                 if report_type == 'technical':
-                    content = self.mini_report_generator.generate_technical_mini_report(indicators, percentiles)
+                    content = self.mini_report_generator.generate_technical_mini_report(
+                        indicators, percentiles, chart_patterns, pattern_statistics, financial_markets_data
+                    )
                 elif report_type == 'fundamental':
-                    content = self.mini_report_generator.generate_fundamental_mini_report(ticker_data)
+                    content = self.mini_report_generator.generate_fundamental_mini_report(
+                        ticker_data, sec_filing_data
+                    )
                 elif report_type == 'market_conditions':
-                    content = self.mini_report_generator.generate_market_conditions_mini_report(indicators, percentiles)
+                    content = self.mini_report_generator.generate_market_conditions_mini_report(
+                        indicators, percentiles, alpaca_data
+                    )
                 elif report_type == 'news':
                     content = self.mini_report_generator.generate_news_mini_report(news, news_summary)
                 elif report_type == 'comparative':
                     content = self.mini_report_generator.generate_comparative_mini_report(comparative_insights)
                 elif report_type == 'strategy':
-                    content = self.mini_report_generator.generate_strategy_mini_report(strategy_performance)
+                    content = self.mini_report_generator.generate_strategy_mini_report(
+                        strategy_performance, portfolio_insights
+                    )
                 else:
                     content = ""
 
@@ -884,35 +809,11 @@ class WorkflowNodes:
         logger.info(f"   ✅ Synthesis complete ({len(report)} chars)")
 
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        # STAGE 3: Apply number injection and formatting
+        # STAGE 3: Apply post-processing pipeline
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        conditions = self.market_analyzer.calculate_market_conditions(indicators)
-        ground_truth = {
-            'uncertainty_score': indicators.get('uncertainty_score', 0),
-            'atr_pct': (indicators.get('atr', 0) / indicators.get('current_price', 1)) * 100 if indicators.get('current_price', 0) > 0 else 0,
-            'vwap_pct': conditions.get('price_vs_vwap_pct', 0),
-            'volume_ratio': conditions.get('volume_ratio', 0),
-        }
-
-        report = self.number_injector.inject_deterministic_numbers(
-            report, ground_truth, indicators, percentiles
+        report = self._post_process_report_workflow(
+            report, state, indicators, strategy='multi-stage'
         )
-
-        # Add news references
-        if news:
-            news_references = self.news_fetcher.get_news_references(news)
-            report += f"\n\n{news_references}"
-
-        # Add percentile analysis
-        if percentiles:
-            percentile_analysis = self.technical_analyzer.format_percentile_analysis(percentiles)
-            report += f"\n\n{percentile_analysis}"
-
-        # Add transparency footnote
-        from src.report import TransparencyFooter
-        transparency = TransparencyFooter()
-        footnote = transparency.generate_data_usage_footnote(state, strategy='multi-stage')
-        report += footnote
 
         # Record timing and costs
         llm_elapsed = time.perf_counter() - llm_start_time
@@ -946,28 +847,7 @@ class WorkflowNodes:
         self._log_node_success("generate_report", state, details)
 
         # Save to database (same as single-stage)
-        def make_json_serializable(obj):
-            """Recursively convert datetime/date/DataFrame/numpy objects to JSON-serializable format"""
-            from datetime import date
-            if isinstance(obj, (datetime, date)):
-                return obj.isoformat()
-            elif isinstance(obj, pd.Timestamp):
-                return obj.isoformat()
-            elif isinstance(obj, pd.DataFrame):
-                df_copy = obj.reset_index(drop=False)
-                return make_json_serializable(df_copy.to_dict('records'))
-            elif isinstance(obj, np.integer):
-                return int(obj)
-            elif isinstance(obj, np.floating):
-                return float(obj)
-            elif isinstance(obj, np.ndarray):
-                return make_json_serializable(obj.tolist())
-            elif isinstance(obj, dict):
-                return {str(k) if isinstance(k, (pd.Timestamp, datetime, date)) else k: make_json_serializable(v)
-                        for k, v in obj.items()}
-            elif isinstance(obj, list):
-                return [make_json_serializable(item) for item in obj]
-            return obj
+        from src.utils.serialization import make_json_serializable
 
         market_conditions = self.market_analyzer.calculate_market_conditions(indicators)
         from src.scoring.scoring_service import ScoringContext
@@ -983,19 +863,6 @@ class WorkflowNodes:
                 'volume_ratio': market_conditions.get('volume_ratio', 0),
             },
             comparative_insights=make_json_serializable(state.get('comparative_insights', {}))
-        )
-
-        yahoo_ticker = self.ticker_map.get(ticker.upper()) or ticker
-        self.db.save_report(
-            yahoo_ticker,
-            ticker_data['date'],
-            {
-                'report_text': report,
-                'context_json': json.dumps(make_json_serializable(scoring_context.to_json())),
-                'technical_summary': self.technical_analyzer.analyze_trend(indicators, indicators.get('current_price')),
-                'fundamental_summary': f"P/E: {ticker_data.get('pe_ratio', 'N/A')}",
-                'sector_analysis': ticker_data.get('sector', 'N/A')
-            }
         )
 
         return state
@@ -1014,6 +881,7 @@ class WorkflowNodes:
         strategy_performance = state.get("strategy_performance", {})
         news = state.get("news", [])
         news_summary = state.get("news_summary", {})
+        language = state.get("language", "th")
 
         # Initialize API costs tracking
         api_costs = state.get("api_costs", {})
@@ -1091,18 +959,9 @@ class WorkflowNodes:
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         # INJECT DETERMINISTIC NUMBERS (Damodaran "narrative + number" approach)
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        # Calculate ground truth for injection
-        conditions = self.market_analyzer.calculate_market_conditions(indicators)
-        ground_truth = {
-            'uncertainty_score': indicators.get('uncertainty_score', 0),
-            'atr_pct': (indicators.get('atr', 0) / indicators.get('current_price', 1)) * 100 if indicators.get('current_price', 0) > 0 else 0,
-            'vwap_pct': conditions.get('price_vs_vwap_pct', 0),
-            'volume_ratio': conditions.get('volume_ratio', 0),
-        }
-
-        # Replace all {{PLACEHOLDERS}} with exact ground truth values
-        report = self.number_injector.inject_deterministic_numbers(
-            report, ground_truth, indicators, percentiles
+        # Apply post-processing pipeline (number injection, news references, transparency footer)
+        report = self._post_process_report_workflow(
+            report, state, indicators, strategy='single-stage'
         )
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -1117,22 +976,6 @@ class WorkflowNodes:
             total_input_tokens, total_output_tokens, actual_cost_usd=None
         )
         state["api_costs"] = api_costs
-
-        # Add news references at the end if news exists
-        if news:
-            news_references = self.news_fetcher.get_news_references(news)
-            report += f"\n\n{news_references}"
-
-        # Add percentile analysis at the end
-        if percentiles:
-            percentile_analysis = self.technical_analyzer.format_percentile_analysis(percentiles)
-            report += f"\n\n{percentile_analysis}"
-
-        # Add transparency footnote showing data sources used
-        from src.report import TransparencyFooter
-        transparency = TransparencyFooter()
-        footnote = transparency.generate_data_usage_footnote(state, strategy='single-stage')
-        report += footnote
 
         # Validate report output
         if not report or len(report.strip()) == 0:
@@ -1156,33 +999,7 @@ class WorkflowNodes:
 
         # Build scoring context for storage and scoring
         # Convert datetime/DataFrame objects to JSON-serializable format
-        def make_json_serializable(obj):
-            """Recursively convert datetime/date/DataFrame/numpy objects to JSON-serializable format"""
-            from datetime import date
-            if isinstance(obj, (datetime, date)):
-                return obj.isoformat()
-            elif isinstance(obj, pd.Timestamp):
-                return obj.isoformat()
-            elif isinstance(obj, pd.DataFrame):
-                # Convert DataFrame to list of records (handles timestamp indexes)
-                df_copy = obj.reset_index(drop=False)
-                return make_json_serializable(df_copy.to_dict('records'))
-            elif isinstance(obj, np.integer):
-                # Convert numpy integers (int64, int32, etc.) to Python int
-                return int(obj)
-            elif isinstance(obj, np.floating):
-                # Convert numpy floats (float64, float32, etc.) to Python float
-                return float(obj)
-            elif isinstance(obj, np.ndarray):
-                # Convert numpy arrays to lists
-                return make_json_serializable(obj.tolist())
-            elif isinstance(obj, dict):
-                # Convert dict keys and values
-                return {str(k) if isinstance(k, (pd.Timestamp, datetime, date)) else k: make_json_serializable(v)
-                        for k, v in obj.items()}
-            elif isinstance(obj, list):
-                return [make_json_serializable(item) for item in obj]
-            return obj
+        from src.utils.serialization import make_json_serializable
 
         market_conditions = self.market_analyzer.calculate_market_conditions(indicators)
         from src.scoring.scoring_service import ScoringContext
@@ -1200,20 +1017,8 @@ class WorkflowNodes:
             comparative_insights=make_json_serializable(state.get('comparative_insights', {}))
         )
 
-        # Save report with context to database
+        # Get yahoo ticker for background evaluation
         yahoo_ticker = self.ticker_map.get(ticker.upper()) or ticker
-        self.db.save_report(
-            yahoo_ticker,
-            ticker_data['date'],
-            {
-                'report_text': report,
-                'context_json': json.dumps(make_json_serializable(scoring_context.to_json())),
-                'technical_summary': self.technical_analyzer.analyze_trend(indicators, indicators.get('current_price')),
-                'fundamental_summary': f"P/E: {ticker_data.get('pe_ratio', 'N/A')}",
-                'sector_analysis': ticker_data.get('sector', 'N/A')
-            }
-        )
-        self._db_query_count_ref[0] += 1
 
         state["report"] = report
 
@@ -1256,7 +1061,6 @@ class WorkflowNodes:
                 self.scoring_service,
                 self.qos_scorer,
                 self.cost_scorer,
-                self.db,
                 # Pass data for scoring
                 report,
                 scoring_context,
@@ -1278,22 +1082,27 @@ class WorkflowNodes:
 
         return state
 
-    def fetch_comparative_data(self, state: AgentState) -> AgentState:
-        """Fetch historical data for comparative analysis with similar tickers"""
+    def fetch_comparative_data(self, state: AgentState) -> dict:
+        """
+        Fetch historical data for comparative analysis with similar tickers.
+
+        Returns partial state with only modified fields (for parallel execution).
+        """
         self._log_node_start("fetch_comparative_data", state)
 
         if state.get("error"):
             self._log_node_skip("fetch_comparative_data", state, "Previous error in workflow")
-            return state
+            return {}  # Return empty dict, don't propagate error
 
         start_time = time.perf_counter()
         ticker = state["ticker"]
         yahoo_ticker = self.ticker_map.get(ticker.upper())
 
         if not yahoo_ticker:
-            state["comparative_data"] = {}
             self._log_node_skip("fetch_comparative_data", state, "No yahoo_ticker found")
-            return state
+            return {"comparative_data": {}}
+
+        comparative_data = {}
 
         try:
             logger.info(f"   🔄 Fetching comparative data for {ticker}")
@@ -1313,7 +1122,6 @@ class WorkflowNodes:
                     similar_tickers.append(t)
 
             # Fetch historical data for comparative analysis
-            comparative_data = {}
             for t in similar_tickers[:5]:  # Limit to 5 to avoid too many API calls
                 yt = self.ticker_map.get(t)
                 if yt:
@@ -1325,8 +1133,6 @@ class WorkflowNodes:
                         logger.warning(f"   ⚠️  Failed to fetch comparative data for {t}: {str(e)}")
                         continue
 
-            state["comparative_data"] = comparative_data
-
             # Validate output
             elapsed = time.perf_counter() - start_time
             details = {
@@ -1337,16 +1143,136 @@ class WorkflowNodes:
 
         except Exception as e:
             logger.error(f"   ⚠️  Comparative data fetch failed: {str(e)}")
-            state["comparative_data"] = {}
             self._log_node_error("fetch_comparative_data", state, f"Exception: {str(e)}")
+            comparative_data = {}
 
-        # Record timing
-        elapsed = time.perf_counter() - start_time
-        timing_metrics = state.get("timing_metrics", {})
-        timing_metrics["comparative_data_fetch"] = elapsed
-        state["timing_metrics"] = timing_metrics
+        # Return only modified fields (partial state)
+        return {"comparative_data": comparative_data}
 
-        return state
+    @traceable(
+        name="merge_fundamental_data",
+        tags=["workflow", "sink", "validation"],
+        process_inputs=_filter_state_for_langsmith,
+        process_outputs=_filter_state_for_langsmith
+    )
+    def merge_fundamental_data(self, state: AgentState) -> dict:
+        """
+        SINK 1: Aggregate 6 fundamental parallel fetch results.
+
+        This checkpoint validates all fundamental data fetches completed
+        and provides debug logging for transparency.
+
+        Returns empty dict (no new state modifications, just validation).
+        """
+        logger.info("=" * 70)
+        logger.info("📦 SINK 1: FUNDAMENTAL DATA MERGE CHECKPOINT")
+        logger.info("=" * 70)
+
+        # Validate all 6 fundamental fetches
+        news = state.get("news", [])
+        alpaca = state.get("alpaca_data", {})
+        markets = state.get("financial_markets_data", {})
+        sec = state.get("sec_filing_data", {})
+        portfolio = state.get("portfolio_insights", {})
+        comparative = state.get("comparative_data", {})
+
+        logger.info(f"  ✓ News: {len(news)} articles")
+        logger.info(f"  ✓ Alpaca: {'data present' if alpaca else 'empty'}")
+        logger.info(f"  ✓ Markets: {'data present' if markets else 'empty'}")
+        logger.info(f"  ✓ SEC: {'data present' if sec else 'empty'}")
+        logger.info(f"  ✓ Portfolio: {'data present' if portfolio else 'empty'}")
+        logger.info(f"  ✓ Comparative: {len(comparative)} tickers")
+
+        # Check for errors from parallel branches
+        if state.get("error"):
+            logger.error(f"  ❌ Error in fundamental fetch: {state['error']}")
+
+        logger.info("=" * 70)
+
+        # Return empty dict (sink doesn't modify state)
+        return {}
+
+    @traceable(
+        name="merge_fund_tech_data",
+        tags=["workflow", "sink", "validation"],
+        process_inputs=_filter_state_for_langsmith,
+        process_outputs=_filter_state_for_langsmith
+    )
+    def merge_fund_tech_data(self, state: AgentState) -> dict:
+        """
+        SINK 2: Merge fundamental + technical pipelines.
+
+        Prerequisite for score_user_facing and analyze_comparative_insights.
+
+        Returns empty dict (no new state modifications, just validation).
+        """
+        logger.info("=" * 70)
+        logger.info("📦 SINK 2: FUNDAMENTAL + TECHNICAL MERGE CHECKPOINT")
+        logger.info("=" * 70)
+
+        # Validate fundamental data present
+        fundamental_count = sum([
+            1 if state.get("news") else 0,
+            1 if state.get("alpaca_data") else 0,
+            1 if state.get("financial_markets_data") else 0,
+            1 if state.get("sec_filing_data") else 0,
+            1 if state.get("portfolio_insights") else 0,
+            1 if state.get("comparative_data") else 0
+        ])
+
+        # Validate technical data present
+        indicators = state.get("indicators", {})
+        percentiles = state.get("percentiles", {})
+
+        logger.info(f"  ✓ Fundamental: {fundamental_count}/6 data sources populated")
+        logger.info(f"  ✓ Technical: Indicators={len(indicators)} fields, Percentiles={len(percentiles)} fields")
+
+        # Check for errors
+        if state.get("error"):
+            logger.error(f"  ❌ Error in pipeline: {state['error']}")
+
+        logger.info("=" * 70)
+
+        # Return empty dict (sink doesn't modify state)
+        return {}
+
+    @traceable(
+        name="merge_all_pipelines",
+        tags=["workflow", "sink", "validation"],
+        process_inputs=_filter_state_for_langsmith,
+        process_outputs=_filter_state_for_langsmith
+    )
+    def merge_all_pipelines(self, state: AgentState) -> dict:
+        """
+        SINK 3: Merge all pipelines before final report.
+
+        Combines scores, comparative insights, and chart for report generation.
+
+        Returns empty dict (no new state modifications, just validation).
+        """
+        logger.info("=" * 70)
+        logger.info("📦 SINK 3: FINAL MERGE CHECKPOINT (ALL PIPELINES)")
+        logger.info("=" * 70)
+
+        # Validate all required data present
+        # Note: These field names may need adjustment based on actual state schema
+        # Check what score_user_facing actually outputs
+        has_scores = any(key.endswith('_score') for key in state.keys())
+        insights = state.get("comparative_insights", {})
+        chart = state.get("chart_base64", "")
+
+        logger.info(f"  ✓ Scores: {'present' if has_scores else 'missing'}")
+        logger.info(f"  ✓ Comparative insights: {'present' if insights else 'empty'}")
+        logger.info(f"  ✓ Chart: {'generated' if chart else 'missing'}")
+
+        # Check for errors
+        if state.get("error"):
+            logger.error(f"  ❌ Error in pipeline: {state['error']}")
+
+        logger.info("=" * 70)
+
+        # Return empty dict (sink doesn't modify state)
+        return {}
 
     @traceable(
         name="analyze_comparative_insights",
@@ -1354,13 +1280,17 @@ class WorkflowNodes:
         process_inputs=_filter_state_for_langsmith,
         process_outputs=_filter_state_for_langsmith
     )
-    def analyze_comparative_insights(self, state: AgentState) -> AgentState:
-        """Perform comparative analysis and extract narrative-ready insights"""
+    def analyze_comparative_insights(self, state: AgentState) -> dict:
+        """
+        Perform comparative analysis and extract narrative-ready insights.
+
+        Returns partial state with only modified fields (for parallel execution).
+        """
         self._log_node_start("analyze_comparative_insights", state)
 
         if state.get("error"):
             self._log_node_skip("analyze_comparative_insights", state, "Previous error in workflow")
-            return state
+            return {}
 
         start_time = time.perf_counter()
         ticker = state["ticker"]
@@ -1369,9 +1299,8 @@ class WorkflowNodes:
         comparative_data = state.get("comparative_data", {})
 
         if not comparative_data:
-            state["comparative_insights"] = {}
             self._log_node_skip("analyze_comparative_insights", state, "No comparative data available")
-            return state
+            return {"comparative_insights": {}}
 
         try:
             logger.info(f"   🔍 Analyzing comparative insights for {ticker}")
@@ -1389,7 +1318,6 @@ class WorkflowNodes:
 
                 # Extract narrative-ready insights
                 insights = self._extract_narrative_insights(ticker, indicators, analysis_results, comparative_data)
-                state["comparative_insights"] = insights
 
                 # Validate output
                 elapsed = time.perf_counter() - start_time
@@ -1399,22 +1327,17 @@ class WorkflowNodes:
                     'duration_ms': f"{elapsed*1000:.2f}"
                 }
                 self._log_node_success("analyze_comparative_insights", state, details)
+
+                # Return only modified fields (partial state)
+                return {"comparative_insights": insights}
             else:
-                state["comparative_insights"] = {}
                 self._log_node_skip("analyze_comparative_insights", state, "Insufficient comparative data")
+                return {"comparative_insights": {}}
 
         except Exception as e:
             logger.error(f"   ⚠️  Comparative analysis failed: {str(e)}")
-            state["comparative_insights"] = {}
             self._log_node_error("analyze_comparative_insights", state, f"Exception: {str(e)}")
-
-        # Record timing
-        elapsed = time.perf_counter() - start_time
-        timing_metrics = state.get("timing_metrics", {})
-        timing_metrics["comparative_analysis"] = elapsed
-        state["timing_metrics"] = timing_metrics
-
-        return state
+            return {"comparative_insights": {}}
 
     def _extract_narrative_insights(self, target_ticker: str, indicators: dict, analysis_results: dict, comparative_data: dict) -> dict:
         """Extract insights that can be woven into narrative in Damodaran style"""
@@ -1607,23 +1530,6 @@ class WorkflowNodes:
             self._log_node_error("fetch_all_data_parallel", state, error_msg)
             return state
 
-        # Save to database
-        self.db.insert_ticker_data(
-            ticker, yahoo_ticker, data['date'],
-            {
-                'open': data['open'],
-                'high': data['high'],
-                'low': data['low'],
-                'close': data['close'],
-                'volume': data['volume'],
-                'market_cap': data.get('market_cap'),
-                'pe_ratio': data.get('pe_ratio'),
-                'eps': data.get('eps'),
-                'dividend_yield': data.get('dividend_yield')
-            }
-        )
-        self._db_query_count_ref[0] += 1
-
         # Update state
         state["ticker_data"] = data
         state["news"], state["news_summary"] = results['news']
@@ -1653,39 +1559,41 @@ class WorkflowNodes:
         process_inputs=_filter_state_for_langsmith,
         process_outputs=_filter_state_for_langsmith
     )
-    def fetch_financial_markets_data(self, state: AgentState) -> AgentState:
-        """Fetch advanced technical data from Financial Markets MCP"""
+    def fetch_financial_markets_data(self, state: AgentState) -> dict:
+        """
+        Fetch advanced technical data from Financial Markets MCP.
+
+        Returns partial state with only modified fields (for parallel execution).
+        """
         self._log_node_start("fetch_financial_markets_data", state)
-        
+
         if state.get("error"):
             self._log_node_skip("fetch_financial_markets_data", state, "Previous error in workflow")
-            return state
-        
+            return {}  # Return empty dict, don't propagate error
+
         start_time = time.perf_counter()
         ticker = state["ticker"]
         yahoo_ticker = self.ticker_map.get(ticker.upper())
-        
+
         if not yahoo_ticker:
-            state["financial_markets_data"] = {}
             self._log_node_skip("fetch_financial_markets_data", state, "No yahoo_ticker found")
-            return state
-        
+            return {"financial_markets_data": {}}
+
+        financial_markets_data = {}
+
         try:
             from src.integrations.mcp_client import get_mcp_client, MCPServerError
-            
+
             mcp_client = get_mcp_client()
-            
+
             # Check if Financial Markets MCP server is available
             if not mcp_client.is_server_available('financial_markets'):
                 logger.info("Financial Markets MCP server not configured, skipping")
-                state["financial_markets_data"] = {}
                 self._log_node_skip("fetch_financial_markets_data", state, "MCP server not configured")
-                return state
-            
+                return {"financial_markets_data": {}}
+
             logger.info(f"   📈 Fetching Financial Markets data for {ticker} ({yahoo_ticker}) via MCP")
-            
-            financial_markets_data = {}
-            
+
             # Call MCP tools in sequence (with graceful degradation)
             # Note: MCP client now parses content array automatically, returns parsed JSON dict
             try:
@@ -1700,7 +1608,7 @@ class WorkflowNodes:
                     financial_markets_data['chart_patterns'] = chart_patterns
             except Exception as e:
                 logger.warning(f"Failed to fetch chart patterns: {e}")
-            
+
             try:
                 # Get candlestick patterns
                 candlestick_patterns = mcp_client.call_tool(
@@ -1712,7 +1620,7 @@ class WorkflowNodes:
                     financial_markets_data['candlestick_patterns'] = candlestick_patterns
             except Exception as e:
                 logger.warning(f"Failed to fetch candlestick patterns: {e}")
-            
+
             try:
                 # Get support/resistance levels
                 support_resistance = mcp_client.call_tool(
@@ -1724,7 +1632,7 @@ class WorkflowNodes:
                     financial_markets_data['support_resistance'] = support_resistance
             except Exception as e:
                 logger.warning(f"Failed to fetch support/resistance: {e}")
-            
+
             try:
                 # Get advanced technical indicators
                 technical_indicators = mcp_client.call_tool(
@@ -1736,9 +1644,7 @@ class WorkflowNodes:
                     financial_markets_data['technical_indicators'] = technical_indicators
             except Exception as e:
                 logger.warning(f"Failed to fetch technical indicators: {e}")
-            
-            state["financial_markets_data"] = financial_markets_data
-            
+
             elapsed = time.perf_counter() - start_time
             details = {
                 'ticker': yahoo_ticker,
@@ -1746,23 +1652,18 @@ class WorkflowNodes:
                 'duration_ms': f"{elapsed*1000:.2f}"
             }
             self._log_node_success("fetch_financial_markets_data", state, details)
-            
+
         except MCPServerError as e:
             logger.warning(f"Financial Markets MCP failed: {e}, skipping")
-            state["financial_markets_data"] = {}
             self._log_node_skip("fetch_financial_markets_data", state, f"MCP error: {str(e)}")
+            financial_markets_data = {}
         except Exception as e:
             logger.error(f"Unexpected error fetching Financial Markets data: {e}")
-            state["financial_markets_data"] = {}
             self._log_node_error("fetch_financial_markets_data", state, f"Exception: {str(e)}")
-        
-        # Record timing
-        elapsed = time.perf_counter() - start_time
-        timing_metrics = state.get("timing_metrics", {})
-        timing_metrics["financial_markets_fetch"] = elapsed
-        state["timing_metrics"] = timing_metrics
-        
-        return state
+            financial_markets_data = {}
+
+        # Return only modified fields (partial state)
+        return {"financial_markets_data": financial_markets_data}
 
     @traceable(
         name="fetch_portfolio_insights",
@@ -1770,47 +1671,41 @@ class WorkflowNodes:
         process_inputs=_filter_state_for_langsmith,
         process_outputs=_filter_state_for_langsmith
     )
-    def fetch_portfolio_insights(self, state: AgentState) -> AgentState:
-        """Fetch portfolio-level insights from Portfolio Manager MCP (optional)"""
+    def fetch_portfolio_insights(self, state: AgentState) -> dict:
+        """
+        Fetch portfolio-level insights from Portfolio Manager MCP (optional).
+
+        Returns partial state with only modified fields (for parallel execution).
+        """
         self._log_node_start("fetch_portfolio_insights", state)
-        
+
         if state.get("error"):
             self._log_node_skip("fetch_portfolio_insights", state, "Previous error in workflow")
-            return state
-        
-        start_time = time.perf_counter()
-        
+            return {}  # Return empty dict, don't propagate error
+
         try:
             from src.integrations.mcp_client import get_mcp_client, MCPServerError
-            
+
             mcp_client = get_mcp_client()
-            
+
             # Check if Portfolio Manager MCP server is available
             if not mcp_client.is_server_available('portfolio_manager'):
                 logger.info("Portfolio Manager MCP server not configured, skipping")
-                state["portfolio_insights"] = {}
                 self._log_node_skip("fetch_portfolio_insights", state, "MCP server not configured")
-                return state
-            
+                return {"portfolio_insights": {}}
+
             # Note: Portfolio Manager requires portfolio context (user's holdings)
             # For now, skip if no portfolio context is available
             # In future, this could be passed via state or API request
             logger.info("   💼 Portfolio Manager MCP requires portfolio context - skipping for now")
-            state["portfolio_insights"] = {}
             self._log_node_skip("fetch_portfolio_insights", state, "No portfolio context available")
-            
+
         except Exception as e:
             logger.warning(f"Error checking Portfolio Manager MCP: {e}")
-            state["portfolio_insights"] = {}
             self._log_node_skip("fetch_portfolio_insights", state, f"Exception: {str(e)}")
-        
-        # Record timing
-        elapsed = time.perf_counter() - start_time
-        timing_metrics = state.get("timing_metrics", {})
-        timing_metrics["portfolio_insights_fetch"] = elapsed
-        state["timing_metrics"] = timing_metrics
-        
-        return state
+
+        # Return only modified fields (partial state)
+        return {"portfolio_insights": {}}
 
     @traceable(
         name="fetch_alpaca_data",
@@ -1818,55 +1713,56 @@ class WorkflowNodes:
         process_inputs=_filter_state_for_langsmith,
         process_outputs=_filter_state_for_langsmith
     )
-    def fetch_alpaca_data(self, state: AgentState) -> AgentState:
-        """Fetch real-time market data and options from Alpaca MCP"""
+    def fetch_alpaca_data(self, state: AgentState) -> dict:
+        """
+        Fetch real-time market data and options from Alpaca MCP.
+
+        Returns partial state with only modified fields (for parallel execution).
+        """
         self._log_node_start("fetch_alpaca_data", state)
-        
+
         if state.get("error"):
             self._log_node_skip("fetch_alpaca_data", state, "Previous error in workflow")
-            return state
-        
+            return {}  # Return empty dict, don't propagate error
+
         start_time = time.perf_counter()
         ticker = state["ticker"]
         yahoo_ticker = self.ticker_map.get(ticker.upper())
-        
+
         if not yahoo_ticker:
-            state["alpaca_data"] = {}
             self._log_node_skip("fetch_alpaca_data", state, "No yahoo_ticker found")
-            return state
-        
+            return {"alpaca_data": {}}
+
         # Alpaca primarily supports US markets
         # Check if ticker is US-listed
         is_us_ticker = (
             yahoo_ticker.endswith('.US') or
             not any(yahoo_ticker.endswith(ext) for ext in ['.SI', '.HK', '.T', '.TW'])
         )
-        
+
         if not is_us_ticker:
             logger.info(f"Skipping Alpaca data for non-US ticker: {ticker} ({yahoo_ticker})")
-            state["alpaca_data"] = {}
             self._log_node_skip("fetch_alpaca_data", state, f"Non-US ticker: {yahoo_ticker}")
-            return state
-        
+            return {"alpaca_data": {}}
+
+        alpaca_data = {}
+
         try:
             from src.integrations.mcp_client import get_mcp_client, MCPServerError
-            
+
             mcp_client = get_mcp_client()
-            
+
             # Check if Alpaca MCP server is available
             if not mcp_client.is_server_available('alpaca'):
                 logger.info("Alpaca MCP server not configured, skipping")
-                state["alpaca_data"] = {}
                 self._log_node_skip("fetch_alpaca_data", state, "MCP server not configured")
-                return state
-            
+                return {"alpaca_data": {}}
+
             logger.info(f"   📊 Fetching Alpaca data for {ticker} ({yahoo_ticker}) via MCP")
-            
+
             # Extract US ticker symbol (remove .US suffix if present)
             us_ticker = yahoo_ticker.replace('.US', '').upper()
-            
-            alpaca_data = {}
-            
+
             # Call MCP tools with graceful degradation
             try:
                 # Get real-time quote
@@ -1879,7 +1775,7 @@ class WorkflowNodes:
                     alpaca_data['quote'] = quote
             except Exception as e:
                 logger.warning(f"Failed to fetch real-time quote: {e}")
-            
+
             try:
                 # Get options chain (for volatility analysis)
                 options_chain = mcp_client.call_tool(
@@ -1891,7 +1787,7 @@ class WorkflowNodes:
                     alpaca_data['options_chain'] = options_chain
             except Exception as e:
                 logger.warning(f"Failed to fetch options chain: {e}")
-            
+
             try:
                 # Get market data
                 market_data = mcp_client.call_tool(
@@ -1903,9 +1799,7 @@ class WorkflowNodes:
                     alpaca_data['market_data'] = market_data
             except Exception as e:
                 logger.warning(f"Failed to fetch market data: {e}")
-            
-            state["alpaca_data"] = alpaca_data
-            
+
             elapsed = time.perf_counter() - start_time
             details = {
                 'ticker': us_ticker,
@@ -1913,20 +1807,15 @@ class WorkflowNodes:
                 'duration_ms': f"{elapsed*1000:.2f}"
             }
             self._log_node_success("fetch_alpaca_data", state, details)
-            
+
         except MCPServerError as e:
             logger.warning(f"Alpaca MCP failed: {e}, skipping")
-            state["alpaca_data"] = {}
             self._log_node_skip("fetch_alpaca_data", state, f"MCP error: {str(e)}")
+            alpaca_data = {}
         except Exception as e:
             logger.error(f"Unexpected error fetching Alpaca data: {e}")
-            state["alpaca_data"] = {}
             self._log_node_error("fetch_alpaca_data", state, f"Exception: {str(e)}")
-        
-        # Record timing
-        elapsed = time.perf_counter() - start_time
-        timing_metrics = state.get("timing_metrics", {})
-        timing_metrics["alpaca_fetch"] = elapsed
-        state["timing_metrics"] = timing_metrics
-        
-        return state
+            alpaca_data = {}
+
+        # Return only modified fields (partial state)
+        return {"alpaca_data": alpaca_data}

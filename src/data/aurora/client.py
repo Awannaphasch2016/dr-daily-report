@@ -91,7 +91,7 @@ class AuroraClient:
         else:
             # Use provided values or environment variables
             self.host = host or os.environ.get('AURORA_HOST')
-            self.port = port or int(os.environ.get('AURORA_PORT', '3306'))
+            self.port = int(os.environ.get('AURORA_PORT', str(port or 3306)))
             self.database = database or os.environ.get('AURORA_DATABASE', 'ticker_data')
             self.user = user or os.environ.get('AURORA_USER', 'admin')
             self.password = password or os.environ.get('AURORA_PASSWORD')

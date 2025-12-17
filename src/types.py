@@ -37,3 +37,54 @@ class AgentState(TypedDict):
     alpaca_data: dict  # Real-time quotes, options chain, market data from Alpaca MCP
     error: str
     strategy: str  # Report generation strategy: 'single-stage' or 'multi-stage'
+    language: str  # Report language: 'en' or 'th' (default: 'th')
+
+
+# Raw data fields needed for report regeneration (subset of AgentState)
+RAW_DATA_FIELDS = [
+    'ticker',
+    'ticker_data',
+    'indicators',
+    'percentiles',
+    'chart_patterns',
+    'pattern_statistics',
+    'strategy_performance',
+    'news',
+    'news_summary',
+    'comparative_data',
+    'comparative_insights',
+    'sec_filing_data',
+    'financial_markets_data',
+    'portfolio_insights',
+    'alpaca_data',
+]
+
+
+def extract_raw_data_for_storage(state: dict) -> dict:
+    """
+    Extract raw data fields from AgentState for caching.
+
+    These fields are sufficient to regenerate reports without API calls.
+    Excludes derived fields (report, scores, metrics) and internal state (messages, error).
+
+    Args:
+        state: AgentState dict from workflow execution
+
+    Returns:
+        Dict containing only raw data fields
+
+    Example:
+        >>> agent_state = agent.analyze_ticker('DBS19')
+        >>> raw_data = extract_raw_data_for_storage(agent_state)
+        >>> # Later, regenerate report from raw_data without API calls
+    """
+    # Default to {} for dicts, [] for lists
+    defaults = {
+        'news': [],
+        'chart_patterns': [],
+    }
+
+    return {
+        field: state.get(field, defaults.get(field, {}))
+        for field in RAW_DATA_FIELDS
+    }

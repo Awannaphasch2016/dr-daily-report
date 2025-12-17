@@ -23,7 +23,7 @@ class TestEvalComponentImports:
         """Test that all required modules can be imported."""
         # These imports should not raise ImportError
         from src.workflow.workflow_nodes import WorkflowNodes
-        from src.data.database import TickerDatabase
+        # from src.data.database import TickerDatabase  # REMOVED - SQLite deprecated
         from src.data.data_fetcher import DataFetcher
         from src.analysis.technical_analysis import TechnicalAnalyzer
         from src.data.news_fetcher import NewsFetcher
@@ -53,7 +53,7 @@ class TestEvalComponentImports:
 
     @patch.dict(os.environ, {'OPENAI_API_KEY': 'test-key'})
     @patch('src.workflow.workflow_nodes.WorkflowNodes')
-    @patch('src.data.database.TickerDatabase')
+    # @patch('src.data.database.TickerDatabase')  # REMOVED - SQLite deprecated
     @patch('src.data.data_fetcher.DataFetcher')
     def test_target_report_generation_initialization(
         self,

@@ -2,6 +2,10 @@
 """
 Score Reports CLI Tool
 
+⚠️  DEPRECATED: This script relies on SQLite database which has been removed.
+    Evaluation data is now stored in Aurora MySQL.
+    This script needs to be updated to use Aurora or removed.
+
 Enables rescoring of historical reports using stored context data.
 Useful for:
 - Testing new scoring algorithms on historical data
@@ -12,7 +16,7 @@ Useful for:
 import argparse
 import json
 from typing import Optional
-from src.data.database import TickerDatabase
+# from src.data.database import TickerDatabase  # REMOVED - SQLite deprecated
 from src.scoring.scoring_service import ScoringService, ScoringContext
 
 
@@ -28,8 +32,9 @@ def rescore_report(ticker: str, date: str, verbose: bool = False) -> dict:
     Returns:
         Dictionary with all scores
     """
-    db = TickerDatabase()
+    # db = TickerDatabase()  # REMOVED - SQLite deprecated
     scoring_service = ScoringService()
+    raise NotImplementedError("This function needs to be updated to use Aurora instead of SQLite")
 
     # Read report + context from database
     if verbose:

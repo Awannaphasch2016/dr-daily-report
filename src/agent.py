@@ -23,11 +23,11 @@ except Exception as e:
 from src.types import AgentState
 from src.data.data_fetcher import DataFetcher
 from src.analysis.technical_analysis import TechnicalAnalyzer
-from src.data.database import TickerDatabase
 from src.data.news_fetcher import NewsFetcher
 from src.formatters.chart_generator import ChartGenerator
 from src.formatters.pdf_generator import PDFReportGenerator
 from src.scoring.faithfulness_scorer import FaithfulnessScorer
+from src.utils.ticker_utils import is_us_ticker, has_mcp_server
 from src.scoring.completeness_scorer import CompletenessScorer
 from src.scoring.reasoning_quality_scorer import ReasoningQualityScorer
 from src.scoring.compliance_scorer import ComplianceScorer
@@ -71,7 +71,6 @@ class TickerAnalysisAgent:
         self.cost_scorer = CostScorer()
         self.scoring_service = ScoringService()
         self.data_formatter = DataFormatter()
-        self.db = TickerDatabase()
         self.strategy_backtester = SMAStrategyBacktester(fast_period=20, slow_period=50)
         self.comparative_analyzer = ComparativeAnalyzer()
         self.market_analyzer = MarketAnalyzer()
@@ -90,7 +89,6 @@ class TickerAnalysisAgent:
             technical_analyzer=self.technical_analyzer,
             news_fetcher=self.news_fetcher,
             chart_generator=self.chart_generator,
-            db=self.db,
             strategy_backtester=self.strategy_backtester,
             strategy_analyzer=self.strategy_analyzer,
             comparative_analyzer=self.comparative_analyzer,
@@ -112,54 +110,147 @@ class TickerAnalysisAgent:
         
         self.graph = self.build_graph()
 
+    def _route_after_fetch_data(self, state: AgentState) -> str:
+        """
+        PHASE 2: Conditional Routing - Route to appropriate next node based on ticker type.
+
+        Skips Alpaca MCP for non-US tickers (saves ~1s latency).
+
+        Args:
+            state: Current workflow state
+
+        Returns:
+            Name of next node to execute
+        """
+        ticker = state.get("ticker", "")
+        yahoo_ticker = self.ticker_map.get(ticker.upper())
+
+        # Skip Alpaca for non-US tickers
+        if yahoo_ticker and is_us_ticker(yahoo_ticker):
+            return "fetch_alpaca_data"
+        else:
+            # Skip directly to news for non-US tickers
+            return "fetch_news"
+
+    def _route_after_financial_markets(self, state: AgentState) -> str:
+        """
+        Conditional routing after financial_markets - skip SEC filing for non-US tickers.
+
+        Args:
+            state: Current workflow state
+
+        Returns:
+            Name of next node to execute
+        """
+        ticker = state.get("ticker", "")
+        yahoo_ticker = self.ticker_map.get(ticker.upper())
+
+        # Only fetch SEC filings for US tickers
+        if yahoo_ticker and is_us_ticker(yahoo_ticker):
+            return "fetch_sec_filing"
+        else:
+            # Skip SEC filing for non-US, go straight to portfolio insights
+            return "fetch_portfolio_insights"
+
     def build_graph(self):
         """
-        Build LangGraph workflow with all processing nodes.
-        
+        Build LangGraph workflow with 3 parallel pipelines and sink nodes.
+
+        Graph Structure:
+        - fetch_data (entry)
+          ├─→ Technical Pipeline: analyze_technical → merge_fund_tech_data
+          ├─→ Chart Pipeline: generate_chart → merge_all_pipelines
+          └─→ Fundamental Pipeline: [6 parallel fetches] → merge_fundamental_data → merge_fund_tech_data
+                                     → [score + insights in parallel] → merge_all_pipelines
+                                     → generate_report
+
         Returns:
             Compiled LangGraph workflow ready for execution
         """
         workflow = StateGraph(AgentState)
 
-        # Add nodes
+        # Add all nodes
         workflow.add_node("fetch_data", self.workflow_nodes.fetch_data)
+
+        # Fundamental fetch nodes (6 parallel)
         workflow.add_node("fetch_news", self.workflow_nodes.fetch_news)
-        workflow.add_node("analyze_technical", self.workflow_nodes.analyze_technical)
-        workflow.add_node("fetch_sec_filing", self.workflow_nodes.fetch_sec_filing)  # MCP-enhanced node (disabled)
-        workflow.add_node("fetch_alpaca_data", self.workflow_nodes.fetch_alpaca_data)  # Alpaca MCP node
-        workflow.add_node("fetch_financial_markets_data", self.workflow_nodes.fetch_financial_markets_data)  # Financial Markets MCP node
-        workflow.add_node("fetch_portfolio_insights", self.workflow_nodes.fetch_portfolio_insights)  # Portfolio Manager MCP node
-        workflow.add_node("score_user_facing", self.workflow_nodes.score_user_facing)
+        workflow.add_node("fetch_alpaca_data", self.workflow_nodes.fetch_alpaca_data)
+        workflow.add_node("fetch_financial_markets_data", self.workflow_nodes.fetch_financial_markets_data)
+        workflow.add_node("fetch_sec_filing", self.workflow_nodes.fetch_sec_filing)
+        workflow.add_node("fetch_portfolio_insights", self.workflow_nodes.fetch_portfolio_insights)
         workflow.add_node("fetch_comparative_data", self.workflow_nodes.fetch_comparative_data)
-        workflow.add_node("analyze_comparative_insights", self.workflow_nodes.analyze_comparative_insights)
+
+        # Technical pipeline node
+        workflow.add_node("analyze_technical", self.workflow_nodes.analyze_technical)
+
+        # Chart pipeline node
         workflow.add_node("generate_chart", self.workflow_nodes.generate_chart)
+
+        # Sink nodes
+        workflow.add_node("merge_fundamental_data", self.workflow_nodes.merge_fundamental_data)
+        workflow.add_node("merge_fund_tech_data", self.workflow_nodes.merge_fund_tech_data)
+        workflow.add_node("merge_all_pipelines", self.workflow_nodes.merge_all_pipelines)
+
+        # Analysis nodes (parallel wave 2)
+        workflow.add_node("score_user_facing", self.workflow_nodes.score_user_facing)
+        workflow.add_node("analyze_comparative_insights", self.workflow_nodes.analyze_comparative_insights)
+
+        # Final report node
         workflow.add_node("generate_report", self.workflow_nodes.generate_report)
 
-        # Add edges
+        # ========== GRAPH STRUCTURE ==========
+        # Entry point
         workflow.set_entry_point("fetch_data")
-        workflow.add_edge("fetch_data", "fetch_alpaca_data")  # Alpaca after initial data fetch
-        workflow.add_edge("fetch_alpaca_data", "fetch_news")
-        workflow.add_edge("fetch_news", "analyze_technical")
-        workflow.add_edge("analyze_technical", "fetch_financial_markets_data")  # Financial Markets after technical analysis
-        workflow.add_edge("fetch_financial_markets_data", "fetch_sec_filing")  # SEC EDGAR (disabled)
-        workflow.add_edge("fetch_sec_filing", "fetch_portfolio_insights")  # Portfolio Manager (optional)
-        workflow.add_edge("fetch_portfolio_insights", "score_user_facing")
-        workflow.add_edge("score_user_facing", "fetch_comparative_data")
-        workflow.add_edge("fetch_comparative_data", "analyze_comparative_insights")
-        workflow.add_edge("analyze_comparative_insights", "generate_chart")
-        workflow.add_edge("generate_chart", "generate_report")
+
+        # PIPELINE 1: Technical (fetch_data → analyze_technical → merge_fund_tech_data)
+        workflow.add_edge("fetch_data", "analyze_technical")
+
+        # PIPELINE 2: Fundamental - Fan out to 6 parallel fetches
+        workflow.add_edge("fetch_data", "fetch_news")
+        workflow.add_edge("fetch_data", "fetch_alpaca_data")
+        workflow.add_edge("fetch_data", "fetch_financial_markets_data")
+        workflow.add_edge("fetch_data", "fetch_sec_filing")
+        workflow.add_edge("fetch_data", "fetch_portfolio_insights")
+        workflow.add_edge("fetch_data", "fetch_comparative_data")
+
+        # SINK 1: Merge 6 fundamental fetches
+        workflow.add_edge("fetch_news", "merge_fundamental_data")
+        workflow.add_edge("fetch_alpaca_data", "merge_fundamental_data")
+        workflow.add_edge("fetch_financial_markets_data", "merge_fundamental_data")
+        workflow.add_edge("fetch_sec_filing", "merge_fundamental_data")
+        workflow.add_edge("fetch_portfolio_insights", "merge_fundamental_data")
+        workflow.add_edge("fetch_comparative_data", "merge_fundamental_data")
+
+        # SINK 2: Merge fundamental + technical
+        workflow.add_edge("merge_fundamental_data", "merge_fund_tech_data")
+        workflow.add_edge("analyze_technical", "merge_fund_tech_data")
+
+        # PARALLEL WAVE 2: score_user_facing AND analyze_comparative_insights AND generate_chart
+        # (all run after merge_fund_tech_data completes)
+        workflow.add_edge("merge_fund_tech_data", "score_user_facing")
+        workflow.add_edge("merge_fund_tech_data", "analyze_comparative_insights")
+        workflow.add_edge("merge_fund_tech_data", "generate_chart")
+
+        # SINK 3: Merge all pipelines (scores + insights + chart)
+        workflow.add_edge("score_user_facing", "merge_all_pipelines")
+        workflow.add_edge("analyze_comparative_insights", "merge_all_pipelines")
+        workflow.add_edge("generate_chart", "merge_all_pipelines")
+
+        # Final report generation
+        workflow.add_edge("merge_all_pipelines", "generate_report")
         workflow.add_edge("generate_report", END)
 
         return workflow.compile()
 
     @traceable(name="analyze_ticker", tags=["agent", "workflow"])
-    def analyze_ticker(self, ticker: str, strategy: str = "single-stage") -> AgentState:
+    def analyze_ticker(self, ticker: str, strategy: str = "single-stage", language: str = 'th') -> AgentState:
         """
         Main entry point to analyze ticker
 
         Args:
             ticker: Ticker symbol to analyze
             strategy: Report generation strategy - 'single-stage' or 'multi-stage' (default: 'single-stage')
+            language: Report language - 'th' for Thai or 'en' for English (default: 'th')
 
         Returns:
             Final workflow state dict (AgentState) containing:
@@ -206,7 +297,8 @@ class TickerAnalysisAgent:
             "portfolio_insights": {},  # Portfolio Manager MCP data
             "alpaca_data": {},  # Alpaca MCP data
             "error": "",
-            "strategy": strategy  # Add strategy to state
+            "strategy": strategy,  # Add strategy to state
+            "language": language  # Add language to state
         }
 
         # Run the graph

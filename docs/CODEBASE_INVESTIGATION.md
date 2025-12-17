@@ -28,48 +28,69 @@ Both apps share a common backend built on LangGraph workflows, AWS Lambda server
 
 ### System Architecture
 
+#### Overview: Two-Phase Data Flow
+
+The system operates in two distinct phases with **Aurora as the source of truth** for user-facing APIs:
+
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    User Interfaces                           │
-├──────────────────────┬──────────────────────────────────────┤
-│   LINE Bot (Legacy)   │   Telegram Mini App (Active)         │
-│   Chat-based UX      │   Web Dashboard + REST API           │
-└──────────┬───────────┴──────────────┬───────────────────────┘
-           │                          │
-           ▼                          ▼
-┌──────────────────────┐   ┌──────────────────────────────┐
-│ Lambda Function URL  │   │ API Gateway + Lambda          │
-│ (LINE Webhook)       │   │ (FastAPI Application)        │
-└──────────┬───────────┘   └──────────────┬───────────────┘
-           │                               │
-           └───────────────┬───────────────┘
-                           │
-                           ▼
-           ┌───────────────────────────────┐
-           │   Shared Core Backend          │
-           │   ┌─────────────────────────┐ │
-           │   │  LangGraph Agent         │ │
-           │   │  (Workflow Orchestrator) │ │
-           │   └─────────────────────────┘ │
-           │   ┌─────────────────────────┐ │
-           │   │  Workflow Nodes          │ │
-           │   │  - fetch_data            │ │
-           │   │  - analyze_technical     │ │
-           │   │  - fetch_news            │ │
-           │   │  - generate_report        │ │
-           │   │  - score_report           │ │
-           │   └─────────────────────────┘ │
-           └───────────────┬───────────────┘
-                           │
-        ┌──────────────────┼──────────────────┐
-        │                  │                  │
-        ▼                  ▼                  ▼
-┌──────────────┐  ┌──────────────┐  ┌──────────────┐
-│ YFinance API │  │ OpenRouter    │  │ Aurora MySQL  │
-│ (Data)       │  │ (LLM Proxy)   │  │ (Precompute)  │
-└──────────────┘  └──────────────┘  └──────────────┘
-        │                  │                  │
-        ▼                  ▼                  ▼
+PHASE 1: Nightly Pre-Population (Write Path)
+┌────────────────────────────────────────────────────────┐
+│  Step Function Scheduler (runs nightly)                │
+│         ↓                                              │
+│  Precompute Lambda (precompute_controller_handler.py)  │
+│         ↓                                              │
+│  For each active ticker (46 tickers):                  │
+│    1. Fetch data from external APIs                    │
+│    2. Generate LLM report (5-15s)                      │
+│    3. Store in Aurora                                  │
+└────────────────────────────────────────────────────────┘
+         ↓                     ↓                   ↓
+┌──────────────┐      ┌──────────────┐    ┌──────────────┐
+│ YFinance API │      │ OpenRouter   │    │ NewsService  │
+│ (ticker data)│      │ (LLM)        │    │ (articles)   │
+└──────────────┘      └──────────────┘    └──────────────┘
+         ↓                     ↓                   ↓
+         └─────────────────────┴───────────────────┘
+                               ↓
+                   ┌───────────────────────┐
+                   │   Aurora MySQL        │
+                   │ precomputed_reports   │
+                   │  • report_json        │
+                   │  • report_text        │
+                   │  • chart_base64       │
+                   └───────────────────────┘
+
+PHASE 2: User Requests (Read Path - READ-ONLY APIs)
+┌────────────────────────────────────────────────────────┐
+│                 User Interfaces                         │
+├──────────────────────┬─────────────────────────────────┤
+│ LINE Bot (Legacy)     │ Telegram Mini App (Active)      │
+│ Chat-based UX        │ Web Dashboard + REST API        │
+└──────────┬───────────┴─────────────┬──────────────────┘
+           │                         │
+           ▼                         ▼
+┌──────────────────┐       ┌──────────────────────┐
+│ Lambda Function  │       │ API Gateway +        │
+│ URL (Webhook)    │       │ Lambda (FastAPI)     │
+└─────────┬────────┘       └──────────┬───────────┘
+          │                           │
+          └────────────┬──────────────┘
+                       │
+                       ▼
+          ┌────────────────────────────┐
+          │  Query Aurora ONLY         │
+          │  (NO external API calls)   │
+          └────────────┬───────────────┘
+                       │
+                       ▼
+            ✅ Data exists → Return report (< 1 sec)
+            ❌ Data missing → Return error (fail-fast)
+```
+
+**Key Principle:** User-facing APIs (LINE Bot, Telegram) are **read-only**. They query Aurora and never call yfinance, OpenRouter, or other external APIs. Aurora must be pre-populated before user requests.
+
+**Supporting Infrastructure:**
+```
 ┌──────────────┐  ┌──────────────┐  ┌──────────────┐
 │ DynamoDB     │  │ LangSmith    │  │ S3 (PDFs)     │
 │ (Watchlist)  │  │ (Tracing)    │  │ (Storage)     │
@@ -540,17 +561,29 @@ ScoringService → 6 quality scores
 Response (report + scores + chart_base64)
 ```
 
-### Caching Strategy
+### Data Storage Strategy
 
-**Three-Tier Caching**:
-1. **In-Memory** (5-min TTL) - Fastest, per-invocation
-2. **SQLite** (local persistence) - Cross-invocation, local dev
-3. **Aurora MySQL** (precomputed cache) - Production, persistent
-4. **S3** (cross-invocation) - PDF storage, report cache
+**Aurora-First Architecture** (Production):
+- **Aurora MySQL** (source of truth) - Precomputed reports, pre-populated nightly
+- **S3** (static assets) - PDF storage, chart images
 
-**Cache Flow**:
+**User API Flow** (Read-Only):
 ```
-Request → Check In-Memory → Check SQLite → Check Aurora → Fetch from Source
+User Request → Query Aurora → Return Report
+                     ↓
+            ✅ Data exists → Return (< 1 sec)
+            ❌ Data missing → Return error (fail-fast, no external API fallback)
+```
+
+**Pre-Population Flow** (Write Path):
+```
+Step Function Scheduler (nightly)
+    ↓
+Fetch from External APIs (yfinance, NewsService, LLM)
+    ↓
+Generate Reports
+    ↓
+Store in Aurora (precomputed_reports table)
 ```
 
 ---
@@ -687,14 +720,17 @@ jobs:
 
 **Optimization**: CSV data loaded once per container (~2000 tickers).
 
-### Caching Strategy
+### Data Access Strategy
 
-**Three-Tier Caching**:
-1. In-Memory (5-min TTL) - Fastest
-2. SQLite (local persistence) - Cross-invocation
-3. Aurora MySQL (precomputed) - Production, persistent
+**Aurora-First Pattern** (User-Facing APIs):
+- User APIs query Aurora MySQL only (read-only)
+- No fallback to external APIs (yfinance, LLM) on cache miss
+- Data pre-populated nightly via Step Function scheduler
 
-**Cache Hit Rate**: Precomputed reports in Aurora → instant retrieval (~50ms vs ~5s generation).
+**Performance**:
+- Aurora hit → instant retrieval (~50ms)
+- Aurora miss → return error (user retries later after pre-population)
+- Eliminates unpredictable 5-15s latency from external API calls during user requests
 
 ---
 

@@ -4,6 +4,16 @@ Complete documentation for DR Daily Report Telegram Mini App.
 
 ---
 
+## Documentation Structure
+
+This project uses a tiered documentation system:
+
+- **Authoritative Docs** (`docs/features/`, `docs/deployment/`) - Permanent, maintained documentation for production systems
+- **Temporary Analysis** (`docs/tmp/`) - WIP docs, analysis notes, implementation summaries (not maintained)
+- **Archived Context** (`docs/archive/`) - Completed migration docs, historical context (reference only)
+
+---
+
 ## Getting Started
 
 - [Quick Start](QUICKSTART.md) - 5-minute setup guide
@@ -15,45 +25,44 @@ Complete documentation for DR Daily Report Telegram Mini App.
 
 ## Development
 
-- [Architecture](.claude/CLAUDE.md) - Principles, patterns, and architectural decisions
+- [Architecture](../.claude/CLAUDE.md) - Principles, patterns, and architectural decisions
+- [Codebase Investigation](CODEBASE_INVESTIGATION.md) - System architecture deep-dive
 - [API Contract](../spec/API_CONTRACT.md) - Backend/frontend API specification
 - [UI Principles](frontend/UI_PRINCIPLES.md) - React/TypeScript patterns, state management, property-based testing
 - [Testing Guide](testing/TESTING_GUIDE.md) - How to run tests
 - [E2E Testing](testing/E2E_TESTING.md) - Playwright browser tests
+- [Database Migrations](DATABASE_MIGRATIONS.md) - Schema management and migration patterns
 
 ---
 
 ## Deployment
 
 - [Deployment Runbook](deployment/TELEGRAM_DEPLOYMENT_RUNBOOK.md) - Step-by-step deployment guide
+- [S3 Deployment](deployment/S3_DEPLOYMENT.md) - S3 caching, dependency loading, data lake
 - [Permissions Required](deployment/PERMISSIONS_REQUIRED.md) - Complete IAM policy reference
 - [Troubleshooting](TROUBLESHOOTING.md) - Common issues and solutions
 
 ---
 
-## Reference
+## Features
 
-### Scoring System
-- [Faithfulness Scoring](architecture/scoring/FAITHFULNESS_SCORING.md)
-- [Completeness Scoring](architecture/scoring/COMPLETENESS_SCORING.md)
-- [Reasoning Quality Scoring](architecture/scoring/REASONING_QUALITY_SCORING.md)
-- [Compliance Scoring](architecture/scoring/COMPLIANCE_SCORING.md)
-- [QoS Scoring](architecture/scoring/QOS_SCORING.md)
+### Report Quality & Scoring
+- [Scoring System](features/SCORING_SYSTEM.md) - Comprehensive 5-dimension quality scoring (Faithfulness, Completeness, Reasoning Quality, Compliance, QoS)
+
+### Infrastructure Integration
+- [PDF Generation](features/PDF_GENERATION.md) - PDF report generation and storage
+- [MCP Integration](features/MCP_INTEGRATION.md) - Model Context Protocol server integration
+- [LangSmith Integration](features/LANGSMITH_INTEGRATION.md) - Tracing and observability
+- [News Feature](features/NEWS_FEATURE.md) - News data integration
+
+---
+
+## Reference
 
 ### Infrastructure
 - [Tagging Policy](../terraform/TAGGING_POLICY.md) - AWS resource tagging standards
 - [API Implementation](../src/api/README.md) - FastAPI implementation guide
-
-### MCP Infrastructure
-- [MCP Deployment Guide](architecture/MCP_DEPLOYMENT_GUIDE.md) - **Deploy and configure MCP servers** ⭐
-- [MCP Implementation Status](architecture/MCP_IMPLEMENTATION_STATUS.md) - Current implementation status
-- [MCP Infrastructure Summary](architecture/MCP_INFRASTRUCTURE_SUMMARY.md) - Executive summary and quick reference
-- [AWS MCP Infrastructure Research](architecture/AWS_MCP_INFRASTRUCTURE_RESEARCH.md) - Complete research findings
-- [MCP Financial Analysis Integration](report-generation/mcp-financial-analysis-integration.md) - MCP server selection
-
-### Features
-- [News Feature](features/NEWS_FEATURE.md)
-- [LangSmith Integration](features/LANGSMITH_INTEGRATION.md)
+- [Type System Integration](TYPE_SYSTEM_INTEGRATION.md) - Cross-system type compatibility patterns
 
 ---
 
@@ -71,18 +80,34 @@ Complete documentation for DR Daily Report Telegram Mini App.
 |------|--------------|
 | First-time setup | [Quick Start](QUICKSTART.md) |
 | Deploy to production | [Deployment Runbook](deployment/TELEGRAM_DEPLOYMENT_RUNBOOK.md) |
-| Deploy MCP servers | [MCP Deployment Guide](architecture/MCP_DEPLOYMENT_GUIDE.md) |
+| Configure S3 caching | [S3 Deployment](deployment/S3_DEPLOYMENT.md) |
 | Fix deployment error | [Troubleshooting](TROUBLESHOOTING.md) |
 | Write E2E test | [E2E Testing](testing/E2E_TESTING.md) |
-| Understand architecture | [CLAUDE.md](.claude/CLAUDE.md) |
+| Understand architecture | [CLAUDE.md](../.claude/CLAUDE.md) |
 | Check API contract | [API_CONTRACT.md](../spec/API_CONTRACT.md) |
+| Understand scoring system | [Scoring System](features/SCORING_SYSTEM.md) |
+| Set up MCP servers | [MCP Integration](features/MCP_INTEGRATION.md) |
+| Generate PDFs | [PDF Generation](features/PDF_GENERATION.md) |
 
 ---
 
 ## Contributing
 
-See [.claude/CLAUDE.md](.claude/CLAUDE.md) for:
+See [.claude/CLAUDE.md](../.claude/CLAUDE.md) for:
 - Code organization principles
 - Testing guidelines
 - Deployment workflow
 - When to update CLAUDE.md vs docs/
+
+---
+
+## Archive & Temporary Docs
+
+- **Archive** (`docs/archive/`) - Completed migrations, historical context
+  - IAM AssumeRole migration docs
+  - Terraform migration summaries
+
+- **Temporary** (`docs/tmp/`) - Analysis notes, implementation summaries, WIP docs
+  - Analysis documents (validation, fixes, implementation summaries)
+  - Duplicate/superseded documentation (PDF, MCP, Scoring, S3)
+  - Reference only - not maintained

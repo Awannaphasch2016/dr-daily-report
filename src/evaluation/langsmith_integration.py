@@ -151,7 +151,6 @@ def async_evaluate_and_log(
     scoring_service,
     qos_scorer,
     cost_scorer,
-    database,
     report: str,
     scoring_context: ScoringContext,
     ticker: str,
@@ -160,17 +159,16 @@ def async_evaluate_and_log(
     langsmith_run_id: Optional[str] = None
 ) -> Dict[str, Any]:
     """
-    Async background function to compute scores and log to both database and LangSmith.
+    Async background function to compute scores and log to LangSmith.
 
     This function is designed to run in a background thread and does not block
     the LINE bot response. It performs all scoring operations and logs results
-    to both SQLite database (existing behavior) and LangSmith (new behavior).
+    to LangSmith.
 
     Args:
         scoring_service: ScoringService instance
         qos_scorer: QoSScorer instance
         cost_scorer: CostScorer instance
-        database: Database instance
         report: Generated report text
         scoring_context: ScoringContext with all necessary data
         ticker: Stock ticker symbol
@@ -238,45 +236,7 @@ def async_evaluate_and_log(
         }
 
         # ============================================
-        # STEP 3: Save to Database (Existing Behavior)
-        # ============================================
-        try:
-            # Save faithfulness score
-            database.save_faithfulness_score(ticker, date, faithfulness_score)
-
-            # Save completeness score
-            database.save_completeness_score(ticker, date, completeness_score)
-
-            # Save reasoning quality score
-            database.save_reasoning_quality_score(ticker, date, reasoning_quality_score)
-
-            # Save compliance score
-            database.save_compliance_score(ticker, date, compliance_score)
-
-            # Save QoS metrics
-            database.save_qos_metrics(ticker, date, qos_score)
-
-            # Save cost metrics
-            database.save_cost_metrics(ticker, date, cost_score)
-
-            # Save score summary
-            database.save_score_summary(ticker, date, {
-                'faithfulness': faithfulness_score,
-                'completeness': completeness_score,
-                'reasoning_quality': reasoning_quality_score,
-                'compliance': compliance_score,
-                'qos': qos_score,
-                'cost': cost_score
-            })
-
-            logger.info(f"Successfully saved all scores to database for {ticker}")
-
-        except Exception as db_error:
-            logger.error(f"Failed to save scores to database: {db_error}")
-            # Continue to LangSmith logging even if DB save fails
-
-        # ============================================
-        # STEP 4: Log to LangSmith (New Behavior)
+        # STEP 3: Log to LangSmith
         # ============================================
         if langsmith_run_id:
             try:

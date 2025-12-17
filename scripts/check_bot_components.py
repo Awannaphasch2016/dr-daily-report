@@ -15,7 +15,6 @@ def test_imports():
     try:
         from data_fetcher import DataFetcher
         from technical_analysis import TechnicalAnalyzer
-        from database import TickerDatabase
         from agent import TickerAnalysisAgent
         print("✅ All imports successful")
         return True
@@ -38,22 +37,9 @@ def test_ticker_loading():
         return False
 
 def test_database():
-    """Test database initialization"""
-    print("\n🔍 Testing database...")
-    try:
-        from database import TickerDatabase
-        db = TickerDatabase(db_path="test_ticker_data.db")
-        print("✅ Database initialized successfully")
-
-        # Clean up test database
-        import os
-        if os.path.exists("test_ticker_data.db"):
-            os.remove("test_ticker_data.db")
-
-        return True
-    except Exception as e:
-        print(f"❌ Database error: {str(e)}")
-        return False
+    """Test database initialization - REMOVED (SQLite no longer used)"""
+    print("\n⚠️  Database test skipped (SQLite removed)")
+    return True
 
 def test_data_fetching():
     """Test data fetching (requires internet)"""

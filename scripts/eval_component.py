@@ -3,6 +3,10 @@
 """
 Component-Level Evaluation Runner
 
+⚠️  DEPRECATED: This script relies on SQLite database which has been removed.
+    Evaluation data is now stored in Aurora MySQL.
+    This script needs to be updated to use Aurora or removed.
+
 Runs isolated LLM component evaluation using LangSmith's evaluate() function.
 Compares component output against ground truth using all 7 evaluators.
 
@@ -44,7 +48,7 @@ def target_report_generation(inputs: Dict[str, Any]) -> Dict[str, Any]:
             - narrative: Generated report text
     """
     from src.workflow.workflow_nodes import WorkflowNodes
-    from src.data.database import TickerDatabase
+    # from src.data.database import TickerDatabase  # REMOVED - SQLite deprecated
     from src.data.data_fetcher import DataFetcher
     from src.analysis.technical_analysis import TechnicalAnalyzer
     from src.data.news_fetcher import NewsFetcher
@@ -67,7 +71,8 @@ def target_report_generation(inputs: Dict[str, Any]) -> Dict[str, Any]:
 
     # Initialize all required dependencies
     # (This is necessary because WorkflowNodes needs them all)
-    db = TickerDatabase()
+    # db = TickerDatabase()  # REMOVED - SQLite deprecated
+    raise NotImplementedError("This function needs to be updated - WorkflowNodes no longer requires db parameter")
     data_fetcher = DataFetcher()
     technical_analyzer = TechnicalAnalyzer()
     news_fetcher = NewsFetcher()

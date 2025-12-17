@@ -504,9 +504,14 @@ def generate_ground_truth(num: int, ticker: str, output_dir: str, quality_tier: 
         dr eval generate-ground-truth --num 5
         dr eval generate-ground-truth --num 10 --ticker PTT
     """
-    from src.data.database import TickerDatabase
+    # from src.data.database import TickerDatabase  # REMOVED - SQLite deprecated
     from src.agent import TickerAnalysisAgent
     from dataclasses import asdict
+
+    click.echo("⚠️  DEPRECATED: This command relies on SQLite database which has been removed.")
+    click.echo("    Evaluation data is now stored in Aurora MySQL.")
+    click.echo("    This command needs to be updated to use Aurora or removed.")
+    raise NotImplementedError("This command needs to be updated to use Aurora instead of SQLite")
 
     click.echo(f"🔧 Generating {num} ground truth examples (quality tier: {quality_tier})...")
     click.echo(f"📁 Output directory: {output_dir}")

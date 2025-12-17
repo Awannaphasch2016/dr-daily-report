@@ -756,7 +756,10 @@ def store_report(self, symbol, text):
 
 **Domain-Driven Structure Philosophy:** Organize by functionality (agent, data, workflow, api), not technical layer (models, services, controllers). Each module encapsulates a business domain with clear boundaries. Avoids God objects and cross-cutting concerns.
 
-**Three-Tier Caching Strategy:** In-Memory (5-min TTL) → SQLite (local persistence) → S3 (cross-invocation) → Source (API/LLM). Choose tier based on access frequency and consistency requirements. See [Data Layer Patterns](docs/CODE_STYLE.md#data-layer--caching-patterns).
+**Aurora-First Data Architecture:** Aurora is the source of truth for report generation. Data is pre-populated nightly via Step Function scheduler (46 tickers). Report APIs (Telegram, LINE Bot) are read-only and query Aurora directly. If data is missing, APIs return error (fail-fast pattern) instead of falling back to external APIs. This ensures consistent performance and prevents unpredictable latency from external API calls during user requests.
+
+**Write Path:** Scheduler Lambda → yfinance/NewsService → Aurora precomputed_reports table
+**Read Path:** User APIs → Aurora only (no external API fallback)
 
 **System Boundary Principle:** Verify data type compatibility explicitly when crossing service boundaries. Strict types (MySQL ENUMs) fail silently on mismatch—no exception, data just doesn't persist. Always validate constraints on both sides.
 
@@ -795,6 +798,47 @@ If switching from library A to library B:
 **Database Migration Principles:** Migration files are immutable once committed to version control—never edit them, always create new migrations for schema changes. This ensures reproducibility across environments and preserves schema evolution history. Use reconciliation migrations when database state is unknown or partially migrated. Reconciliation migrations use idempotent operations (CREATE TABLE IF NOT EXISTS, ALTER TABLE ADD COLUMN IF NOT EXISTS) to safely transition from any intermediate state to the desired schema without destructive operations. This pattern prevents migration conflicts, duplicate numbering issues, and unclear execution states. Unlike traditional sequential migrations that assume clean state, reconciliation migrations validate current schema and apply only missing changes. **Critical gotchas:** (1) `CREATE TABLE IF NOT EXISTS` skips entirely if table exists with different schema—use `ALTER TABLE` to fix existing tables. (2) `ALTER TABLE MODIFY COLUMN` changes column TYPE but not existing DATA—old rows retain their original values even if incompatible with new type. Always verify migrations changed what you expected with `DESCRIBE table_name` after applying. See [Database Migrations Guide](docs/DATABASE_MIGRATIONS.md) for detailed patterns, MySQL-specific considerations, and migration tracking strategies.
 
 **Aurora VPC Access Pattern:** Aurora databases are deployed in private VPC subnets and CANNOT be accessed directly from outside the VPC. Use AWS SSM Session Manager port forwarding through a bastion host to establish secure tunnels. Pattern: (1) Find SSM-managed instance: `aws ssm describe-instance-information`, (2) Start port forwarding: `aws ssm start-session --target <instance-id> --document-name AWS-StartPortForwardingSessionToRemoteHost --parameters '{"host":["<aurora-endpoint>"],"portNumber":["3306"],"localPortNumber":["3307"]}'`, (3) Connect to `localhost:3307` as if it were the Aurora endpoint. Scripts that access Aurora must expect SSM tunnel to be active (check with `ss -ltn | grep 3307`). Never attempt direct connections to Aurora endpoints—they will timeout. See `~/aurora-vd.sh` for reference implementation.
+
+**Loud Mock Pattern:** Mock/stub data in production code must be centralized, explicit, and loud to prevent silent failures and forgotten mocks. This pattern applies to development speed mocks (e.g., cached Aurora queries to avoid DB roundtrips) and stub implementations (incomplete features returning empty data). Pattern: (1) Register ALL mocks in centralized registry (`src/mocks/__init__.py`), (2) Log loudly at startup (WARNING level) listing active mocks, (3) Gate behind environment variables (fail in production if unexpected mocks active), (4) Document why each mock exists and when to remove it (owner, date, reason). Detection pattern: if code has conditional logic like `if MOCK_MODE: return FAKE_DATA`, that conditional MUST reference centralized registry, not local flag. Valid use cases: speeding local dev (avoid network I/O), stubbing incomplete features with transparency (like backtester footer). Invalid use cases: hiding implementation gaps without user transparency, bypassing security (like test_signature) without explicit env gate, hardcoding sample data without registry entry.
+
+**Example - Centralized Mock Registry:**
+```python
+# src/mocks/__init__.py - Single source of truth
+ACTIVE_MOCKS = {
+    'aurora_queries': {
+        'enabled': os.getenv('MOCK_AURORA') == 'true',
+        'reason': 'Local dev speed (no Aurora tunnel)',
+        'added': '2025-01-15'
+    }
+}
+
+def validate_mocks():
+    """Startup validation - logs all active mocks"""
+    active = {k: v for k, v in ACTIVE_MOCKS.items() if v['enabled']}
+    if active:
+        logger.warning("⚠️ MOCK DATA ACTIVE")
+        for name, cfg in active.items():
+            logger.warning(f"  {name}: {cfg['reason']}")
+```
+
+**Usage:**
+```python
+# In production code
+from src.mocks import ACTIVE_MOCKS
+
+def get_news(ticker):
+    if ACTIVE_MOCKS['aurora_queries']['enabled']:
+        logger.warning("Using MOCK news")
+        return MOCK_DATA
+    return real_aurora_query(...)
+```
+
+**Why This Works:**
+- ✅ **Centralized Audit**: One file lists ALL mocks (easy to review before deploy)
+- ✅ **Loud Warnings**: Impossible to miss mock usage in logs
+- ✅ **Production Safety**: Fails if unexpected mocks in production
+- ✅ **Documented Intent**: Each mock has reason/owner/date
+- ✅ **Easy Cleanup**: Find stale mocks by checking added date
 
 For complete directory tree and file organization, run `just tree` or see [Code Style Guide](docs/CODE_STYLE.md#naming-conventions).
 

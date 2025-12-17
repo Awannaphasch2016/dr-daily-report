@@ -21,9 +21,6 @@ def __getattr__(name):
     elif name == 'NewsFetcher':
         from .news_fetcher import NewsFetcher
         return NewsFetcher
-    elif name == 'TickerDatabase':
-        from .database import TickerDatabase
-        return TickerDatabase
     elif name == 'S3Cache':
         from .s3_cache import S3Cache
         return S3Cache
@@ -35,7 +32,6 @@ def __getattr__(name):
 __all__ = [
     'DataFetcher',
     'NewsFetcher',
-    'TickerDatabase',
     'S3Cache',
     'TickerMatcher',
 ]
