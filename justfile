@@ -605,6 +605,11 @@ report TICKER LANGUAGE='th':
 info:
     dr util info
 
+# Inspect prompt variables for a ticker (useful for prompt debugging)
+prompt-vars TICKER STRATEGY='single-stage' LANGUAGE='th':
+    @echo "🔍 Inspecting prompt variables for {{TICKER}}..."
+    doppler run --config dev_local --project rag-chatbot-worktree -- dr util prompt-vars {{TICKER}} --strategy {{STRATEGY}} --language {{LANGUAGE}}
+
 # === MCP SETUP ===
 
 # Setup AWS MCP tools for Cursor IDE (run once to enable AWS integration)

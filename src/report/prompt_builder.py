@@ -19,7 +19,6 @@ class PromptBuilder:
         Args:
             language: Report language ('en' or 'th'), defaults to 'th'
         """
-        self.language = language
         self.main_prompt_template = self._load_main_prompt_template(language)
 
     def _load_main_prompt_template(self, language: str = 'th') -> str:
@@ -127,10 +126,7 @@ class PromptBuilder:
 
         This ensures editing Thai prompts has ZERO effect on English prompts.
         """
-        if self.language == 'th':
-            return self._build_base_prompt_section_th(uncertainty_score)
-        else:
-            return self._build_base_prompt_section_en(uncertainty_score)
+        return self._build_base_prompt_section_th(uncertainty_score)
 
     def _build_base_prompt_section_th(self, uncertainty_score: float) -> str:
         """Thai prompts with DEEMPHASIZED percentiles (as of 2025-12-15)
@@ -192,67 +188,6 @@ class PromptBuilder:
 
 These 7 elements (4 market conditions + statistical context + fundamental analysis + chart patterns) ARE the foundation of your narrative. Include specific numbers, and use percentiles ONLY if they add meaningful context."""
 
-    def _build_base_prompt_section_en(self, uncertainty_score: float) -> str:
-        """English prompts with CRITICAL percentile emphasis (UNCHANGED from original)
-
-        Maintains all IMPORTANT/CRITICAL/MUST directives for percentile usage.
-        """
-        return f"""1. **Price Uncertainty** ({uncertainty_score:.0f}/100): Sets the overall market mood
-   - Low (0-25): "ตลาดเสถียรมาก" - Stable, good for positioning
-   - Moderate (25-50): "ตลาดค่อนข้างเสถียร" - Normal movement
-   - High (50-75): "ตลาดผันผวนสูง" - High risk, be cautious
-   - Extreme (75-100): "ตลาดผันผวนรุนแรง" - Extreme risk, warn strongly
-   - **IMPORTANT**: Use percentile information to add historical context (e.g., "Uncertainty 52/100 ซึ่งอยู่ในเปอร์เซ็นไทล์ 88% - แสดงว่าความไม่แน่นอนนี้สูงกว่าปกติเมื่อเทียบกับประวัติศาสตร์")
-
-2. **Volatility (ATR %)**: The speed of price movement
-   - Include the ATR% number and explain what it means
-   - Example: "ATR 1.2% แสดงราคาเคลื่อนไหวช้ามั่นคง นักลงทุนเห็นตรงกัน"
-   - Example: "ATR 3.8% แสดงตลาดลังเล ราคากระโดดขึ้นลง 3-5% ได้ง่าย"
-   - **IMPORTANT**: Use percentile context (e.g., "ATR 1.99% อยู่ในเปอร์เซ็นไทล์ 61% - สูงกว่าค่าเฉลี่ยปกติเล็กน้อย")
-
-3. **Buy/Sell Pressure (Price vs VWAP %)**: Who's winning - buyers or sellers?
-   - Include the % above/below VWAP and explain the implication
-   - Example: "ราคา 22.4% เหนือ VWAP แสดงแรงซื้อแรงมาก คนซื้อวันนี้ยอมจ่ายแพงกว่าเฉลี่ย"
-   - Example: "ราคา -2.8% ต่ำกว่า VWAP แสดงแรงขายหนัก คนขายรีบขายถูกกว่าเฉลี่ย"
-   - **IMPORTANT**: Use percentile to show rarity (e.g., "ราคา 5% เหนือ VWAP ซึ่งอยู่ในเปอร์เซ็นไทล์ 90% - แสดงแรงซื้อที่ผิดปกติมากในอดีต")
-
-4. **Volume (Volume Ratio)**: Is smart money interested?
-   - Include the volume ratio (e.g., 0.8x, 1.5x, 2.0x) and explain what it means
-   - Example: "ปริมาณซื้อขาย 1.8x ของเฉลี่ย แสดงนักลงทุนใหญ่กำลังเคลื่อนไหว"
-   - Example: "ปริมาณซื้อขาย 0.7x ของเฉลี่ย แสดงนักลงทุนเฉยๆ รอดูก่อน"
-   - **IMPORTANT**: Use percentile frequency (e.g., "ปริมาณ 1.03x อยู่ในเปอร์เซ็นไทล์ 71% - สูงกว่าปกติ แต่ไม่ใช่ระดับที่ผิดปกติ")
-
-5. **Statistical Context (Percentiles)**: Historical perspective on current values
-   - CRITICAL: You MUST incorporate percentile information naturally into your narrative
-   - This tells the reader: "Is this value unusual compared to history?"
-   - Examples:
-     * "RSI 81.12 ซึ่งอยู่ในเปอร์เซ็นไทล์ 94% - สูงมากในอดีต ควรระวังภาวะ Overbought"
-     * "MACD 6.32 อยู่ในเปอร์เซ็นไทล์ 77% - สูงกว่าปกติ แสดงแรงซื้อแรงมาก"
-     * "Uncertainty 52/100 อยู่ในเปอร์เซ็นไทล์ 88% - ความไม่แน่นอนนี้สูงกว่าปกติในอดีต"
-   - Frequency percentages help explain rarity:
-     * "RSI นี้สูงกว่า 70% ได้แค่ 28% ของเวลาในอดีต - แสดงภาวะ Overbought ที่หายาก"
-     * "Volume 1.03x แต่ในอดีตเคยสูงถึง 2x ได้แค่ 1.9% ของเวลา - ปริมาณปัจจุบันยังไม่ใช่ระดับผิดปกติ"
-
-6. **Fundamental Analysis (P/E, EPS, Market Cap, Growth)**: CRITICAL - You MUST incorporate fundamental metrics into your narrative
-   - P/E Ratio: Compare to industry average (e.g., "P/E 44.58 สูงกว่าค่าเฉลี่ยของกลุ่มเทคโนโลยี - แสดงว่านักลงทุนยินดีจ่ายแพงสำหรับการเติบโตในอนาคต")
-   - EPS: Discuss growth trajectory (e.g., "EPS 4.04 และการเติบโตของกำไรที่เกิน 60% แสดงถึงความแข็งแกร่งของบริษัท")
-   - Market Cap: Provide context (e.g., "Market Cap $4384.6B ทำให้เป็นบริษัทขนาดใหญ่ - มีเสถียรภาพแต่การเติบโตอาจช้าลง")
-   - Revenue Growth: Mention when significant (e.g., "Revenue Growth 60%+ แสดงว่าบริษัทกำลังขยายตัวเร็ว")
-   - Profit Margin: Discuss efficiency (e.g., "Profit Margin สูงแสดงว่าบริษัทจัดการต้นทุนได้ดี")
-   - Format: Weave fundamental metrics naturally into paragraphs - don't list them separately
-   - Use fundamental data to support your BUY/SELL/HOLD recommendation
-   - Example: "ในด้านพื้นฐาน P/E Ratio 44.58 สูงกว่าค่าเฉลี่ยของกลุ่ม แต่เมื่อพิจารณาการเติบโตของรายได้ที่ 60%+ และ Profit Margin ที่สูง แสดงว่าบริษัทมีศักยภาพที่จะเติบโตต่อไป"
-
-7. **Chart Patterns & Advanced Technical Analysis (Financial Markets MCP)**: When chart pattern data is provided, USE IT to enhance technical analysis
-   - Chart Patterns: Mention detected patterns (e.g., "พบรูปแบบ Head & Shoulders ซึ่งอาจบ่งชี้ถึงการเปลี่ยนทิศทางขาลง")
-   - Candlestick Patterns: Discuss implications (e.g., "รูปแบบ Doji แสดงความลังเลของตลาด - นักลงทุนไม่แน่ใจทิศทาง")
-   - Support/Resistance: Reference key levels (e.g., "ราคาตอนนี้อยู่ใกล้ระดับ Resistance ที่ $185 - หากทะลุได้อาจขึ้นต่อ")
-   - Advanced Indicators: Mention when relevant (e.g., "Fibonacci Retracement แสดงว่าราคาอยู่ที่ 61.8% ซึ่งเป็นจุดสำคัญ")
-   - Format: Integrate chart patterns into technical analysis narrative - don't create separate section
-   - Use chart patterns to support your technical analysis and risk assessment
-   - Example: "เมื่อดูจากรูปแบบกราฟ พบ Head & Shoulders pattern ซึ่งบ่งชี้ถึงการเปลี่ยนทิศทางขาลง ขณะที่ราคายังอยู่เหนือ Support ที่ $175 - หากราคาตกต่ำกว่าระดับนี้ อาจเป็นสัญญาณขาย"
-
-These 7 elements (4 market conditions + statistical context + fundamental analysis + chart patterns) ARE the foundation of your narrative. ALWAYS include specific numbers WITH historical context (percentiles) - this is the "narrative + number + history" Damodaran style."""
 
     def _build_strategy_section(self) -> str:
         """Build strategy performance section"""
@@ -412,46 +347,6 @@ Write entirely in Thai, naturally flowing like Damodaran's style - narrative sup
         """
         return ""
 
-    def _format_percentile_context_en(self, percentiles: dict) -> str:
-        """English percentile context"""
-        if not percentiles:
-            return ""
-
-        context = "\n\nPercentile Analysis (Historical Comparison):\n"
-        
-        if 'rsi' in percentiles:
-            rsi_stats = percentiles['rsi']
-            context += f"- RSI: {rsi_stats['current_value']:.2f} (เปอร์เซ็นไทล์: {rsi_stats['percentile']:.1f}% - สูงกว่าค่าเฉลี่ย {rsi_stats['mean']:.2f})\n"
-            context += f"  ความถี่ที่ RSI > 70: {rsi_stats['frequency_above_70']:.1f}% | ความถี่ที่ RSI < 30: {rsi_stats['frequency_below_30']:.1f}%\n"
-        
-        if 'macd' in percentiles:
-            macd_stats = percentiles['macd']
-            context += f"- MACD: {macd_stats['current_value']:.4f} (เปอร์เซ็นไทล์: {macd_stats['percentile']:.1f}%)\n"
-            context += f"  ความถี่ที่ MACD > 0: {macd_stats['frequency_positive']:.1f}%\n"
-        
-        if 'uncertainty_score' in percentiles:
-            unc_stats = percentiles['uncertainty_score']
-            context += f"- Uncertainty Score: {unc_stats['current_value']:.2f}/100 (เปอร์เซ็นไทล์: {unc_stats['percentile']:.1f}%)\n"
-            context += f"  ความถี่ที่ต่ำ (<25): {unc_stats['frequency_low']:.1f}% | ความถี่ที่สูง (>75): {unc_stats['frequency_high']:.1f}%\n"
-        
-        if 'atr_percent' in percentiles:
-            atr_stats = percentiles['atr_percent']
-            context += f"- ATR %: {atr_stats['current_value']:.2f}% (เปอร์เซ็นไทล์: {atr_stats['percentile']:.1f}%)\n"
-            context += f"  ความถี่ที่ความผันผวนต่ำ (<1%): {atr_stats['frequency_low_volatility']:.1f}% | ความถี่ที่ความผันผวนสูง (>4%): {atr_stats['frequency_high_volatility']:.1f}%\n"
-        
-        if 'price_vwap_percent' in percentiles:
-            vwap_stats = percentiles['price_vwap_percent']
-            context += f"- Price vs VWAP %: {vwap_stats['current_value']:.2f}% (เปอร์เซ็นไทล์: {vwap_stats['percentile']:.1f}%)\n"
-            context += f"  ความถี่ที่ราคาเหนือ VWAP >3%: {vwap_stats['frequency_above_3pct']:.1f}% | ความถี่ที่ราคาต่ำกว่า VWAP <-3%: {vwap_stats['frequency_below_neg3pct']:.1f}%\n"
-        
-        if 'volume_ratio' in percentiles:
-            vol_stats = percentiles['volume_ratio']
-            context += f"- Volume Ratio: {vol_stats['current_value']:.2f}x (เปอร์เซ็นไทล์: {vol_stats['percentile']:.1f}%)\n"
-            context += f"  ความถี่ที่ปริมาณสูง (>2x): {vol_stats['frequency_high_volume']:.1f}% | ความถี่ที่ปริมาณต่ำ (<0.7x): {vol_stats['frequency_low_volume']:.1f}%\n"
-        
-        context += "\n**IMPORTANT**: Use these percentile values naturally in your narrative to add historical context. Don't just list them - weave them into the story!"
-        return context
-
     def _format_percentile_context(self, percentiles: dict) -> str:
         """Format percentile context based on language
 
@@ -460,8 +355,4 @@ Write entirely in Thai, naturally flowing like Damodaran's style - narrative sup
 
         Uses self.language attribute to determine which implementation to call.
         """
-        if self.language == 'th':
-            return self._format_percentile_context_th(percentiles)
-        else:
-            return self._format_percentile_context_en(percentiles)
-
+        return self._format_percentile_context_th(percentiles)

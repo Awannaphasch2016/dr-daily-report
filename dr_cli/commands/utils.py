@@ -224,3 +224,226 @@ def info():
     click.echo("")
     click.echo("For all commands: dr --help")
     click.echo("For command help: dr <command> --help")
+
+
+@utils.command(name='prompt-vars')
+@click.argument('ticker')
+@click.option('--strategy', type=click.Choice(['single-stage', 'multi-stage']), default='single-stage',
+              help='Report generation strategy: single-stage (default) or multi-stage')
+@click.option('--language', type=click.Choice(['th', 'en']), default='th',
+              help='Report language: th (Thai, default) or en (English)')
+@click.option('--output', type=click.Path(), default=None,
+              help='Save output to file (optional)')
+@click.pass_context
+def prompt_vars(ctx, ticker, strategy, language, output):
+    """Inspect prompt variables for a ticker (useful for prompt debugging)
+
+    Builds the prompt context without generating the full report, displaying
+    all template variables in a clean, readable format.
+
+    Examples:
+      dr util prompt-vars DBS19                         # Thai, single-stage (defaults)
+      dr util prompt-vars DBS19 --strategy multi-stage  # Multi-stage prompt
+      dr util prompt-vars DBS19 --language en           # English prompt
+      dr util prompt-vars DBS19 --output prompt.txt     # Save to file
+    """
+    trace = ctx.obj.get('trace')
+    
+    # Create a Python script to inspect prompt variables
+    script_content = f'''import sys
+import os
+sys.path.insert(0, r"{PROJECT_ROOT}")
+from src.agent import TickerAnalysisAgent
+
+# Initialize agent (this sets up all components)
+agent = TickerAnalysisAgent()
+
+# Run workflow up to data collection (before LLM call)
+initial_state = {{
+    "messages": [],
+    "ticker": "{ticker}",
+    "ticker_data": {{}},
+    "indicators": {{}},
+    "percentiles": {{}},
+    "chart_patterns": [],
+    "pattern_statistics": {{}},
+    "strategy_performance": {{}},
+    "news": [],
+    "news_summary": {{}},
+    "comparative_data": {{}},
+    "comparative_insights": {{}},
+    "chart_base64": "",
+    "report": "",
+    "faithfulness_score": {{}},
+    "completeness_score": {{}},
+    "reasoning_quality_score": {{}},
+    "compliance_score": {{}},
+    "qos_score": {{}},
+    "cost_score": {{}},
+    "timing_metrics": {{}},
+    "api_costs": {{}},
+    "database_metrics": {{}},
+    "sec_filing_data": {{}},
+    "financial_markets_data": {{}},
+    "portfolio_insights": {{}},
+    "alpaca_data": {{}},
+    "error": "",
+    "strategy": "{strategy}",
+    "language": "{language}"
+}}
+
+# Run workflow nodes to collect data
+try:
+    state = agent.workflow_nodes.fetch_data(initial_state)
+    if state.get("error"):
+        print(f"❌ Error fetching data: {{state.get('error')}}", file=sys.stderr)
+        sys.exit(1)
+
+    state = agent.workflow_nodes.analyze_technical(state)
+    if state.get("error"):
+        print(f"❌ Error analyzing technical: {{state.get('error')}}", file=sys.stderr)
+        sys.exit(1)
+
+    state = agent.workflow_nodes.fetch_news(state)
+    if state.get("error"):
+        print(f"❌ Error fetching news: {{state.get('error')}}", file=sys.stderr)
+        sys.exit(1)
+
+    state = agent.workflow_nodes.analyze_comparative(state)
+    if state.get("error"):
+        print(f"❌ Error analyzing comparative: {{state.get('error')}}", file=sys.stderr)
+        sys.exit(1)
+
+    # Build context and prompt (without LLM call)
+    ticker_data = state.get("ticker_data", {{}})
+    indicators = state.get("indicators", {{}})
+    percentiles = state.get("percentiles", {{}})
+    news = state.get("news", [])
+    news_summary = state.get("news_summary", {{}})
+    strategy_performance = state.get("strategy_performance", {{}}) if "{strategy}" == "single-stage" else None
+    comparative_insights = state.get("comparative_insights", {{}})
+    sec_filing_data = state.get("sec_filing_data", {{}})
+    financial_markets_data = state.get("financial_markets_data", {{}})
+    portfolio_insights = state.get("portfolio_insights", {{}})
+    alpaca_data = state.get("alpaca_data", {{}})
+
+    # Set language for builders
+    agent.context_builder.language = "{language}"
+    agent.prompt_builder.language = "{language}"
+
+    # Build context
+    context = agent.context_builder.prepare_context(
+        "{ticker}",
+        ticker_data,
+        indicators,
+        percentiles,
+        news,
+        news_summary,
+        strategy_performance=strategy_performance,
+        comparative_insights=comparative_insights,
+        sec_filing_data=sec_filing_data if sec_filing_data else None,
+        financial_markets_data=financial_markets_data if financial_markets_data else None,
+        portfolio_insights=portfolio_insights if portfolio_insights else None,
+        alpaca_data=alpaca_data if alpaca_data else None
+    )
+
+    uncertainty_score = indicators.get('uncertainty_score', 0)
+
+    # Build prompt sections
+    narrative_elements = agent.prompt_builder._build_base_prompt_section(uncertainty_score)
+    strategy_section = agent.prompt_builder._build_strategy_section() if strategy_performance else ""
+    comparative_section = agent.prompt_builder._build_comparative_section()
+    structure = agent.prompt_builder.build_prompt_structure(bool(strategy_performance))
+
+    # Build final prompt
+    final_prompt = agent.prompt_builder.main_prompt_template.format(
+        CONTEXT=context,
+        NARRATIVE_ELEMENTS=narrative_elements,
+        STRATEGY_SECTION=strategy_section,
+        COMPARATIVE_SECTION=comparative_section,
+        PROMPT_STRUCTURE=structure
+    )
+
+    # Calculate token estimate
+    token_count = len(final_prompt) // 4
+
+    # Display output
+    print("━" * 80)
+    print("📝 PROMPT VARIABLES INSPECTION")
+    print("━" * 80)
+    print(f"Ticker: {ticker}")
+    print(f"Strategy: {strategy}")
+    print(f"Language: {language}")
+    print(f"Token Estimate: ~{{token_count}} tokens")
+    print("━" * 80)
+    print()
+    print("{{CONTEXT}}")
+    print("━" * 80)
+    print(context)
+    print()
+    print("{{NARRATIVE_ELEMENTS}}")
+    print("━" * 80)
+    print(narrative_elements)
+    print()
+'''
+    
+    if strategy == "multi-stage":
+        script_content += f'''    print("{{STRATEGY_SECTION}}")
+    print("━" * 80)
+    print(strategy_section)
+    print()
+'''
+    
+    script_content += f'''    print("{{COMPARATIVE_SECTION}}")
+    print("━" * 80)
+    print(comparative_section)
+    print()
+    print("{{PROMPT_STRUCTURE}}")
+    print("━" * 80)
+    print(structure)
+    print()
+    print("━" * 80)
+    print("📄 FINAL ASSEMBLED PROMPT")
+    print("━" * 80)
+    print(final_prompt)
+    print()
+    print("━" * 80)
+    print(f"✅ Total prompt length: {{len(final_prompt)}} characters (~{{token_count}} tokens)")
+    print("━" * 80)
+except Exception as e:
+    import traceback
+    print(f"❌ Error: {{e}}", file=sys.stderr)
+    traceback.print_exc(file=sys.stderr)
+    sys.exit(1)
+'''
+    
+    env = {**os.environ, "PYTHONPATH": str(PROJECT_ROOT)}
+    
+    # Control LangSmith tracing
+    if trace is True:
+        env['LANGSMITH_TRACING_V2'] = 'true'
+    elif trace is False:
+        env['LANGSMITH_TRACING_V2'] = 'false'
+    
+    # Run command and capture output
+    result = subprocess.run(
+        [sys.executable, "-c", script_content],
+        cwd=PROJECT_ROOT,
+        env=env,
+        capture_output=True,
+        text=True
+    )
+    
+    if result.returncode != 0:
+        click.echo(result.stderr, err=True)
+        sys.exit(result.returncode)
+    
+    output_text = result.stdout
+    
+    # Save to file if requested
+    if output:
+        output_path = Path(output)
+        output_path.write_text(output_text, encoding='utf-8')
+        click.echo(f"✅ Output saved to {output_path}")
+    else:
+        click.echo(output_text)
