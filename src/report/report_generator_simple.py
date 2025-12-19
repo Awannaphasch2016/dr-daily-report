@@ -51,7 +51,7 @@ class SimpleReportGenerator:
             self.data_formatter,
             self.technical_analyzer
         )
-        self.prompt_builder = PromptBuilder()
+        self.prompt_builder = PromptBuilder(context_builder=self.context_builder)
         self.number_injector = NumberInjector()
         self.mini_report_generator = MiniReportGenerator(self.llm)
         self.transparency_footer = TransparencyFooter()
@@ -248,12 +248,17 @@ class SimpleReportGenerator:
             alpaca_data=kwargs.get('alpaca_data', {})
         )
 
-        # Extract uncertainty score from indicators
-        uncertainty_score = indicators.get('uncertainty_score', 0)
-
         # Build prompt with correct language
-        prompt_builder = PromptBuilder(language=language)
-        prompt = prompt_builder.build_prompt(context, uncertainty_score, strategy_performance=strategy_performance)
+        prompt_builder = PromptBuilder(language=language, context_builder=self.context_builder)
+        prompt = prompt_builder.build_prompt(
+            context,
+            strategy_performance=strategy_performance,
+            comparative_insights=kwargs.get('comparative_insights', {}),
+            sec_filing_data=kwargs.get('sec_filing_data', {}),
+            financial_markets_data=kwargs.get('financial_markets_data', {}),
+            portfolio_insights=kwargs.get('portfolio_insights', {}),
+            alpaca_data=kwargs.get('alpaca_data', {})
+        )
 
         # LLM call
         response = self.llm.invoke(prompt)
@@ -328,7 +333,8 @@ class SimpleReportGenerator:
             indicators,
             percentiles,
             ticker_data or {},  # Pass empty dict if None
-            comparative_insights or {}  # Pass empty dict if None
+            comparative_insights or {},  # Pass empty dict if None
+            strategy_performance=strategy_performance  # Pass strategy data for placeholder replacement
         )
 
         # Add news references

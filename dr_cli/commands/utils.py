@@ -347,13 +347,21 @@ try:
         alpaca_data=alpaca_data if alpaca_data else None
     )
 
-    uncertainty_score = indicators.get('uncertainty_score', 0)
-
-    # Build prompt sections
-    narrative_elements = agent.prompt_builder._build_base_prompt_section(uncertainty_score)
-    strategy_section = agent.prompt_builder._build_strategy_section() if strategy_performance else ""
+    # Get section presence from context builder
+    section_presence = agent.context_builder.get_section_presence(
+        strategy_performance=strategy_performance,
+        comparative_insights=comparative_insights,
+        sec_filing_data=sec_filing_data if sec_filing_data else None,
+        financial_markets_data=financial_markets_data if financial_markets_data else None,
+        portfolio_insights=portfolio_insights if portfolio_insights else None,
+        alpaca_data=alpaca_data if alpaca_data else None
+    )
+    
+    # Build prompt sections using unified pattern
+    narrative_elements = agent.prompt_builder._build_base_prompt_section()
+    strategy_section = agent.prompt_builder._build_strategy_section() if section_presence.get('strategy', False) else ""
     comparative_section = agent.prompt_builder._build_comparative_section()
-    structure = agent.prompt_builder.build_prompt_structure(bool(strategy_performance))
+    structure = agent.prompt_builder.build_prompt_structure(section_presence.get('strategy', False))
 
     # Build final prompt
     final_prompt = agent.prompt_builder.main_prompt_template.format(

@@ -13,13 +13,15 @@ logger.setLevel(logging.INFO)
 class PromptBuilder:
     """Builds prompts for LLM report generation"""
 
-    def __init__(self, language: str = 'th'):
+    def __init__(self, language: str = 'th', context_builder=None):
         """Initialize PromptBuilder
 
         Args:
             language: Report language ('en' or 'th'), defaults to 'th'
+            context_builder: Optional ContextBuilder instance for section presence detection
         """
         self.main_prompt_template = self._load_main_prompt_template(language)
+        self.context_builder = context_builder
 
     def _load_main_prompt_template(self, language: str = 'th') -> str:
         """
@@ -43,22 +45,50 @@ class PromptBuilder:
         with open(filepath, 'r', encoding='utf-8') as f:
             return f.read()
 
-    def build_prompt(self, context: str, uncertainty_score: float, strategy_performance: dict = None) -> str:
-        """Build LLM prompt using template file"""
+    def build_prompt(self, context: str, strategy_performance: dict = None,
+                    comparative_insights: dict = None,
+                    sec_filing_data: dict = None,
+                    financial_markets_data: dict = None,
+                    portfolio_insights: dict = None,
+                    alpaca_data: dict = None) -> str:
+        """Build LLM prompt using template file
+        
+        Args:
+            context: Context string from ContextBuilder
+            strategy_performance: Strategy performance data (for section presence detection)
+            comparative_insights: Comparative insights data (for section presence detection)
+            sec_filing_data: SEC filing data (for section presence detection)
+            financial_markets_data: Financial Markets MCP data (for section presence detection)
+            portfolio_insights: Portfolio Manager MCP data (for section presence detection)
+            alpaca_data: Alpaca MCP data (for section presence detection)
+        """
         logger.info("🔨 [PromptBuilder] Building prompt from template")
         logger.info(f"   📊 Input parameters:")
         logger.info(f"      - Context length: {len(context)} characters")
-        logger.info(f"      - Uncertainty score: {uncertainty_score:.2f}/100")
-        logger.info(f"      - Strategy performance included: {strategy_performance is not None}")
+        
+        # Get section presence from context builder if available, otherwise use direct checks
+        if self.context_builder:
+            section_presence = self.context_builder.get_section_presence(
+                strategy_performance=strategy_performance,
+                comparative_insights=comparative_insights,
+                sec_filing_data=sec_filing_data,
+                financial_markets_data=financial_markets_data,
+                portfolio_insights=portfolio_insights,
+                alpaca_data=alpaca_data
+            )
+            has_strategy = section_presence.get('strategy', False)
+        else:
+            # Fallback: use direct check (backward compatibility)
+            has_strategy = bool(strategy_performance)
+            section_presence = {'strategy': has_strategy}
+        
+        logger.info(f"      - Strategy performance included: {has_strategy}")
 
-        if strategy_performance:
-            logger.info(f"      - Strategy performance keys: {list(strategy_performance.keys())}")
-
-        # Build all sections (keep existing logic)
-        narrative_elements = self._build_base_prompt_section(uncertainty_score)
-        strategy_section = self._build_strategy_section() if strategy_performance else ""
+        # Build all sections using unified pattern
+        narrative_elements = self._build_base_prompt_section()
+        strategy_section = self._build_strategy_section() if has_strategy else ""
         comparative_section = self._build_comparative_section()
-        structure = self.build_prompt_structure(bool(strategy_performance))
+        structure = self.build_prompt_structure(has_strategy)
 
         # Log section details
         logger.info(f"   📋 Prompt sections:")
@@ -121,24 +151,24 @@ class PromptBuilder:
         
         return final_prompt
     
-    def _build_base_prompt_section(self, uncertainty_score: float) -> str:
+    def _build_base_prompt_section(self) -> str:
         """Route to language-specific implementation for complete separation
 
         This ensures editing Thai prompts has ZERO effect on English prompts.
         """
-        return self._build_base_prompt_section_th(uncertainty_score)
+        return self._build_base_prompt_section_th()
 
-    def _build_base_prompt_section_th(self, uncertainty_score: float) -> str:
+    def _build_base_prompt_section_th(self) -> str:
         """Thai prompts with DEEMPHASIZED percentiles (as of 2025-12-15)
 
         Percentiles are presented as optional context, not mandatory requirements.
         """
-        return f"""1. **Price Uncertainty** ({uncertainty_score:.0f}/100): Sets the overall market mood
+        return """1. **Price Uncertainty** (use {{{{UNCERTAINTY}}}}/100 placeholder): Sets the overall market mood
    - Low (0-25): "ตลาดเสถียรมาก" - Stable, good for positioning
    - Moderate (25-50): "ตลาดค่อนข้างเสถียร" - Normal movement
    - High (50-75): "ตลาดผันผวนสูง" - High risk, be cautious
    - Extreme (75-100): "ตลาดผันผวนรุนแรง" - Extreme risk, warn strongly
-   - Percentile information is optionally available if you find it relevant (e.g., "Uncertainty 52/100 ซึ่งอยู่ในเปอร์เซ็นไทล์ 88%")
+   - Percentile information is optionally available if you find it relevant (e.g., "Uncertainty {{{{UNCERTAINTY}}}}/100 ซึ่งอยู่ในเปอร์เซ็นไทล์ {{{{UNCERTAINTY_SCORE_PERCENTILE}}}}%")
 
 2. **Volatility (ATR %)**: The speed of price movement
    - Include the ATR% number and explain what it means
@@ -163,9 +193,9 @@ class PromptBuilder:
    - Use percentiles ONLY if they meaningfully enhance your narrative
    - This can tell the reader: "Is this value unusual compared to history?"
    - Examples (optional):
-     * "RSI 81.12 ซึ่งอยู่ในเปอร์เซ็นไทล์ 94%"
-     * "MACD 6.32 อยู่ในเปอร์เซ็นไทล์ 77%"
-     * "Uncertainty 52/100 อยู่ในเปอร์เซ็นไทล์ 88%"
+     * "RSI {{{{RSI}}}} ซึ่งอยู่ในเปอร์เซ็นไทล์ {{{{RSI_PERCENTILE}}}}%"
+     * "MACD {{{{MACD}}}} อยู่ในเปอร์เซ็นไทล์ {{{{MACD_PERCENTILE}}}}%"
+     * "Uncertainty {{{{UNCERTAINTY}}}}/100 อยู่ในเปอร์เซ็นไทล์ {{{{UNCERTAINTY_SCORE_PERCENTILE}}}}%"
 
 6. **Fundamental Analysis (P/E, EPS, Market Cap, Growth)**: CRITICAL - You MUST incorporate fundamental metrics into your narrative
    - P/E Ratio: Compare to industry average (e.g., "P/E 44.58 สูงกว่าค่าเฉลี่ยของกลุ่มเทคโนโลยี - แสดงว่านักลงทุนยินดีจ่ายแพงสำหรับการเติบโตในอนาคต")

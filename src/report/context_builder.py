@@ -6,6 +6,7 @@ from typing import Dict, List, Optional
 from src.analysis import MarketAnalyzer
 from src.formatters import DataFormatter
 from src.analysis.technical_analysis import TechnicalAnalyzer
+from src.report.section_formatters import SectionRegistry
 
 # Setup logger
 logger = logging.getLogger(__name__)
@@ -92,6 +93,9 @@ class ContextBuilder:
         self.technical_analyzer = technical_analyzer
         self.language = language
         self.labels = CONTEXT_LABELS[language]  # Raises KeyError if language not supported
+        
+        # Initialize section registry for unified section handling
+        self.section_registry = SectionRegistry(data_formatter)
     
     def prepare_context(self, ticker: str, ticker_data: dict, indicators: dict, percentiles: dict, news: list, news_summary: dict, strategy_performance: dict = None, comparative_insights: dict = None, sec_filing_data: dict = None, financial_markets_data: dict = None, portfolio_insights: dict = None, alpaca_data: dict = None) -> str:
         """Prepare context for LLM with uncertainty components and percentile information"""
@@ -117,35 +121,41 @@ class ContextBuilder:
         percentile_context = self.data_formatter.format_percentile_context(percentiles, language=self.language)
         fundamental_section = self.data_formatter.format_fundamental_section(ticker_data)
         technical_section = self.data_formatter.format_technical_section(indicators, current_price, self.technical_analyzer)
-        news_section = self.data_formatter.format_news_section(news, news_summary)
         
-        # Add comparative insights
+        # Use unified section formatters for optional sections
         comparative_insights = comparative_insights or {}
-        comparative_section = self.data_formatter.format_comparative_insights(ticker, comparative_insights)
+        comparative_formatter = self.section_registry.get_formatter('comparative')
+        comparative_section = comparative_formatter.format(comparative_insights)
         
-        # Format SEC filing data if available
-        sec_filing_section = ""
-        if sec_filing_data and len(sec_filing_data) > 0:
-            sec_filing_section = self._format_sec_filing_section(sec_filing_data)
+        # Format optional sections using unified pattern
+        sec_filing_formatter = self.section_registry.get_formatter('sec_filing')
+        sec_filing_section = sec_filing_formatter.format(sec_filing_data)
+        if sec_filing_formatter.has_data(sec_filing_data):
             logger.info(f"      - SEC filing data available: {sec_filing_data.get('form_type', 'N/A')} filed {sec_filing_data.get('filing_date', 'N/A')}")
         
-        # Format Financial Markets MCP data if available
-        financial_markets_section = ""
-        if financial_markets_data and len(financial_markets_data) > 0:
-            financial_markets_section = self.format_financial_markets_section(financial_markets_data)
+        financial_markets_formatter = self.section_registry.get_formatter('financial_markets')
+        financial_markets_section = financial_markets_formatter.format(financial_markets_data)
+        if financial_markets_formatter.has_data(financial_markets_data):
             logger.info(f"      - Financial Markets MCP data available: {list(financial_markets_data.keys())}")
         
-        # Format Portfolio Manager MCP data if available
-        portfolio_insights_section = ""
-        if portfolio_insights and len(portfolio_insights) > 0:
-            portfolio_insights_section = self.format_portfolio_insights_section(portfolio_insights)
+        portfolio_formatter = self.section_registry.get_formatter('portfolio_insights')
+        portfolio_insights_section = portfolio_formatter.format(portfolio_insights)
+        if portfolio_formatter.has_data(portfolio_insights):
             logger.info(f"      - Portfolio Manager MCP data available: {list(portfolio_insights.keys())}")
         
-        # Format Alpaca MCP data if available
-        alpaca_section = ""
-        if alpaca_data and len(alpaca_data) > 0:
-            alpaca_section = self.format_alpaca_data_section(alpaca_data)
+        alpaca_formatter = self.section_registry.get_formatter('alpaca')
+        alpaca_section = alpaca_formatter.format(alpaca_data)
+        if alpaca_formatter.has_data(alpaca_data):
             logger.info(f"      - Alpaca MCP data available: {list(alpaca_data.keys())}")
+        
+        news_formatter = self.section_registry.get_formatter('news')
+        news_section = news_formatter.format((news, news_summary))
+        
+        # Format strategy performance data (now included in context like other sections)
+        strategy_formatter = self.section_registry.get_formatter('strategy')
+        strategy_section = strategy_formatter.format(strategy_performance)
+        if strategy_formatter.has_data(strategy_performance):
+            logger.info(f"      - Strategy performance data available: {list(strategy_performance.keys())}")
 
         # Log section sizes
         logger.info(f"   📋 Context sections:")
@@ -155,6 +165,10 @@ class ContextBuilder:
         logger.info(f"      - Percentile context: {len(percentile_context)} chars")
         logger.info(f"      - Comparative section: {len(comparative_section)} chars {'(included)' if comparative_section else '(excluded)'}")
         logger.info(f"      - SEC filing section: {len(sec_filing_section)} chars {'(included)' if sec_filing_section else '(excluded)'}")
+        logger.info(f"      - Financial Markets section: {len(financial_markets_section)} chars {'(included)' if financial_markets_section else '(excluded)'}")
+        logger.info(f"      - Portfolio insights section: {len(portfolio_insights_section)} chars {'(included)' if portfolio_insights_section else '(excluded)'}")
+        logger.info(f"      - Alpaca section: {len(alpaca_section)} chars {'(included)' if alpaca_section else '(excluded)'}")
+        logger.info(f"      - Strategy section: {len(strategy_section)} chars {'(included)' if strategy_section else '(excluded)'}")
 
         # Calculate ground truth for placeholder reference
         ground_truth = {
@@ -229,7 +243,8 @@ Comparative Analysis:
 {financial_markets_section if financial_markets_section else ""}
 {portfolio_insights_section if portfolio_insights_section else ""}
 {alpaca_section if alpaca_section else ""}
-{news_section}"""
+{news_section}
+{strategy_section if strategy_section else ""}"""
         
         # Log final context summary
         logger.info(f"   ✅ Final context built:")
@@ -251,6 +266,34 @@ Comparative Analysis:
                 logger.info(f"      {chunk}")
         
         return context
+    
+    def get_section_presence(self, strategy_performance: dict = None, 
+                            comparative_insights: dict = None,
+                            sec_filing_data: dict = None,
+                            financial_markets_data: dict = None,
+                            portfolio_insights: dict = None,
+                            alpaca_data: dict = None) -> Dict[str, bool]:
+        """Get which sections have data (for instruction building)
+        
+        Args:
+            strategy_performance: Strategy performance data
+            comparative_insights: Comparative insights data
+            sec_filing_data: SEC filing data
+            financial_markets_data: Financial Markets MCP data
+            portfolio_insights: Portfolio Manager MCP data
+            alpaca_data: Alpaca MCP data
+            
+        Returns:
+            Dictionary mapping section names to boolean presence indicators
+        """
+        return {
+            'strategy': self.section_registry.get_formatter('strategy').has_data(strategy_performance),
+            'comparative': self.section_registry.get_formatter('comparative').has_data(comparative_insights or {}),
+            'sec_filing': self.section_registry.get_formatter('sec_filing').has_data(sec_filing_data),
+            'financial_markets': self.section_registry.get_formatter('financial_markets').has_data(financial_markets_data),
+            'portfolio_insights': self.section_registry.get_formatter('portfolio_insights').has_data(portfolio_insights),
+            'alpaca': self.section_registry.get_formatter('alpaca').has_data(alpaca_data),
+        }
     
     def _format_sec_filing_section(self, sec_filing_data: dict) -> str:
         """

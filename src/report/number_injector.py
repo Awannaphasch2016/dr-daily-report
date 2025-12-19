@@ -14,7 +14,8 @@ class NumberInjector:
         indicators: Dict,
         percentiles: Dict,
         ticker_data: Dict,
-        comparative_insights: Dict
+        comparative_insights: Dict,
+        strategy_performance: Dict = None
     ) -> str:
         """
         Replace placeholders with exact ground truth values to ensure 100% faithfulness.
@@ -115,6 +116,36 @@ class NumberInjector:
             '{{COMPARATIVE_RETURN}}': f"{comparative_insights.get('comparative_return', 'N/A')}",
             '{{PEER_COUNT}}': f"{comparative_insights.get('peer_count', 'N/A')}",
         }
+        
+        # Add strategy performance replacements if available
+        if strategy_performance:
+            buy_only = strategy_performance.get('buy_only', {})
+            sell_only = strategy_performance.get('sell_only', {})
+            last_buy_signal = strategy_performance.get('last_buy_signal', {})
+            last_sell_signal = strategy_performance.get('last_sell_signal', {})
+            
+            # Buy-only strategy placeholders
+            if buy_only:
+                replacements['{{STRATEGY_BUY_RETURN}}'] = f"{buy_only.get('total_return_pct', 0):.2f}"
+                replacements['{{STRATEGY_BUY_SHARPE}}'] = f"{buy_only.get('sharpe_ratio', 0):.2f}"
+                replacements['{{STRATEGY_BUY_WIN_RATE}}'] = f"{buy_only.get('win_rate', 0):.1f}"
+                replacements['{{STRATEGY_BUY_DRAWDOWN}}'] = f"{abs(buy_only.get('max_drawdown_pct', 0)):.2f}"
+            
+            # Sell-only strategy placeholders
+            if sell_only:
+                replacements['{{STRATEGY_SELL_RETURN}}'] = f"{sell_only.get('total_return_pct', 0):.2f}"
+                replacements['{{STRATEGY_SELL_SHARPE}}'] = f"{sell_only.get('sharpe_ratio', 0):.2f}"
+                replacements['{{STRATEGY_SELL_WIN_RATE}}'] = f"{sell_only.get('win_rate', 0):.1f}"
+                replacements['{{STRATEGY_SELL_DRAWDOWN}}'] = f"{abs(sell_only.get('max_drawdown_pct', 0)):.2f}"
+            
+            # Last signal placeholders
+            if last_buy_signal:
+                buy_price = last_buy_signal.get('price', 0) if isinstance(last_buy_signal, dict) else last_buy_signal
+                replacements['{{STRATEGY_LAST_BUY_PRICE}}'] = f"{buy_price:.2f}"
+            
+            if last_sell_signal:
+                sell_price = last_sell_signal.get('price', 0) if isinstance(last_sell_signal, dict) else last_sell_signal
+                replacements['{{STRATEGY_LAST_SELL_PRICE}}'] = f"{sell_price:.2f}"
 
         # Add percentile replacements (dynamic based on available percentiles)
         for key, value in percentiles.items():

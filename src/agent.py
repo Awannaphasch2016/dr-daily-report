@@ -75,8 +75,8 @@ class TickerAnalysisAgent:
         self.comparative_analyzer = ComparativeAnalyzer()
         self.market_analyzer = MarketAnalyzer()
         self.strategy_analyzer = StrategyAnalyzer(self.strategy_backtester)
-        self.prompt_builder = PromptBuilder()
         self.context_builder = ContextBuilder(self.market_analyzer, self.data_formatter, self.technical_analyzer)
+        self.prompt_builder = PromptBuilder(context_builder=self.context_builder)
         self.number_injector = NumberInjector()
         self.ticker_map = self.data_fetcher.load_tickers()
         

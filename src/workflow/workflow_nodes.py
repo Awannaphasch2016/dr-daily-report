@@ -683,13 +683,15 @@ class WorkflowNodes:
 
         # Step 2: Replace {{PLACEHOLDERS}} with exact values
         percentiles = state.get('percentiles', {})
+        strategy_performance = state.get('strategy_performance', {})
         report = self.number_injector.inject_deterministic_numbers(
             report,
             ground_truth,
             indicators,
             percentiles,
             state.get('ticker_data') or {},
-            state.get('comparative_insights') or {}
+            state.get('comparative_insights') or {},
+            strategy_performance=strategy_performance  # Pass strategy data for placeholder replacement
         )
 
         # Step 3: Add news references
@@ -904,9 +906,15 @@ class WorkflowNodes:
             portfolio_insights=portfolio_insights,
             alpaca_data=alpaca_data
         )
-        uncertainty_score = indicators.get('uncertainty_score', 0)
-
-        prompt = self.prompt_builder.build_prompt(context, uncertainty_score, strategy_performance=None)
+        prompt = self.prompt_builder.build_prompt(
+            context,
+            strategy_performance=None,
+            comparative_insights=comparative_insights,
+            sec_filing_data=sec_filing_data,
+            financial_markets_data=financial_markets_data,
+            portfolio_insights=portfolio_insights,
+            alpaca_data=alpaca_data
+        )
         response = self.llm.invoke([HumanMessage(content=prompt)])
         initial_report = response.content
         llm_calls += 1
@@ -939,7 +947,15 @@ class WorkflowNodes:
                 portfolio_insights=portfolio_insights,
                 alpaca_data=alpaca_data
             )
-            prompt_with_strategy = self.prompt_builder.build_prompt(context_with_strategy, uncertainty_score, strategy_performance=strategy_performance)
+            prompt_with_strategy = self.prompt_builder.build_prompt(
+                context_with_strategy,
+                strategy_performance=strategy_performance,
+                comparative_insights=comparative_insights,
+                sec_filing_data=sec_filing_data,
+                financial_markets_data=financial_markets_data,
+                portfolio_insights=portfolio_insights,
+                alpaca_data=alpaca_data
+            )
             response = self.llm.invoke([HumanMessage(content=prompt_with_strategy)])
             report = response.content
             llm_calls += 1
