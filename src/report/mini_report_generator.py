@@ -65,7 +65,7 @@ class MiniReportGenerator:
         Returns:
             Dictionary mapping template names to their content
         """
-        templates_dir = Path(__file__).parent / "prompt_templates" / "th"
+        templates_dir = Path(__file__).parent / "prompt_templates" / "th" / "multi-stage"
 
         template_files = {
             'technical': 'technical_mini_prompt.txt',

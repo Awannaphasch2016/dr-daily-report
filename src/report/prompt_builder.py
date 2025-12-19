@@ -32,7 +32,7 @@ class PromptBuilder:
         Raises:
             FileNotFoundError: If template file doesn't exist
         """
-        templates_dir = Path(__file__).parent / "prompt_templates" / "th"
+        templates_dir = Path(__file__).parent / "prompt_templates" / "th" / "single-stage"
         filepath = templates_dir / "main_prompt.txt"
 
         if not filepath.exists():
@@ -53,7 +53,7 @@ class PromptBuilder:
         Raises:
             FileNotFoundError: If template file doesn't exist
         """
-        templates_dir = Path(__file__).parent / "prompt_templates" / "th"
+        templates_dir = Path(__file__).parent / "prompt_templates" / "th" / "single-stage"
         filepath = templates_dir / f"{template_name}.txt"
 
         if not filepath.exists():

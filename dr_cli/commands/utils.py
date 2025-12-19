@@ -290,17 +290,30 @@ try:
         print(f"❌ Error fetching data: {{state.get('error')}}", file=sys.stderr)
         sys.exit(1)
 
-    state = agent.workflow_nodes.analyze_technical(state)
+    # Merge partial state (analyze_technical returns only modified fields)
+    partial_state = agent.workflow_nodes.analyze_technical(state)
+    state.update(partial_state)
     if state.get("error"):
         print(f"❌ Error analyzing technical: {{state.get('error')}}", file=sys.stderr)
         sys.exit(1)
 
-    state = agent.workflow_nodes.fetch_news(state)
+    # Merge partial state (fetch_news returns only modified fields)
+    partial_state = agent.workflow_nodes.fetch_news(state)
+    state.update(partial_state)
     if state.get("error"):
         print(f"❌ Error fetching news: {{state.get('error')}}", file=sys.stderr)
         sys.exit(1)
 
-    state = agent.workflow_nodes.analyze_comparative(state)
+    # Fetch comparative data first (required for insights)
+    partial_state = agent.workflow_nodes.fetch_comparative_data(state)
+    state.update(partial_state)
+    if state.get("error"):
+        print(f"❌ Error fetching comparative: {{state.get('error')}}", file=sys.stderr)
+        sys.exit(1)
+
+    # Analyze comparative insights (returns only modified fields)
+    partial_state = agent.workflow_nodes.analyze_comparative_insights(state)
+    state.update(partial_state)
     if state.get("error"):
         print(f"❌ Error analyzing comparative: {{state.get('error')}}", file=sys.stderr)
         sys.exit(1)

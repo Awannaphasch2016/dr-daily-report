@@ -38,7 +38,7 @@ class SynthesisGenerator:
         Returns:
             Synthesis prompt template string
         """
-        templates_dir = Path(__file__).parent / "prompt_templates" / "th"
+        templates_dir = Path(__file__).parent / "prompt_templates" / "th" / "multi-stage"
         filepath = templates_dir / "synthesis_prompt.txt"
 
         if not filepath.exists():
