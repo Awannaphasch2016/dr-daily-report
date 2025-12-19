@@ -1,5 +1,9 @@
-"""Evaluation layer - To be replaced with Langfuse integration"""
+"""Evaluation layer - Langfuse observability integration"""
 
-# LangSmith has been removed. Langfuse integration coming soon.
+from src.integrations.langfuse_client import get_langfuse_client, observe, flush
 
-__all__ = []
+__all__ = [
+    'get_langfuse_client',
+    'observe',
+    'flush',
+]

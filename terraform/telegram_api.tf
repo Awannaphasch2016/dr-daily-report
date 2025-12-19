@@ -174,7 +174,11 @@ resource "aws_lambda_function" "telegram_api" {
       TELEGRAM_APP_HASH   = var.telegram_app_hash
       TELEGRAM_WEBAPP_URL = var.telegram_webapp_url
 
-      # LangSmith Tracing
+      # Langfuse Observability
+      LANGFUSE_PUBLIC_KEY = var.langfuse_public_key
+      LANGFUSE_SECRET_KEY = var.langfuse_secret_key
+      LANGFUSE_HOST       = var.langfuse_host
+
       # Aurora MySQL connection (for cache-first report lookup)
       AURORA_HOST     = aws_rds_cluster.aurora.endpoint
       AURORA_PORT     = "3306"

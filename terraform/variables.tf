@@ -142,8 +142,28 @@ variable "telegram_webapp_urls" {
 }
 
 ###############################################################################
-# LangSmith Tracing Variables
+# Langfuse Observability Variables
 ###############################################################################
+
+variable "langfuse_public_key" {
+  description = "Langfuse public API key for tracing"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "langfuse_secret_key" {
+  description = "Langfuse secret API key for tracing"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "langfuse_host" {
+  description = "Langfuse instance URL (cloud or self-hosted)"
+  type        = string
+  default     = "https://cloud.langfuse.com"
+}
 
 ###############################################################################
 # Lambda Container Image Configuration
