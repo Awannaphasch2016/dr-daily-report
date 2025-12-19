@@ -22,6 +22,7 @@ from src.formatters import DataFormatter
 from src.analysis.technical_analysis import TechnicalAnalyzer
 from src.report.mini_report_generator import MiniReportGenerator
 from src.report.transparency_footer import TransparencyFooter
+from src.evaluation import observe
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +57,7 @@ class SimpleReportGenerator:
         self.mini_report_generator = MiniReportGenerator(self.llm)
         self.transparency_footer = TransparencyFooter()
 
+    @observe(name="generate_report")
     def generate_report(
         self,
         ticker: str,
@@ -159,6 +161,7 @@ class SimpleReportGenerator:
             'strategy': strategy
         }
 
+    @observe(name="generate_multistage")
     def _generate_multistage(self, **kwargs) -> tuple:
         """Generate report using multi-stage approach (6 mini-reports → synthesis)."""
         # Generate 6 mini-reports
@@ -219,6 +222,7 @@ class SimpleReportGenerator:
 
         return report, mini_reports, api_costs
 
+    @observe(name="generate_singlestage")
     def _generate_singlestage(self, **kwargs) -> tuple:
         """Generate report using single-stage approach (one LLM call)."""
         indicators = kwargs['indicators']

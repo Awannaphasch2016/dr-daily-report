@@ -20,6 +20,8 @@ import numpy as np
 import pandas as pd
 from datetime import datetime, date
 
+from src.evaluation import observe
+
 
 class MiniReportGenerator:
     """
@@ -154,6 +156,7 @@ class MiniReportGenerator:
         strategy_performance = self._make_json_serializable(strategy_performance)
         return json.dumps(strategy_performance, indent=2, ensure_ascii=False)
 
+    @observe(name="mini_report_technical")
     def generate_technical_mini_report(
         self,
         indicators: Dict[str, Any],
@@ -196,6 +199,7 @@ class MiniReportGenerator:
         response = self.llm.invoke(prompt)
         return response.content if hasattr(response, 'content') else str(response)
 
+    @observe(name="mini_report_fundamental")
     def generate_fundamental_mini_report(
         self,
         ticker_data: Dict[str, Any],
@@ -224,6 +228,7 @@ class MiniReportGenerator:
         response = self.llm.invoke(prompt)
         return response.content if hasattr(response, 'content') else str(response)
 
+    @observe(name="mini_report_market_conditions")
     def generate_market_conditions_mini_report(
         self,
         indicators: Dict[str, Any],
@@ -253,6 +258,7 @@ class MiniReportGenerator:
         response = self.llm.invoke(prompt)
         return response.content if hasattr(response, 'content') else str(response)
 
+    @observe(name="mini_report_news")
     def generate_news_mini_report(self, news: List[Dict[str, Any]], news_summary: Dict[str, Any]) -> str:
         """
         Generate a focused news & events mini-report.
@@ -270,6 +276,7 @@ class MiniReportGenerator:
         response = self.llm.invoke(prompt)
         return response.content if hasattr(response, 'content') else str(response)
 
+    @observe(name="mini_report_comparative")
     def generate_comparative_mini_report(self, comparative_insights: Dict[str, Any]) -> str:
         """
         Generate a focused comparative analysis mini-report.
@@ -286,6 +293,7 @@ class MiniReportGenerator:
         response = self.llm.invoke(prompt)
         return response.content if hasattr(response, 'content') else str(response)
 
+    @observe(name="mini_report_strategy")
     def generate_strategy_mini_report(
         self,
         strategy_performance: Dict[str, Any],
