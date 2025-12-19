@@ -145,21 +145,21 @@ variable "telegram_webapp_urls" {
 # Langfuse Observability Variables
 ###############################################################################
 
-variable "langfuse_public_key" {
+variable "LANGFUSE_PUBLIC_KEY" {
   description = "Langfuse public API key for tracing"
   type        = string
   sensitive   = true
   default     = ""
 }
 
-variable "langfuse_secret_key" {
+variable "LANGFUSE_SECRET_KEY" {
   description = "Langfuse secret API key for tracing"
   type        = string
   sensitive   = true
   default     = ""
 }
 
-variable "langfuse_host" {
+variable "LANGFUSE_HOST" {
   description = "Langfuse instance URL (cloud or self-hosted)"
   type        = string
   default     = "https://cloud.langfuse.com"
