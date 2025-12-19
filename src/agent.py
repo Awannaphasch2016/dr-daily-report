@@ -3,7 +3,6 @@ from typing import TypedDict, Annotated, Sequence
 from langgraph.graph import StateGraph, END
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, AIMessage
-from langsmith import traceable
 import operator
 from datetime import datetime
 import re
@@ -242,7 +241,6 @@ class TickerAnalysisAgent:
 
         return workflow.compile()
 
-    @traceable(name="analyze_ticker", tags=["agent", "workflow"])
     def analyze_ticker(self, ticker: str, strategy: str = "single-stage") -> AgentState:
         """
         Main entry point to analyze ticker

@@ -100,7 +100,6 @@ def sync_env(ctx, function, dry_run):
     # 2. Build secrets to sync from Doppler env vars
     secrets_to_sync = {
         'OPENAI_API_KEY': os.environ.get('OPENROUTER_API_KEY'),
-        'LANGSMITH_API_KEY': os.environ.get('LANGSMITH_API_KEY'),
     }
     # Filter out None/empty values
     secrets_to_sync = {k: v for k, v in secrets_to_sync.items() if v}

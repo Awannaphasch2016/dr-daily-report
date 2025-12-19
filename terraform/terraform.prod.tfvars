@@ -28,6 +28,3 @@ telegram_app_id     = ""
 telegram_app_hash   = ""
 telegram_webapp_url = ""  # Will be set after CloudFront creation
 
-# LangSmith Tracing
-langsmith_tracing_enabled = false
-langsmith_api_key         = ""

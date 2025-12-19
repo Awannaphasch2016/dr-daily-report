@@ -152,7 +152,6 @@ class TestReportWorkerIntegration:
             # LLM/Agent
             import langchain
             import langgraph
-            import langsmith
 
             # Web framework
             import fastapi

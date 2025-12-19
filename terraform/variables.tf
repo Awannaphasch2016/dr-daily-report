@@ -145,19 +145,6 @@ variable "telegram_webapp_urls" {
 # LangSmith Tracing Variables
 ###############################################################################
 
-variable "langsmith_tracing_enabled" {
-  description = "Enable LangSmith tracing"
-  type        = bool
-  default     = false
-}
-
-variable "langsmith_api_key" {
-  description = "LangSmith API key for tracing"
-  type        = string
-  sensitive   = true
-  default     = ""
-}
-
 ###############################################################################
 # Lambda Container Image Configuration
 ###############################################################################

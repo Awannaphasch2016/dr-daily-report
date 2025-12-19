@@ -175,9 +175,6 @@ resource "aws_lambda_function" "telegram_api" {
       TELEGRAM_WEBAPP_URL = var.telegram_webapp_url
 
       # LangSmith Tracing
-      LANGSMITH_TRACING_V2 = var.langsmith_tracing_enabled ? "true" : "false"
-      LANGSMITH_API_KEY    = var.langsmith_api_key
-
       # Aurora MySQL connection (for cache-first report lookup)
       AURORA_HOST     = aws_rds_cluster.aurora.endpoint
       AURORA_PORT     = "3306"

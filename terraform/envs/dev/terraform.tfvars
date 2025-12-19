@@ -22,8 +22,6 @@ log_retention_days = 7
 # Note: telegram_bot_token, telegram_app_id, telegram_app_hash come from Doppler
 telegram_webapp_url = "https://demjoigiw6myp.cloudfront.net"
 
-# LangSmith Tracing
-langsmith_tracing_enabled = false
 
 # Aurora MySQL Configuration
 aurora_enabled         = true

@@ -34,6 +34,3 @@ telegram_webapp_urls = [
   "https://d3uuexs20crp9s.cloudfront.net"   # staging
 ]
 
-# LangSmith Tracing
-langsmith_tracing_enabled = false
-langsmith_api_key         = ""

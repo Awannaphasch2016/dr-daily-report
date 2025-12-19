@@ -91,7 +91,6 @@ Based on deep investigation of the project scope, infrastructure, and tooling, t
 ### External APIs
 - **OpenRouter** (LLM API)
 - **YFinance** (financial data)
-- **LangSmith** (tracing/evaluation)
 - **Telegram Bot API** (messaging)
 - **LINE Messaging API** (legacy)
 

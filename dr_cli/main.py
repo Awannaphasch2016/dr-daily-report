@@ -33,10 +33,8 @@ def run_command(cmd: list[str], use_doppler: bool = False):
 
 
 @click.group()
-@click.option('--workspace', default=None, help='LangSmith workspace ID (use "none" to disable, overrides LANGSMITH_WORKSPACE_ID env var)')
-@click.option('--trace/--no-trace', default=None, help='Enable/disable LangSmith tracing (overrides LANGSMITH_TRACING_V2 env var)')
 @click.pass_context
-def cli(ctx, workspace, trace):
+def cli(ctx):
     """DR CLI - Daily Report unified command interface
 
     A clean, consistent interface for all repository operations.
@@ -45,12 +43,10 @@ def cli(ctx, workspace, trace):
     Note: Environment variables should be provided via 'doppler run -- dr <command>'
     """
     ctx.ensure_object(dict)
-    ctx.obj['workspace'] = workspace
-    ctx.obj['trace'] = trace
 
 
 # Import command groups
-from dr_cli.commands import dev, test, build, deploy, clean, check, utils, langsmith, eval
+from dr_cli.commands import dev, test, build, deploy, clean, check, utils
 
 cli.add_command(dev.dev)
 cli.add_command(test.test)
@@ -59,8 +55,6 @@ cli.add_command(deploy.deploy)
 cli.add_command(clean.clean)
 cli.add_command(check.check)
 cli.add_command(utils.utils)
-cli.add_command(langsmith.langsmith_group)
-cli.add_command(eval.eval)
 
 
 def main():

@@ -72,7 +72,7 @@ def pytest_configure(config):
     print(f"DOPPLER_ENVIRONMENT: {doppler_env}")
 
     # Other critical vars (mask sensitive keys)
-    for var in ["AWS_REGION", "LANGSMITH_TRACING_V2", "OPENROUTER_API_KEY"]:
+    for var in ["AWS_REGION", "OPENROUTER_API_KEY"]:
         value = os.environ.get(var, "NOT SET")
         if var.endswith("_KEY") and value != "NOT SET":
             value = value[:8] + "..." + value[-4:] if len(value) > 12 else "***"
@@ -454,21 +454,6 @@ def requires_browser():
         from playwright.sync_api import sync_playwright  # noqa: F401
     except ImportError:
         pytest.skip("Requires Playwright: pip install playwright && playwright install")
-
-
-@pytest.fixture
-def requires_langsmith():
-    """Skip if LANGCHAIN_API_KEY not available.
-
-    Use this fixture for tests that interact with LangSmith.
-
-    Example:
-        def test_langsmith_logging(self, requires_langsmith):
-            # This test will skip if no LangSmith API key
-            client = get_langsmith_client()
-    """
-    if not os.environ.get('LANGCHAIN_API_KEY'):
-        pytest.skip("Requires LANGCHAIN_API_KEY for LangSmith")
 
 
 ###############################################################################

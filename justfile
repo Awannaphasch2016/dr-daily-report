@@ -633,33 +633,6 @@ verify-mcp:
     @echo "🔍 Verifying MCP Configuration (Doppler-based)..."
     python scripts/test_mcp_doppler.py
 
-# === LANGSMITH ===
-
-# List recent LangSmith traces
-langsmith-runs:
-    @echo "📊 Fetching recent LangSmith traces..."
-    dr --doppler langsmith list-runs
-
-# Show detailed information for a specific trace
-langsmith-run RUN_ID:
-    @echo "📊 Fetching trace details for {{RUN_ID}}..."
-    dr --doppler langsmith show-run {{RUN_ID}}
-
-# Show feedback for a specific trace
-langsmith-feedback RUN_ID:
-    @echo "📊 Fetching feedback for trace {{RUN_ID}}..."
-    dr --doppler langsmith show-feedback {{RUN_ID}}
-
-# Show LangSmith statistics
-langsmith-stats:
-    @echo "📈 Calculating LangSmith statistics..."
-    dr --doppler langsmith stats
-
-# List available LangSmith projects
-langsmith-projects:
-    @echo "📂 Listing LangSmith projects..."
-    dr --doppler langsmith projects
-
 # === COMMON WORKFLOWS ===
 
 # Daily development routine (pull, setup, test)

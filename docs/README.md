@@ -52,7 +52,6 @@ This project uses a tiered documentation system:
 ### Infrastructure Integration
 - [PDF Generation](features/PDF_GENERATION.md) - PDF report generation and storage
 - [MCP Integration](features/MCP_INTEGRATION.md) - Model Context Protocol server integration
-- [LangSmith Integration](features/LANGSMITH_INTEGRATION.md) - Tracing and observability
 - [News Feature](features/NEWS_FEATURE.md) - News data integration
 
 ---

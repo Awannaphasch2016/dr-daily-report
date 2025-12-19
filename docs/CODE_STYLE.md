@@ -175,7 +175,7 @@ def generate_report(self, state: AgentState) -> AgentState:
 **Why this pattern:**
 - Enables workflow to complete (collect all errors)
 - Supports resumable workflows (can restart from failed node)
-- Better observability (see full error chain in LangSmith traces)
+- Better observability (see full error chain in workflow traces)
 
 ### State Evolution Through Workflow Nodes
 
@@ -221,54 +221,6 @@ Final State:
 - Each node owns specific fields (don't modify others' fields)
 - Nodes are pure functions: `(state) -> state`
 - State is immutable between nodes (create new dict if modifying)
-
-### LangSmith State Filtering
-
-**Problem:** pandas DataFrames with `Timestamp` indices are not JSON-serializable for LangSmith tracing.
-
-**Solution:** Filter non-serializable objects before tracing:
-```python
-# src/workflow/workflow_nodes.py
-def _filter_state_for_langsmith(state: dict) -> dict:
-    """
-    Remove DataFrames with Timestamp indices (not JSON-serializable)
-
-    LangSmith Error:
-      "keys must be str, int, float, bool or None, not Timestamp"
-    """
-    cleaned = state.copy()
-
-    # Remove DataFrame fields
-    if "ticker_data" in cleaned and isinstance(cleaned.get("ticker_data"), dict):
-        ticker_data_clean = {
-            k: v for k, v in cleaned["ticker_data"].items()
-            if k != "history"  # Remove pd.DataFrame
-        }
-        cleaned["ticker_data"] = ticker_data_clean
-
-    # Remove comparative DataFrames
-    if "comparative_data" in cleaned:
-        cleaned["comparative_data"] = "<removed for tracing>"
-
-    return cleaned
-
-# Usage with @traceable decorator
-from langsmith import traceable
-
-@traceable(
-    name="analyze_technical",
-    process_inputs=_filter_state_for_langsmith,
-    process_outputs=_filter_state_for_langsmith
-)
-def analyze_technical(self, state: AgentState) -> AgentState:
-    # Node implementation
-    return state
-```
-
-**Why filtering needed:**
-- pandas DataFrames with `Timestamp` indices fail JSON serialization
-- LangSmith traces require JSON-serializable state
-- Filter only affects tracing, not actual workflow state
 
 ---
 
@@ -396,7 +348,6 @@ json_str = json.dumps(cleaned)  # No serialization error
 **When to use:**
 - Lambda responses (API Gateway requires JSON)
 - API endpoint responses (FastAPI/Flask)
-- LangSmith tracing (requires JSON state)
 - DynamoDB items (boto3 requires native types)
 
 ---

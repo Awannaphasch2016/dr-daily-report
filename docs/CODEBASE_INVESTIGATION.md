@@ -91,10 +91,10 @@ PHASE 2: User Requests (Read Path - READ-ONLY APIs)
 
 **Supporting Infrastructure:**
 ```
-┌──────────────┐  ┌──────────────┐  ┌──────────────┐
-│ DynamoDB     │  │ LangSmith    │  │ S3 (PDFs)     │
-│ (Watchlist)  │  │ (Tracing)    │  │ (Storage)     │
-└──────────────┘  └──────────────┘  └──────────────┘
+┌──────────────┐  ┌──────────────┐
+│ DynamoDB     │  │ S3 (PDFs)     │
+│ (Watchlist)  │  │ (Storage)     │
+└──────────────┘  └──────────────┘
 ```
 
 ### Domain-Driven Structure
@@ -144,7 +144,7 @@ class AgentState(TypedDict):
     strategy: str  # 'single-stage' or 'multi-stage'
 ```
 
-**Why**: Type safety, IDE autocomplete, LangSmith integration, resumable workflows.
+**Why**: Type safety, IDE autocomplete, resumable workflows.
 
 ### 2. Error Propagation Pattern
 
@@ -196,7 +196,7 @@ def analyze_technical(state: AgentState) -> AgentState:
 
 **Problem**: NumPy/Pandas types are not JSON-serializable.
 
-**Solution**: Convert at system boundaries (Lambda responses, API endpoints, LangSmith tracing).
+**Solution**: Convert at system boundaries (Lambda responses, API endpoints).
 
 ```python
 def _make_json_serializable(obj):
@@ -209,7 +209,7 @@ def _make_json_serializable(obj):
     # ... recursive handling for dicts/lists
 ```
 
-**When to use**: Lambda responses, API endpoints, LangSmith tracing, DynamoDB items.
+**When to use**: Lambda responses, API endpoints, DynamoDB items.
 
 ### 5. Service Singleton Pattern
 
@@ -441,7 +441,6 @@ func TestTelegramAPIHealthCheck(t *testing.T) {
 **Key Features**:
 - LangGraph StateGraph with TypedDict state
 - Multi-stage report generation support
-- LangSmith tracing integration
 - Quality scoring integration (6 dimensions)
 
 **Workflow Nodes** (in `src/workflow/workflow_nodes.py`):
@@ -631,7 +630,6 @@ dr build                # Create Lambda package
 
 **Rationale**:
 - ✅ Type safety (IDE autocomplete)
-- ✅ LangSmith integration (automatic tracing)
 - ✅ Error recovery (state["error"] pattern)
 - ✅ Observability (state evolution in traces)
 
@@ -795,7 +793,7 @@ jobs:
 **3. Extending State**:
 - Update AgentState TypedDict in `src/types.py`
 - Add workflow node that populates field
-- Filter from LangSmith if non-serializable
+- Ensure JSON-serializable for Lambda/API responses
 
 **4. Adding API Endpoints**:
 - Create service singleton → define Pydantic models
@@ -813,8 +811,8 @@ This codebase demonstrates **mature software engineering practices**:
 ✅ **Documentation**: Extensive documentation (CLAUDE.md + docs/)  
 ✅ **Type Safety**: TypedDict state management throughout  
 ✅ **Deployment**: Zero-downtime deployment with infrastructure TDD  
-✅ **Quality**: 6-dimensional quality scoring system  
-✅ **Observability**: LangSmith integration for tracing  
+✅ **Quality**: 6-dimensional quality scoring system
+✅ **Observability**: Clear workflow tracing and logging  
 
 **Key Strengths**:
 - Clear principles and patterns (CLAUDE.md)

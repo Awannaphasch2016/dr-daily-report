@@ -9,67 +9,14 @@ from datetime import datetime
 import pandas as pd
 import numpy as np
 from langchain_core.messages import HumanMessage
-from langsmith import traceable
-from langsmith.run_helpers import get_current_run_tree
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from src.types import AgentState
-from src.evaluation.langsmith_integration import async_evaluate_and_log
 import os
 
 # Setup logger
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
-
-
-def _filter_state_for_langsmith(state: dict) -> dict:
-    """
-    Filter AgentState for LangSmith tracing.
-
-    Removes non-serializable objects like pandas DataFrames to avoid serialization
-    errors when LangSmith traces workflow execution. This function is used by
-    @traceable decorators via process_inputs and process_outputs parameters.
-
-    LangSmith's tracer cannot handle pandas DataFrames with Timestamp indices,
-    causing errors: "keys must be str, int, float, bool or None, not Timestamp"
-
-    Args:
-        state: Workflow state dictionary (AgentState)
-
-    Returns:
-        Cleaned state dictionary safe for JSON serialization
-
-    Example:
-        @traceable(
-            name="analyze_technical",
-            process_inputs=_filter_state_for_langsmith,
-            process_outputs=_filter_state_for_langsmith
-        )
-        def analyze_technical(self, state: AgentState) -> AgentState:
-            return state  # Filtering happens automatically
-    """
-    if not isinstance(state, dict):
-        return state
-
-    cleaned = state.copy()
-
-    # Remove DataFrame from ticker_data but keep other fields
-    if "ticker_data" in cleaned and isinstance(cleaned.get("ticker_data"), dict):
-        ticker_data_clean = {
-            k: v for k, v in cleaned["ticker_data"].items()
-            if k != "history"  # Remove DataFrame with Timestamp index
-        }
-        cleaned["ticker_data"] = ticker_data_clean
-
-    # Remove comparative_data DataFrames
-    # Keep the keys but replace DataFrame values with placeholders
-    if "comparative_data" in cleaned and isinstance(cleaned.get("comparative_data"), dict):
-        cleaned["comparative_data"] = {
-            k: f"<DataFrame with {len(v)} rows>" if isinstance(v, pd.DataFrame) else v
-            for k, v in cleaned.get("comparative_data", {}).items()
-        }
-
-    return cleaned
 
 
 class WorkflowNodes:
@@ -196,22 +143,6 @@ class WorkflowNodes:
         for field in required_fields:
             results[field] = self._validate_state_field(state, field, node_name)
         return results
-
-    def _prepare_state_for_tracing(self, state: AgentState) -> AgentState:
-        """
-        DEPRECATED: Use module-level _filter_state_for_langsmith() instead.
-
-        This method is kept for backward compatibility but delegates to the
-        module-level function. The @traceable decorator now handles filtering
-        automatically via process_inputs and process_outputs parameters.
-
-        Args:
-            state: Original workflow state
-
-        Returns:
-            Cleaned state copy safe for JSON serialization
-        """
-        return _filter_state_for_langsmith(state)
 
     def get_workflow_summary(self) -> dict:
         """Get summary of workflow node execution"""
@@ -380,12 +311,6 @@ class WorkflowNodes:
             "news_summary": news_summary
         }
 
-    @traceable(
-        name="analyze_technical",
-        tags=["workflow", "analysis"],
-        process_inputs=_filter_state_for_langsmith,
-        process_outputs=_filter_state_for_langsmith
-    )
     def analyze_technical(self, state: AgentState) -> dict:
         """
         Analyze technical indicators with percentile analysis.
@@ -467,12 +392,6 @@ class WorkflowNodes:
             "strategy_performance": strategy_performance
         }
 
-    @traceable(
-        name="fetch_sec_filing",
-        tags=["workflow", "mcp", "fundamental"],
-        process_inputs=_filter_state_for_langsmith,
-        process_outputs=_filter_state_for_langsmith
-    )
     def fetch_sec_filing(self, state: AgentState) -> dict:
         """
         Fetch SEC filing - DISABLED for Thai market focus.
@@ -489,12 +408,6 @@ class WorkflowNodes:
         # Return only modified fields (partial state)
         return {"sec_filing_data": {}}
 
-    @traceable(
-        name="score_user_facing",
-        tags=["workflow", "scoring"],
-        process_inputs=_filter_state_for_langsmith,
-        process_outputs=_filter_state_for_langsmith
-    )
     def score_user_facing(self, state: AgentState) -> dict:
         """
         Calculate user-facing investment scores (0-10 scale).
@@ -542,12 +455,6 @@ class WorkflowNodes:
         # Return only modified fields (partial state)
         return {"user_facing_scores": scores}
 
-    @traceable(
-        name="generate_chart",
-        tags=["workflow", "visualization"],
-        process_inputs=_filter_state_for_langsmith,
-        process_outputs=_filter_state_for_langsmith
-    )
     def generate_chart(self, state: AgentState) -> dict:
         """
         Generate technical analysis chart.
@@ -604,12 +511,6 @@ class WorkflowNodes:
         # Return only modified fields (partial state)
         return {"chart_base64": chart_base64}
 
-    @traceable(
-        name="generate_report",
-        tags=["workflow", "llm", "report"],
-        process_inputs=_filter_state_for_langsmith,
-        process_outputs=_filter_state_for_langsmith
-    )
     def generate_report(self, state: AgentState) -> AgentState:
         """Generate Thai language report using LLM (supports both single-stage and multi-stage strategies)"""
         self._log_node_start("generate_report", state)
@@ -1037,52 +938,16 @@ class WorkflowNodes:
         state["report"] = report
 
         # ============================================
-        # ASYNC BACKGROUND EVALUATION
+        # TIMING METRICS
         # ============================================
-        # Report is complete - now score asynchronously to avoid blocking LINE bot response
-        # Scoring happens in background thread and logs to both SQLite DB and LangSmith
-
-        # Calculate total latency up to this point (before scoring)
+        # Calculate total latency up to this point
         total_latency = sum(timing_metrics.values())
         timing_metrics["total"] = total_latency
         state["timing_metrics"] = timing_metrics
 
-        # Check if LangSmith tracing is enabled and capture run ID
-        langsmith_enabled = os.environ.get('LANGSMITH_TRACING_V2', 'false').lower() == 'true'
-        langsmith_run_id = None
-
-        if langsmith_enabled:
-            try:
-                # Get the current LangSmith run tree to extract ROOT trace ID
-                run_tree = get_current_run_tree()
-                if run_tree and hasattr(run_tree, 'trace_id'):
-                    # Use trace_id to get the ROOT trace, not the current node's ID
-                    langsmith_run_id = str(run_tree.trace_id)
-                    logger.info(f"Captured LangSmith ROOT trace ID: {langsmith_run_id}")
-                else:
-                    logger.warning("LangSmith tracing enabled but no run tree available")
-            except Exception as e:
-                logger.warning(f"Failed to capture LangSmith run ID: {e}")
-
-        # Spawn background thread for evaluation (does not block return)
+        # TODO: Async evaluation will be re-added with Langfuse integration
         if yahoo_ticker:
-            logger.info(f"Starting async background evaluation for {yahoo_ticker}")
-
-            executor = ThreadPoolExecutor(max_workers=1)
-            executor.submit(
-                async_evaluate_and_log,
-                # Pass all dependencies needed for scoring
-                self.scoring_service,
-                self.qos_scorer,
-                self.cost_scorer,
-                # Pass data for scoring
-                report,
-                scoring_context,
-                yahoo_ticker,
-                ticker_data['date'],
-                timing_metrics.copy(),  # Copy to avoid mutation
-                langsmith_run_id if langsmith_enabled else None
-            )
+            logger.info(f"Evaluation disabled - will be re-enabled with Langfuse")
 
             logger.info(f"Background evaluation thread spawned for {yahoo_ticker}, returning immediately")
         else:
@@ -1163,12 +1028,6 @@ class WorkflowNodes:
         # Return only modified fields (partial state)
         return {"comparative_data": comparative_data}
 
-    @traceable(
-        name="merge_fundamental_data",
-        tags=["workflow", "sink", "validation"],
-        process_inputs=_filter_state_for_langsmith,
-        process_outputs=_filter_state_for_langsmith
-    )
     def merge_fundamental_data(self, state: AgentState) -> dict:
         """
         SINK 1: Aggregate 6 fundamental parallel fetch results.
@@ -1206,12 +1065,6 @@ class WorkflowNodes:
         # Return empty dict (sink doesn't modify state)
         return {}
 
-    @traceable(
-        name="merge_fund_tech_data",
-        tags=["workflow", "sink", "validation"],
-        process_inputs=_filter_state_for_langsmith,
-        process_outputs=_filter_state_for_langsmith
-    )
     def merge_fund_tech_data(self, state: AgentState) -> dict:
         """
         SINK 2: Merge fundamental + technical pipelines.
@@ -1250,12 +1103,6 @@ class WorkflowNodes:
         # Return empty dict (sink doesn't modify state)
         return {}
 
-    @traceable(
-        name="merge_all_pipelines",
-        tags=["workflow", "sink", "validation"],
-        process_inputs=_filter_state_for_langsmith,
-        process_outputs=_filter_state_for_langsmith
-    )
     def merge_all_pipelines(self, state: AgentState) -> dict:
         """
         SINK 3: Merge all pipelines before final report.
@@ -1288,12 +1135,6 @@ class WorkflowNodes:
         # Return empty dict (sink doesn't modify state)
         return {}
 
-    @traceable(
-        name="analyze_comparative_insights",
-        tags=["workflow", "analysis", "comparative"],
-        process_inputs=_filter_state_for_langsmith,
-        process_outputs=_filter_state_for_langsmith
-    )
     def analyze_comparative_insights(self, state: AgentState) -> dict:
         """
         Perform comparative analysis and extract narrative-ready insights.
@@ -1427,12 +1268,6 @@ class WorkflowNodes:
 
         return insights
 
-    @traceable(
-        name="fetch_all_data_parallel",
-        tags=["workflow", "data", "parallel"],
-        process_inputs=_filter_state_for_langsmith,
-        process_outputs=_filter_state_for_langsmith
-    )
     def fetch_all_data_parallel(self, state: AgentState) -> AgentState:
         """
         Fetch all data in parallel (data, news, comparative).
@@ -1567,12 +1402,6 @@ class WorkflowNodes:
 
         return state
 
-    @traceable(
-        name="fetch_financial_markets_data",
-        tags=["workflow", "mcp", "technical"],
-        process_inputs=_filter_state_for_langsmith,
-        process_outputs=_filter_state_for_langsmith
-    )
     def fetch_financial_markets_data(self, state: AgentState) -> dict:
         """
         Fetch advanced technical data from Financial Markets MCP.
@@ -1679,12 +1508,6 @@ class WorkflowNodes:
         # Return only modified fields (partial state)
         return {"financial_markets_data": financial_markets_data}
 
-    @traceable(
-        name="fetch_portfolio_insights",
-        tags=["workflow", "mcp", "portfolio"],
-        process_inputs=_filter_state_for_langsmith,
-        process_outputs=_filter_state_for_langsmith
-    )
     def fetch_portfolio_insights(self, state: AgentState) -> dict:
         """
         Fetch portfolio-level insights from Portfolio Manager MCP (optional).
@@ -1721,12 +1544,6 @@ class WorkflowNodes:
         # Return only modified fields (partial state)
         return {"portfolio_insights": {}}
 
-    @traceable(
-        name="fetch_alpaca_data",
-        tags=["workflow", "mcp", "realtime"],
-        process_inputs=_filter_state_for_langsmith,
-        process_outputs=_filter_state_for_langsmith
-    )
     def fetch_alpaca_data(self, state: AgentState) -> dict:
         """
         Fetch real-time market data and options from Alpaca MCP.

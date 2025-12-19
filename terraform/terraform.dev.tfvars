@@ -39,9 +39,6 @@ telegram_webapp_urls = [
   "https://d3uuexs20crp9s.cloudfront.net"   # staging
 ]
 
-# LangSmith Tracing
-langsmith_tracing_enabled = false
-langsmith_api_key         = ""
 
 # Aurora MySQL Configuration (always deployed, no flag)
 aurora_min_acu = 0.5  # ~$43/month

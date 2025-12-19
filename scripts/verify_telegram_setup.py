@@ -200,10 +200,6 @@ def check_environment_vars():
         else:
             print_warning("OPENROUTER_API_KEY not found")
 
-        if os.getenv('LANGSMITH_API_KEY'):
-            print_success("LANGSMITH_API_KEY is set")
-        else:
-            print_info("LANGSMITH_API_KEY not set (optional)")
 
     return True
 

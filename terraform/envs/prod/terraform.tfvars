@@ -23,5 +23,3 @@ log_retention_days = 30  # Longest retention for production
 # telegram_webapp_url will be set after CloudFront creation for production
 telegram_webapp_url = ""
 
-# LangSmith Tracing
-langsmith_tracing_enabled = true  # Enable tracing in production

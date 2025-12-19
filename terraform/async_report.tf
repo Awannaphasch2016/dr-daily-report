@@ -197,9 +197,6 @@ resource "aws_lambda_function" "report_worker" {
       JOBS_TABLE_NAME          = aws_dynamodb_table.report_jobs.name
       PDF_STORAGE_BUCKET       = aws_s3_bucket.pdf_reports.id
       PDF_BUCKET_NAME          = aws_s3_bucket.pdf_reports.id
-      LANGSMITH_TRACING_V2     = var.langsmith_tracing_enabled ? "true" : "false"
-      LANGSMITH_API_KEY        = var.langsmith_api_key
-
       # Aurora MySQL connection (for caching reports)
       AURORA_HOST     = aws_rds_cluster.aurora.endpoint
       AURORA_PORT     = "3306"

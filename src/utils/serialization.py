@@ -1,4 +1,4 @@
-"""JSON serialization utilities for LangSmith tracing and API responses.
+"""JSON serialization utilities for API responses and Lambda functions.
 
 Handles conversion of non-JSON-serializable types (numpy, pandas) to JSON-compatible types.
 Extracted from workflow_nodes.py to eliminate code duplication.

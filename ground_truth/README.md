@@ -1,6 +1,8 @@
 # Ground Truth Dataset Directory
 
-This directory stores ground truth examples for LangSmith offline evaluation.
+> **Note**: LangSmith has been deprecated. This directory structure is preserved for future evaluation frameworks (Langfuse planned).
+
+This directory stores ground truth examples for offline evaluation.
 
 ## Structure
 

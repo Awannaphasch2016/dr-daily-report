@@ -119,13 +119,6 @@ def report(ctx, ticker, strategy):
 
     env = {**os.environ, "PYTHONPATH": str(PROJECT_ROOT)}
 
-    # Control LangSmith tracing via CLI flag (overrides environment variable)
-    if trace is True:
-        env['LANGSMITH_TRACING_V2'] = 'true'
-    elif trace is False:
-        env['LANGSMITH_TRACING_V2'] = 'false'
-    # If trace is None, use existing environment variable value
-
     result = subprocess.run(cmd, cwd=PROJECT_ROOT, env=env)
     sys.exit(result.returncode)
 
@@ -425,13 +418,7 @@ except Exception as e:
 '''
     
     env = {**os.environ, "PYTHONPATH": str(PROJECT_ROOT)}
-    
-    # Control LangSmith tracing
-    if trace is True:
-        env['LANGSMITH_TRACING_V2'] = 'true'
-    elif trace is False:
-        env['LANGSMITH_TRACING_V2'] = 'false'
-    
+
     # Run command and capture output
     result = subprocess.run(
         [sys.executable, "-c", script_content],

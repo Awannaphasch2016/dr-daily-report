@@ -868,7 +868,7 @@ The project uses a two-layer CLI design: **Justfile** (intent-based recipes desc
 
 **Workflow Validation Gates:** Before executing a workflow node, validate that all prerequisite data exists and is non-empty. Don't assume upstream nodes succeeded—check explicitly. Example: Before analyzing technical indicators, verify `ticker_data` is populated and non-empty.
 
-**JSON Serialization Requirement:** NumPy/Pandas types must be converted before JSON encoding (`np.int64` → `int`, `pd.Timestamp` → ISO string). Lambda responses, API endpoints, and LangSmith tracing all require JSON-serializable state. See [JSON Serialization](docs/CODE_STYLE.md#json-serialization).
+**JSON Serialization Requirement:** NumPy/Pandas types must be converted before JSON encoding (`np.int64` → `int`, `pd.Timestamp` → ISO string). Lambda responses and API endpoints require JSON-serializable state. See [JSON Serialization](docs/CODE_STYLE.md#json-serialization).
 
 **Naming Conventions:** Files `snake_case.py`, classes `PascalCase`, functions `snake_case()`, constants `UPPER_SNAKE_CASE`, private methods `_snake_case()`. See [Naming Guide](docs/CODE_STYLE.md#naming-conventions).
 
@@ -1038,10 +1038,9 @@ just report DBS19       # Generate ticker report
 1. **Two-layer CLI**: Justfile for intent, dr CLI for implementation
 2. **State management**: TypedDict (AgentState) for type safety
 3. **Error propagation**: state["error"] pattern in workflows
-4. **Tracing control**: `--trace/--no-trace` for LangSmith
-5. **Secrets management**: Always use Doppler, never hardcode
-6. **Type hints**: Use throughout for better IDE support
-7. **Docstrings**: Google format with Args/Returns/Example
+4. **Secrets management**: Always use Doppler, never hardcode
+5. **Type hints**: Use throughout for better IDE support
+6. **Docstrings**: Google format with Args/Returns/Example
 8. **Testing**: Class-based pytest with descriptive test names
 
 ### When Adding New Features
@@ -1195,9 +1194,8 @@ class AgentState(TypedDict):
 
 **Rationale:**
 - ✅ **Type Safety**: IDE autocomplete, type checking for state fields
-- ✅ **LangSmith Integration**: Automatic tracing of workflow execution
 - ✅ **Error Recovery**: state["error"] pattern enables resumable workflows
-- ✅ **Observability**: See state evolution through each node in traces
+- ✅ **Observability**: Clear state evolution through workflow nodes
 - ✅ **LangChain Ecosystem**: Integrates with LangChain tools, agents, memory
 
 **Trade-offs:**
@@ -1540,6 +1538,6 @@ the same problem for backend deployments.
 
 2. **Adding CLI Commands:** Use Click decorators in dr_cli/commands/ → add Justfile recipe for intent layer → test with `--help` flag. Follow two-layer design: Justfile for WHEN/WHY, dr CLI for HOW. See [CLI Architecture](#cli-usage).
 
-3. **Extending State:** Update AgentState TypedDict in src/types.py → add workflow node that populates field → filter from LangSmith if non-serializable. All state fields must be JSON-serializable or filtered before tracing.
+3. **Extending State:** Update AgentState TypedDict in src/types.py → add workflow node that populates field. All state fields must be JSON-serializable for Lambda responses and API endpoints.
 
 4. **Adding API Endpoints:** Create service singleton → define Pydantic models → add FastAPI route → write integration tests. Follow async/sync dual method pattern for LangGraph compatibility.

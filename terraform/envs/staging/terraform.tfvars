@@ -23,5 +23,3 @@ log_retention_days = 14  # Longer retention for staging
 # telegram_webapp_url will be set after CloudFront creation for staging
 telegram_webapp_url = ""
 
-# LangSmith Tracing
-langsmith_tracing_enabled = false
