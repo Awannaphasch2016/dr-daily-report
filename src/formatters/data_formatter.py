@@ -198,91 +198,16 @@ Bollinger: {technical_analyzer.analyze_bollinger(indicators)}"""
 
         return news_text
 
-    def format_percentile_context_th(self, percentiles: dict) -> str:
-        """Thai prompt context - no percentile section
-
-        Following CLAUDE.md principle: complete separation instead of scattered conditionals.
+    def format_percentile_context(self, percentiles: dict) -> str:
+        """Format percentile context for prompt (Thai reports don't use percentiles)
 
         Args:
-            percentiles: Dictionary with percentile data (unused)
+            percentiles: Dictionary with percentile data (unused for Thai)
 
         Returns:
-            Empty string (no percentile context for Thai prompts)
+            Empty string (Thai reports don't use percentile context)
         """
         return ""
-
-    def format_percentile_context_en(self, percentiles: dict) -> str:
-        """English prompt context - include percentiles
-
-        Args:
-            percentiles: Dictionary with percentile data for various metrics
-
-        Returns:
-            Formatted percentile analysis string (English)
-        """
-        if not percentiles:
-            return ""
-
-        context = "\n\nPercentile Analysis (Historical Comparison):\n"
-
-        if 'rsi' in percentiles:
-            rsi_stats = percentiles['rsi']
-            context += f"- RSI: {rsi_stats['current_value']:.2f} (เปอร์เซ็นไทล์: {rsi_stats['percentile']:.1f}%"
-            if 'mean' in rsi_stats:
-                context += f" - สูงกว่าค่าเฉลี่ย {rsi_stats['mean']:.2f}"
-            context += ")\n"
-            if 'frequency_above_70' in rsi_stats and 'frequency_below_30' in rsi_stats:
-                context += f"  ความถี่ที่ RSI > 70: {rsi_stats['frequency_above_70']:.1f}% | ความถี่ที่ RSI < 30: {rsi_stats['frequency_below_30']:.1f}%\n"
-
-        if 'macd' in percentiles:
-            macd_stats = percentiles['macd']
-            context += f"- MACD: {macd_stats['current_value']:.4f} (เปอร์เซ็นไทล์: {macd_stats['percentile']:.1f}%)\n"
-            if 'frequency_positive' in macd_stats:
-                context += f"  ความถี่ที่ MACD > 0: {macd_stats['frequency_positive']:.1f}%\n"
-
-        if 'uncertainty_score' in percentiles:
-            unc_stats = percentiles['uncertainty_score']
-            context += f"- Uncertainty Score: {unc_stats['current_value']:.2f}/100 (เปอร์เซ็นไทล์: {unc_stats['percentile']:.1f}%)\n"
-            context += f"  ความถี่ที่ต่ำ (<25): {unc_stats['frequency_low']:.1f}% | ความถี่ที่สูง (>75): {unc_stats['frequency_high']:.1f}%\n"
-
-        if 'atr_percent' in percentiles:
-            atr_stats = percentiles['atr_percent']
-            context += f"- ATR %: {atr_stats['current_value']:.2f}% (เปอร์เซ็นไทล์: {atr_stats['percentile']:.1f}%)\n"
-            if 'frequency_low_volatility' in atr_stats and 'frequency_high_volatility' in atr_stats:
-                context += f"  ความถี่ที่ความผันผวนต่ำ (<1%): {atr_stats['frequency_low_volatility']:.1f}% | ความถี่ที่ความผันผวนสูง (>4%): {atr_stats['frequency_high_volatility']:.1f}%\n"
-
-        if 'price_vwap_percent' in percentiles:
-            vwap_stats = percentiles['price_vwap_percent']
-            context += f"- Price vs VWAP %: {vwap_stats['current_value']:.2f}% (เปอร์เซ็นไทล์: {vwap_stats['percentile']:.1f}%)\n"
-            if 'frequency_above_3pct' in vwap_stats and 'frequency_below_neg3pct' in vwap_stats:
-                context += f"  ความถี่ที่ราคาเหนือ VWAP >3%: {vwap_stats['frequency_above_3pct']:.1f}% | ความถี่ที่ราคาต่ำกว่า VWAP <-3%: {vwap_stats['frequency_below_neg3pct']:.1f}%\n"
-
-        if 'volume_ratio' in percentiles:
-            vol_stats = percentiles['volume_ratio']
-            context += f"- Volume Ratio: {vol_stats['current_value']:.2f}x (เปอร์เซ็นไทล์: {vol_stats['percentile']:.1f}%)\n"
-            if 'frequency_high_volume' in vol_stats and 'frequency_low_volume' in vol_stats:
-                context += f"  ความถี่ที่ปริมาณสูง (>2x): {vol_stats['frequency_high_volume']:.1f}% | ความถี่ที่ปริมาณต่ำ (<0.7x): {vol_stats['frequency_low_volume']:.1f}%\n"
-
-        context += "\n**IMPORTANT**: Use these percentile values naturally in your narrative to add historical context. Don't just list them - weave them into the story!"
-        return context
-
-    def format_percentile_context(self, percentiles: dict, language: str = 'en') -> str:
-        """Format percentile context for prompt (language-aware)
-
-        Router method that delegates to language-specific implementations.
-        Following CLAUDE.md principle: language decision in ONE place.
-
-        Args:
-            percentiles: Dictionary with percentile data for various metrics
-            language: 'th' for Thai (no context), 'en' for English (full context)
-
-        Returns:
-            Formatted string (empty for Thai, full context for English)
-        """
-        if language == 'th':
-            return self.format_percentile_context_th(percentiles)
-        else:
-            return self.format_percentile_context_en(percentiles)
 
     def format_comparative_insights(self, ticker: str, insights: dict) -> str:
         """

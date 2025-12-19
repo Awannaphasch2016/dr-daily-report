@@ -60,8 +60,7 @@ class SimpleReportGenerator:
         self,
         ticker: str,
         raw_data: Dict[str, Any],
-        strategy: str = 'single-stage',
-        language: str = 'th'
+        strategy: str = 'single-stage'
     ) -> Dict[str, Any]:
         """
         Generate report from raw data (no API calls, no sink nodes).
@@ -84,7 +83,6 @@ class SimpleReportGenerator:
                 - portfolio_insights: Portfolio context (optional)
                 - alpaca_data: Real-time quotes (optional)
             strategy: 'single-stage' or 'multi-stage'
-            language: 'th' or 'en'
 
         Returns:
             Dictionary with:
@@ -130,8 +128,7 @@ class SimpleReportGenerator:
                 sec_filing_data=sec_filing_data,
                 financial_markets_data=financial_markets_data,
                 portfolio_insights=portfolio_insights,
-                alpaca_data=alpaca_data,
-                language=language
+                alpaca_data=alpaca_data
             )
         else:  # single-stage
             report, api_costs = self._generate_singlestage(
@@ -148,8 +145,7 @@ class SimpleReportGenerator:
                 sec_filing_data=sec_filing_data,
                 financial_markets_data=financial_markets_data,
                 portfolio_insights=portfolio_insights,
-                alpaca_data=alpaca_data,
-                language=language
+                alpaca_data=alpaca_data
             )
             mini_reports = {}
 
@@ -165,8 +161,6 @@ class SimpleReportGenerator:
 
     def _generate_multistage(self, **kwargs) -> tuple:
         """Generate report using multi-stage approach (6 mini-reports → synthesis)."""
-        language = kwargs.get('language', 'th')
-
         # Generate 6 mini-reports
         mini_reports = {
             'technical': self.mini_report_generator.generate_technical_mini_report(
@@ -199,7 +193,7 @@ class SimpleReportGenerator:
         }
 
         # Synthesis LLM call
-        synthesis_prompt = self._build_synthesis_prompt(mini_reports, kwargs['ticker'], language)
+        synthesis_prompt = self._build_synthesis_prompt(mini_reports, kwargs['ticker'])
         response = self.llm.invoke(synthesis_prompt)
         report = response.content if hasattr(response, 'content') else str(response)
 
@@ -210,7 +204,6 @@ class SimpleReportGenerator:
             indicators=kwargs['indicators'],
             percentiles=kwargs['percentiles'],
             news=kwargs['news'],
-            language=language,
             strategy='multi-stage',
             ticker_data=kwargs['ticker_data'],
             comparative_insights=kwargs.get('comparative_insights', {}),
@@ -228,7 +221,6 @@ class SimpleReportGenerator:
 
     def _generate_singlestage(self, **kwargs) -> tuple:
         """Generate report using single-stage approach (one LLM call)."""
-        language = kwargs.get('language', 'th')
         indicators = kwargs['indicators']
         strategy_performance = kwargs.get('strategy_performance', {})
 
@@ -248,8 +240,8 @@ class SimpleReportGenerator:
             alpaca_data=kwargs.get('alpaca_data', {})
         )
 
-        # Build prompt with correct language
-        prompt_builder = PromptBuilder(language=language, context_builder=self.context_builder)
+        # Build prompt
+        prompt_builder = PromptBuilder(context_builder=self.context_builder)
         prompt = prompt_builder.build_prompt(
             context,
             strategy_performance=strategy_performance,
@@ -270,7 +262,6 @@ class SimpleReportGenerator:
             indicators=indicators,
             percentiles=kwargs['percentiles'],
             news=kwargs['news'],
-            language=language,
             strategy='single-stage',
             ticker_data=kwargs['ticker_data'],
             comparative_insights=kwargs.get('comparative_insights', {}),
@@ -292,7 +283,6 @@ class SimpleReportGenerator:
         indicators: dict,
         percentiles: dict,
         news: list,
-        language: str,
         strategy: str = 'single-stage',
         ticker_data: dict = None,
         comparative_insights: dict = None,
@@ -306,7 +296,6 @@ class SimpleReportGenerator:
             indicators: Technical indicators dict
             percentiles: Statistical percentiles dict
             news: News articles list
-            language: Report language ('th' or 'en')
             strategy: Generation strategy ('single-stage' or 'multi-stage')
             ticker_data: Price history and fundamentals (for transparency footer)
             comparative_insights: Peer comparison insights (for transparency footer)
@@ -360,7 +349,7 @@ class SimpleReportGenerator:
 
         return report
 
-    def _build_synthesis_prompt(self, mini_reports: Dict[str, str], ticker: str, language: str) -> str:
+    def _build_synthesis_prompt(self, mini_reports: Dict[str, str], ticker: str) -> str:
         """Build synthesis prompt from mini-reports."""
         # Format mini-reports
         formatted = "\n\n".join([

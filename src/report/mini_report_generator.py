@@ -29,17 +29,15 @@ class MiniReportGenerator:
     narrative in Thai based on prompt templates.
     """
 
-    def __init__(self, llm, language: str = 'th'):
+    def __init__(self, llm):
         """
         Initialize the MiniReportGenerator.
 
         Args:
             llm: Language model instance for generating narratives
-            language: Report language ('en' or 'th'), defaults to 'th'
         """
         self.llm = llm
-        self.language = language
-        self.prompts = self._load_prompt_templates(language)
+        self.prompts = self._load_prompt_templates()
 
     def _make_json_serializable(self, obj):
         """Convert numpy/pandas/datetime objects to JSON-serializable types"""
@@ -60,17 +58,14 @@ class MiniReportGenerator:
             return [self._make_json_serializable(item) for item in obj]
         return obj
 
-    def _load_prompt_templates(self, language: str = 'th') -> Dict[str, str]:
+    def _load_prompt_templates(self) -> Dict[str, str]:
         """
         Load all prompt templates from the prompt_templates directory.
-
-        Args:
-            language: Report language ('en' or 'th'), defaults to 'th'
 
         Returns:
             Dictionary mapping template names to their content
         """
-        templates_dir = Path(__file__).parent / "prompt_templates" / language
+        templates_dir = Path(__file__).parent / "prompt_templates" / "th"
 
         template_files = {
             'technical': 'technical_mini_prompt.txt',

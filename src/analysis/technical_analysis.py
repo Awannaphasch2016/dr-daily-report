@@ -596,7 +596,7 @@ class TechnicalAnalyzer:
 
         return result
 
-    def format_percentile_analysis(self, percentiles=None, language='th'):
+    def format_percentile_analysis(self, percentiles=None):
         """Thai reports don't show percentile section.
 
         Percentile data is still calculated in the workflow, just not displayed.
@@ -604,7 +604,6 @@ class TechnicalAnalyzer:
 
         Args:
             percentiles: Dict with percentile information (unused, kept for compatibility)
-            language: Language code (unused, kept for compatibility)
 
         Returns:
             Empty string (Thai reports don't show percentile analysis)

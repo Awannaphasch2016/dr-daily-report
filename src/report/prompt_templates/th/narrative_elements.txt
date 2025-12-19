@@ -1,0 +1,54 @@
+1. **Price Uncertainty** (use {{{{UNCERTAINTY}}}}/100 placeholder): Sets the overall market mood
+   - Low (0-25): "ตลาดเสถียรมาก" - Stable, good for positioning
+   - Moderate (25-50): "ตลาดค่อนข้างเสถียร" - Normal movement
+   - High (50-75): "ตลาดผันผวนสูง" - High risk, be cautious
+   - Extreme (75-100): "ตลาดผันผวนรุนแรง" - Extreme risk, warn strongly
+   - Percentile information is optionally available if you find it relevant (e.g., "Uncertainty {{{{UNCERTAINTY}}}}/100 ซึ่งอยู่ในเปอร์เซ็นไทล์ {{{{UNCERTAINTY_SCORE_PERCENTILE}}}}%")
+
+2. **Volatility (ATR %)**: The speed of price movement
+   - Include the ATR% number and explain what it means
+   - Example: "ATR 1.2% แสดงราคาเคลื่อนไหวช้ามั่นคง นักลงทุนเห็นตรงกัน"
+   - Example: "ATR 3.8% แสดงตลาดลังเล ราคากระโดดขึ้นลง 3-5% ได้ง่าย"
+   - Percentile context available if needed (e.g., "ATR 1.99% อยู่ในเปอร์เซ็นไทล์ 61%")
+
+3. **Buy/Sell Pressure (Price vs VWAP %)**: Who's winning - buyers or sellers?
+   - Include the % above/below VWAP and explain the implication
+   - Example: "ราคา 22.4% เหนือ VWAP แสดงแรงซื้อแรงมาก คนซื้อวันนี้ยอมจ่ายแพงกว่าเฉลี่ย"
+   - Example: "ราคา -2.8% ต่ำกว่า VWAP แสดงแรงขายหนัก คนขายรีบขายถูกกว่าเฉลี่ย"
+   - Percentile available to show rarity if relevant (e.g., "ราคา 5% เหนือ VWAP ซึ่งอยู่ในเปอร์เซ็นไทล์ 90%")
+
+4. **Volume (Volume Ratio)**: Is smart money interested?
+   - Include the volume ratio (e.g., 0.8x, 1.5x, 2.0x) and explain what it means
+   - Example: "ปริมาณซื้อขาย 1.8x ของเฉลี่ย แสดงนักลงทุนใหญ่กำลังเคลื่อนไหว"
+   - Example: "ปริมาณซื้อขาย 0.7x ของเฉลี่ย แสดงนักลงทุนเฉยๆ รอดูก่อน"
+   - Percentile frequency available (e.g., "ปริมาณ 1.03x อยู่ในเปอร์เซ็นไทล์ 71%")
+
+5. **Statistical Context (Percentiles)**: Optional historical perspective on current values
+   - Percentile information is available in the data if you want to add historical context
+   - Use percentiles ONLY if they meaningfully enhance your narrative
+   - This can tell the reader: "Is this value unusual compared to history?"
+   - Examples (optional):
+     * "RSI {{{{RSI}}}} ซึ่งอยู่ในเปอร์เซ็นไทล์ {{{{RSI_PERCENTILE}}}}%"
+     * "MACD {{{{MACD}}}} อยู่ในเปอร์เซ็นไทล์ {{{{MACD_PERCENTILE}}}}%"
+     * "Uncertainty {{{{UNCERTAINTY}}}}/100 อยู่ในเปอร์เซ็นไทล์ {{{{UNCERTAINTY_SCORE_PERCENTILE}}}}%"
+
+6. **Fundamental Analysis (P/E, EPS, Market Cap, Growth)**: CRITICAL - You MUST incorporate fundamental metrics into your narrative
+   - P/E Ratio: Compare to industry average (e.g., "P/E 44.58 สูงกว่าค่าเฉลี่ยของกลุ่มเทคโนโลยี - แสดงว่านักลงทุนยินดีจ่ายแพงสำหรับการเติบโตในอนาคต")
+   - EPS: Discuss growth trajectory (e.g., "EPS 4.04 และการเติบโตของกำไรที่เกิน 60% แสดงถึงความแข็งแกร่งของบริษัท")
+   - Market Cap: Provide context (e.g., "Market Cap $4384.6B ทำให้เป็นบริษัทขนาดใหญ่ - มีเสถียรภาพแต่การเติบโตอาจช้าลง")
+   - Revenue Growth: Mention when significant (e.g., "Revenue Growth 60%+ แสดงว่าบริษัทกำลังขยายตัวเร็ว")
+   - Profit Margin: Discuss efficiency (e.g., "Profit Margin สูงแสดงว่าบริษัทจัดการต้นทุนได้ดี")
+   - Format: Weave fundamental metrics naturally into paragraphs - don't list them separately
+   - Use fundamental data to support your BUY/SELL/HOLD recommendation
+   - Example: "ในด้านพื้นฐาน P/E Ratio 44.58 สูงกว่าค่าเฉลี่ยของกลุ่ม แต่เมื่อพิจารณาการเติบโตของรายได้ที่ 60%+ และ Profit Margin ที่สูง แสดงว่าบริษัทมีศักยภาพที่จะเติบโตต่อไป"
+
+7. **Chart Patterns & Advanced Technical Analysis (Financial Markets MCP)**: When chart pattern data is provided, USE IT to enhance technical analysis
+   - Chart Patterns: Mention detected patterns (e.g., "พบรูปแบบ Head & Shoulders ซึ่งอาจบ่งชี้ถึงการเปลี่ยนทิศทางขาลง")
+   - Candlestick Patterns: Discuss implications (e.g., "รูปแบบ Doji แสดงความลังเลของตลาด - นักลงทุนไม่แน่ใจทิศทาง")
+   - Support/Resistance: Reference key levels (e.g., "ราคาตอนนี้อยู่ใกล้ระดับ Resistance ที่ $185 - หากทะลุได้อาจขึ้นต่อ")
+   - Advanced Indicators: Mention when relevant (e.g., "Fibonacci Retracement แสดงว่าราคาอยู่ที่ 61.8% ซึ่งเป็นจุดสำคัญ")
+   - Format: Integrate chart patterns into technical analysis narrative - don't create separate section
+   - Use chart patterns to support your technical analysis and risk assessment
+   - Example: "เมื่อดูจากรูปแบบกราฟ พบ Head & Shoulders pattern ซึ่งบ่งชี้ถึงการเปลี่ยนทิศทางขาลง ขณะที่ราคายังอยู่เหนือ Support ที่ $175 - หากราคาตกต่ำกว่าระดับนี้ อาจเป็นสัญญาณขาย"
+
+These 7 elements (4 market conditions + statistical context + fundamental analysis + chart patterns) ARE the foundation of your narrative. Include specific numbers, and use percentiles ONLY if they add meaningful context.

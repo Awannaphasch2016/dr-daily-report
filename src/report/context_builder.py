@@ -13,62 +13,33 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 
-# Label translations for context building
+# Label translations for context building (Thai only)
 CONTEXT_LABELS = {
-    'en': {
-        'symbol': 'Symbol',
-        'company': 'Company',
-        'sector': 'Sector',
-        'industry': 'Industry',
-        'market_cap': 'Market Cap',
-        'pe_ratio': 'P/E Ratio',
-        'dividend_yield': 'Dividend Yield',
-        'current_price': 'Current Price',
-        'week_high': '52-Week High',
-        'week_low': '52-Week Low',
-        'volume': 'Volume',
-        'avg_volume': 'Avg Volume',
-        'beta': 'Beta',
-        # Technical indicators
-        'sma': 'SMA',
-        'rsi': 'RSI',
-        'macd': 'MACD',
-        'atr': 'ATR',
-        'bollinger': 'Bollinger Bands',
-        'vwap': 'VWAP',
-        # Market conditions
-        'uncertainty': 'Uncertainty',
-        'volatility': 'Volatility',
-        'momentum': 'Momentum',
-        'trend': 'Trend',
-    },
-    'th': {
-        'symbol': 'สัญลักษณ์',
-        'company': 'บริษัท',
-        'sector': 'ภาคธุรกิจ',
-        'industry': 'อุตสาหกรรม',
-        'market_cap': 'มูลค่าตลาด',
-        'pe_ratio': 'P/E',
-        'dividend_yield': 'ผลตอบแทนเงินปันผล',
-        'current_price': 'ราคาปัจจุบัน',
-        'week_high': 'สูงสุด 52 สัปดาห์',
-        'week_low': 'ต่ำสุด 52 สัปดาห์',
-        'volume': 'ปริมาณซื้อขาย',
-        'avg_volume': 'ปริมาณเฉลี่ย',
-        'beta': 'เบต้า',
-        # Technical indicators
-        'sma': 'SMA',
-        'rsi': 'RSI',
-        'macd': 'MACD',
-        'atr': 'ATR',
-        'bollinger': 'Bollinger Bands',
-        'vwap': 'VWAP',
-        # Market conditions
-        'uncertainty': 'ความไม่แน่นอน',
-        'volatility': 'ความผันผวน',
-        'momentum': 'โมเมนตัม',
-        'trend': 'แนวโน้ม',
-    }
+    'symbol': 'สัญลักษณ์',
+    'company': 'บริษัท',
+    'sector': 'ภาคธุรกิจ',
+    'industry': 'อุตสาหกรรม',
+    'market_cap': 'มูลค่าตลาด',
+    'pe_ratio': 'P/E',
+    'dividend_yield': 'ผลตอบแทนเงินปันผล',
+    'current_price': 'ราคาปัจจุบัน',
+    'week_high': 'สูงสุด 52 สัปดาห์',
+    'week_low': 'ต่ำสุด 52 สัปดาห์',
+    'volume': 'ปริมาณซื้อขาย',
+    'avg_volume': 'ปริมาณเฉลี่ย',
+    'beta': 'เบต้า',
+    # Technical indicators
+    'sma': 'SMA',
+    'rsi': 'RSI',
+    'macd': 'MACD',
+    'atr': 'ATR',
+    'bollinger': 'Bollinger Bands',
+    'vwap': 'VWAP',
+    # Market conditions
+    'uncertainty': 'ความไม่แน่นอน',
+    'volatility': 'ความผันผวน',
+    'momentum': 'โมเมนตัม',
+    'trend': 'แนวโน้ม',
 }
 
 
@@ -76,23 +47,18 @@ class ContextBuilder:
     """Builds context for LLM report generation"""
 
     def __init__(self, market_analyzer: MarketAnalyzer, data_formatter: DataFormatter,
-                 technical_analyzer: TechnicalAnalyzer, language: str = 'th'):
+                 technical_analyzer: TechnicalAnalyzer):
         """Initialize with required dependencies
 
         Args:
             market_analyzer: Market analysis service
             data_formatter: Data formatting service
             technical_analyzer: Technical analysis service
-            language: Report language ('en' or 'th'), defaults to 'th'
-
-        Raises:
-            KeyError: If language is not supported
         """
         self.market_analyzer = market_analyzer
         self.data_formatter = data_formatter
         self.technical_analyzer = technical_analyzer
-        self.language = language
-        self.labels = CONTEXT_LABELS[language]  # Raises KeyError if language not supported
+        self.labels = CONTEXT_LABELS
         
         # Initialize section registry for unified section handling
         self.section_registry = SectionRegistry(data_formatter)
@@ -118,7 +84,7 @@ class ContextBuilder:
         volatility_desc = self.market_analyzer.interpret_volatility(conditions['atr'], current_price)
         vwap_desc = self.market_analyzer.interpret_vwap_pressure(conditions['price_vs_vwap_pct'], conditions['vwap'])
         volume_desc = self.market_analyzer.interpret_volume(conditions['volume_ratio'])
-        percentile_context = self.data_formatter.format_percentile_context(percentiles, language=self.language)
+        percentile_context = self.data_formatter.format_percentile_context(percentiles)
         fundamental_section = self.data_formatter.format_fundamental_section(ticker_data)
         technical_section = self.data_formatter.format_technical_section(indicators, current_price, self.technical_analyzer)
         
@@ -206,8 +172,8 @@ Percentiles (use placeholders, current values shown for reference):"""
             percentile_val = value.get('percentile', 0) if isinstance(value, dict) else value
             context += f"\n  {{{{{key.upper()}_PERCENTILE}}}} = {percentile_val:.1f}"
 
-        # Build context with language-specific labels
-        no_comparative_data_msg = "- ไม่มีข้อมูลเปรียบเทียบ (ใช้ข้อมูลเดียวกับหุ้นตัวนี้เท่านั้น)" if self.language == 'th' else "- No comparative data available (using data from this ticker only)"
+        # Build context with Thai labels
+        no_comparative_data_msg = "- ไม่มีข้อมูลเปรียบเทียบ (ใช้ข้อมูลเดียวกับหุ้นตัวนี้เท่านั้น)"
 
         context += f"""
 

@@ -37,7 +37,6 @@ class AgentState(TypedDict):
     alpaca_data: dict  # Real-time quotes, options chain, market data from Alpaca MCP
     error: str
     strategy: str  # Report generation strategy: 'single-stage' or 'multi-stage'
-    language: str  # Report language: 'en' or 'th' (default: 'th')
 
 
 # Raw data fields needed for report regeneration (subset of AgentState)

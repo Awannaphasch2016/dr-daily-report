@@ -1659,7 +1659,6 @@ class PrecomputeService:
         self,
         symbol: str,
         strategy: str = 'single-stage',
-        language: str = 'th',
         data_date: Optional[date] = None
     ) -> Dict[str, Any]:
         """
@@ -1674,7 +1673,6 @@ class PrecomputeService:
         Args:
             symbol: Ticker symbol (e.g., "DBS19")
             strategy: 'single-stage' or 'multi-stage'
-            language: 'th' or 'en'
             data_date: Report date (defaults to today)
 
         Returns:
@@ -1733,8 +1731,7 @@ class PrecomputeService:
         result = generator.generate_report(
             ticker=symbol,
             raw_data=raw_data,
-            strategy=strategy,
-            language=language
+            strategy=strategy
         )
 
         logger.info(f"✅ Regenerated report in {result['generation_time_ms']}ms using {strategy} strategy")

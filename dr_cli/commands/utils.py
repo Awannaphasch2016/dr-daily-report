@@ -100,24 +100,21 @@ def list_py():
 @click.argument('ticker')
 @click.option('--strategy', type=click.Choice(['single-stage', 'multi-stage']), default='single-stage',
               help='Report generation strategy: single-stage (default) or multi-stage')
-@click.option('--language', type=click.Choice(['th', 'en']), default='th',
-              help='Report language: th (Thai, default) or en (English)')
 @click.pass_context
-def report(ctx, ticker, strategy, language):
+def report(ctx, ticker, strategy):
     """Generate report for a ticker
 
-    Generates a daily report analysis for the specified ticker symbol.
+    Generates a daily report analysis for the specified ticker symbol (Thai only).
 
     Examples:
-      dr util report DBS19                         # Thai, single-stage (defaults)
-      dr util report DBS19 --language en           # English report
-      dr util report DBS19 --strategy multi-stage  # Multi-stage Thai report
+      dr util report DBS19                         # Single-stage (default)
+      dr util report DBS19 --strategy multi-stage  # Multi-stage report
     """
     trace = ctx.obj.get('trace')
 
     cmd = [
         sys.executable, "-c",
-        f"from src.agent import TickerAnalysisAgent; agent = TickerAnalysisAgent(); result = agent.analyze_ticker('{ticker}', strategy='{strategy}', language='{language}'); print(result['report'])"
+        f"from src.agent import TickerAnalysisAgent; agent = TickerAnalysisAgent(); result = agent.analyze_ticker('{ticker}', strategy='{strategy}'); print(result['report'])"
     ]
 
     env = {**os.environ, "PYTHONPATH": str(PROJECT_ROOT)}
@@ -137,12 +134,10 @@ def report(ctx, ticker, strategy, language):
 @click.argument('ticker')
 @click.option('--strategy', type=click.Choice(['single-stage', 'multi-stage']), default='single-stage',
               help='Report generation strategy: single-stage (default) or multi-stage')
-@click.option('--language', type=click.Choice(['th', 'en']), default='th',
-              help='Report language: th (Thai, default) or en (English)')
 @click.option('--date', type=str, default=None,
               help='Report date (YYYY-MM-DD), defaults to today')
 @click.pass_context
-def report_cached(ctx, ticker, strategy, language, date):
+def report_cached(ctx, ticker, strategy, date):
     """Regenerate report from cached data (no API calls, no sink nodes)
 
     Uses existing data in Aurora to generate a new report. This is much faster
@@ -166,7 +161,7 @@ def report_cached(ctx, ticker, strategy, language, date):
         f"from src.data.aurora.precompute_service import PrecomputeService; "
         f"{date_param}"
         f"service = PrecomputeService(); "
-        f"result = service.regenerate_report_from_cache('{ticker}', strategy='{strategy}', language='{language}', data_date=data_date); "
+        f"result = service.regenerate_report_from_cache('{ticker}', strategy='{strategy}', data_date=data_date); "
         f"print(f'\\n✅ Generated in {{result[\"generation_time_ms\"]}}ms\\n'); "
         f"print(result['report_text']); "
         f"print(f'\\n📊 LLM Calls: {{result.get(\"api_costs\", {{}}).get(\"llm_calls\", \"N/A\")}}') if 'api_costs' in result else None"
@@ -230,21 +225,18 @@ def info():
 @click.argument('ticker')
 @click.option('--strategy', type=click.Choice(['single-stage', 'multi-stage']), default='single-stage',
               help='Report generation strategy: single-stage (default) or multi-stage')
-@click.option('--language', type=click.Choice(['th', 'en']), default='th',
-              help='Report language: th (Thai, default) or en (English)')
 @click.option('--output', type=click.Path(), default=None,
               help='Save output to file (optional)')
 @click.pass_context
-def prompt_vars(ctx, ticker, strategy, language, output):
+def prompt_vars(ctx, ticker, strategy, output):
     """Inspect prompt variables for a ticker (useful for prompt debugging)
 
     Builds the prompt context without generating the full report, displaying
     all template variables in a clean, readable format.
 
     Examples:
-      dr util prompt-vars DBS19                         # Thai, single-stage (defaults)
+      dr util prompt-vars DBS19                         # Single-stage (default)
       dr util prompt-vars DBS19 --strategy multi-stage  # Multi-stage prompt
-      dr util prompt-vars DBS19 --language en           # English prompt
       dr util prompt-vars DBS19 --output prompt.txt     # Save to file
     """
     trace = ctx.obj.get('trace')
@@ -288,8 +280,7 @@ initial_state = {{
     "portfolio_insights": {{}},
     "alpaca_data": {{}},
     "error": "",
-    "strategy": "{strategy}",
-    "language": "{language}"
+    "strategy": "{strategy}"
 }}
 
 # Run workflow nodes to collect data
@@ -326,10 +317,6 @@ try:
     financial_markets_data = state.get("financial_markets_data", {{}})
     portfolio_insights = state.get("portfolio_insights", {{}})
     alpaca_data = state.get("alpaca_data", {{}})
-
-    # Set language for builders
-    agent.context_builder.language = "{language}"
-    agent.prompt_builder.language = "{language}"
 
     # Build context
     context = agent.context_builder.prepare_context(
@@ -381,7 +368,6 @@ try:
     print("━" * 80)
     print(f"Ticker: {ticker}")
     print(f"Strategy: {strategy}")
-    print(f"Language: {language}")
     print(f"Token Estimate: ~{{token_count}} tokens")
     print("━" * 80)
     print()

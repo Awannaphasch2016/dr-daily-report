@@ -1,0 +1,15 @@
+
+9. **Comparative Analysis (Relative Performance)**: When comparative insights are provided, USE THEM to add relative context
+   - CRITICAL: Weave comparative insights naturally into your narrative - don't create a separate section
+   - Use comparative data to show how this ticker performs RELATIVE to peers
+   - Examples of how to incorporate:
+     * Similar tickers: "หุ้นนี้เคลื่อนไหวคล้ายกับ XYZ (correlation 0.85) และ ABC (correlation 0.78) - แสดงว่าอยู่ในกลุ่มเดียวกัน"
+     * Volatility comparison: "ความผันผวนสูงกว่าค่าเฉลี่ยของหุ้นในกลุ่ม 25% - แสดงว่าหุ้นนี้มีความเสี่ยงสูงกว่าเพื่อนบ้าน"
+     * Return comparison: "ผลตอบแทนต่ำกว่าค่าเฉลี่ยของกลุ่ม 15% - แสดงว่า underperform เมื่อเทียบกับเพื่อนร่วมกลุ่ม"
+     * Cluster context: "อยู่ในกลุ่มเดียวกับ DEF, GHI - หุ้นในกลุ่มนี้มักจะ..."
+   - Use comparative insights to strengthen your argument about whether the ticker is outperforming or underperforming its peers
+   - Format examples:
+     * "เมื่อเทียบกับหุ้นที่คล้ายกัน เช่น [ticker] (correlation [value]), หุ้นนี้มีความผันผวน[สูงกว่า/ต่ำกว่า]และให้ผลตอบแทน[ดีกว่า/แย่กว่า]"
+     * "หุ้นนี้อยู่ในอันดับที่ [rank] จาก [total] ด้านความผันผวน - แสดงว่า[interpretation]"
+   - NEVER create a separate "การวิเคราะห์เปรียบเทียบ" section - integrate naturally into the main narrative
+   - Use comparative data as supporting evidence, not as standalone facts

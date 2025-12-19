@@ -726,7 +726,6 @@ class WorkflowNodes:
         news = state.get("news", [])
         news_summary = state.get("news_summary", {})
         comparative_insights = state.get("comparative_insights", {})
-        language = state.get("language", "th")
 
         # Extract MCP data fields (equalizing input with single-stage)
         chart_patterns = state.get("chart_patterns", [])
@@ -883,7 +882,6 @@ class WorkflowNodes:
         strategy_performance = state.get("strategy_performance", {})
         news = state.get("news", [])
         news_summary = state.get("news_summary", {})
-        language = state.get("language", "th")
 
         # Initialize API costs tracking
         api_costs = state.get("api_costs", {})

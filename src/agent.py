@@ -243,14 +243,13 @@ class TickerAnalysisAgent:
         return workflow.compile()
 
     @traceable(name="analyze_ticker", tags=["agent", "workflow"])
-    def analyze_ticker(self, ticker: str, strategy: str = "single-stage", language: str = 'th') -> AgentState:
+    def analyze_ticker(self, ticker: str, strategy: str = "single-stage") -> AgentState:
         """
         Main entry point to analyze ticker
 
         Args:
             ticker: Ticker symbol to analyze
             strategy: Report generation strategy - 'single-stage' or 'multi-stage' (default: 'single-stage')
-            language: Report language - 'th' for Thai or 'en' for English (default: 'th')
 
         Returns:
             Final workflow state dict (AgentState) containing:
@@ -297,8 +296,7 @@ class TickerAnalysisAgent:
             "portfolio_insights": {},  # Portfolio Manager MCP data
             "alpaca_data": {},  # Alpaca MCP data
             "error": "",
-            "strategy": strategy,  # Add strategy to state
-            "language": language  # Add language to state
+            "strategy": strategy  # Add strategy to state
         }
 
         # Run the graph

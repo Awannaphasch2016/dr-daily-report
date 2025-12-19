@@ -13,22 +13,18 @@ logger.setLevel(logging.INFO)
 class PromptBuilder:
     """Builds prompts for LLM report generation"""
 
-    def __init__(self, language: str = 'th', context_builder=None):
+    def __init__(self, context_builder=None):
         """Initialize PromptBuilder
 
         Args:
-            language: Report language ('en' or 'th'), defaults to 'th'
             context_builder: Optional ContextBuilder instance for section presence detection
         """
-        self.main_prompt_template = self._load_main_prompt_template(language)
+        self.main_prompt_template = self._load_main_prompt_template()
         self.context_builder = context_builder
 
-    def _load_main_prompt_template(self, language: str = 'th') -> str:
+    def _load_main_prompt_template(self) -> str:
         """
         Load the main prompt template from disk.
-
-        Args:
-            language: Report language ('en' or 'th'), defaults to 'th'
 
         Returns:
             Main prompt template string
@@ -36,11 +32,32 @@ class PromptBuilder:
         Raises:
             FileNotFoundError: If template file doesn't exist
         """
-        templates_dir = Path(__file__).parent / "prompt_templates" / language
+        templates_dir = Path(__file__).parent / "prompt_templates" / "th"
         filepath = templates_dir / "main_prompt.txt"
 
         if not filepath.exists():
             raise FileNotFoundError(f"Main prompt template not found: {filepath}")
+
+        with open(filepath, 'r', encoding='utf-8') as f:
+            return f.read()
+
+    def _load_section_template(self, template_name: str) -> str:
+        """Load a section template from disk
+
+        Args:
+            template_name: Name of the template file (without .txt extension)
+
+        Returns:
+            Template content as string
+
+        Raises:
+            FileNotFoundError: If template file doesn't exist
+        """
+        templates_dir = Path(__file__).parent / "prompt_templates" / "th"
+        filepath = templates_dir / f"{template_name}.txt"
+
+        if not filepath.exists():
+            raise FileNotFoundError(f"Section template not found: {filepath}")
 
         with open(filepath, 'r', encoding='utf-8') as f:
             return f.read()
@@ -152,152 +169,30 @@ class PromptBuilder:
         return final_prompt
     
     def _build_base_prompt_section(self) -> str:
-        """Route to language-specific implementation for complete separation
-
-        This ensures editing Thai prompts has ZERO effect on English prompts.
-        """
-        return self._build_base_prompt_section_th()
-
-    def _build_base_prompt_section_th(self) -> str:
-        """Thai prompts with DEEMPHASIZED percentiles (as of 2025-12-15)
-
-        Percentiles are presented as optional context, not mandatory requirements.
-        """
-        return """1. **Price Uncertainty** (use {{{{UNCERTAINTY}}}}/100 placeholder): Sets the overall market mood
-   - Low (0-25): "ตลาดเสถียรมาก" - Stable, good for positioning
-   - Moderate (25-50): "ตลาดค่อนข้างเสถียร" - Normal movement
-   - High (50-75): "ตลาดผันผวนสูง" - High risk, be cautious
-   - Extreme (75-100): "ตลาดผันผวนรุนแรง" - Extreme risk, warn strongly
-   - Percentile information is optionally available if you find it relevant (e.g., "Uncertainty {{{{UNCERTAINTY}}}}/100 ซึ่งอยู่ในเปอร์เซ็นไทล์ {{{{UNCERTAINTY_SCORE_PERCENTILE}}}}%")
-
-2. **Volatility (ATR %)**: The speed of price movement
-   - Include the ATR% number and explain what it means
-   - Example: "ATR 1.2% แสดงราคาเคลื่อนไหวช้ามั่นคง นักลงทุนเห็นตรงกัน"
-   - Example: "ATR 3.8% แสดงตลาดลังเล ราคากระโดดขึ้นลง 3-5% ได้ง่าย"
-   - Percentile context available if needed (e.g., "ATR 1.99% อยู่ในเปอร์เซ็นไทล์ 61%")
-
-3. **Buy/Sell Pressure (Price vs VWAP %)**: Who's winning - buyers or sellers?
-   - Include the % above/below VWAP and explain the implication
-   - Example: "ราคา 22.4% เหนือ VWAP แสดงแรงซื้อแรงมาก คนซื้อวันนี้ยอมจ่ายแพงกว่าเฉลี่ย"
-   - Example: "ราคา -2.8% ต่ำกว่า VWAP แสดงแรงขายหนัก คนขายรีบขายถูกกว่าเฉลี่ย"
-   - Percentile available to show rarity if relevant (e.g., "ราคา 5% เหนือ VWAP ซึ่งอยู่ในเปอร์เซ็นไทล์ 90%")
-
-4. **Volume (Volume Ratio)**: Is smart money interested?
-   - Include the volume ratio (e.g., 0.8x, 1.5x, 2.0x) and explain what it means
-   - Example: "ปริมาณซื้อขาย 1.8x ของเฉลี่ย แสดงนักลงทุนใหญ่กำลังเคลื่อนไหว"
-   - Example: "ปริมาณซื้อขาย 0.7x ของเฉลี่ย แสดงนักลงทุนเฉยๆ รอดูก่อน"
-   - Percentile frequency available (e.g., "ปริมาณ 1.03x อยู่ในเปอร์เซ็นไทล์ 71%")
-
-5. **Statistical Context (Percentiles)**: Optional historical perspective on current values
-   - Percentile information is available in the data if you want to add historical context
-   - Use percentiles ONLY if they meaningfully enhance your narrative
-   - This can tell the reader: "Is this value unusual compared to history?"
-   - Examples (optional):
-     * "RSI {{{{RSI}}}} ซึ่งอยู่ในเปอร์เซ็นไทล์ {{{{RSI_PERCENTILE}}}}%"
-     * "MACD {{{{MACD}}}} อยู่ในเปอร์เซ็นไทล์ {{{{MACD_PERCENTILE}}}}%"
-     * "Uncertainty {{{{UNCERTAINTY}}}}/100 อยู่ในเปอร์เซ็นไทล์ {{{{UNCERTAINTY_SCORE_PERCENTILE}}}}%"
-
-6. **Fundamental Analysis (P/E, EPS, Market Cap, Growth)**: CRITICAL - You MUST incorporate fundamental metrics into your narrative
-   - P/E Ratio: Compare to industry average (e.g., "P/E 44.58 สูงกว่าค่าเฉลี่ยของกลุ่มเทคโนโลยี - แสดงว่านักลงทุนยินดีจ่ายแพงสำหรับการเติบโตในอนาคต")
-   - EPS: Discuss growth trajectory (e.g., "EPS 4.04 และการเติบโตของกำไรที่เกิน 60% แสดงถึงความแข็งแกร่งของบริษัท")
-   - Market Cap: Provide context (e.g., "Market Cap $4384.6B ทำให้เป็นบริษัทขนาดใหญ่ - มีเสถียรภาพแต่การเติบโตอาจช้าลง")
-   - Revenue Growth: Mention when significant (e.g., "Revenue Growth 60%+ แสดงว่าบริษัทกำลังขยายตัวเร็ว")
-   - Profit Margin: Discuss efficiency (e.g., "Profit Margin สูงแสดงว่าบริษัทจัดการต้นทุนได้ดี")
-   - Format: Weave fundamental metrics naturally into paragraphs - don't list them separately
-   - Use fundamental data to support your BUY/SELL/HOLD recommendation
-   - Example: "ในด้านพื้นฐาน P/E Ratio 44.58 สูงกว่าค่าเฉลี่ยของกลุ่ม แต่เมื่อพิจารณาการเติบโตของรายได้ที่ 60%+ และ Profit Margin ที่สูง แสดงว่าบริษัทมีศักยภาพที่จะเติบโตต่อไป"
-
-7. **Chart Patterns & Advanced Technical Analysis (Financial Markets MCP)**: When chart pattern data is provided, USE IT to enhance technical analysis
-   - Chart Patterns: Mention detected patterns (e.g., "พบรูปแบบ Head & Shoulders ซึ่งอาจบ่งชี้ถึงการเปลี่ยนทิศทางขาลง")
-   - Candlestick Patterns: Discuss implications (e.g., "รูปแบบ Doji แสดงความลังเลของตลาด - นักลงทุนไม่แน่ใจทิศทาง")
-   - Support/Resistance: Reference key levels (e.g., "ราคาตอนนี้อยู่ใกล้ระดับ Resistance ที่ $185 - หากทะลุได้อาจขึ้นต่อ")
-   - Advanced Indicators: Mention when relevant (e.g., "Fibonacci Retracement แสดงว่าราคาอยู่ที่ 61.8% ซึ่งเป็นจุดสำคัญ")
-   - Format: Integrate chart patterns into technical analysis narrative - don't create separate section
-   - Use chart patterns to support your technical analysis and risk assessment
-   - Example: "เมื่อดูจากรูปแบบกราฟ พบ Head & Shoulders pattern ซึ่งบ่งชี้ถึงการเปลี่ยนทิศทางขาลง ขณะที่ราคายังอยู่เหนือ Support ที่ $175 - หากราคาตกต่ำกว่าระดับนี้ อาจเป็นสัญญาณขาย"
-
-These 7 elements (4 market conditions + statistical context + fundamental analysis + chart patterns) ARE the foundation of your narrative. Include specific numbers, and use percentiles ONLY if they add meaningful context."""
+        """Build narrative elements section from template"""
+        return self._load_section_template("narrative_elements")
 
 
     def _build_strategy_section(self) -> str:
-        """Build strategy performance section"""
-        return """
-
-8. **Strategy Performance (Historical Backtesting)**: When strategy performance data is provided, USE IT to support your recommendation
-   - CRITICAL: Only include strategy performance when it ALIGNS with your BUY/SELL recommendation
-   - Weave strategy performance naturally into your narrative with "narrative + number" style
-   - DO NOT mention what strategy was used - just present the performance as evidence
-   - Examples of how to incorporate:
-     * For BUY recommendation: "หากคุณติดตามกลยุทธ์ของเรา การซื้อครั้งล่าสุดอยู่ที่ $175 และเมื่อดูจากสถิติการซื้อเท่านั้น (buy-only strategy) ในอดีต การเข้าตำแหน่งแบบนี้ให้ผลตอบแทนเฉลี่ย +15.2% โดยมี Sharpe ratio 1.2 และอัตราชนะ 62% - แสดงว่าจุดเข้าแบบนี้มีความเสี่ยงต่ำและให้ผลตอบแทนดี"
-     * For SELL recommendation: "หากคุณติดตามกลยุทธ์ของเรา การขายครั้งล่าสุดอยู่ที่ $180 และเมื่อดูจากสถิติการขายเท่านั้น (sell-only strategy) ในอดีต การเข้าตำแหน่งแบบนี้ให้ผลตอบแทนเฉลี่ย +8.5% โดยมี Sharpe ratio 0.9 และอัตราชนะ 58% - แสดงว่าจุดเข้าแบบนี้มีความเสี่ยงปานกลางและให้ผลตอบแทนดี"
-   - Include risk/reward metrics: "Max Drawdown -12.5% แสดงว่าในอดีต ตำแหน่งแบบนี้เสี่ยงสูงสุดที่จะขาดทุน 12.5% ก่อนจะกลับขึ้นมา"
-   - Format: "หากคุณติดตามกลยุทธ์ของเรา, การซื้อ/ขายครั้งล่าสุดอยู่ที่ [price] และเมื่อดูจากสถิติการซื้อ/ขายเท่านั้น (buy-only/sell-only strategy) ในอดีต, การเข้าตำแหน่งแบบนี้ให้ผลตอบแทนเฉลี่ย [return]% โดยมี Sharpe ratio [sharpe] และอัตราชนะ [win_rate]% - แสดงว่า[interpretation]"
-   - NEVER mention the strategy name (SMA crossing) - just say "กลยุทธ์ของเรา" or "strategies"
-   - Use strategy data to strengthen your argument, not as standalone facts"""
+        """Build strategy performance section from template"""
+        return self._load_section_template("strategy_section")
 
     def _build_comparative_section(self) -> str:
-        """Build comparative analysis section"""
-        return """
-
-9. **Comparative Analysis (Relative Performance)**: When comparative insights are provided, USE THEM to add relative context
-   - CRITICAL: Weave comparative insights naturally into your narrative - don't create a separate section
-   - Use comparative data to show how this ticker performs RELATIVE to peers
-   - Examples of how to incorporate:
-     * Similar tickers: "หุ้นนี้เคลื่อนไหวคล้ายกับ XYZ (correlation 0.85) และ ABC (correlation 0.78) - แสดงว่าอยู่ในกลุ่มเดียวกัน"
-     * Volatility comparison: "ความผันผวนสูงกว่าค่าเฉลี่ยของหุ้นในกลุ่ม 25% - แสดงว่าหุ้นนี้มีความเสี่ยงสูงกว่าเพื่อนบ้าน"
-     * Return comparison: "ผลตอบแทนต่ำกว่าค่าเฉลี่ยของกลุ่ม 15% - แสดงว่า underperform เมื่อเทียบกับเพื่อนร่วมกลุ่ม"
-     * Cluster context: "อยู่ในกลุ่มเดียวกับ DEF, GHI - หุ้นในกลุ่มนี้มักจะ..."
-   - Use comparative insights to strengthen your argument about whether the ticker is outperforming or underperforming its peers
-   - Format examples:
-     * "เมื่อเทียบกับหุ้นที่คล้ายกัน เช่น [ticker] (correlation [value]), หุ้นนี้มีความผันผวน[สูงกว่า/ต่ำกว่า]และให้ผลตอบแทน[ดีกว่า/แย่กว่า]"
-     * "หุ้นนี้อยู่ในอันดับที่ [rank] จาก [total] ด้านความผันผวน - แสดงว่า[interpretation]"
-   - NEVER create a separate "การวิเคราะห์เปรียบเทียบ" section - integrate naturally into the main narrative
-   - Use comparative data as supporting evidence, not as standalone facts"""
+        """Build comparative analysis section from template"""
+        return self._load_section_template("comparative_section")
 
     def build_prompt_structure(self, has_strategy: bool) -> str:
-        """Build the report structure section"""
+        """Build the report structure section from template"""
+        template = self._load_section_template("prompt_structure")
+        
+        # Handle dynamic parts (strategy integration)
         strategy_integration = "\n- If strategy performance data is provided, weave it naturally into this section to support your analysis" if has_strategy else ""
         strategy_recommendation = "\n- If strategy performance data is provided and aligns with your recommendation, include it here to strengthen your argument (e.g., 'หากคุณติดตามกลยุทธ์ของเรา การซื้อครั้งล่าสุดอยู่ที่ $X และสถิติแสดงว่า...')" if has_strategy else ""
         
-        return f"""
-
-IMPORTANT: When high-impact news [1], [2] exists in the data, reference it naturally in your story when relevant. Don't force it - only use if it meaningfully affects the narrative.
-
-Structure (in Thai):
-
-📖 **เรื่องราวของหุ้นตัวนี้**
-Write 2-3 sentences telling the STORY. MUST include: uncertainty score context + ATR% + VWAP% + volume ratio with their meanings. Include news naturally if relevant.
-
-💡 **สิ่งที่คุณต้องรู้**
-Write 3-4 flowing paragraphs (NOT numbered lists) that explain WHY this matters to an investor. MUST continuously reference:
-- The 4 market condition elements (uncertainty, ATR, VWAP, volume) with numbers throughout
-- Fundamental metrics (P/E ratio, EPS, Market Cap, Revenue Growth, Profit Margin) - CRITICAL: Mention at least 2-3 fundamental metrics
-- Chart patterns from Financial Markets MCP (if available) - CRITICAL: Mention detected patterns and their implications
-- Technical indicators (RSI, MACD, SMA trends)
-- Comparative analysis (relative performance vs peers)
-- News (when relevant)
-Mix all elements seamlessly - don't section them.{strategy_integration}
-
-🎯 **ควรทำอะไรตอนนี้?**
-Give ONE clear action: BUY MORE / SELL / HOLD. Explain WHY in 2-3 sentences using uncertainty score + market conditions (ATR/VWAP/volume). Reference news if it changes the decision.{strategy_recommendation}
-
-⚠️ **ระวังอะไร?**
-Warn about 1-2 key risks using the 4 market condition metrics. What volatility/pressure/volume signals should trigger concern? Keep it practical.
-
-Rules for narrative flow:
-- Tell STORIES, don't list bullet points - write like you're texting a friend investor
-- CRITICAL: ALWAYS include all 4 market condition metrics (uncertainty, ATR%, VWAP%, volume ratio) with specific numbers AND percentile context throughout
-- Use numbers IN sentences as evidence, not as standalone facts
-- Explain WHY things matter (implication), not just WHAT they are (description)
-- Mix technical + fundamental + relative + news + statistical context + comparative analysis + chart patterns seamlessly - don't section them
-- CRITICAL: MUST mention fundamental metrics (P/E, EPS, Market Cap, Growth) in "สิ่งที่คุณต้องรู้" section
-- CRITICAL: MUST mention chart patterns from Financial Markets MCP (if available) in technical analysis discussion
-- Reference news [1], [2] ONLY when it genuinely affects the story
-- CRITICAL: When percentile data is available, USE IT to add historical context to numbers (e.g., "RSI 75 ซึ่งอยู่ในเปอร์เซ็นไทล์ 85%")
-- Write under 12-15 lines total
-- NO tables, NO numbered lists in the insight section, just flowing narrative
-
-Write entirely in Thai, naturally flowing like Damodaran's style - narrative supported by numbers, not numbers with explanation."""
+        return template.format(
+            STRATEGY_INTEGRATION=strategy_integration,
+            STRATEGY_RECOMMENDATION=strategy_recommendation
+        )
 
     def _calculate_market_conditions(self, indicators: dict) -> dict:
         """Calculate market condition metrics"""
@@ -370,19 +265,3 @@ Write entirely in Thai, naturally flowing like Damodaran's style - narrative sup
         else:
             return f"ปริมาณซื้อขายเงียบ {volume_ratio:.1f}x ของค่าเฉลี่ย - นักลงทุนไม่ค่อยสนใจ อาจรอข่าวใหม่"
     
-    def _format_percentile_context_th(self, percentiles: dict) -> str:
-        """Thai percentile context - empty
-
-        Following CLAUDE.md principle: complete separation instead of scattered conditionals.
-        """
-        return ""
-
-    def _format_percentile_context(self, percentiles: dict) -> str:
-        """Format percentile context based on language
-
-        Router method that delegates to language-specific implementations.
-        Following CLAUDE.md principle: language decision in ONE place.
-
-        Uses self.language attribute to determine which implementation to call.
-        """
-        return self._format_percentile_context_th(percentiles)

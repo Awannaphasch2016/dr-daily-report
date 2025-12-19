@@ -21,29 +21,24 @@ class SynthesisGenerator:
     4. Provides clear action recommendation
     """
 
-    def __init__(self, llm, language: str = 'th'):
+    def __init__(self, llm):
         """
         Initialize the SynthesisGenerator.
 
         Args:
             llm: Language model instance for generating synthesis
-            language: Report language ('en' or 'th'), defaults to 'th'
         """
         self.llm = llm
-        self.language = language
-        self.synthesis_prompt = self._load_synthesis_prompt(language)
+        self.synthesis_prompt = self._load_synthesis_prompt()
 
-    def _load_synthesis_prompt(self, language: str = 'th') -> str:
+    def _load_synthesis_prompt(self) -> str:
         """
         Load the synthesis prompt template.
-
-        Args:
-            language: Report language ('en' or 'th'), defaults to 'th'
 
         Returns:
             Synthesis prompt template string
         """
-        templates_dir = Path(__file__).parent / "prompt_templates" / language
+        templates_dir = Path(__file__).parent / "prompt_templates" / "th"
         filepath = templates_dir / "synthesis_prompt.txt"
 
         if not filepath.exists():
