@@ -84,7 +84,7 @@ def observe(name: Optional[str] = None):
 
             # Use Langfuse decorator if available
             try:
-                from langfuse.decorators import observe as langfuse_observe
+                from langfuse import observe as langfuse_observe
 
                 trace_name = name or func.__name__
                 traced_func = langfuse_observe(name=trace_name)(func)
