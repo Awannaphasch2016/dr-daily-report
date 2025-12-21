@@ -1333,8 +1333,10 @@ class PrecomputeService:
             Dict with report data including PDF tracking columns or None
         """
         from src.data.aurora.ticker_resolver import get_ticker_resolver
+        from datetime import datetime
 
-        data_date = data_date or date.today()
+        # TIMEZONE FIX: Use UTC date to match Aurora storage (Aurora runs in UTC)
+        data_date = data_date or datetime.utcnow().date()
 
         # Get ticker info to resolve symbol to all possible formats
         resolver = get_ticker_resolver()

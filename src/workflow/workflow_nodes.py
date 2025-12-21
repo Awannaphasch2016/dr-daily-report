@@ -285,7 +285,9 @@ class WorkflowNodes:
 
         # Query Aurora for ticker data (ground truth)
         precompute_service = PrecomputeService()
-        ticker_data = precompute_service.get_ticker_data(symbol=ticker, data_date=date.today())
+        # TEMPORARY: Use UTC date to match Aurora timezone (TODO: fix all date.today() to use UTC)
+        from datetime import datetime
+        ticker_data = precompute_service.get_ticker_data(symbol=ticker, data_date=datetime.utcnow().date())
 
         if not ticker_data:
             # Data not available - FAIL FAST (no fallback)

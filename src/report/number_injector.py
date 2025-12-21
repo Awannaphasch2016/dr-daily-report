@@ -316,6 +316,26 @@ class NumberInjector:
                 print(f"   {injection}")
             print("━" * 70)
 
+        # POST-PROCESSING FIX: Remove braces from malformed placeholders
+        # LLM sometimes writes {51.3} instead of {UNCERTAINTY} - this cleans it up
+        # Pattern: {number} where number can be: 51.3, 0.79, 14.033248, 155.71B, etc.
+        malformed_pattern = r'\{([\d.]+[A-Z]?)\}'  # Matches {51.3}, {155.71B}, etc.
+        malformed = re.findall(malformed_pattern, result)
+
+        if malformed:
+            print("━" * 70)
+            print(f"🔧 POST-PROCESSING FIX: Cleaning {len(malformed)} malformed placeholder(s)")
+            print("━" * 70)
+            print("   LLM wrote numbers inside braces instead of placeholder names")
+            print("   Converting: {51.3}/100 → 51.3/100")
+            print("")
+            for match in set(malformed):  # Use set to avoid duplicates in log
+                print(f"   Fixing: {{{match}}} → {match}")
+            print("━" * 70)
+
+            # Remove braces around numbers
+            result = re.sub(malformed_pattern, r'\1', result)
+
         # Validation: Check if any placeholders remain (v4 uses single braces)
         # Catches: {UPPERCASE}, {Mixed Case}, {with spaces}, {with-dashes}
         remaining = re.findall(r'\{[A-Z_0-9]+\}', result)

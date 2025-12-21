@@ -252,3 +252,47 @@ class TestPostProcessingWorkflow:
         assert 'RSI อยู่ที่' in result
         # Verify footer is in Thai
         assert 'ข้อมูลที่ใช้ในการวิเคราะห์' in result
+
+    def test_malformed_placeholder_cleanup(self):
+        """Test that NumberInjector cleans up malformed placeholders (LLM writing numbers instead of names)"""
+        # Given: Report with malformed placeholders (LLM wrote {51.3} instead of {UNCERTAINTY})
+        from src.report.number_injector import NumberInjector
+
+        narrative_with_malformed = """
+        📖 **เรื่องราวของหุ้นตัวนี้**
+
+        DBS19 กำลังเคลื่อนไหวในตลาดที่มีความไม่แน่นอนสูง {51.3}/100 แต่ความผันผวนต่ำ {0.79}%
+        ราคาอยู่เหนือ VWAP {20.61}% และปริมาณซื้อขาย {1.64}x ของค่าเฉลี่ย
+
+        มี P/E Ratio {14.033248} และ Market Cap {155.71B} และ EPS {3.91}
+        """
+
+        # When: NumberInjector processes the narrative
+        injector = NumberInjector()
+        result = injector.inject_deterministic_numbers(
+            narrative_with_malformed,
+            ground_truth={},  # Empty - no proper placeholders to replace
+            indicators={},
+            percentiles={},
+            ticker_data={},
+            comparative_insights={},
+            strategy_performance=None
+        )
+
+        # Then: Malformed placeholders should be cleaned up (braces removed)
+        assert '{51.3}' not in result, "Malformed {51.3} should be cleaned"
+        assert '{0.79}' not in result, "Malformed {0.79} should be cleaned"
+        assert '{20.61}' not in result, "Malformed {20.61} should be cleaned"
+        assert '{1.64}' not in result, "Malformed {1.64} should be cleaned"
+        assert '{14.033248}' not in result, "Malformed {14.033248} should be cleaned"
+        assert '{155.71B}' not in result, "Malformed {155.71B} should be cleaned"
+        assert '{3.91}' not in result, "Malformed {3.91} should be cleaned"
+
+        # Verify numbers are present WITHOUT braces
+        assert '51.3/100' in result
+        assert '0.79%' in result
+        assert '20.61%' in result
+        assert '1.64x' in result
+        assert '14.033248' in result
+        assert '155.71B' in result
+        assert '3.91' in result
