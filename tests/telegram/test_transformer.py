@@ -269,7 +269,7 @@ class TestResponseTransformer:
                 result = await transformer.transform_report(sample_state, sample_ticker_info)
 
                 assert result.generation_metadata is not None
-                assert result.generation_metadata.strategy == 'multi_stage_analysis'
+                assert result.generation_metadata.strategy == 'semantic_layer'
                 assert result.generation_metadata.cache_hit is False
 
     # Test 10: Timestamp extraction

@@ -33,12 +33,12 @@ class TestPercentileFormatThaiOnly:
             }
         }
 
-        result = self.analyzer.format_percentile_analysis(percentiles, language='th')
+        result = self.analyzer.format_percentile_analysis(percentiles)
 
         assert result == "", "Thai reports should not show percentile section"
 
     def test_format_percentile_analysis_returns_empty_with_english_language(self):
-        """Test that even with language='en', returns empty (English removed)"""
+        """Test that percentile analysis always returns empty (no language parameter)"""
         percentiles = {
             'rsi': {
                 'current_value': 65.3,
@@ -46,19 +46,19 @@ class TestPercentileFormatThaiOnly:
             }
         }
 
-        result = self.analyzer.format_percentile_analysis(percentiles, language='en')
+        result = self.analyzer.format_percentile_analysis(percentiles)
 
-        assert result == "", "English support removed, should return empty"
+        assert result == "", "Percentile section not shown in reports"
 
     def test_format_percentile_analysis_returns_empty_with_none(self):
         """Test that passing None returns empty string"""
-        result = self.analyzer.format_percentile_analysis(None, language='th')
+        result = self.analyzer.format_percentile_analysis(None)
 
         assert result == "", "Should return empty when percentiles is None"
 
     def test_format_percentile_analysis_returns_empty_with_empty_dict(self):
         """Test that passing empty dict returns empty string"""
-        result = self.analyzer.format_percentile_analysis({}, language='th')
+        result = self.analyzer.format_percentile_analysis({})
 
         assert result == "", "Should return empty when percentiles is empty dict"
 

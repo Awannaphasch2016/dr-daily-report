@@ -13,8 +13,6 @@ Approach:
 import pytest
 from src.report.prompt_builder import PromptBuilder
 from src.report.context_builder import ContextBuilder
-from src.report.mini_report_generator import MiniReportGenerator
-from src.report.synthesis_generator import SynthesisGenerator
 from unittest.mock import Mock
 
 
@@ -110,42 +108,3 @@ class TestLanguageParameterIntegration:
                 mock_technical_analyzer,
                 language='invalid'
             )
-
-    def test_mini_report_generator_loads_thai_templates(self):
-        """Verify MiniReportGenerator loads Thai templates"""
-        mock_llm = Mock()
-        generator = MiniReportGenerator(mock_llm, language='th')
-        assert generator.language == 'th'
-        assert len(generator.prompts) == 6, "Should load 6 mini-report templates"
-        # Verify Thai templates (check for "in Thai" instruction or Thai-specific words)
-        assert any('in Thai' in prompt or 'เป็น' in prompt for prompt in generator.prompts.values()), \
-            "At least one template should be Thai version (contains 'in Thai' or Thai words)"
-
-    def test_mini_report_generator_loads_english_templates(self):
-        """Verify MiniReportGenerator loads English templates"""
-        mock_llm = Mock()
-        generator = MiniReportGenerator(mock_llm, language='en')
-        assert generator.language == 'en'
-        assert len(generator.prompts) == 6, "Should load 6 mini-report templates"
-        # Verify English content in at least one template
-        assert any('should' in prompt.lower() or 'analysis' in prompt.lower()
-                   for prompt in generator.prompts.values()), \
-            "At least one template should contain English text"
-
-    def test_synthesis_generator_loads_thai_template(self):
-        """Verify SynthesisGenerator loads Thai synthesis template"""
-        mock_llm = Mock()
-        generator = SynthesisGenerator(mock_llm, language='th')
-        assert generator.language == 'th'
-        assert len(generator.synthesis_prompt) > 0, "Thai synthesis template should be loaded"
-        assert 'ควร' in generator.synthesis_prompt or 'คุณ' in generator.synthesis_prompt, \
-            "Synthesis template should contain Thai text"
-
-    def test_synthesis_generator_loads_english_template(self):
-        """Verify SynthesisGenerator loads English synthesis template"""
-        mock_llm = Mock()
-        generator = SynthesisGenerator(mock_llm, language='en')
-        assert generator.language == 'en'
-        assert len(generator.synthesis_prompt) > 0, "English synthesis template should be loaded"
-        assert 'should' in generator.synthesis_prompt.lower() or 'analysis' in generator.synthesis_prompt.lower(), \
-            "Synthesis template should contain English text"
