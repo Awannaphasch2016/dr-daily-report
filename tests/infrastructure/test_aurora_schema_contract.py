@@ -30,7 +30,7 @@ class TestAuroraSchemaContract:
     def setup_method(self):
         """Initialize Lambda client for Aurora access."""
         self.lambda_client = boto3.client('lambda', region_name='ap-southeast-1')
-        self.scheduler_lambda = 'dr-daily-report-ticker-scheduler-dev'
+        self.scheduler_lambda = 'dr-daily-report-query-tool-dev'
 
     def _query_aurora_schema(self, table_name: str) -> Dict[str, Any]:
         """Query Aurora table schema via Lambda (has VPC access).

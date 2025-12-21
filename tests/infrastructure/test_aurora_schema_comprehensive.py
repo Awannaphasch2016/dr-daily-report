@@ -159,7 +159,7 @@ class TestAuroraSchemaComprehensive:
     def setup_method(self):
         """Initialize AWS clients and test fixtures."""
         self.lambda_client = boto3.client('lambda', region_name='ap-southeast-1')
-        self.scheduler_lambda = 'dr-daily-report-ticker-scheduler-dev'
+        self.scheduler_lambda = 'dr-daily-report-query-tool-dev'
         self.extractor = SchemaExtractor()
 
     def _query_aurora_schema(self, table_name: str) -> Dict[str, Any]:
