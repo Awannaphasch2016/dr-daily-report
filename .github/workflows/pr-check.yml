@@ -2,7 +2,7 @@ name: PR Check
 
 on:
   pull_request:
-    branches: [main, telegram]
+    branches: [main, dev]
     types: [opened, synchronize, reopened]
 
 env:

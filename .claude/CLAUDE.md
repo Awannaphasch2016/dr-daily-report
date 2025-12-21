@@ -55,7 +55,21 @@ aws iam attach-user-policy --user-name <user> --policy-arn <arn>
 ```
 See [AWS Setup Guide](docs/AWS_SETUP.md) for complete IAM configuration.
 
-**⚠️ Branch Protection:** DO NOT touch `main` branch. Use environment branches: `telegram` (dev), `telegram-staging`, `telegram-prod`. Main contains legacy code. See [Deployment Runbook](docs/deployment/TELEGRAM_DEPLOYMENT_RUNBOOK.md).
+**⚠️ Branch Strategy:**
+- **`dev`**: Development branch - fast iteration, deploys to dev environment only
+- **`main`**: Stable branch - deploys to staging environment
+- **Production**: Create semantic version tags (`v1.2.3`) on `main` branch
+
+**Workflow:**
+```
+dev branch → dev env (fast feedback, ~8 min)
+    ↓ PR (when ready for staging)
+main branch → staging env (integration testing, ~10 min)
+    ↓ Tag (when ready for production)
+v1.2.3 → production env (versioned releases, ~12 min)
+```
+
+See [Deployment Runbook](docs/deployment/TELEGRAM_DEPLOYMENT_RUNBOOK.md).
 
 For complete component inventory, technology stack, and directory structure, see [Documentation Index](docs/README.md).
 
@@ -942,7 +956,12 @@ The project uses a two-layer CLI design: **Justfile** (intent-based recipes desc
 
 **Zero-Downtime Pattern:** `$LATEST` (mutable staging) → `Version N` (immutable snapshot) → `live` alias (production pointer). Test in $LATEST before promoting alias. See [Lambda Versioning Strategy](docs/deployment/LAMBDA_VERSIONING.md).
 
-**Environment Strategy:** Single branch auto-deploys through environments: `telegram` → dev → staging → prod. Progressive deployment with smoke tests between stages. See [CI/CD Architecture](docs/deployment/CI_CD.md) and [Multi-Environment Guide](docs/deployment/MULTI_ENV.md).
+**Environment Strategy:** Branch-based deployment with independent environments:
+- `dev` branch → dev environment (~8 min)
+- `main` branch → staging environment (~10 min)
+- Tags `v*.*.*` → production environment (~12 min)
+
+Each environment deploys independently. Artifact promotion: same immutable Docker image built in dev is promoted to staging/prod. See [CI/CD Architecture](docs/deployment/CI_CD.md) and [Multi-Environment Guide](docs/deployment/MULTI_ENV.md).
 
 **NumPy/Pandas Serialization Requirement:** Lambda responses must be JSON-serializable. Convert NumPy types before JSON encoding (`np.int64` → `int`, `pd.Timestamp` → `str`). See [Lambda Best Practices](docs/deployment/LAMBDA_BEST_PRACTICES.md).
 

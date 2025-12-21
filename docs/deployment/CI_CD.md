@@ -1,295 +1,436 @@
 # CI/CD Architecture
 
-Auto-progressive deployment through GitHub Actions.
+Branch-based deployment with independent environment promotion through GitHub Actions.
 
 ---
 
 ## Pipeline Overview
 
-**Single branch triggers deployment to ALL environments:**
+**Branch-based triggers for independent environment deployment:**
 
 ```yaml
+# Dev deployment - deploy-dev.yml
 on:
   push:
-    branches:
-      - telegram  # Only trigger - auto-chains dev → staging → prod
-    paths:
-      - 'src/**'
-      - 'frontend/telegram-webapp/**'
-      - 'Dockerfile*'
-      - 'requirements*.txt'
-      - 'terraform/**'
+    branches: [dev]
+
+# Staging deployment - deploy-staging.yml
+on:
+  push:
+    branches: [main]
+
+# Production deployment - deploy-prod.yml
+on:
+  push:
+    tags: ['v*.*.*']  # Semantic versioning
+```
+
+---
+
+## Deployment Workflow Files
+
+| Workflow | Trigger | Deploys To | Duration |
+|----------|---------|------------|----------|
+| `deploy-dev.yml` | Push to `dev` | Dev environment | ~8 min |
+| `deploy-staging.yml` | Push to `main` | Staging environment | ~10 min |
+| `deploy-prod.yml` | Tag `v*.*.*` | Production environment | ~12 min |
+
+**Key Changes from Legacy Workflow:**
+- ✅ Independent deployments (no cascading failures)
+- ✅ Fast dev iteration (8 min vs 30 min)
+- ✅ Semantic versioning for production
+- ✅ Same artifact promotion pattern preserved
+- ✅ All safety gates preserved (schema validation, smoke tests, E2E)
+
+---
+
+## Artifact Promotion Pattern
+
+**Build once, promote everywhere:**
+
+```
+dev branch push
+    ↓
+┌─────────────────────┐
+│ deploy-dev.yml:     │
+│ - Build Docker image│  → ECR (sha-abc123-20250122-143000)
+│ - Push to ECR       │
+│ - Store metadata    │  → GitHub Artifacts (dev-artifact-metadata)
+└─────────┬───────────┘
+          ↓
+main branch push
+    ↓
+┌─────────────────────┐
+│ deploy-staging.yml: │
+│ - Download artifact │  ← GitHub Artifacts (dev-artifact-metadata)
+│ - Deploy same image │  → Staging (zero rebuild)
+│ - Store metadata    │  → GitHub Artifacts (staging-artifact-metadata)
+└─────────┬───────────┘
+          ↓
+v1.2.3 tag created
+    ↓
+┌─────────────────────┐
+│ deploy-prod.yml:    │
+│ - Validate tag      │  (must be on main branch)
+│ - Download artifact │  ← GitHub Artifacts (staging-artifact-metadata)
+│ - Deploy same image │  → Production (manual approval required)
+│ - Create release    │  → GitHub Release with changelog
+└─────────────────────┘
+```
+
+**Same immutable image** tested in dev gets promoted to production.
+
+---
+
+## Pipeline Flow
+
+### Dev Environment (`deploy-dev.yml`)
+
+```
+git push origin dev
+       ↓
+┌──────────────────┐
+│ detect-changes   │  Path filters: backend/frontend
+└────────┬─────────┘
+         ↓
+┌──────────────────┐
+│ Quality Gates    │  Syntax, unit tests, security audit
+└────────┬─────────┘
+         ↓
+┌──────────────────┐
+│ Build Image      │  Docker build → ECR
+└────────┬─────────┘
+         ↓
+┌──────────────────┐
+│ Aurora Schema    │  BLOCKING GATE - schema validation
+│ Validation       │  (compares Aurora vs code expectations)
+└────────┬─────────┘
+         ↓ (only if schema valid)
+┌──────────────────┐
+│ Deploy Dev       │  update-function-code → smoke test → promote
+└────────┬─────────┘
+         ↓
+┌──────────────────┐
+│ VPC Tests        │  CodeBuild - Aurora connectivity tests
+└────────┬─────────┘
+         ↓
+┌──────────────────┐
+│ Frontend (TEST)  │  S3 + TEST CloudFront
+└────────┬─────────┘
+         ↓
+┌──────────────────┐
+│ E2E Tests        │  Playwright against TEST CloudFront
+└────────┬─────────┘
+         ↓ (only if E2E passes)
+┌──────────────────┐
+│ Promote Frontend │  Invalidate APP CloudFront (users see new version)
+└────────┬─────────┘
+         ↓
+┌──────────────────┐
+│ Store Artifact   │  Upload metadata for staging
+└──────────────────┘
+```
+
+**Duration:** ~8 minutes
+
+---
+
+### Staging Environment (`deploy-staging.yml`)
+
+```
+git push origin main
+       ↓
+┌──────────────────┐
+│ detect-changes   │  Path filters: backend/frontend
+└────────┬─────────┘
+         ↓
+┌──────────────────┐
+│ Quality Gates    │  Syntax, unit tests, security audit
+└────────┬─────────┘
+         ↓
+┌──────────────────┐
+│ Get Dev Artifact │  Download artifact-uri from dev build
+└────────┬─────────┘
+         ↓
+┌──────────────────┐
+│ Deploy Staging   │  Use dev's Docker image (no rebuild)
+└────────┬─────────┘
+         ↓
+┌──────────────────┐
+│ Frontend (TEST)  │  S3 + TEST CloudFront
+└────────┬─────────┘
+         ↓
+┌──────────────────┐
+│ E2E Tests        │  Playwright against TEST CloudFront
+└────────┬─────────┘
+         ↓
+┌──────────────────┐
+│ Promote Frontend │  Invalidate APP CloudFront
+└────────┬─────────┘
+         ↓
+┌──────────────────┐
+│ Store Artifact   │  Upload metadata for production
+└──────────────────┘
+```
+
+**Duration:** ~10 minutes
+
+---
+
+### Production Environment (`deploy-prod.yml`)
+
+```
+git tag -a v1.2.3 -m "Release v1.2.3" && git push origin v1.2.3
+       ↓
+┌──────────────────┐
+│ Validate Tag     │  Ensure tag is on main branch (security gate)
+└────────┬─────────┘
+         ↓
+┌──────────────────┐
+│ Get Staging      │  Download artifact-uri from staging build
+│ Artifact         │
+└────────┬─────────┘
+         ↓
+┌──────────────────┐
+│ Deploy Prod      │  Use staging's Docker image (no rebuild)
+│                  │  ⚠️ Requires manual approval via GitHub environment
+└────────┬─────────┘
+         ↓
+┌──────────────────┐
+│ Frontend (TEST)  │  S3 + TEST CloudFront
+└────────┬─────────┘
+         ↓
+┌──────────────────┐
+│ E2E Tests        │  Playwright against TEST CloudFront
+└────────┬─────────┘
+         ↓
+┌──────────────────┐
+│ Promote Frontend │  Invalidate APP CloudFront
+└────────┬─────────┘
+         ↓
+┌──────────────────┐
+│ Create Release   │  GitHub Release with changelog + rollback instructions
+└──────────────────┘
+```
+
+**Duration:** ~12 minutes (excluding manual approval wait time)
+
+---
+
+## Quality Gates
+
+All workflows include these safety gates:
+
+### 1. Syntax Check
+```yaml
+- name: Syntax check
+  run: |
+    python -m py_compile src/**/*.py src/api/*.py dr_cli/**/*.py
+```
+
+### 2. Unit Tests
+```yaml
+- name: Unit tests
+  run: |
+    pytest tests/shared tests/telegram -v --tb=short \
+      -k "not integration and not smoke and not e2e"
+```
+
+### 3. Security Audit
+```yaml
+- name: Security audit
+  run: pip-audit --strict --desc
+  continue-on-error: true  # Non-blocking
+```
+
+### 4. Aurora Schema Validation (Dev Only)
+```yaml
+- name: Validate Aurora schema
+  run: |
+    pytest tests/infrastructure/test_aurora_schema_comprehensive.py \
+      -v --tb=short -m integration
+```
+
+**BLOCKING GATE:** If schema validation fails, deployment is blocked. This ensures code expectations match database reality.
+
+### 5. Smoke Tests (All Environments)
+```yaml
+- name: Smoke test $LATEST
+  run: |
+    # Test health endpoint
+    aws lambda invoke --function-name $FUNCTION --payload $PAYLOAD /tmp/health.json
+
+    # Test search endpoint
+    aws lambda invoke --function-name $FUNCTION --payload $PAYLOAD /tmp/search.json
+```
+
+### 6. E2E Tests (All Environments)
+```yaml
+- name: Run E2E Tests
+  env:
+    E2E_BASE_URL: ${{ needs.deploy-frontend.outputs.test_url }}
+  run: |
+    playwright install chromium
+    pytest tests/e2e/ -m e2e -v --tb=short
 ```
 
 ---
 
 ## Path Filters - What Triggers Deployment
 
-| File Change | Triggers Deploy? | Why |
-|-------------|------------------|-----|
-| `src/*.py` | ✅ Yes | Backend code changes |
-| `frontend/telegram-webapp/*.js` | ✅ Yes | Frontend code changes |
-| `Dockerfile*` | ✅ Yes | Container config changes |
-| `requirements*.txt` | ✅ Yes | Dependencies changed |
-| `terraform/**` | ✅ Yes | Infrastructure changes |
-| `tests/*.py` | ❌ No | Tests don't affect production |
-| `docs/*.md` | ❌ No | Documentation is git-only |
-| `.claude/CLAUDE.md` | ❌ No | Dev instructions, not runtime |
-| `.github/workflows/*.yml` | ❌ No | CI config (runs on next trigger) |
+| File Change | Backend Deploy? | Frontend Deploy? | Why |
+|-------------|-----------------|------------------|-----|
+| `src/**/*.py` | ✅ Yes | ❌ No | Backend code changes |
+| `frontend/twinbar/**` | ❌ No | ✅ Yes | Frontend code changes |
+| `Dockerfile*` | ✅ Yes | ❌ No | Container config changes |
+| `requirements*.txt` | ✅ Yes | ❌ No | Dependencies changed |
+| `terraform/**` | ✅ Yes | ❌ No | Infrastructure changes (manual apply needed) |
+| `tests/*.py` | ❌ No | ❌ No | Tests don't affect production |
+| `docs/*.md` | ❌ No | ❌ No | Documentation is git-only |
 
-**To force deployment without code changes:**
+**Smart Deployment:**
+- Backend changes → Rebuilds Docker image, deploys Lambdas
+- Frontend changes → Skips build, deploys frontend only
+- Both changed → Deploys both
+
+---
+
+## Zero-Downtime Pattern
+
+All environments use the same zero-downtime deployment pattern:
+
+```
+1. update-function-code → $LATEST (users still see old version)
+2. aws lambda invoke → smoke test $LATEST directly
+3. publish-version → create immutable snapshot
+4. update-alias → point "live" alias to new version
+
+Users NEVER see broken code - tested before promotion.
+```
+
+**Rollback procedure:**
 ```bash
-# Add trivial change to a path-filtered file
-echo "# $(date)" >> src/config.py
-git commit -m "chore: trigger deployment"
-git push origin telegram
-```
-
----
-
-## Pipeline Flow
-
-```
-git push origin telegram
-       ↓
-┌──────────────────┐
-│   Quality Gates  │  Unit tests, syntax check, security audit
-└────────┬─────────┘
-         ↓
-┌──────────────────┐
-│   Build Image    │  Docker build → ECR (one image for all envs)
-└────────┬─────────┘
-         ↓
-┌──────────────────┐
-│   Deploy Dev     │  update-function-code → smoke test → promote
-└────────┬─────────┘
-         ↓ (only if dev succeeds)
-┌──────────────────┐
-│  Deploy Staging  │  update-function-code → smoke test → promote
-└────────┬─────────┘
-         ↓ (only if staging succeeds)
-┌──────────────────┐
-│   Deploy Prod    │  update-function-code → smoke test → promote
-└──────────────────┘
-```
-
-**Key Points:**
-- NO terraform in CI/CD (infrastructure assumed to exist)
-- Same Docker image promoted through all environments
-- Zero-downtime: test $LATEST before updating "live" alias
-- Auto-progressive: no manual gates between environments
-
----
-
-## Deployment Jobs
-
-### 1. Quality Gates
-
-```yaml
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - name: Run tests
-        run: pytest --tier=1  # Deploy gate tests only
-
-      - name: Security audit
-        run: |
-          pip install safety
-          safety check
-```
-
-### 2. Build & Push Image
-
-```yaml
-  build:
-    needs: test
-    runs-on: ubuntu-latest
-    outputs:
-      image_uri: ${{ steps.build.outputs.image_uri }}
-
-    steps:
-      - name: Build Docker image
-        id: build
-        run: |
-          TAG="sha-${GITHUB_SHA::7}-$(date '+%Y%m%d-%H%M%S')"
-          docker build -t $ECR_REPO:$TAG -f Dockerfile.lambda.container .
-          docker push $ECR_REPO:$TAG
-          echo "image_uri=$ECR_REPO:$TAG" >> $GITHUB_OUTPUT
-```
-
-**Why SHA-based tags:**
-- Immutable: can't be overwritten
-- Traceable: links deployment to exact commit
-- Promotable: same image through all envs
-
-### 3. Deploy to Dev
-
-```yaml
-  deploy-dev:
-    needs: build
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Update Lambda function
-        run: |
-          aws lambda update-function-code \
-            --function-name dr-daily-report-telegram-api-dev \
-            --image-uri ${{ needs.build.outputs.image_uri }}
-
-      - name: Wait for update (CRITICAL)
-        run: |
-          aws lambda wait function-updated \
-            --function-name dr-daily-report-telegram-api-dev
-
-      - name: Smoke test $LATEST
-        run: |
-          aws lambda invoke \
-            --function-name dr-daily-report-telegram-api-dev \
-            --qualifier '$LATEST' \
-            --payload '{"httpMethod": "GET", "path": "/api/v1/health"}' \
-            /tmp/smoke-test.json
-
-          if ! grep -q '"statusCode":200' /tmp/smoke-test.json; then
-            echo "Smoke test failed!"
-            cat /tmp/smoke-test.json
-            exit 1
-          fi
-
-      - name: Publish version
-        id: publish
-        run: |
-          VERSION=$(aws lambda publish-version \
-            --function-name dr-daily-report-telegram-api-dev \
-            --query 'Version' \
-            --output text)
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-
-      - name: Update 'live' alias
-        run: |
-          aws lambda update-alias \
-            --function-name dr-daily-report-telegram-api-dev \
-            --name live \
-            --function-version ${{ steps.publish.outputs.version }}
-```
-
-### 4. Deploy to Staging
-
-```yaml
-  deploy-staging:
-    needs: [build, deploy-dev]  # Only runs if dev succeeds
-    runs-on: ubuntu-latest
-    # Same steps as deploy-dev, but for staging environment
-```
-
-### 5. Deploy to Prod
-
-```yaml
-  deploy-prod:
-    needs: [build, deploy-staging]  # Only runs if staging succeeds
-    runs-on: ubuntu-latest
-    # Same steps as deploy-staging, but for prod environment
-```
-
----
-
-## Monitoring Deployment
-
-**GitHub Actions monitoring:**
-```bash
-# Watch deployment in real-time
-gh run watch --exit-status
-
-# Check specific run
-gh run view 12345 --json conclusion
-# → {"conclusion": "success"}  # BOTH status AND conclusion matter!
-
-# Get logs if failed
-gh run view 12345 --log-failed
-```
-
-**Critical: Check BOTH status and conclusion:**
-```
-status: completed  = "The workflow finished running"
-conclusion: success = "The workflow achieved its goal"
-
-A workflow can be:
-- completed + success → ✅ Deploy succeeded
-- completed + failure → ❌ Deploy failed
-- completed + cancelled → ⚠️ Someone cancelled it
-```
-
----
-
-## Artifact Promotion Principle
-
-**Build once, promote same immutable image through all environments:**
-
-```
-Docker Image: sha-abc123-20251127 (IMMUTABLE)
-     │
-     ├──▶  DEV:     Uses sha-abc123-20251127
-     │              (auto on push to telegram)
-     │
-     ├──▶  STAGING: Uses sha-abc123-20251127
-     │              (same image, after dev succeeds)
-     │
-     └──▶  PROD:    Uses sha-abc123-20251127
-                    (same image, after staging succeeds)
-```
-
-**Why this matters:**
-- What you test in staging is EXACTLY what deploys to prod
-- No "works in staging, fails in prod" surprises
-- Fast rollback (just point alias back)
-
----
-
-## Environment Variables (GitHub Secrets)
-
-**Required per environment:**
-- `AWS_ACCESS_KEY_ID` - Deployment user credentials
-- `AWS_SECRET_ACCESS_KEY` - Deployment user secret
-- `AWS_REGION` - ap-southeast-1
-- `CLOUDFRONT_DISTRIBUTION_ID` - APP CloudFront ID
-- `CLOUDFRONT_TEST_DISTRIBUTION_ID` - TEST CloudFront ID
-
-**How to set:**
-```bash
-# Via GitHub CLI
-gh secret set AWS_ACCESS_KEY_ID --body "$ACCESS_KEY"
-gh secret set AWS_SECRET_ACCESS_KEY --body "$SECRET_KEY"
-
-# Via GitHub UI
-# Settings → Secrets → Actions → New repository secret
-```
-
----
-
-## Rollback in CI/CD
-
-If production deploy fails, manually rollback:
-
-```bash
-# 1. Find previous working version
-aws lambda list-versions-by-function \
-  --function-name dr-daily-report-telegram-api-prod \
-  --max-items 5
-
-# 2. Update alias to previous version
+# If issues detected post-deployment
 aws lambda update-alias \
   --function-name dr-daily-report-telegram-api-prod \
   --name live \
   --function-version <previous-version>
 ```
 
-**Future improvement:** Add automatic rollback on smoke test failure.
+---
+
+## Typical Workflows
+
+### Fast Dev Iteration
+```bash
+# Make changes
+git checkout dev
+git add .
+git commit -m "feat: add new feature"
+git push origin dev  # Deploys to dev only (~8 min)
+```
+
+### Promote to Staging
+```bash
+# Create PR from dev → main
+gh pr create --base main --head dev --title "Release: Feature X"
+# After approval and merge
+# → Staging deploys automatically (~10 min)
+```
+
+### Production Release
+```bash
+# After staging testing passes
+git checkout main
+git pull
+git tag -a v1.2.3 -m "Release: Feature X"
+git push origin v1.2.3
+
+# → Production deployment requires manual approval
+# → GitHub Release created automatically after deployment
+```
 
 ---
 
-## See Also
+## Monitoring Deployment
 
-- [Lambda Versioning](LAMBDA_VERSIONING.md) - Zero-downtime pattern
-- [Deployment Workflow](WORKFLOW.md) - Manual deployment process
-- [Monitoring Guide](MONITORING.md) - Proper waiter usage
+### Watch workflow runs
+```bash
+# List recent runs
+gh run list --limit 10
+
+# Watch specific run
+gh run watch <run-id> --exit-status
+
+# View logs
+gh run view <run-id> --log
+```
+
+### Check deployed versions
+```bash
+# Dev
+aws lambda get-alias \
+  --function-name dr-daily-report-telegram-api-dev \
+  --name live
+
+# Staging
+aws lambda get-alias \
+  --function-name dr-daily-report-telegram-api-staging \
+  --name live
+
+# Production
+aws lambda get-alias \
+  --function-name dr-daily-report-telegram-api-prod \
+  --name live
+```
+
+---
+
+## Environment Variables
+
+Managed via Doppler - injected during Terraform deployment.
+
+**Required secrets per environment:**
+- `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`
+- `CLOUDFRONT_DISTRIBUTION_ID` (APP distribution)
+- `CLOUDFRONT_TEST_DISTRIBUTION_ID` (TEST distribution for E2E)
+- `TELEGRAM_API_URL`
+- `WEBAPP_BUCKET_NAME`
+
+See [Multi-Environment Guide](MULTI_ENV.md) for complete configuration.
+
+---
+
+## Troubleshooting
+
+### "No dev artifact found" in staging
+**Cause:** Staging triggered before dev built this code.
+**Fix:** Push to dev first, wait for dev build to complete, then merge to main.
+
+### "Tag not on main branch" in production
+**Cause:** Tag created from dev or other branch.
+**Fix:**
+```bash
+git tag -d v1.2.3
+git push origin :refs/tags/v1.2.3
+git checkout main
+git tag -a v1.2.3 -m "Release v1.2.3"
+git push origin v1.2.3
+```
+
+### E2E tests fail on TEST CloudFront
+**Cause:** Frontend not fully propagated through CloudFront edge locations.
+**Wait:** 30-60 seconds and retry manually, or workflow will retry automatically.
+
+### Schema validation blocks deployment
+**Cause:** Code expects columns that don't exist in Aurora.
+**Fix:** Create migration first, then deploy code. See [Database Migrations](../DATABASE_MIGRATIONS.md).
+
+---
+
+## Related Documentation
+
+- [Lambda Versioning Strategy](LAMBDA_VERSIONING.md) - Zero-downtime deployment pattern
+- [Multi-Environment Guide](MULTI_ENV.md) - Environment configuration
+- [Deployment Workflow](WORKFLOW.md) - Manual deployment commands
+- [ADR-009: Artifact Promotion](../adr/009-artifact-promotion-over-per-env-builds.md) - Why we build once

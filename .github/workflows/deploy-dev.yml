@@ -1,0 +1,821 @@
+name: Deploy to Development Environment
+
+# ============================================================================
+# Branch-Based Deployment: dev branch → dev environment only
+# Independent deployment with artifact promotion to staging/prod
+# Required vars: CLOUDFRONT_DOMAIN. Secrets: CLOUDFRONT_DISTRIBUTION_ID
+# ============================================================================
+on:
+  workflow_dispatch:  # Manual trigger for reruns without cached artifacts
+  push:
+    branches:
+      - dev  # Deploy to dev environment only
+    paths:
+      - 'src/**'
+      - 'frontend/twinbar/**'
+      - 'Dockerfile*'
+      - 'requirements*.txt'
+      - 'terraform/**'
+      - '.github/workflows/**'
+      - 'tests/**'
+
+env:
+  AWS_REGION: ap-southeast-1
+  PYTHON_VERSION: '3.11'
+  ECR_REGISTRY: 755283537543.dkr.ecr.ap-southeast-1.amazonaws.com
+
+jobs:
+  ###############################################################################
+  # Stage 0a: Detect Changes (for conditional deployment)
+  ###############################################################################
+  detect-changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+      shared: ${{ steps.filter.outputs.shared }}
+      api: ${{ steps.filter.outputs.api }}
+      scheduler: ${{ steps.filter.outputs.scheduler }}
+      worker: ${{ steps.filter.outputs.worker }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Detect changed paths
+        uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            shared:
+              - 'src/agent.py'
+              - 'src/workflow/**'
+              - 'src/data/**'
+              - 'src/analysis/**'
+              - 'src/report/**'
+              - 'src/types.py'
+              - 'src/config.py'
+              - 'requirements*.txt'
+              - 'Dockerfile*'
+            api:
+              - 'src/api/**'
+            scheduler:
+              - 'src/scheduler/**'
+            worker:
+              - 'src/report_worker_handler.py'
+            backend:
+              - 'src/**'
+              - 'Dockerfile*'
+              - 'requirements*.txt'
+            frontend:
+              - 'frontend/twinbar/**'
+
+      - name: Log detected changes
+        run: |
+          echo "📊 Change Detection Results:"
+          echo "   Backend changed:   ${{ steps.filter.outputs.backend }}"
+          echo "   Frontend changed:  ${{ steps.filter.outputs.frontend }}"
+          echo "   Shared code:       ${{ steps.filter.outputs.shared }}"
+          echo "   API code:          ${{ steps.filter.outputs.api }}"
+          echo "   Scheduler code:    ${{ steps.filter.outputs.scheduler }}"
+          echo "   Worker code:       ${{ steps.filter.outputs.worker }}"
+          echo ""
+          echo "📝 Deployment Decision:"
+          if [ "${{ steps.filter.outputs.backend }}" == "true" ]; then
+            echo "   → Will deploy backend (all Lambdas)"
+          fi
+          if [ "${{ steps.filter.outputs.frontend }}" == "true" ]; then
+            echo "   → Will deploy frontend"
+          fi
+
+  ###############################################################################
+  # Stage 0b: Quality Gates
+  ###############################################################################
+  test:
+    name: Quality Gates
+    needs: [detect-changes]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-asyncio pip-audit
+
+      - name: Syntax check
+        run: |
+          echo "🔍 Checking Python syntax..."
+          python -m py_compile src/**/*.py src/api/*.py dr_cli/**/*.py
+          echo "✅ Syntax check passed"
+
+      - name: Unit tests
+        run: |
+          echo "🧪 Running unit tests..."
+          pytest tests/shared tests/telegram -v --tb=short \
+            -k "not integration and not smoke and not e2e" \
+            --ignore=tests/integration/ \
+            --ignore=tests/line_bot/ \
+            --ignore=tests/telegram/test_e2e_frontend.py
+          echo "✅ Unit tests passed"
+
+      - name: Security audit
+        run: |
+          echo "🔒 Running security audit..."
+          pip-audit --strict --desc || echo "⚠️ Security warnings found (non-blocking)"
+        continue-on-error: true
+
+  ###############################################################################
+  # Stage 1: Build (immutable artifact - built once, promoted through envs)
+  # Only runs if backend code changed
+  ###############################################################################
+  build:
+    name: Build Image
+    needs: [test, detect-changes]
+    runs-on: ubuntu-latest
+    if: needs.detect-changes.outputs.backend == 'true'
+
+    outputs:
+      image_tag: ${{ steps.build.outputs.image_tag }}
+      image_uri: ${{ steps.build.outputs.image_uri }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build, tag, and push image to ECR
+        id: build
+        run: |
+          # Generate immutable tag (no env prefix - same image for all envs)
+          SHA_SHORT=$(git rev-parse --short HEAD)
+          TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+          IMAGE_TAG="sha-${SHA_SHORT}-${TIMESTAMP}"
+
+          # Use dev ECR repo as the source (image is promoted, not rebuilt)
+          ECR_REPOSITORY="dr-daily-report-lambda-dev"
+          IMAGE_URI="${{ env.ECR_REGISTRY }}/${ECR_REPOSITORY}:${IMAGE_TAG}"
+
+          echo "📦 Building Docker image..."
+          echo "   Tag: ${IMAGE_TAG}"
+          echo "   URI: ${IMAGE_URI}"
+
+          docker build \
+            -f Dockerfile.lambda.container \
+            -t ${IMAGE_URI} \
+            .
+
+          echo "🚀 Pushing to ECR..."
+          docker push ${IMAGE_URI}
+
+          echo "✅ Image pushed: ${IMAGE_URI}"
+          echo "image_tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
+          echo "image_uri=${IMAGE_URI}" >> $GITHUB_OUTPUT
+
+      - name: Scan image for vulnerabilities
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ steps.build.outputs.image_uri }}
+          format: 'table'
+          exit-code: '0'
+          severity: 'CRITICAL,HIGH'
+
+      # ========================================================================
+      # Artifact Promotion: Store metadata for staging/prod workflows
+      # ========================================================================
+      - name: Store artifact metadata for promotion
+        run: |
+          echo "📦 Storing artifact metadata for staging/prod promotion..."
+          echo "${{ steps.build.outputs.image_uri }}" > artifact-uri.txt
+          echo "${{ steps.build.outputs.image_tag }}" > artifact-tag.txt
+          echo "Built: $(date -u +%Y-%m-%dT%H:%M:%SZ)" > artifact-timestamp.txt
+          echo "Commit: ${{ github.sha }}" >> artifact-timestamp.txt
+
+      - name: Upload artifact metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: dev-artifact-metadata
+          path: |
+            artifact-uri.txt
+            artifact-tag.txt
+            artifact-timestamp.txt
+          retention-days: 30
+
+  ###############################################################################
+  # Stage 1b: Validate Aurora Schema (CI/CD Gate - NO MOCKING)
+  ###############################################################################
+  validate-aurora-schema:
+    name: Validate Aurora Schema
+    needs: [build]
+    runs-on: ubuntu-latest
+    environment: development
+    if: needs.build.result == 'success'
+
+    env:
+      ENV_NAME: dev
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-asyncio boto3 pymysql
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Validate Aurora schema matches code expectations (Comprehensive)
+        env:
+          SCHEDULER_LAMBDA_NAME: dr-daily-report-ticker-scheduler-${{ env.ENV_NAME }}
+        run: |
+          echo "🔍 Validating Aurora schema via Lambda (NO MOCKING)..."
+          echo "   Following CLAUDE.md: Schema Testing at System Boundaries"
+          echo "   Query REAL Aurora schema, compare against code expectations"
+          echo ""
+          echo "Running comprehensive schema validation tests..."
+          echo "  ✓ Auto-extracts expected columns from INSERT queries"
+          echo "  ✓ Validates ALL tables (precomputed_reports, daily_indicators, etc.)"
+          echo "  ✓ Checks column types, not just names"
+          echo ""
+
+          # Run comprehensive schema validation tests
+          pytest tests/infrastructure/test_aurora_schema_comprehensive.py \
+            -v --tb=short -m integration
+
+          # VALIDATION GATE: Check exit code explicitly
+          EXIT_CODE=$?
+          if [ $EXIT_CODE -eq 0 ]; then
+            echo ""
+            echo "✅ Comprehensive schema validation PASSED - Safe to deploy"
+            echo "   All tables match code expectations"
+          else
+            echo ""
+            echo "❌ Schema validation FAILED - Deployment BLOCKED"
+            echo ""
+            echo "Code expects columns that don't exist in Aurora."
+            echo "Migration required before deployment can proceed."
+            echo ""
+            echo "See test output above for:"
+            echo "  • Missing column names"
+            echo "  • File locations (src/data/aurora/...)"
+            echo "  • Migration instructions"
+            exit 1
+          fi
+
+  ###############################################################################
+  # Stage 2: Deploy to Dev (Zero-Downtime: Test Before Promote)
+  ###############################################################################
+  deploy-dev:
+    name: Deploy Dev
+    needs: [build, validate-aurora-schema]
+    if: |
+      always() &&
+      needs.build.result == 'success' &&
+      needs.validate-aurora-schema.result == 'success'
+    runs-on: ubuntu-latest
+    environment: development
+
+    outputs:
+      telegram_version: ${{ steps.promote-telegram.outputs.version }}
+      worker_version: ${{ steps.promote-worker.outputs.version }}
+      prev_telegram_version: ${{ steps.get-current.outputs.telegram_version }}
+      prev_worker_version: ${{ steps.get-current.outputs.worker_version }}
+
+    env:
+      ENV_NAME: dev
+      TELEGRAM_FUNCTION: dr-daily-report-telegram-api-dev
+      WORKER_FUNCTION: dr-daily-report-report-worker-dev
+      SCHEDULER_FUNCTION: dr-daily-report-ticker-scheduler-dev
+
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Get current versions (for rollback reference)
+        id: get-current
+        run: |
+          TELEGRAM_VERSION=$(aws lambda get-alias \
+            --function-name ${{ env.TELEGRAM_FUNCTION }} \
+            --name live \
+            --query 'FunctionVersion' \
+            --output text 2>/dev/null || echo "1")
+          WORKER_VERSION=$(aws lambda get-alias \
+            --function-name ${{ env.WORKER_FUNCTION }} \
+            --name live \
+            --query 'FunctionVersion' \
+            --output text 2>/dev/null || echo "1")
+          echo "📌 Current dev versions: Telegram=${TELEGRAM_VERSION}, Worker=${WORKER_VERSION}"
+          echo "telegram_version=${TELEGRAM_VERSION}" >> $GITHUB_OUTPUT
+          echo "worker_version=${WORKER_VERSION}" >> $GITHUB_OUTPUT
+
+      # ========================================================================
+      # Step 1: Update $LATEST (staging area - users still see old version)
+      # ========================================================================
+      - name: Update Telegram API to $LATEST (not live yet)
+        run: |
+          echo "🔄 Uploading new code to \$LATEST (users still see old version)..."
+          aws lambda update-function-code \
+            --function-name ${{ env.TELEGRAM_FUNCTION }} \
+            --image-uri ${{ needs.build.outputs.image_uri }}
+          aws lambda wait function-updated --function-name ${{ env.TELEGRAM_FUNCTION }}
+          echo "✅ Code uploaded to \$LATEST"
+
+      - name: Update Worker to $LATEST (not live yet)
+        run: |
+          aws lambda update-function-code \
+            --function-name ${{ env.WORKER_FUNCTION }} \
+            --image-uri ${{ needs.build.outputs.image_uri }}
+          aws lambda wait function-updated --function-name ${{ env.WORKER_FUNCTION }}
+          echo "✅ Worker code uploaded to \$LATEST"
+
+      - name: Update Scheduler to $LATEST (not live yet)
+        run: |
+          aws lambda update-function-code \
+            --function-name ${{ env.SCHEDULER_FUNCTION }} \
+            --image-uri ${{ needs.build.outputs.image_uri }}
+          aws lambda wait function-updated --function-name ${{ env.SCHEDULER_FUNCTION }}
+          echo "✅ Scheduler code uploaded to \$LATEST"
+
+      # ========================================================================
+      # Step 2: Smoke test $LATEST directly (before any user sees it)
+      # ========================================================================
+      - name: Smoke test $LATEST (pre-promotion validation)
+        run: |
+          echo "🧪 Testing \$LATEST directly via aws lambda invoke..."
+          echo "   Users are STILL seeing the old version"
+
+          # API Gateway HTTP API v2 event format required by Mangum
+          make_payload() {
+            local method=$1
+            local path=$2
+            local query=${3:-""}
+            cat << EOF
+          {"version":"2.0","routeKey":"${method} ${path}","rawPath":"${path}","rawQueryString":"${query}","headers":{"content-type":"application/json"},"requestContext":{"http":{"method":"${method}","path":"${path}","protocol":"HTTP/1.1","sourceIp":"127.0.0.1","userAgent":"smoke-test/1.0"},"requestId":"smoke-test","routeKey":"${method} ${path}","stage":"\$default"},"isBase64Encoded":false}
+          EOF
+          }
+
+          # Test 1: Health endpoint
+          HEALTH_PAYLOAD=$(make_payload "GET" "/api/v1/health" | base64 -w 0)
+          aws lambda invoke \
+            --function-name ${{ env.TELEGRAM_FUNCTION }} \
+            --cli-read-timeout 30 \
+            --payload "$HEALTH_PAYLOAD" \
+            /tmp/health.json
+
+          HEALTH_STATUS=$(cat /tmp/health.json | jq -r '.statusCode // 500')
+          echo "   Health check response: ${HEALTH_STATUS}"
+          if [ "$HEALTH_STATUS" != "200" ]; then
+            echo "❌ Health check FAILED on \$LATEST"
+            echo "   Response body: $(cat /tmp/health.json)"
+            echo "   Users were NEVER exposed to this broken code!"
+            exit 1
+          fi
+          echo "✅ Health check passed"
+
+          # Test 2: Search endpoint
+          SEARCH_PAYLOAD=$(make_payload "GET" "/api/v1/search" "q=NVDA" | base64 -w 0)
+          aws lambda invoke \
+            --function-name ${{ env.TELEGRAM_FUNCTION }} \
+            --cli-read-timeout 30 \
+            --payload "$SEARCH_PAYLOAD" \
+            /tmp/search.json
+
+          SEARCH_STATUS=$(cat /tmp/search.json | jq -r '.statusCode // 500')
+          echo "   Search endpoint response: ${SEARCH_STATUS}"
+          if [ "$SEARCH_STATUS" != "200" ]; then
+            echo "❌ Search endpoint FAILED on \$LATEST"
+            echo "   Response body: $(cat /tmp/search.json)"
+            echo "   Users were NEVER exposed to this broken code!"
+            exit 1
+          fi
+          echo "✅ Search endpoint passed"
+
+          echo ""
+          echo "🎉 All pre-promotion smoke tests PASSED!"
+          echo "   Safe to promote to live alias"
+
+      # ========================================================================
+      # Step 3: Promote to live (only after tests pass)
+      # ========================================================================
+      - name: Promote Telegram API to live
+        id: promote-telegram
+        run: |
+          echo "🚀 Publishing version and updating live alias..."
+          NEW_VERSION=$(aws lambda publish-version \
+            --function-name ${{ env.TELEGRAM_FUNCTION }} \
+            --query 'Version' \
+            --output text)
+          aws lambda update-alias \
+            --function-name ${{ env.TELEGRAM_FUNCTION }} \
+            --name live \
+            --function-version ${NEW_VERSION}
+          echo "✅ Dev Telegram API promoted: version ${NEW_VERSION}"
+          echo "   Users now see the tested code"
+          echo "version=${NEW_VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Promote Worker to live
+        id: promote-worker
+        run: |
+          NEW_VERSION=$(aws lambda publish-version \
+            --function-name ${{ env.WORKER_FUNCTION }} \
+            --query 'Version' \
+            --output text)
+          aws lambda update-alias \
+            --function-name ${{ env.WORKER_FUNCTION }} \
+            --name live \
+            --function-version ${NEW_VERSION}
+          echo "✅ Dev Worker promoted: version ${NEW_VERSION}"
+          echo "version=${NEW_VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Promote Scheduler to live
+        id: promote-scheduler
+        run: |
+          NEW_VERSION=$(aws lambda publish-version \
+            --function-name ${{ env.SCHEDULER_FUNCTION }} \
+            --query 'Version' \
+            --output text)
+          # Create alias if it doesn't exist, otherwise update it
+          aws lambda update-alias \
+            --function-name ${{ env.SCHEDULER_FUNCTION }} \
+            --name live \
+            --function-version ${NEW_VERSION} 2>/dev/null || \
+          aws lambda create-alias \
+            --function-name ${{ env.SCHEDULER_FUNCTION }} \
+            --name live \
+            --function-version ${NEW_VERSION} \
+            --description "Production alias for scheduler - update to rollback"
+          echo "✅ Dev Scheduler promoted: version ${NEW_VERSION}"
+          echo "version=${NEW_VERSION}" >> $GITHUB_OUTPUT
+
+  ###############################################################################
+  # Stage 2a: VPC Integration Tests (CodeBuild - Aurora connectivity)
+  ###############################################################################
+  vpc-integration-tests:
+    name: VPC Integration Tests (CodeBuild)
+    needs: [deploy-dev]
+    runs-on: ubuntu-latest
+    environment: development
+    if: ${{ vars.AURORA_ENABLED == 'true' }}
+
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Start CodeBuild for VPC tests
+        id: codebuild
+        run: |
+          echo "🚀 Starting CodeBuild for VPC integration tests..."
+          BUILD_ID=$(aws codebuild start-build \
+            --project-name dr-daily-report-vpc-tests-dev \
+            --query 'build.id' \
+            --output text)
+          echo "build_id=${BUILD_ID}" >> $GITHUB_OUTPUT
+          echo "📋 Build ID: ${BUILD_ID}"
+
+      - name: Wait for CodeBuild completion
+        run: |
+          BUILD_ID="${{ steps.codebuild.outputs.build_id }}"
+          echo "⏳ Waiting for CodeBuild to complete..."
+          echo "   Build ID: ${BUILD_ID}"
+
+          # Poll every 30 seconds for up to 20 minutes
+          for i in {1..40}; do
+            STATUS=$(aws codebuild batch-get-builds \
+              --ids "${BUILD_ID}" \
+              --query 'builds[0].buildStatus' \
+              --output text)
+
+            PHASE=$(aws codebuild batch-get-builds \
+              --ids "${BUILD_ID}" \
+              --query 'builds[0].currentPhase' \
+              --output text 2>/dev/null || echo "UNKNOWN")
+
+            echo "   [${i}/40] Status: ${STATUS}, Phase: ${PHASE}"
+
+            if [ "$STATUS" = "SUCCEEDED" ]; then
+              echo "✅ VPC integration tests PASSED!"
+              exit 0
+            elif [ "$STATUS" = "FAILED" ] || [ "$STATUS" = "FAULT" ] || [ "$STATUS" = "STOPPED" ]; then
+              echo "❌ VPC integration tests FAILED with status: ${STATUS}"
+              # Get logs URL
+              LOGS_URL=$(aws codebuild batch-get-builds \
+                --ids "${BUILD_ID}" \
+                --query 'builds[0].logs.deepLink' \
+                --output text)
+              echo "📋 CloudWatch Logs: ${LOGS_URL}"
+              exit 1
+            fi
+
+            sleep 30
+          done
+
+          echo "❌ Timeout waiting for CodeBuild (20 min limit)"
+          exit 1
+
+  ###############################################################################
+  # Stage 2b: Deploy Dev Frontend (TEST CloudFront only - for E2E testing)
+  # Runs if frontend changed, even if backend deploy was skipped
+  ###############################################################################
+  deploy-dev-frontend:
+    name: Deploy Dev Frontend (TEST)
+    needs: [deploy-dev, detect-changes, test]
+    if: |
+      always() &&
+      needs.detect-changes.outputs.frontend == 'true' &&
+      needs.test.result == 'success' &&
+      (needs.deploy-dev.result == 'success' || needs.deploy-dev.result == 'skipped')
+    runs-on: ubuntu-latest
+    environment: development
+
+    outputs:
+      test_url: ${{ steps.deploy.outputs.test_url }}
+
+    steps:
+      - name: Configure AWS credentials (for infrastructure validation)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ap-southeast-1
+
+      - name: Validate Infrastructure & Secrets
+        env:
+          GITHUB_TEST_DIST: ${{ secrets.CLOUDFRONT_TEST_DISTRIBUTION_ID }}
+          GITHUB_TEST_DOMAIN: ${{ secrets.CLOUDFRONT_TEST_DOMAIN }}
+          GITHUB_APP_DIST: ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }}
+        run: |
+          echo "🔍 Validating CloudFront infrastructure and secrets..."
+
+          # Query actual infrastructure from AWS
+          echo "Querying AWS for actual CloudFront distributions..."
+          ACTUAL_TEST_DIST=$(aws cloudfront list-distributions \
+            --query 'DistributionList.Items[?Comment==`Telegram Mini App TEST - dev (E2E testing)`].Id' \
+            --output text)
+
+          ACTUAL_TEST_DOMAIN=$(aws cloudfront list-distributions \
+            --query 'DistributionList.Items[?Comment==`Telegram Mini App TEST - dev (E2E testing)`].DomainName' \
+            --output text)
+
+          ACTUAL_APP_DIST=$(aws cloudfront list-distributions \
+            --query 'DistributionList.Items[?Comment==`Telegram Mini App - dev`].Id' \
+            --output text)
+
+          echo "📊 Infrastructure found:"
+          echo "   TEST Distribution ID: $ACTUAL_TEST_DIST"
+          echo "   TEST Domain:          $ACTUAL_TEST_DOMAIN"
+          echo "   APP Distribution ID:  $ACTUAL_APP_DIST"
+          echo ""
+
+          # Validate secrets exist and match reality
+          errors=()
+
+          if [ -z "$GITHUB_TEST_DIST" ]; then
+            errors+=("❌ CLOUDFRONT_TEST_DISTRIBUTION_ID secret is missing")
+          elif [ "$ACTUAL_TEST_DIST" != "$GITHUB_TEST_DIST" ]; then
+            errors+=("❌ CLOUDFRONT_TEST_DISTRIBUTION_ID mismatch (AWS: $ACTUAL_TEST_DIST, GitHub: $GITHUB_TEST_DIST)")
+          fi
+
+          if [ -z "$GITHUB_TEST_DOMAIN" ]; then
+            errors+=("❌ CLOUDFRONT_TEST_DOMAIN secret is missing")
+          elif [ "$ACTUAL_TEST_DOMAIN" != "$GITHUB_TEST_DOMAIN" ]; then
+            errors+=("❌ CLOUDFRONT_TEST_DOMAIN mismatch (AWS: $ACTUAL_TEST_DOMAIN, GitHub: $GITHUB_TEST_DOMAIN)")
+            errors+=("   Note: Secret should contain ONLY the CloudFront domain (no https://)")
+          fi
+
+          if [ -z "$GITHUB_APP_DIST" ]; then
+            errors+=("❌ CLOUDFRONT_DISTRIBUTION_ID secret is missing")
+          elif [ "$ACTUAL_APP_DIST" != "$GITHUB_APP_DIST" ]; then
+            errors+=("❌ CLOUDFRONT_DISTRIBUTION_ID mismatch (AWS: $ACTUAL_APP_DIST, GitHub: $GITHUB_APP_DIST)")
+          fi
+
+          # Report results
+          if [ ${#errors[@]} -gt 0 ]; then
+            echo ""
+            echo "❌ VALIDATION FAILED - Infrastructure/secrets mismatch:"
+            printf '   %s\n' "${errors[@]}"
+            echo ""
+            echo "To fix:"
+            echo "  gh secret set CLOUDFRONT_TEST_DISTRIBUTION_ID --env development --body \"$ACTUAL_TEST_DIST\""
+            echo "  gh secret set CLOUDFRONT_TEST_DOMAIN --env development --body \"$ACTUAL_TEST_DOMAIN\""
+            echo "  gh secret set CLOUDFRONT_DISTRIBUTION_ID --env development --body \"$ACTUAL_APP_DIST\""
+            exit 1
+          fi
+
+          echo "✅ All secrets match actual infrastructure"
+          echo "   Safe to proceed with deployment"
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/twinbar/package-lock.json
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Build Twinbar React app
+        working-directory: frontend/twinbar
+        run: |
+          npm ci
+          npm run build
+
+      - name: Deploy frontend to S3 + TEST CloudFront
+        id: deploy
+        env:
+          API_URL: ${{ secrets.TELEGRAM_API_URL }}
+          TEST_DIST_ID: ${{ secrets.CLOUDFRONT_TEST_DISTRIBUTION_ID }}
+        run: |
+          # Ensure API URL has /api/v1 suffix
+          if [[ ! "${API_URL}" =~ /api/v1$ ]]; then
+            API_URL="${API_URL%/}/api/v1"
+          fi
+          echo "   Using API URL: ${API_URL}"
+
+          # Inject API URL into built index.html
+          sed -i "s|</head>|<script>window.TELEGRAM_API_URL = '${API_URL}';</script></head>|g" frontend/twinbar/dist/index.html
+
+          aws s3 sync frontend/twinbar/dist/ s3://${{ secrets.WEBAPP_BUCKET_NAME }}/ --delete
+          echo "✅ Dev frontend uploaded to S3"
+
+          # Only invalidate TEST CloudFront (users still see old version)
+          if [ -n "${TEST_DIST_ID}" ]; then
+            aws cloudfront create-invalidation \
+              --distribution-id ${TEST_DIST_ID} \
+              --paths "/*" > /dev/null
+            echo "✅ TEST CloudFront invalidated (E2E can test new code)"
+            echo "test_url=https://${{ secrets.CLOUDFRONT_TEST_DOMAIN }}" >> $GITHUB_OUTPUT
+          else
+            echo "⚠️ TEST CloudFront not configured, using APP CloudFront"
+            # Fallback to APP CloudFront if TEST not configured
+            if [ -n "${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }}" ]; then
+              aws cloudfront create-invalidation \
+                --distribution-id ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }} \
+                --paths "/*" > /dev/null
+            fi
+            echo "test_url=https://${{ vars.CLOUDFRONT_DOMAIN }}" >> $GITHUB_OUTPUT
+          fi
+
+  ###############################################################################
+  # Stage 2c: E2E Tests against Dev TEST CloudFront
+  ###############################################################################
+  e2e-test-dev:
+    name: E2E Tests (Dev)
+    needs: [deploy-dev-frontend]
+    if: needs.deploy-dev-frontend.result == 'success'
+    runs-on: ubuntu-latest
+    environment: development
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements-dev.txt
+          playwright install chromium
+
+      - name: Validate E2E Test Environment
+        env:
+          E2E_BASE_URL: ${{ needs.deploy-dev-frontend.outputs.test_url }}
+        run: |
+          # Fail fast if E2E_BASE_URL is empty (TEST CloudFront not configured)
+          if [ -z "${E2E_BASE_URL}" ]; then
+            echo "❌ FATAL: E2E_BASE_URL is empty!"
+            echo "   This means TEST CloudFront is not configured."
+            echo "   NEVER skip E2E tests - configure TEST CloudFront first."
+            echo "   See CLAUDE.md: Two CloudFront distributions required."
+            exit 1
+          fi
+
+          echo "🔍 Validating E2E test environment..."
+          echo "   E2E_BASE_URL: ${E2E_BASE_URL}"
+
+          # Verify URL is accessible (HTTP 200, 301, or 302)
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "${E2E_BASE_URL}" || echo "000")
+          if ! echo "${HTTP_CODE}" | grep -qE "^(200|301|302)$"; then
+            echo "⚠️ WARNING: E2E_BASE_URL returned HTTP ${HTTP_CODE}: ${E2E_BASE_URL}"
+            echo "   Tests may fail - verify CloudFront distribution is active"
+            echo "   Check: aws cloudfront get-distribution --id <distribution-id>"
+          else
+            echo "✅ E2E_BASE_URL is accessible (HTTP ${HTTP_CODE})"
+          fi
+
+          # Verify Playwright is installed
+          if ! playwright --version > /dev/null 2>&1; then
+            echo "❌ FATAL: Playwright not installed"
+            exit 1
+          fi
+
+          PLAYWRIGHT_VERSION=$(playwright --version)
+          echo "✅ Playwright installed: ${PLAYWRIGHT_VERSION}"
+          echo "✅ E2E test environment validated"
+
+      - name: Run E2E Tests
+        env:
+          E2E_BASE_URL: ${{ needs.deploy-dev-frontend.outputs.test_url }}
+        run: |
+          echo "🧪 Running E2E tests against: ${E2E_BASE_URL}"
+          echo "   Test files: tests/e2e/"
+          echo "   Marker: e2e"
+          echo ""
+
+          # Run tests with detailed output
+          pytest tests/e2e/ -m e2e -v --tb=short --log-cli-level=INFO || {
+            echo ""
+            echo "❌ E2E tests failed! APP CloudFront will NOT be updated."
+            echo "   Users still see the previous working version."
+            echo ""
+            echo "   Debugging steps:"
+            echo "   1. Check CloudWatch logs for API errors"
+            echo "   2. Verify frontend deployment succeeded"
+            echo "   3. Run tests locally: E2E_BASE_URL=${E2E_BASE_URL} pytest tests/e2e/ -m e2e -v --headed"
+            echo "   4. Check CloudFront distribution status"
+            exit 1
+          }
+
+          echo ""
+          echo "✅ E2E tests passed!"
+
+  ###############################################################################
+  # Stage 2d: Promote Dev Frontend (APP CloudFront - users see new version)
+  ###############################################################################
+  promote-dev-frontend:
+    name: Promote Dev Frontend (APP)
+    needs: [e2e-test-dev]
+    runs-on: ubuntu-latest
+    environment: development
+
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Invalidate APP CloudFront (users see new frontend)
+        env:
+          DIST_ID: ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }}
+        run: |
+          if [ -n "${DIST_ID}" ]; then
+            aws cloudfront create-invalidation \
+              --distribution-id ${DIST_ID} \
+              --paths "/*" > /dev/null
+            echo "✅ APP CloudFront invalidated - users now see new frontend"
+          else
+            echo "⏭️ No APP CloudFront distribution configured"
+          fi

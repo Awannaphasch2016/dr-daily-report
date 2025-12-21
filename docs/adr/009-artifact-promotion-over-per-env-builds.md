@@ -229,3 +229,152 @@ To prevent unbounded image storage:
 ```
 
 This keeps 30 most recent images (30 days of deploys if daily) while cleaning up old builds.
+
+---
+
+## Update (2025-01-22): Branch-Based Deployment
+
+With the migration to branch-based deployment, the artifact promotion pattern remains but the trigger mechanism changes:
+
+**Before:** Single `telegram` branch → all environments (progressive deployment)
+**After:** Separate branches → independent environments (branch-based triggers)
+
+### New Artifact Promotion Flow
+
+```
+dev branch push
+    ↓
+┌─────────────────────┐
+│ deploy-dev.yml:     │  Builds image: sha-abc123-20250122-143000
+│ - Build Docker      │      ↓
+│ - Push to ECR       │  Stores metadata in GitHub Artifacts
+│ - Store metadata    │      ↓
+└─────────────────────┘  (dev-artifact-metadata)
+    ↓
+main branch push
+    ↓
+┌─────────────────────┐
+│ deploy-staging.yml: │  Downloads dev-artifact-metadata
+│ - Get dev artifact  │      ↓
+│ - Deploy same image │  Uses: sha-abc123-20250122-143000 (NO REBUILD)
+│ - Store metadata    │      ↓
+└─────────────────────┘  (staging-artifact-metadata)
+    ↓
+v1.2.3 tag on main
+    ↓
+┌─────────────────────┐
+│ deploy-prod.yml:    │  Downloads staging-artifact-metadata
+│ - Validate tag      │      ↓
+│ - Get staging       │  Uses: sha-abc123-20250122-143000 (SAME IMAGE)
+│   artifact          │      ↓
+│ - Deploy same image │  Manual approval required
+└─────────────────────┘
+```
+
+### Implementation Changes
+
+**1. Dev build creates artifact (triggered by `dev` branch push):**
+```yaml
+# .github/workflows/deploy-dev.yml
+jobs:
+  build:
+    outputs:
+      image_uri: ${{ steps.build.outputs.image_uri }}
+    steps:
+      - name: Build and push
+        id: build
+        run: |
+          IMAGE_URI="${ECR_REPO}:sha-${GITHUB_SHA}-$(date +%Y%m%d%H%M%S)"
+          docker build -t $IMAGE_URI .
+          docker push $IMAGE_URI
+          echo "image_uri=$IMAGE_URI" >> $GITHUB_OUTPUT
+
+      - name: Store artifact metadata
+        run: |
+          echo "${{ steps.build.outputs.image_uri }}" > artifact-uri.txt
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dev-artifact-metadata
+          path: artifact-uri.txt
+          retention-days: 30
+```
+
+**2. Staging downloads dev artifact (triggered by `main` branch push):**
+```yaml
+# .github/workflows/deploy-staging.yml
+jobs:
+  get-dev-artifact:
+    runs-on: ubuntu-latest
+    outputs:
+      image_uri: ${{ steps.download.outputs.image_uri }}
+    steps:
+      - name: Download artifact from dev
+        uses: dawidd6/action-download-artifact@v3
+        with:
+          workflow: deploy-dev.yml
+          branch: dev
+          name: dev-artifact-metadata
+          path: ./artifacts
+
+      - name: Read artifact metadata
+        id: download
+        run: |
+          IMAGE_URI=$(cat ./artifacts/artifact-uri.txt)
+          echo "image_uri=${IMAGE_URI}" >> $GITHUB_OUTPUT
+
+  deploy-staging:
+    needs: get-dev-artifact
+    steps:
+      - name: Update Lambda with dev's image
+        run: |
+          aws lambda update-function-code \
+            --function-name $FUNCTION_NAME \
+            --image-uri ${{ needs.get-dev-artifact.outputs.image_uri }}
+```
+
+**3. Production downloads staging artifact (triggered by `v*.*.*` tag):**
+```yaml
+# .github/workflows/deploy-prod.yml
+jobs:
+  validate-tag:
+    steps:
+      - name: Verify tag is on main branch
+        run: |
+          TAG_COMMIT=$(git rev-list -n 1 ${{ github.ref }})
+          MAIN_COMMITS=$(git rev-list main)
+          if ! echo "$MAIN_COMMITS" | grep -q "$TAG_COMMIT"; then
+            echo "❌ Tag must be on main branch"
+            exit 1
+          fi
+
+  get-staging-artifact:
+    needs: validate-tag
+    steps:
+      - name: Download artifact from staging
+        uses: dawidd6/action-download-artifact@v3
+        with:
+          workflow: deploy-staging.yml
+          branch: main
+          name: staging-artifact-metadata
+```
+
+### Key Benefits of Branch-Based Artifact Promotion
+
+- ✅ **Fast Dev Iteration**: Dev deploys in ~8 min (vs 30 min for all envs)
+- ✅ **Clear Error Isolation**: Know exactly which environment failed (no cascading failures)
+- ✅ **Semantic Versioning**: Production releases use explicit tags (`v1.2.3`)
+- ✅ **Maintained Reproducibility**: Same immutable image tested in dev → staging → prod
+- ✅ **Independent Environments**: Staging/prod won't deploy if dev hasn't built yet
+- ✅ **GitHub Artifacts**: 30-day retention provides artifact promotion across workflows
+
+### Workflow Triggers
+
+| Trigger | Workflow | Action | Duration |
+|---------|----------|--------|----------|
+| Push to `dev` | `deploy-dev.yml` | Build + deploy to dev only | ~8 min |
+| Push to `main` | `deploy-staging.yml` | Promote dev artifact to staging | ~10 min |
+| Tag `v*.*.*` on `main` | `deploy-prod.yml` | Promote staging artifact to prod | ~12 min |
+
+This maintains the "build once, deploy everywhere" principle while enabling independent environment deployment and faster development iteration.

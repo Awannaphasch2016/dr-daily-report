@@ -1,0 +1,514 @@
+name: Deploy to Staging Environment
+
+# ============================================================================
+# Branch-Based Deployment: main branch → staging environment only
+# Promotes artifact from dev build (same immutable image tested in dev)
+# Required vars: CLOUDFRONT_DOMAIN. Secrets: CLOUDFRONT_DISTRIBUTION_ID
+# ============================================================================
+on:
+  workflow_dispatch:  # Manual trigger
+  push:
+    branches:
+      - main  # Deploy to staging environment only
+    paths:
+      - 'src/**'
+      - 'frontend/twinbar/**'
+      - 'Dockerfile*'
+      - 'requirements*.txt'
+      - 'terraform/**'
+      - '.github/workflows/**'
+      - 'tests/**'
+
+env:
+  AWS_REGION: ap-southeast-1
+  PYTHON_VERSION: '3.11'
+  ECR_REGISTRY: 755283537543.dkr.ecr.ap-southeast-1.amazonaws.com
+
+jobs:
+  ###############################################################################
+  # Stage 0a: Detect Changes
+  ###############################################################################
+  detect-changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Detect changed paths
+        uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            backend:
+              - 'src/**'
+              - 'Dockerfile*'
+              - 'requirements*.txt'
+            frontend:
+              - 'frontend/twinbar/**'
+
+      - name: Log detected changes
+        run: |
+          echo "📊 Change Detection Results:"
+          echo "   Backend changed:   ${{ steps.filter.outputs.backend }}"
+          echo "   Frontend changed:  ${{ steps.filter.outputs.frontend }}"
+
+  ###############################################################################
+  # Stage 0b: Quality Gates
+  ###############################################################################
+  test:
+    name: Quality Gates
+    needs: [detect-changes]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-asyncio pip-audit
+
+      - name: Syntax check
+        run: |
+          echo "🔍 Checking Python syntax..."
+          python -m py_compile src/**/*.py src/api/*.py dr_cli/**/*.py
+          echo "✅ Syntax check passed"
+
+      - name: Unit tests
+        run: |
+          echo "🧪 Running unit tests..."
+          pytest tests/shared tests/telegram -v --tb=short \
+            -k "not integration and not smoke and not e2e" \
+            --ignore=tests/integration/ \
+            --ignore=tests/line_bot/ \
+            --ignore=tests/telegram/test_e2e_frontend.py
+          echo "✅ Unit tests passed"
+
+      - name: Security audit
+        run: |
+          echo "🔒 Running security audit..."
+          pip-audit --strict --desc || echo "⚠️ Security warnings found (non-blocking)"
+        continue-on-error: true
+
+  ###############################################################################
+  # Stage 1: Get Dev Artifact (Artifact Promotion Pattern)
+  # Downloads artifact metadata from latest dev build
+  ###############################################################################
+  get-dev-artifact:
+    name: Get Dev Artifact
+    needs: [test, detect-changes]
+    runs-on: ubuntu-latest
+    if: needs.detect-changes.outputs.backend == 'true'
+
+    outputs:
+      image_uri: ${{ steps.download.outputs.image_uri }}
+      image_tag: ${{ steps.download.outputs.image_tag }}
+
+    steps:
+      - name: Download artifact from dev
+        uses: dawidd6/action-download-artifact@v3
+        with:
+          workflow: deploy-dev.yml
+          branch: dev
+          name: dev-artifact-metadata
+          path: ./artifacts
+          # If this fails, it means dev hasn't built this code yet
+          # Solution: Merge this PR to dev first, let dev build run, then merge to main
+
+      - name: Read artifact metadata
+        id: download
+        run: |
+          if [ ! -f ./artifacts/artifact-uri.txt ]; then
+            echo "❌ FATAL: No dev artifact found!"
+            echo "   This means dev hasn't built this code yet."
+            echo ""
+            echo "   Solution: Merge this PR to dev first, wait for dev build to complete, then merge to main"
+            echo "   This ensures staging deploys the SAME image that was tested in dev."
+            exit 1
+          fi
+
+          IMAGE_URI=$(cat ./artifacts/artifact-uri.txt)
+          IMAGE_TAG=$(cat ./artifacts/artifact-tag.txt)
+
+          echo "📦 Promoting dev artifact to staging:"
+          echo "   Image URI: ${IMAGE_URI}"
+          echo "   Image Tag: ${IMAGE_TAG}"
+          echo "   Built: $(cat ./artifacts/artifact-timestamp.txt)"
+
+          echo "image_uri=${IMAGE_URI}" >> $GITHUB_OUTPUT
+          echo "image_tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
+
+  ###############################################################################
+  # Stage 2: Deploy to Staging (Zero-Downtime: Test Before Promote)
+  ###############################################################################
+  deploy-staging:
+    name: Deploy Staging
+    needs: [get-dev-artifact]
+    if: needs.get-dev-artifact.result == 'success'
+    runs-on: ubuntu-latest
+    environment: staging
+
+    outputs:
+      telegram_version: ${{ steps.promote-telegram.outputs.version }}
+      worker_version: ${{ steps.promote-worker.outputs.version }}
+      prev_telegram_version: ${{ steps.get-current.outputs.telegram_version }}
+      prev_worker_version: ${{ steps.get-current.outputs.worker_version }}
+
+    env:
+      ENV_NAME: staging
+      TELEGRAM_FUNCTION: dr-daily-report-telegram-api-staging
+      WORKER_FUNCTION: dr-daily-report-report-worker-staging
+      SCHEDULER_FUNCTION: dr-daily-report-ticker-scheduler-staging
+
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Get current versions (for rollback reference)
+        id: get-current
+        run: |
+          TELEGRAM_VERSION=$(aws lambda get-alias \
+            --function-name ${{ env.TELEGRAM_FUNCTION }} \
+            --name live \
+            --query 'FunctionVersion' \
+            --output text 2>/dev/null || echo "1")
+          WORKER_VERSION=$(aws lambda get-alias \
+            --function-name ${{ env.WORKER_FUNCTION }} \
+            --name live \
+            --query 'FunctionVersion' \
+            --output text 2>/dev/null || echo "1")
+          echo "📌 Current staging versions: Telegram=${TELEGRAM_VERSION}, Worker=${WORKER_VERSION}"
+          echo "telegram_version=${TELEGRAM_VERSION}" >> $GITHUB_OUTPUT
+          echo "worker_version=${WORKER_VERSION}" >> $GITHUB_OUTPUT
+
+      # ========================================================================
+      # Step 1: Update $LATEST (staging area - users still see old version)
+      # ========================================================================
+      - name: Update Telegram API to $LATEST (not live yet)
+        run: |
+          echo "🔄 Uploading code to \$LATEST (users still see old version)..."
+          echo "   Using dev artifact: ${{ needs.get-dev-artifact.outputs.image_uri }}"
+          aws lambda update-function-code \
+            --function-name ${{ env.TELEGRAM_FUNCTION }} \
+            --image-uri ${{ needs.get-dev-artifact.outputs.image_uri }}
+          aws lambda wait function-updated --function-name ${{ env.TELEGRAM_FUNCTION }}
+          echo "✅ Code uploaded to \$LATEST"
+
+      - name: Update Worker to $LATEST (not live yet)
+        run: |
+          aws lambda update-function-code \
+            --function-name ${{ env.WORKER_FUNCTION }} \
+            --image-uri ${{ needs.get-dev-artifact.outputs.image_uri }}
+          aws lambda wait function-updated --function-name ${{ env.WORKER_FUNCTION }}
+          echo "✅ Worker code uploaded to \$LATEST"
+
+      - name: Check if Scheduler Lambda exists
+        id: check-scheduler
+        run: |
+          if aws lambda get-function --function-name ${{ env.SCHEDULER_FUNCTION }} 2>/dev/null; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "⚠️ Scheduler Lambda ${{ env.SCHEDULER_FUNCTION }} doesn't exist - skipping"
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Update Scheduler to $LATEST (not live yet)
+        if: steps.check-scheduler.outputs.exists == 'true'
+        run: |
+          aws lambda update-function-code \
+            --function-name ${{ env.SCHEDULER_FUNCTION }} \
+            --image-uri ${{ needs.get-dev-artifact.outputs.image_uri }}
+          aws lambda wait function-updated --function-name ${{ env.SCHEDULER_FUNCTION }}
+          echo "✅ Scheduler code uploaded to \$LATEST"
+
+      # ========================================================================
+      # Step 2: Smoke test $LATEST directly (before any user sees it)
+      # ========================================================================
+      - name: Smoke test $LATEST (pre-promotion validation)
+        run: |
+          echo "🧪 Testing \$LATEST directly via aws lambda invoke..."
+          echo "   Users are STILL seeing the old version"
+
+          # API Gateway HTTP API v2 event format required by Mangum
+          make_payload() {
+            local method=$1
+            local path=$2
+            local query=${3:-""}
+            cat << EOF
+          {"version":"2.0","routeKey":"${method} ${path}","rawPath":"${path}","rawQueryString":"${query}","headers":{"content-type":"application/json"},"requestContext":{"http":{"method":"${method}","path":"${path}","protocol":"HTTP/1.1","sourceIp":"127.0.0.1","userAgent":"smoke-test/1.0"},"requestId":"smoke-test","routeKey":"${method} ${path}","stage":"\$default"},"isBase64Encoded":false}
+          EOF
+          }
+
+          # Test 1: Health endpoint
+          HEALTH_PAYLOAD=$(make_payload "GET" "/api/v1/health" | base64 -w 0)
+          aws lambda invoke \
+            --function-name ${{ env.TELEGRAM_FUNCTION }} \
+            --cli-read-timeout 30 \
+            --payload "$HEALTH_PAYLOAD" \
+            /tmp/health.json
+
+          HEALTH_STATUS=$(cat /tmp/health.json | jq -r '.statusCode // 500')
+          echo "   Health check response: ${HEALTH_STATUS}"
+          if [ "$HEALTH_STATUS" != "200" ]; then
+            echo "❌ Health check FAILED on \$LATEST"
+            echo "   Response body: $(cat /tmp/health.json)"
+            echo "   Users were NEVER exposed to this broken code!"
+            exit 1
+          fi
+          echo "✅ Health check passed"
+
+          # Test 2: Search endpoint
+          SEARCH_PAYLOAD=$(make_payload "GET" "/api/v1/search" "q=NVDA" | base64 -w 0)
+          aws lambda invoke \
+            --function-name ${{ env.TELEGRAM_FUNCTION }} \
+            --cli-read-timeout 30 \
+            --payload "$SEARCH_PAYLOAD" \
+            /tmp/search.json
+
+          SEARCH_STATUS=$(cat /tmp/search.json | jq -r '.statusCode // 500')
+          echo "   Search endpoint response: ${SEARCH_STATUS}"
+          if [ "$SEARCH_STATUS" != "200" ]; then
+            echo "❌ Search endpoint FAILED on \$LATEST"
+            echo "   Response body: $(cat /tmp/search.json)"
+            echo "   Users were NEVER exposed to this broken code!"
+            exit 1
+          fi
+          echo "✅ Search endpoint passed"
+
+          echo ""
+          echo "🎉 All pre-promotion smoke tests PASSED!"
+          echo "   Safe to promote to live alias"
+
+      # ========================================================================
+      # Step 3: Promote to live (only after tests pass)
+      # ========================================================================
+      - name: Promote Telegram API to live
+        id: promote-telegram
+        run: |
+          echo "🚀 Publishing version and updating live alias..."
+          NEW_VERSION=$(aws lambda publish-version \
+            --function-name ${{ env.TELEGRAM_FUNCTION }} \
+            --query 'Version' \
+            --output text)
+          aws lambda update-alias \
+            --function-name ${{ env.TELEGRAM_FUNCTION }} \
+            --name live \
+            --function-version ${NEW_VERSION}
+          echo "✅ Staging Telegram API promoted: version ${NEW_VERSION}"
+          echo "   Users now see the tested code"
+          echo "version=${NEW_VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Promote Worker to live
+        id: promote-worker
+        run: |
+          NEW_VERSION=$(aws lambda publish-version \
+            --function-name ${{ env.WORKER_FUNCTION }} \
+            --query 'Version' \
+            --output text)
+          aws lambda update-alias \
+            --function-name ${{ env.WORKER_FUNCTION }} \
+            --name live \
+            --function-version ${NEW_VERSION}
+          echo "✅ Staging Worker promoted: version ${NEW_VERSION}"
+          echo "version=${NEW_VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Promote Scheduler to live
+        id: promote-scheduler
+        if: steps.check-scheduler.outputs.exists == 'true'
+        run: |
+          NEW_VERSION=$(aws lambda publish-version \
+            --function-name ${{ env.SCHEDULER_FUNCTION }} \
+            --query 'Version' \
+            --output text)
+          # Create alias if it doesn't exist, otherwise update it
+          aws lambda update-alias \
+            --function-name ${{ env.SCHEDULER_FUNCTION }} \
+            --name live \
+            --function-version ${NEW_VERSION} 2>/dev/null || \
+          aws lambda create-alias \
+            --function-name ${{ env.SCHEDULER_FUNCTION }} \
+            --name live \
+            --function-version ${NEW_VERSION} \
+            --description "Production alias for scheduler - update to rollback"
+          echo "✅ Staging Scheduler promoted: version ${NEW_VERSION}"
+          echo "version=${NEW_VERSION}" >> $GITHUB_OUTPUT
+
+  ###############################################################################
+  # Stage 2b: Deploy Staging Frontend (TEST CloudFront only - for E2E testing)
+  ###############################################################################
+  deploy-staging-frontend:
+    name: Deploy Staging Frontend (TEST)
+    needs: [deploy-staging, detect-changes, test]
+    if: |
+      always() &&
+      needs.detect-changes.outputs.frontend == 'true' &&
+      needs.test.result == 'success' &&
+      (needs.deploy-staging.result == 'success' || needs.deploy-staging.result == 'skipped')
+    runs-on: ubuntu-latest
+    environment: staging
+
+    outputs:
+      test_url: ${{ steps.deploy.outputs.test_url }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/twinbar/package-lock.json
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Build Twinbar React app
+        working-directory: frontend/twinbar
+        run: |
+          npm ci
+          npm run build
+
+      - name: Deploy frontend to S3 + TEST CloudFront
+        id: deploy
+        env:
+          API_URL: ${{ secrets.TELEGRAM_API_URL }}
+          TEST_DIST_ID: ${{ secrets.CLOUDFRONT_TEST_DISTRIBUTION_ID }}
+        run: |
+          # Ensure API URL has /api/v1 suffix
+          if [[ ! "${API_URL}" =~ /api/v1$ ]]; then
+            API_URL="${API_URL%/}/api/v1"
+          fi
+          echo "   Using API URL: ${API_URL}"
+
+          # Inject API URL into built index.html
+          sed -i "s|</head>|<script>window.TELEGRAM_API_URL = '${API_URL}';</script></head>|g" frontend/twinbar/dist/index.html
+
+          aws s3 sync frontend/twinbar/dist/ s3://${{ secrets.WEBAPP_BUCKET_NAME }}/ --delete
+          echo "✅ Staging frontend uploaded to S3"
+
+          # Only invalidate TEST CloudFront (users still see old version)
+          if [ -n "${TEST_DIST_ID}" ]; then
+            aws cloudfront create-invalidation \
+              --distribution-id ${TEST_DIST_ID} \
+              --paths "/*" > /dev/null
+            echo "✅ TEST CloudFront invalidated (E2E can test new code)"
+            echo "test_url=https://${{ secrets.CLOUDFRONT_TEST_DOMAIN }}" >> $GITHUB_OUTPUT
+          else
+            echo "⚠️ TEST CloudFront not configured, using APP CloudFront"
+            if [ -n "${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }}" ]; then
+              aws cloudfront create-invalidation \
+                --distribution-id ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }} \
+                --paths "/*" > /dev/null
+            fi
+            echo "test_url=https://${{ vars.CLOUDFRONT_DOMAIN }}" >> $GITHUB_OUTPUT
+          fi
+
+  ###############################################################################
+  # Stage 2c: E2E Tests against Staging TEST CloudFront
+  ###############################################################################
+  e2e-test-staging:
+    name: E2E Tests (Staging)
+    needs: [deploy-staging-frontend]
+    if: needs.deploy-staging-frontend.result == 'success'
+    runs-on: ubuntu-latest
+    environment: staging
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements-dev.txt
+          playwright install chromium
+
+      - name: Run E2E Tests
+        env:
+          E2E_BASE_URL: ${{ needs.deploy-staging-frontend.outputs.test_url }}
+        run: |
+          echo "🧪 Running E2E tests against: ${E2E_BASE_URL}"
+          pytest tests/e2e/ -m e2e -v --tb=short || {
+            echo "❌ E2E tests failed! APP CloudFront will NOT be updated."
+            echo "   Users still see the previous working version."
+            exit 1
+          }
+          echo "✅ E2E tests passed!"
+
+  ###############################################################################
+  # Stage 2d: Promote Staging Frontend (APP CloudFront - users see new version)
+  ###############################################################################
+  promote-staging-frontend:
+    name: Promote Staging Frontend (APP)
+    needs: [e2e-test-staging]
+    runs-on: ubuntu-latest
+    environment: staging
+
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Invalidate APP CloudFront (users see new frontend)
+        env:
+          DIST_ID: ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }}
+        run: |
+          if [ -n "${DIST_ID}" ]; then
+            aws cloudfront create-invalidation \
+              --distribution-id ${DIST_ID} \
+              --paths "/*" > /dev/null
+            echo "✅ APP CloudFront invalidated - users now see new frontend"
+          else
+            echo "⏭️ No APP CloudFront distribution configured"
+          fi
+
+      # ========================================================================
+      # Artifact Promotion: Store metadata for production workflow
+      # ========================================================================
+      - name: Store artifact metadata for production
+        run: |
+          echo "📦 Storing artifact metadata for production promotion..."
+          echo "${{ needs.get-dev-artifact.outputs.image_uri }}" > artifact-uri.txt
+          echo "${{ needs.get-dev-artifact.outputs.image_tag }}" > artifact-tag.txt
+          echo "Tested in staging: $(date -u +%Y-%m-%dT%H:%M:%SZ)" > artifact-timestamp.txt
+          echo "Commit: ${{ github.sha }}" >> artifact-timestamp.txt
+
+      - name: Upload artifact metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: staging-artifact-metadata
+          path: |
+            artifact-uri.txt
+            artifact-tag.txt
+            artifact-timestamp.txt
+          retention-days: 30
