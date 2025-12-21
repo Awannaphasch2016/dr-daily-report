@@ -36,7 +36,6 @@ class AgentState(TypedDict):
     portfolio_insights: dict  # Portfolio allocation, diversification, risk metrics from Portfolio Manager MCP
     alpaca_data: dict  # Real-time quotes, options chain, market data from Alpaca MCP
     error: str
-    strategy: str  # Report generation strategy: 'single-stage' or 'multi-stage'
 
 
 # Raw data fields needed for report regeneration (subset of AgentState)

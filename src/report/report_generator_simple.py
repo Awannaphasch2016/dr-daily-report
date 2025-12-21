@@ -20,7 +20,6 @@ from src.report import PromptBuilder, ContextBuilder, NumberInjector
 from src.analysis import MarketAnalyzer
 from src.formatters import DataFormatter
 from src.analysis.technical_analysis import TechnicalAnalyzer
-from src.report.mini_report_generator import MiniReportGenerator
 from src.report.transparency_footer import TransparencyFooter
 from src.evaluation import observe
 
@@ -54,18 +53,16 @@ class SimpleReportGenerator:
         )
         self.prompt_builder = PromptBuilder(context_builder=self.context_builder)
         self.number_injector = NumberInjector()
-        self.mini_report_generator = MiniReportGenerator(self.llm)
         self.transparency_footer = TransparencyFooter()
 
     @observe(name="generate_report")
     def generate_report(
         self,
         ticker: str,
-        raw_data: Dict[str, Any],
-        strategy: str = 'single-stage'
+        raw_data: Dict[str, Any]
     ) -> Dict[str, Any]:
         """
-        Generate report from raw data (no API calls, no sink nodes).
+        Generate report from raw data using Semantic Layer Architecture (no API calls, no sink nodes).
 
         Args:
             ticker: Ticker symbol (e.g., "DBS19")
@@ -114,117 +111,35 @@ class SimpleReportGenerator:
         portfolio_insights = raw_data.get('portfolio_insights', {})
         alpaca_data = raw_data.get('alpaca_data', {})
 
-        # Generate report based on strategy
-        if strategy == 'multi-stage':
-            report, mini_reports, api_costs = self._generate_multistage(
-                ticker=ticker,
-                ticker_data=ticker_data,
-                indicators=indicators,
-                percentiles=percentiles,
-                news=news,
-                news_summary=news_summary,
-                comparative_insights=comparative_insights,
-                chart_patterns=chart_patterns,
-                pattern_statistics=pattern_statistics,
-                strategy_performance=strategy_performance,
-                sec_filing_data=sec_filing_data,
-                financial_markets_data=financial_markets_data,
-                portfolio_insights=portfolio_insights,
-                alpaca_data=alpaca_data
-            )
-        else:  # single-stage
-            report, api_costs = self._generate_singlestage(
-                ticker=ticker,
-                ticker_data=ticker_data,
-                indicators=indicators,
-                percentiles=percentiles,
-                news=news,
-                news_summary=news_summary,
-                comparative_insights=comparative_insights,
-                chart_patterns=chart_patterns,
-                pattern_statistics=pattern_statistics,
-                strategy_performance=strategy_performance,
-                sec_filing_data=sec_filing_data,
-                financial_markets_data=financial_markets_data,
-                portfolio_insights=portfolio_insights,
-                alpaca_data=alpaca_data
-            )
-            mini_reports = {}
+        # Generate report using Semantic Layer Architecture
+        report, api_costs = self._generate_singlestage(
+            ticker=ticker,
+            ticker_data=ticker_data,
+            indicators=indicators,
+            percentiles=percentiles,
+            news=news,
+            news_summary=news_summary,
+            comparative_insights=comparative_insights,
+            chart_patterns=chart_patterns,
+            pattern_statistics=pattern_statistics,
+            strategy_performance=strategy_performance,
+            sec_filing_data=sec_filing_data,
+            financial_markets_data=financial_markets_data,
+            portfolio_insights=portfolio_insights,
+            alpaca_data=alpaca_data
+        )
 
         generation_time_ms = int((time.perf_counter() - start_time) * 1000)
 
         return {
-            'report': report,
+            'report_text': report,
             'generation_time_ms': generation_time_ms,
-            'api_costs': api_costs,
-            'mini_reports': mini_reports,
-            'strategy': strategy
+            'api_costs': api_costs
         }
-
-    @observe(name="generate_multistage")
-    def _generate_multistage(self, **kwargs) -> tuple:
-        """Generate report using multi-stage approach (6 mini-reports → synthesis)."""
-        # Generate 6 mini-reports
-        mini_reports = {
-            'technical': self.mini_report_generator.generate_technical_mini_report(
-                indicators=kwargs['indicators'],
-                percentiles=kwargs['percentiles'],
-                chart_patterns=kwargs.get('chart_patterns'),
-                pattern_statistics=kwargs.get('pattern_statistics'),
-                financial_markets_data=kwargs.get('financial_markets_data')
-            ),
-            'fundamental': self.mini_report_generator.generate_fundamental_mini_report(
-                ticker_data=kwargs['ticker_data'],
-                sec_filing_data=kwargs.get('sec_filing_data')
-            ),
-            'market_conditions': self.mini_report_generator.generate_market_conditions_mini_report(
-                indicators=kwargs['indicators'],
-                percentiles=kwargs['percentiles'],
-                alpaca_data=kwargs.get('alpaca_data')
-            ),
-            'news': self.mini_report_generator.generate_news_mini_report(
-                news=kwargs['news'],
-                news_summary=kwargs['news_summary']
-            ),
-            'comparative': self.mini_report_generator.generate_comparative_mini_report(
-                comparative_insights=kwargs['comparative_insights']
-            ),
-            'strategy': self.mini_report_generator.generate_strategy_mini_report(
-                strategy_performance=kwargs.get('strategy_performance', {}),
-                portfolio_insights=kwargs.get('portfolio_insights')
-            )
-        }
-
-        # Synthesis LLM call
-        synthesis_prompt = self._build_synthesis_prompt(mini_reports, kwargs['ticker'])
-        response = self.llm.invoke(synthesis_prompt)
-        report = response.content if hasattr(response, 'content') else str(response)
-
-        # Post-processing: Number injection, news references, transparency footer
-        # (Same as single-stage to ensure consistency)
-        report = self._post_process_report(
-            report=report,
-            indicators=kwargs['indicators'],
-            percentiles=kwargs['percentiles'],
-            news=kwargs['news'],
-            strategy='multi-stage',
-            ticker_data=kwargs['ticker_data'],
-            comparative_insights=kwargs.get('comparative_insights', {}),
-            strategy_performance=kwargs.get('strategy_performance', {})
-        )
-
-        # Estimate API costs (7 LLM calls: 6 mini + 1 synthesis)
-        api_costs = {
-            'llm_calls': 7,
-            'estimated_input_tokens': 3500,  # Rough estimate
-            'estimated_output_tokens': len(report) // 4  # 4 chars per token
-        }
-
-        return report, mini_reports, api_costs
 
     @observe(name="generate_singlestage")
     def _generate_singlestage(self, **kwargs) -> tuple:
-        """Generate report using single-stage approach (one LLM call)."""
+        """Generate report using Semantic Layer Architecture (three-layer pattern)."""
         indicators = kwargs['indicators']
         strategy_performance = kwargs.get('strategy_performance', {})
 
@@ -245,9 +160,23 @@ class SimpleReportGenerator:
         )
 
         # Build prompt
-        prompt_builder = PromptBuilder(context_builder=self.context_builder)
-        prompt = prompt_builder.build_prompt(
+        from src.report import PromptBuilder
+        conditions = self.market_analyzer.calculate_market_conditions(indicators)
+        ground_truth = {
+            'uncertainty_score': indicators.get('uncertainty_score', 0),
+            'atr_pct': (indicators.get('atr', 0) / indicators.get('current_price', 1)) * 100
+                       if indicators.get('current_price', 0) > 0 else 0,
+            'vwap_pct': conditions.get('price_vs_vwap_pct', 0),
+            'volume_ratio': conditions.get('volume_ratio', 0),
+        }
+
+        prompt = self.prompt_builder.build_prompt(
+            kwargs['ticker'],
             context,
+            ground_truth=ground_truth,
+            indicators=indicators,
+            percentiles=kwargs['percentiles'],
+            ticker_data=kwargs['ticker_data'],
             strategy_performance=strategy_performance,
             comparative_insights=kwargs.get('comparative_insights', {}),
             sec_filing_data=kwargs.get('sec_filing_data', {}),
@@ -266,7 +195,6 @@ class SimpleReportGenerator:
             indicators=indicators,
             percentiles=kwargs['percentiles'],
             news=kwargs['news'],
-            strategy='single-stage',
             ticker_data=kwargs['ticker_data'],
             comparative_insights=kwargs.get('comparative_insights', {}),
             strategy_performance=strategy_performance
@@ -287,7 +215,6 @@ class SimpleReportGenerator:
         indicators: dict,
         percentiles: dict,
         news: list,
-        strategy: str = 'single-stage',
         ticker_data: dict = None,
         comparative_insights: dict = None,
         strategy_performance: dict = None
@@ -295,12 +222,13 @@ class SimpleReportGenerator:
         """
         Post-process report: inject numbers, add news references, add transparency footer.
 
+        Uses Semantic Layer Architecture (three-layer pattern).
+
         Args:
             report: Raw LLM-generated report text
             indicators: Technical indicators dict
             percentiles: Statistical percentiles dict
             news: News articles list
-            strategy: Generation strategy ('single-stage' or 'multi-stage')
             ticker_data: Price history and fundamentals (for transparency footer)
             comparative_insights: Peer comparison insights (for transparency footer)
             strategy_performance: Backtest performance (for transparency footer)
@@ -347,7 +275,7 @@ class SimpleReportGenerator:
             'strategy_performance': strategy_performance or {}
         }
         transparency_footer = self.transparency_footer.generate_data_usage_footnote(
-            state_for_footer, strategy
+            state_for_footer
         )
         report += f"\n\n{transparency_footer}"
 

@@ -267,18 +267,36 @@ def load_template(path: str) -> str:
 
 **Convention:** Use Python's logging module with descriptive emoji prefixes.
 
-**Setup:**
+**Setup (Lambda handlers only):**
 ```python
 import logging
 
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+# Configure root logger for Lambda compatibility
+root_logger = logging.getLogger()
+if root_logger.handlers:  # Lambda (pre-configured)
+    root_logger.setLevel(logging.INFO)
+else:  # Local dev
+    logging.basicConfig(level=logging.INFO)
 
-# Usage
+logger = logging.getLogger(__name__)
+```
+
+**Setup (imported modules):**
+```python
+import logging
+
+# Don't configure - just create logger
+logger = logging.getLogger(__name__)
+```
+
+**Usage:**
+```python
 logger.info(f"   📝 Generating report for {ticker}")
 logger.warning(f"   ⚠️  Failed to fetch news: {e}")
 logger.error(f"   ❌ Error in workflow: {error}")
 ```
+
+**Important:** Never use `logging.basicConfig()` in Lambda handlers—it's a no-op. See [Lambda Logging Guide](deployment/LAMBDA_LOGGING.md) for details.
 
 **Emoji Conventions:**
 - ✅ Success operations

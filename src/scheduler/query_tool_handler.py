@@ -18,12 +18,62 @@ import json
 import logging
 import os
 from datetime import datetime, date
+from decimal import Decimal
 from typing import Any, Dict
 import traceback
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+def json_converter(obj):
+    """
+    Convert non-JSON-serializable types to JSON-compatible types.
+
+    Required for Aurora query results that contain:
+    - datetime.date → ISO string
+    - datetime.datetime → ISO string
+    - decimal.Decimal → float
+    - bytes → base64 string
+
+    This prevents "Object of type date is not JSON serializable" errors
+    when Lambda marshals the response.
+    """
+    if isinstance(obj, (date, datetime)):
+        return obj.isoformat()
+    elif isinstance(obj, Decimal):
+        return float(obj)
+    elif isinstance(obj, bytes):
+        import base64
+        return base64.b64encode(obj).decode('utf-8')
+
+    # Fallback - let json.dumps raise TypeError with helpful message
+    raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
+
+
+def convert_for_json(data):
+    """
+    Recursively convert data structure to JSON-serializable types.
+
+    Lambda runtime auto-serializes response dict to JSON, but doesn't accept
+    custom converters. This function pre-processes data to ensure all types
+    are JSON-compatible before returning from Lambda handler.
+
+    Args:
+        data: Dict, list, or primitive value from Aurora query
+
+    Returns:
+        JSON-serializable version of data
+    """
+    if isinstance(data, dict):
+        return {k: convert_for_json(v) for k, v in data.items()}
+    elif isinstance(data, list):
+        return [convert_for_json(item) for item in data]
+    elif isinstance(data, (date, datetime, Decimal, bytes)):
+        return json_converter(data)
+    else:
+        return data
 
 
 def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
@@ -126,13 +176,18 @@ def _handle_query(event: Dict[str, Any], start_time: datetime) -> Dict[str, Any]
 
         logger.info(f"Query completed: {len(result)} rows in {duration_seconds:.2f}s")
 
+        # Convert date/datetime objects to JSON-serializable ISO strings
+        # This prevents "Object of type date is not JSON serializable" errors
+        # when Lambda runtime marshals the response
+        json_safe_result = convert_for_json(result)
+
         return {
             'statusCode': 200,
             'body': {
                 'message': 'Query executed successfully',
                 'sql': sql,
                 'row_count': len(result),
-                'results': result,
+                'results': json_safe_result,
                 'duration_seconds': duration_seconds
             }
         }
@@ -280,8 +335,8 @@ def _handle_query_precomputed(event: Dict[str, Any], start_time: datetime) -> Di
             'body': {
                 'message': f'Precomputed data retrieved for {symbol}',
                 'symbol': symbol,
-                'indicators': indicators,
-                'percentiles': percentiles,
+                'indicators': convert_for_json(indicators),
+                'percentiles': convert_for_json(percentiles),
                 'duration_seconds': duration_seconds
             }
         }
@@ -331,7 +386,7 @@ def _handle_debug_cache(event: Dict[str, Any], start_time: datetime) -> Dict[str
             if cached:
                 return {
                     'statusCode': 200,
-                    'body': {
+                    'body': convert_for_json({
                         'message': f'Cache HIT for {symbol}',
                         'symbol': symbol,
                         'date': check_date,
@@ -340,8 +395,8 @@ def _handle_debug_cache(event: Dict[str, Any], start_time: datetime) -> Dict[str
                         'status': cached.get('status'),
                         'report_text_length': len(cached.get('report_text', '')),
                         'has_chart': bool(cached.get('chart_base64')),
-                        'generated_at': str(cached.get('report_generated_at')),
-                    }
+                        'generated_at': cached.get('report_generated_at'),
+                    })
                 }
             else:
                 return {
@@ -368,7 +423,7 @@ def _handle_debug_cache(event: Dict[str, Any], start_time: datetime) -> Dict[str
                 summary = {
                     'id': r.get('id'),
                     'symbol': r.get('symbol'),
-                    'report_date': str(r.get('report_date')) if r.get('report_date') else None,
+                    'report_date': r.get('report_date'),
                     'status': r.get('status'),
                     'has_report_text': bool(r.get('report_text')),
                     'has_chart': bool(r.get('chart_base64'))
@@ -377,12 +432,12 @@ def _handle_debug_cache(event: Dict[str, Any], start_time: datetime) -> Dict[str
 
             return {
                 'statusCode': 200,
-                'body': {
+                'body': convert_for_json({
                     'message': f'Found {len(report_summaries)} cached reports for {check_date}',
                     'date': check_date,
                     'count': len(report_summaries),
                     'reports': report_summaries
-                }
+                })
             }
 
     except Exception as e:
@@ -432,12 +487,12 @@ def _handle_debug_prices(event: Dict[str, Any], start_time: datetime) -> Dict[st
 
             return {
                 'statusCode': 200,
-                'body': {
+                'body': convert_for_json({
                     'message': f'Found {len(prices)} price records for {symbol}',
                     'symbol': symbol,
                     'count': len(prices),
                     'prices': prices
-                }
+                })
             }
         else:
             # Get summary of all price data
@@ -453,10 +508,10 @@ def _handle_debug_prices(event: Dict[str, Any], start_time: datetime) -> Dict[st
 
             return {
                 'statusCode': 200,
-                'body': {
+                'body': convert_for_json({
                     'message': 'Price data summary',
                     'summary': summary[0] if summary else {}
-                }
+                })
             }
 
     except Exception as e:

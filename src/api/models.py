@@ -134,7 +134,7 @@ class Peer(BaseModel):
 class GenerationMetadata(BaseModel):
     """Report generation metadata"""
     agent_version: str = Field(default="v1.0.0", description="Agent version")
-    strategy: str = Field(..., description="Analysis strategy used")
+    strategy: str = Field(default="semantic_layer", description="Analysis architecture (semantic_layer since Dec 2024)")
     generated_at: datetime = Field(..., description="Generation timestamp")
     cache_hit: bool = Field(default=False, description="Whether result was cached")
 

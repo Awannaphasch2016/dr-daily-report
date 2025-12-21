@@ -798,7 +798,6 @@ class PrecomputeService:
         self,
         symbol: str,
         data_date: Optional[date] = None,
-        strategy: str = 'multi-stage',
         generate_pdf: bool = True
     ) -> Dict[str, Any]:
         """Generate and store a full report for a ticker.
@@ -806,7 +805,6 @@ class PrecomputeService:
         Args:
             symbol: Ticker symbol
             data_date: Date of the underlying ticker data (defaults to today)
-            strategy: 'single-stage' or 'multi-stage'
             generate_pdf: Whether to generate PDF and store S3 key
 
         Returns:
@@ -840,16 +838,12 @@ class PrecomputeService:
             from src.agent import TickerAnalysisAgent
 
             agent = TickerAnalysisAgent()
-            result = agent.analyze_ticker(agent_symbol, strategy=strategy)
+            result = agent.analyze_ticker(agent_symbol)
 
             generation_time_ms = int((time.time() - start_time) * 1000)
 
-            # Capture raw data BEFORE transformation (for report regeneration)
-            raw_data = extract_raw_data_for_storage(result) if isinstance(result, dict) else {}
-
             # Extract report data
             report_text = result.get('report', '') if isinstance(result, dict) else str(result)
-            mini_reports = result.get('mini_reports', {}) if isinstance(result, dict) else {}
             chart_base64 = result.get('chart_base64', '') if isinstance(result, dict) else ''
 
             # Calculate and add projections + price history to report_json
@@ -883,10 +877,7 @@ class PrecomputeService:
                 data_date=data_date,
                 report_text=report_text,
                 report_json=result if isinstance(result, dict) else {},
-                raw_data=raw_data,  # NEW: Pass raw data for regeneration
-                strategy=strategy,
                 generation_time_ms=generation_time_ms,
-                mini_reports=mini_reports,
                 chart_base64=chart_base64,
                 pdf_s3_key=pdf_s3_key,
                 pdf_generated_at=pdf_generated_at,
@@ -938,10 +929,7 @@ class PrecomputeService:
         data_date: date,
         report_text: str,
         report_json: Dict[str, Any],
-        raw_data: Dict[str, Any],  # NEW: Raw AgentState for regeneration
-        strategy: str,
         generation_time_ms: int,
-        mini_reports: Dict[str, Any],
         chart_base64: str,
         pdf_s3_key: Optional[str] = None,
         pdf_generated_at: Optional[datetime] = None,
@@ -951,31 +939,29 @@ class PrecomputeService:
         Returns:
             Number of rows affected (0 = failure, typically FK constraint)
 
-        Schema columns (as of 2025-12-16):
+        Schema columns (after migration 011):
             id, ticker_id, ticker_master_id, symbol, report_date,
-            report_text, report_json, raw_data_json, strategy, model_used,
-            generation_time_ms, token_count, cost_usd, mini_reports,
+            report_text, report_json, model_used,
+            generation_time_ms, token_count, cost_usd,
             faithfulness_score, completeness_score, reasoning_score,
             chart_base64, status, error_message, computed_at, expires_at
+
+        Note: strategy, mini_reports, and raw_data_json columns removed in migration 011.
         """
-        # Match actual schema - now includes raw_data_json
         query = """
             INSERT INTO precomputed_reports (
                 ticker_id, symbol, report_date,
-                report_text, report_json, raw_data_json,
-                strategy, generation_time_ms, mini_reports,
+                report_text, report_json,
+                generation_time_ms,
                 chart_base64, status, expires_at, computed_at
             ) VALUES (
-                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'completed',
+                %s, %s, %s, %s, %s, %s, %s, 'completed',
                 DATE_ADD(NOW(), INTERVAL 1 DAY), NOW()
             )
             ON DUPLICATE KEY UPDATE
                 report_text = VALUES(report_text),
                 report_json = VALUES(report_json),
-                raw_data_json = VALUES(raw_data_json),
-                strategy = VALUES(strategy),
                 generation_time_ms = VALUES(generation_time_ms),
-                mini_reports = VALUES(mini_reports),
                 chart_base64 = VALUES(chart_base64),
                 status = 'completed',
                 expires_at = DATE_ADD(NOW(), INTERVAL 1 DAY),
@@ -989,10 +975,7 @@ class PrecomputeService:
             data_date,
             report_text,
             json.dumps(_convert_numpy_to_primitives(report_json), allow_nan=False),
-            json.dumps(_convert_numpy_to_primitives(raw_data), allow_nan=False),  # NEW
-            strategy,
             generation_time_ms,
-            json.dumps(_convert_numpy_to_primitives(mini_reports), allow_nan=False) if mini_reports else None,
             chart_base64,
         )
 
@@ -1003,7 +986,6 @@ class PrecomputeService:
         symbol: str,
         report_text: str,
         report_json: Dict[str, Any],
-        strategy: str = 'multi-stage',  # Must match MySQL ENUM('single-stage', 'multi-stage')
         chart_base64: str = '',
         generation_time_ms: int = 0,
     ) -> bool:
@@ -1017,7 +999,6 @@ class PrecomputeService:
             symbol: Ticker symbol (e.g., 'DBS19')
             report_text: Full narrative report text
             report_json: Complete API response dict
-            strategy: Generation strategy used (default: 'multi_stage_analysis')
             chart_base64: Optional base64-encoded chart image
             generation_time_ms: Time taken to generate (for metrics)
 
@@ -1042,10 +1023,6 @@ class PrecomputeService:
 
             data_date = date.today()
 
-            # Extract raw data from report_json if available
-            # API reports may already be formatted, so extract what we can
-            raw_data = extract_raw_data_for_storage(report_json) if report_json else {}
-
             # Store using the internal method with Yahoo symbol
             logger.info(f"store_report_from_api: Calling _store_completed_report for {yahoo_symbol}")
             rowcount = self._store_completed_report(
@@ -1054,10 +1031,7 @@ class PrecomputeService:
                 data_date=data_date,
                 report_text=report_text,
                 report_json=report_json,
-                raw_data=raw_data,  # NEW: Pass extracted raw data
-                strategy=strategy,
                 generation_time_ms=generation_time_ms,
-                mini_reports={},  # Not available from API worker
                 chart_base64=chart_base64,
                 pdf_s3_key=None,
                 pdf_generated_at=None,
@@ -1479,7 +1453,7 @@ class PrecomputeService:
     # Ticker Data Cache (replaces S3 cache/ticker_data/)
     # =========================================================================
 
-    def store_ticker_data_cache(
+    def store_ticker_data(
         self,
         symbol: str,
         data_date: date,
@@ -1487,13 +1461,13 @@ class PrecomputeService:
         company_info: Optional[Dict[str, Any]] = None,
         financials: Optional[Dict[str, Any]] = None
     ) -> int:
-        """Store full ticker data in Aurora cache.
+        """Store ticker data in Aurora (primary data store).
 
-        Replaces S3 cache/ticker_data/ with Aurora storage for faster access.
+        Used by scheduler to populate Aurora with ticker data from external sources.
 
         Args:
             symbol: Ticker symbol
-            data_date: Date of the cached data
+            data_date: Date of the data
             price_history: List of OHLCV dicts (1-year history, ~365 rows)
             company_info: Company metadata dict
             financials: Financial statements dict
@@ -1525,7 +1499,7 @@ class PrecomputeService:
         expires_at = expires_at.replace(hour=1)  # 8 AM Bangkok = 1 AM UTC
 
         query = """
-            INSERT INTO ticker_data_cache (
+            INSERT INTO ticker_data (
                 ticker_master_id, symbol, date, fetched_at,
                 price_history, company_info, financials_json,
                 history_start_date, history_end_date, row_count,
@@ -1559,19 +1533,19 @@ class PrecomputeService:
 
         return self.client.execute(query, params, commit=True)
 
-    def get_ticker_data_cache(
+    def get_ticker_data(
         self,
         symbol: str,
         data_date: Optional[date] = None
     ) -> Optional[Dict[str, Any]]:
-        """Get cached ticker data from Aurora.
+        """Get ticker data from Aurora (ground truth).
 
         Args:
             symbol: Ticker symbol
-            data_date: Date of the cached data (defaults to today)
+            data_date: Date of the data (defaults to today)
 
         Returns:
-            Dict with price_history, company_info, financials or None
+            Dict with price_history, company_info, financials or None if not found
         """
         from src.data.aurora.ticker_resolver import get_ticker_resolver
 
@@ -1584,7 +1558,7 @@ class PrecomputeService:
             return None
 
         query = """
-            SELECT * FROM ticker_data_cache
+            SELECT * FROM ticker_data
             WHERE ticker_master_id = %s AND date = %s
             AND (expires_at IS NULL OR expires_at > NOW())
         """

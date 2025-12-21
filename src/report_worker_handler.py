@@ -188,7 +188,6 @@ async def process_record(record: dict) -> None:
             "api_costs": {},
             "database_metrics": {},
             "error": "",
-            "strategy": "multi_stage_analysis"
         }
 
         # Run analysis
@@ -214,14 +213,11 @@ async def process_record(record: dict) -> None:
         try:
             logger.info(f"Attempting to cache report in Aurora for {ticker}")
             precompute_service = PrecomputeService()
-            # Map API strategy name to MySQL ENUM value
-            api_strategy = result.get('generation_metadata', {}).get('strategy', 'multi_stage_analysis')
-            db_strategy = 'multi-stage' if 'multi' in api_strategy.lower() else 'single-stage'
+            # Store report (strategy field no longer needed - using Semantic Layer Architecture)
             cache_result = precompute_service.store_report_from_api(
                 symbol=ticker,
                 report_text=result.get('narrative_report', ''),
                 report_json=result,
-                strategy=db_strategy,
                 chart_base64=final_state.get('chart_base64', ''),
             )
             if cache_result:

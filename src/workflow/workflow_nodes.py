@@ -5,13 +5,14 @@ import logging
 from typing import TypedDict
 import time
 import json
-from datetime import datetime
+from datetime import datetime, date
 import pandas as pd
 import numpy as np
 from langchain_core.messages import HumanMessage
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from src.types import AgentState
+from src.data.aurora.precompute_service import PrecomputeService
 import os
 
 # Setup logger
@@ -76,11 +77,6 @@ class WorkflowNodes:
         # Track node execution for summary
         self._node_execution_log = []
 
-        # Initialize multi-stage report generators
-        from src.report import MiniReportGenerator, SynthesisGenerator
-        self.mini_report_generator = MiniReportGenerator(llm)
-        self.synthesis_generator = SynthesisGenerator(llm)
-
     def _log_node_start(self, node_name: str, state: AgentState):
         """Log node execution start"""
         ticker = state.get("ticker", "UNKNOWN")
@@ -143,6 +139,57 @@ class WorkflowNodes:
         for field in required_fields:
             results[field] = self._validate_state_field(state, field, node_name)
         return results
+
+    def _reconstruct_data_from_aurora(self, ticker_data: dict, ticker: str, yahoo_ticker: str) -> dict:
+        """Reconstruct ticker data dict from Aurora storage.
+
+        Args:
+            ticker_data: Result from PrecomputeService.get_ticker_data()
+            ticker: Original ticker symbol (e.g., 'DBS19')
+            yahoo_ticker: Resolved Yahoo symbol (e.g., 'D05.SI')
+
+        Returns:
+            Dict in same format as expected by workflow (with 'history' DataFrame)
+        """
+        # Parse JSON fields from Aurora
+        price_history = ticker_data.get('price_history', [])
+        company_info = ticker_data.get('company_info', {})
+
+        # Reconstruct DataFrame from cached price_history
+        if isinstance(price_history, list) and len(price_history) > 0:
+            hist = pd.DataFrame(price_history)
+        else:
+            logger.warning(f"Empty price_history in Aurora cache for {ticker}")
+            hist = pd.DataFrame()
+
+        # Extract latest price data (same as DataFetcher.fetch_ticker_data)
+        if not hist.empty:
+            latest = hist.iloc[-1]
+            latest_date = latest.get('Date', date.today())
+        else:
+            latest = {}
+            latest_date = date.today()
+
+        # Reconstruct data dict (same structure as Yahoo Finance fetch)
+        data = {
+            'date': latest_date,
+            'open': latest.get('Open') if not hist.empty else None,
+            'high': latest.get('High') if not hist.empty else None,
+            'low': latest.get('Low') if not hist.empty else None,
+            'close': latest.get('Close') if not hist.empty else None,
+            'volume': latest.get('Volume') if not hist.empty else None,
+            'market_cap': company_info.get('market_cap'),
+            'pe_ratio': company_info.get('pe_ratio'),
+            'eps': company_info.get('eps'),
+            'dividend_yield': company_info.get('dividend_yield'),
+            'sector': company_info.get('sector'),
+            'industry': company_info.get('industry'),
+            'company_name': company_info.get('company_name', yahoo_ticker),
+            'history': hist
+        }
+
+        logger.info(f"   📦 Reconstructed data from Aurora: {len(hist)} rows, company={data['company_name']}")
+        return data
 
     def get_workflow_summary(self) -> dict:
         """Get summary of workflow node execution"""
@@ -208,7 +255,16 @@ class WorkflowNodes:
         logger.info("=" * 80)
 
     def fetch_data(self, state: AgentState) -> AgentState:
-        """Fetch ticker data from Yahoo Finance"""
+        """Fetch ticker data from Aurora (ground truth)
+
+        Aurora is the primary data store - data is pre-populated nightly by scheduler.
+        If data is missing, pipeline fails explicitly (no fallback to external APIs).
+
+        Flow:
+        1. Query Aurora ticker_data for ticker data
+        2. If found -> use data (Aurora is ground truth)
+        3. If missing -> FAIL (data not ready, run scheduler to populate Aurora)
+        """
         self._log_node_start("fetch_data", state)
         start_time = time.perf_counter()
         ticker = state["ticker"]
@@ -227,18 +283,24 @@ class WorkflowNodes:
 
         logger.info(f"   📊 Fetching data for {ticker} -> {yahoo_ticker}")
 
-        # Fetch data
-        data = self.data_fetcher.fetch_ticker_data(yahoo_ticker)
+        # Query Aurora for ticker data (ground truth)
+        precompute_service = PrecomputeService()
+        ticker_data = precompute_service.get_ticker_data(symbol=ticker, data_date=date.today())
 
-        if not data:
-            error_msg = f"ไม่สามารถดึงข้อมูลสำหรับ {ticker} ({yahoo_ticker}) ได้"
+        if not ticker_data:
+            # Data not available - FAIL FAST (no fallback)
+            error_msg = (
+                f"Data not available in Aurora for {ticker}. "
+                f"Run scheduler to populate ticker data before generating reports."
+            )
             state["error"] = error_msg
+            logger.error(f"   ❌ {error_msg}")
             self._log_node_error("fetch_data", state, error_msg)
             return state
 
-        # Get additional info
-        info = self.data_fetcher.get_ticker_info(yahoo_ticker)
-        data.update(info)
+        # Data found - Use Aurora as ground truth
+        logger.info(f"   ✅ Data found in Aurora for {ticker}")
+        data = self._reconstruct_data_from_aurora(ticker_data, ticker, yahoo_ticker)
 
         # Record timing
         elapsed = time.perf_counter() - start_time
@@ -250,10 +312,11 @@ class WorkflowNodes:
 
         # Validate output
         if not self._validate_state_field(state, "ticker_data", "fetch_data"):
-            self._log_node_error("fetch_data", state, "ticker_data is None after fetch")
+            self._log_node_error("fetch_data", state, "ticker_data is None after reconstruction")
         else:
             details = {
                 'yahoo_ticker': yahoo_ticker,
+                'source': 'aurora',
                 'has_history': 'history' in data and data['history'] is not None,
                 'duration_ms': f"{elapsed*1000:.2f}"
             }
@@ -512,7 +575,7 @@ class WorkflowNodes:
         return {"chart_base64": chart_base64}
 
     def generate_report(self, state: AgentState) -> AgentState:
-        """Generate Thai language report using LLM (supports both single-stage and multi-stage strategies)"""
+        """Generate Thai language report using LLM with Semantic Layer Architecture"""
         self._log_node_start("generate_report", state)
 
         if state.get("error"):
@@ -537,20 +600,14 @@ class WorkflowNodes:
             self._log_node_error("generate_report", state, error_msg)
             return state
 
-        # Check strategy: 'single-stage' (default) or 'multi-stage'
-        strategy = state.get("strategy", "single-stage")
-
-        if strategy == "multi-stage":
-            return self._generate_report_multistage(state)
-        else:
-            return self._generate_report_singlestage(state)
+        # Generate report using Semantic Layer Architecture (single-stage only)
+        return self._generate_report_singlestage(state)
 
     def _post_process_report_workflow(
         self,
         report: str,
         state: AgentState,
-        indicators: dict,
-        strategy: str
+        indicators: dict
     ) -> str:
         """
         Apply all post-processing steps to generated report (Thai only).
@@ -559,15 +616,15 @@ class WorkflowNodes:
         1. Calculate ground truth from indicators
         2. Inject deterministic numbers (replace {{PLACEHOLDERS}})
         3. Add news references
-        4. Add transparency footer with strategy label
+        4. Add transparency footer
 
         Note: Percentile analysis removed (Thai reports don't show it)
+        Uses Semantic Layer Architecture (three-layer pattern)
 
         Args:
             report: Raw LLM-generated report
             state: Complete workflow state
             indicators: Technical indicators
-            strategy: 'single-stage' or 'multi-stage'
 
         Returns:
             Post-processed report with all enhancements
@@ -604,173 +661,19 @@ class WorkflowNodes:
         # Step 4: Add transparency footer (Thai only, no percentile section)
         from src.report import TransparencyFooter
         transparency = TransparencyFooter()
-        footnote = transparency.generate_data_usage_footnote(state, strategy=strategy)
+        footnote = transparency.generate_data_usage_footnote(state)
         report += footnote
 
         return report
 
-    def _generate_report_multistage(self, state: AgentState) -> AgentState:
-        """
-        Generate report using multi-stage approach:
-        1. Generate 6 specialized mini-reports in parallel
-        2. Synthesize mini-reports into comprehensive final report
-        3. Apply number injection and add footnotes
-        """
-        llm_start_time = time.perf_counter()
-        logger.info(f"   📝 Generating multi-stage report (6 mini-reports → synthesis)")
-
-        ticker = state["ticker"]
-        ticker_data = state["ticker_data"]
-        indicators = state["indicators"]
-        percentiles = state.get("percentiles", {})
-        strategy_performance = state.get("strategy_performance", {})
-        news = state.get("news", [])
-        news_summary = state.get("news_summary", {})
-        comparative_insights = state.get("comparative_insights", {})
-
-        # Extract MCP data fields (equalizing input with single-stage)
-        chart_patterns = state.get("chart_patterns", [])
-        pattern_statistics = state.get("pattern_statistics", {})
-        sec_filing_data = state.get("sec_filing_data", {})
-        financial_markets_data = state.get("financial_markets_data", {})
-        portfolio_insights = state.get("portfolio_insights", {})
-        alpaca_data = state.get("alpaca_data", {})
-
-        # Initialize API costs tracking
-        total_input_tokens = 0
-        total_output_tokens = 0
-        llm_calls = 0
-
-        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        # STAGE 1: Generate 6 mini-reports in parallel
-        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        mini_reports = {}
-
-        def generate_mini_report(report_type: str) -> tuple:
-            """Generate a single mini-report and return (type, content, tokens)"""
-            try:
-                if report_type == 'technical':
-                    content = self.mini_report_generator.generate_technical_mini_report(
-                        indicators, percentiles, chart_patterns, pattern_statistics, financial_markets_data
-                    )
-                elif report_type == 'fundamental':
-                    content = self.mini_report_generator.generate_fundamental_mini_report(
-                        ticker_data, sec_filing_data
-                    )
-                elif report_type == 'market_conditions':
-                    content = self.mini_report_generator.generate_market_conditions_mini_report(
-                        indicators, percentiles, alpaca_data
-                    )
-                elif report_type == 'news':
-                    content = self.mini_report_generator.generate_news_mini_report(news, news_summary)
-                elif report_type == 'comparative':
-                    content = self.mini_report_generator.generate_comparative_mini_report(comparative_insights)
-                elif report_type == 'strategy':
-                    content = self.mini_report_generator.generate_strategy_mini_report(
-                        strategy_performance, portfolio_insights
-                    )
-                else:
-                    content = ""
-
-                # Estimate tokens (actual token counting would require response metadata)
-                input_tokens = 500  # Rough estimate for prompt
-                output_tokens = len(content) // 4  # Rough estimate: 4 chars per token
-                return (report_type, content, input_tokens, output_tokens)
-            except Exception as e:
-                logger.warning(f"   ⚠️  Failed to generate {report_type} mini-report: {e}")
-                return (report_type, "", 0, 0)
-
-        # Generate all 6 mini-reports in parallel
-        logger.info(f"   🔄 Generating 6 mini-reports in parallel...")
-        report_types = ['technical', 'fundamental', 'market_conditions', 'news', 'comparative', 'strategy']
-
-        with ThreadPoolExecutor(max_workers=6) as executor:
-            futures = {executor.submit(generate_mini_report, rt): rt for rt in report_types}
-
-            for future in as_completed(futures):
-                report_type, content, input_tokens, output_tokens = future.result()
-                mini_reports[report_type] = content
-                total_input_tokens += input_tokens
-                total_output_tokens += output_tokens
-                llm_calls += 1
-                logger.info(f"   ✅ {report_type} mini-report complete ({len(content)} chars)")
-
-        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        # STAGE 2: Synthesize all mini-reports into final report
-        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        logger.info(f"   🔄 Synthesizing mini-reports into final report...")
-        report = self.synthesis_generator.generate_synthesis(mini_reports)
-        llm_calls += 1
-
-        # Estimate synthesis tokens
-        synthesis_input = sum(len(mr) for mr in mini_reports.values()) // 4
-        synthesis_output = len(report) // 4
-        total_input_tokens += synthesis_input
-        total_output_tokens += synthesis_output
-
-        logger.info(f"   ✅ Synthesis complete ({len(report)} chars)")
-
-        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        # STAGE 3: Apply post-processing pipeline
-        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        report = self._post_process_report_workflow(
-            report, state, indicators, strategy='multi-stage'
-        )
-
-        # Record timing and costs
-        llm_elapsed = time.perf_counter() - llm_start_time
-        timing_metrics = state.get("timing_metrics", {})
-        timing_metrics["llm_generation"] = llm_elapsed
-        state["timing_metrics"] = timing_metrics
-
-        api_costs = self.cost_scorer.calculate_api_cost(
-            total_input_tokens, total_output_tokens, actual_cost_usd=None
-        )
-        state["api_costs"] = api_costs
-
-        # Validate report
-        if not report or len(report.strip()) == 0:
-            error_msg = "Generated multi-stage report is empty"
-            state["error"] = error_msg
-            self._log_node_error("generate_report", state, error_msg)
-            return state
-
-        state["report"] = report
-
-        # Log success
-        details = {
-            'report_length': len(report),
-            'llm_calls': llm_calls,
-            'input_tokens': total_input_tokens,
-            'output_tokens': total_output_tokens,
-            'duration_ms': f"{llm_elapsed*1000:.2f}",
-            'strategy': 'multi-stage'
-        }
-        self._log_node_success("generate_report", state, details)
-
-        # Save to database (same as single-stage)
-        from src.utils.serialization import make_json_serializable
-
-        market_conditions = self.market_analyzer.calculate_market_conditions(indicators)
-        from src.scoring.scoring_service import ScoringContext
-        scoring_context = ScoringContext(
-            indicators=make_json_serializable(indicators),
-            percentiles=make_json_serializable(percentiles),
-            news=make_json_serializable(news),
-            ticker_data=make_json_serializable(ticker_data),
-            market_conditions={
-                'uncertainty_score': indicators.get('uncertainty_score', 0),
-                'atr_pct': (indicators.get('atr', 0) / indicators.get('current_price', 1)) * 100 if indicators.get('current_price', 0) > 0 else 0,
-                'price_vs_vwap_pct': market_conditions.get('price_vs_vwap_pct', 0),
-                'volume_ratio': market_conditions.get('volume_ratio', 0),
-            },
-            comparative_insights=make_json_serializable(state.get('comparative_insights', {}))
-        )
-
-        return state
-
     def _generate_report_singlestage(self, state: AgentState) -> AgentState:
-        """Generate report using traditional single-stage approach (original implementation)"""
+        """
+        Generate report using Semantic Layer Architecture (three-layer pattern).
+
+        Layer 1: Raw numeric calculations → Ground truth values
+        Layer 2: Semantic state classification → Categorical labels
+        Layer 3: LLM narrative synthesis → Natural language constrained by states
+        """
 
         llm_start_time = time.perf_counter()
         logger.info(f"   📝 Generating report with LLM")
@@ -790,6 +693,19 @@ class WorkflowNodes:
         total_output_tokens = 0
         llm_calls = 0
 
+        # Calculate ground truth for semantic state generation
+        from src.analysis.market_analyzer import MarketAnalyzer
+        market_analyzer = MarketAnalyzer()
+        conditions = market_analyzer.calculate_market_conditions(indicators)
+
+        ground_truth = {
+            'uncertainty_score': indicators.get('uncertainty_score', 0),
+            'atr_pct': (indicators.get('atr', 0) / indicators.get('current_price', 1)) * 100
+                       if indicators.get('current_price', 0) > 0 else 0,
+            'vwap_pct': conditions.get('price_vs_vwap_pct', 0),
+            'volume_ratio': conditions.get('volume_ratio', 0),
+        }
+
         # First pass: Generate report without strategy data to determine recommendation
         comparative_insights = state.get("comparative_insights", {})
         sec_filing_data = state.get("sec_filing_data", {})
@@ -798,6 +714,7 @@ class WorkflowNodes:
         alpaca_data = state.get("alpaca_data", {})
         context = self.context_builder.prepare_context(
             ticker, ticker_data, indicators, percentiles, news, news_summary,
+            ground_truth=ground_truth,
             strategy_performance=None,
             comparative_insights=comparative_insights,
             sec_filing_data=sec_filing_data,
@@ -806,7 +723,12 @@ class WorkflowNodes:
             alpaca_data=alpaca_data
         )
         prompt = self.prompt_builder.build_prompt(
+            ticker,
             context,
+            ground_truth=ground_truth,
+            indicators=indicators,
+            percentiles=percentiles,
+            ticker_data=ticker_data,
             strategy_performance=None,
             comparative_insights=comparative_insights,
             sec_filing_data=sec_filing_data,
@@ -839,6 +761,7 @@ class WorkflowNodes:
         if include_strategy and strategy_performance:
             context_with_strategy = self.context_builder.prepare_context(
                 ticker, ticker_data, indicators, percentiles, news, news_summary,
+                ground_truth=ground_truth,
                 strategy_performance=strategy_performance,
                 comparative_insights=comparative_insights,
                 sec_filing_data=sec_filing_data,
@@ -847,7 +770,12 @@ class WorkflowNodes:
                 alpaca_data=alpaca_data
             )
             prompt_with_strategy = self.prompt_builder.build_prompt(
+                ticker,
                 context_with_strategy,
+                ground_truth=ground_truth,
+                indicators=indicators,
+                percentiles=percentiles,
+                ticker_data=ticker_data,
                 strategy_performance=strategy_performance,
                 comparative_insights=comparative_insights,
                 sec_filing_data=sec_filing_data,
@@ -875,9 +803,7 @@ class WorkflowNodes:
         # INJECT DETERMINISTIC NUMBERS (Damodaran "narrative + number" approach)
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         # Apply post-processing pipeline (number injection, news references, transparency footer)
-        report = self._post_process_report_workflow(
-            report, state, indicators, strategy='single-stage'
-        )
+        report = self._post_process_report_workflow(report, state, indicators)
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
         # Record LLM timing

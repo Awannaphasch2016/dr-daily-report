@@ -5,6 +5,8 @@ import logging
 from pathlib import Path
 from typing import Dict, Optional
 
+from src.report.number_injector import NumberInjector
+
 # Setup logger
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -33,13 +35,218 @@ class PromptBuilder:
             FileNotFoundError: If template file doesn't exist
         """
         templates_dir = Path(__file__).parent / "prompt_templates" / "th" / "single-stage"
-        filepath = templates_dir / "main_prompt.txt"
+
+        # Use v4 minimal template (single template solution)
+        filepath = templates_dir / "main_prompt_v4_minimal.txt"
 
         if not filepath.exists():
             raise FileNotFoundError(f"Main prompt template not found: {filepath}")
 
         with open(filepath, 'r', encoding='utf-8') as f:
             return f.read()
+
+    def _build_placeholder_list(self, placeholders, ground_truth=None, indicators=None,
+                                percentiles=None, ticker_data=None,
+                                comparative_insights=None, strategy_performance=None,
+                                line_length=80):
+        """Format placeholder list for template injection, filtering out unavailable data
+
+        Args:
+            placeholders: List of (name, suffix) tuples from NumberInjector
+            ground_truth: Ground truth data for filtering (optional)
+            indicators: Technical indicators for filtering (optional)
+            percentiles: Percentile data for filtering (optional)
+            ticker_data: Fundamental data for filtering (optional)
+            comparative_insights: Comparative data for filtering (optional)
+            strategy_performance: Strategy data for filtering (optional)
+            line_length: Max characters per line before wrapping
+
+        Returns:
+            Formatted string with only available placeholders, or empty string if none available
+
+        Example:
+            Input: [('UNCERTAINTY', '/100'), ('ATR_PCT', '%')], with data available
+            Output: "{UNCERTAINTY}/100, {ATR_PCT}%"
+
+        Note:
+            Uses single braces because this string is injected as a VALUE into
+            the template, not as template code. Python .format() doesn't process
+            escape sequences in injected values.
+        """
+        # Filter to only placeholders with actual data
+        available_placeholders = []
+        for name, suffix in placeholders:
+            if self._has_value(
+                name,
+                ground_truth or {},
+                indicators or {},
+                percentiles or {},
+                ticker_data or {},
+                comparative_insights or {},
+                strategy_performance or {}
+            ):
+                available_placeholders.append((name, suffix))
+
+        # If no data available for this category, return empty string
+        if not available_placeholders:
+            return ""
+
+        # Format available placeholders
+        formatted = []
+        for name, suffix in available_placeholders:
+            # Single braces - this is injected as a value, not template code
+            formatted.append(f"{{{name}}}{suffix}")
+
+        # Join with comma-space, wrapping at line_length
+        result = ", ".join(formatted)
+
+        # Optional: Add line breaks for readability (every ~80 chars)
+        if len(result) > line_length:
+            # Split into chunks at comma boundaries
+            lines = []
+            current_line = ""
+            for item in formatted:
+                if len(current_line) + len(item) + 2 > line_length and current_line:
+                    lines.append(current_line.rstrip(", "))
+                    current_line = item + ", "
+                else:
+                    current_line += item + ", "
+            if current_line:
+                lines.append(current_line.rstrip(", "))
+            result = "\n".join(lines)
+
+        return result
+
+    def _has_value(self, placeholder_name: str, ground_truth: dict, indicators: dict,
+                   percentiles: dict, ticker_data: dict, comparative_insights: dict,
+                   strategy_performance: dict) -> bool:
+        """Check if placeholder has actual non-empty data
+
+        Args:
+            placeholder_name: Name of placeholder to check (e.g., 'UNCERTAINTY', 'RSI')
+            ground_truth: Ground truth data (uncertainty, atr_pct, vwap_pct, volume_ratio)
+            indicators: Technical indicators (rsi, macd, sma_20, etc.)
+            percentiles: Percentile data
+            ticker_data: Fundamental data (pe_ratio, eps, market_cap, etc.)
+            comparative_insights: Comparative analysis data
+            strategy_performance: Strategy performance data
+
+        Returns:
+            True if value exists and is meaningful (not None, not 0 for prices, not empty string)
+        """
+        # Risk metrics (from ground_truth)
+        if placeholder_name in ['UNCERTAINTY', 'ATR_PCT', 'VWAP_PCT', 'VOLUME_RATIO']:
+            key_map = {
+                'UNCERTAINTY': 'uncertainty_score',
+                'ATR_PCT': 'atr_pct',
+                'VWAP_PCT': 'vwap_pct',
+                'VOLUME_RATIO': 'volume_ratio'
+            }
+            value = ground_truth.get(key_map[placeholder_name])
+            return value is not None and value != 0
+
+        # Current price (from indicators)
+        if placeholder_name == 'CURRENT_PRICE':
+            value = indicators.get('current_price')
+            return value is not None and value > 0
+
+        # Momentum indicators (from indicators)
+        if placeholder_name in ['RSI', 'MACD', 'MACD_SIGNAL']:
+            key_map = {
+                'RSI': 'rsi',
+                'MACD': 'macd',
+                'MACD_SIGNAL': 'macd_signal'
+            }
+            value = indicators.get(key_map[placeholder_name])
+            return value is not None
+
+        # Trend indicators (from indicators)
+        if placeholder_name in ['SMA_20', 'SMA_50', 'SMA_200', 'EMA_12', 'EMA_26']:
+            key = placeholder_name.lower()
+            value = indicators.get(key)
+            return value is not None and value > 0
+
+        # Volatility indicators (from indicators)
+        if placeholder_name in ['ATR', 'BOLLINGER_UPPER', 'BOLLINGER_LOWER', 'BOLLINGER_MIDDLE']:
+            key = placeholder_name.lower()
+            value = indicators.get(key)
+            return value is not None and value > 0
+
+        # Volume indicators (from indicators)
+        if placeholder_name == 'VWAP':
+            value = indicators.get('vwap')
+            return value is not None and value > 0
+
+        # Fundamentals (from ticker_data)
+        if placeholder_name in ['PE_RATIO', 'EPS', 'MARKET_CAP', 'REVENUE_GROWTH',
+                                'PROFIT_MARGIN', 'DIVIDEND_YIELD', 'ROE', 'DEBT_TO_EQUITY',
+                                'CURRENT_RATIO', 'BOOK_VALUE', '52_WEEK_HIGH', '52_WEEK_LOW',
+                                'TARGET_PRICE', 'BETA']:
+            key_map = {
+                'PE_RATIO': 'pe_ratio',
+                'EPS': 'eps',
+                'MARKET_CAP': 'market_cap',
+                'REVENUE_GROWTH': 'revenue_growth',
+                'PROFIT_MARGIN': 'profit_margin',
+                'DIVIDEND_YIELD': 'dividend_yield',
+                'ROE': 'return_on_equity',
+                'DEBT_TO_EQUITY': 'debt_to_equity',
+                'CURRENT_RATIO': 'current_ratio',
+                'BOOK_VALUE': 'book_value',
+                '52_WEEK_HIGH': 'fifty_two_week_high',
+                '52_WEEK_LOW': 'fifty_two_week_low',
+                'TARGET_PRICE': 'target_mean_price',
+                'BETA': 'beta',
+            }
+            value = ticker_data.get(key_map.get(placeholder_name, ''))
+            return value is not None and value != 'N/A' and value != ''
+
+        # Comparative (from comparative_insights)
+        if placeholder_name in ['PERFORMANCE_ADVANTAGE', 'VOLATILITY_ADVANTAGE',
+                                'COMPARATIVE_RETURN', 'PEER_COUNT']:
+            key = placeholder_name.lower()
+            value = comparative_insights.get(key) if comparative_insights else None
+            return value is not None and value != 'N/A'
+
+        # Strategy (from strategy_performance)
+        if placeholder_name.startswith('STRATEGY_'):
+            if not strategy_performance:
+                return False
+
+            # Map placeholder to strategy data path
+            if 'BUY' in placeholder_name:
+                data = strategy_performance.get('buy_only', {})
+            elif 'SELL' in placeholder_name:
+                data = strategy_performance.get('sell_only', {})
+            elif 'LAST_BUY' in placeholder_name:
+                data = strategy_performance.get('last_buy_signal', {})
+            elif 'LAST_SELL' in placeholder_name:
+                data = strategy_performance.get('last_sell_signal', {})
+            else:
+                return False
+
+            return bool(data)  # True if dict is non-empty
+
+        # Percentiles (from percentiles)
+        if placeholder_name.endswith('_PERCENTILE'):
+            # Remove _PERCENTILE suffix and map to percentile key
+            base_name = placeholder_name.replace('_PERCENTILE', '').lower()
+
+            # Handle name standardization (reverse mapping)
+            key_map = {
+                'uncertainty': 'uncertainty_score',
+                'atr_pct': 'atr_percent',
+            }
+            key = key_map.get(base_name, base_name)
+
+            value = percentiles.get(key) if percentiles else None
+            if isinstance(value, dict):
+                percentile_val = value.get('percentile')
+                return percentile_val is not None
+            return value is not None
+
+        # Default: assume not available
+        return False
 
     def _load_section_template(self, template_name: str) -> str:
         """Load a section template from disk
@@ -62,16 +269,26 @@ class PromptBuilder:
         with open(filepath, 'r', encoding='utf-8') as f:
             return f.read()
 
-    def build_prompt(self, context: str, strategy_performance: dict = None,
+    def build_prompt(self, ticker: str, context: str,
+                    ground_truth: dict = None,
+                    indicators: dict = None,
+                    percentiles: dict = None,
+                    ticker_data: dict = None,
+                    strategy_performance: dict = None,
                     comparative_insights: dict = None,
                     sec_filing_data: dict = None,
                     financial_markets_data: dict = None,
                     portfolio_insights: dict = None,
                     alpaca_data: dict = None) -> str:
-        """Build LLM prompt using template file
-        
+        """Build LLM prompt with dynamic placeholder filtering
+
         Args:
+            ticker: Stock ticker symbol
             context: Context string from ContextBuilder
+            ground_truth: Ground truth data (uncertainty, atr_pct, vwap_pct, volume_ratio) for filtering
+            indicators: Technical indicators (rsi, macd, sma_20, etc.) for filtering
+            percentiles: Percentile data for filtering
+            ticker_data: Fundamental data (pe_ratio, eps, market_cap, etc.) for filtering
             strategy_performance: Strategy performance data (for section presence detection)
             comparative_insights: Comparative insights data (for section presence detection)
             sec_filing_data: SEC filing data (for section presence detection)
@@ -79,10 +296,18 @@ class PromptBuilder:
             portfolio_insights: Portfolio Manager MCP data (for section presence detection)
             alpaca_data: Alpaca MCP data (for section presence detection)
         """
-        logger.info("🔨 [PromptBuilder] Building prompt from template")
+        logger.info("🔨 [PromptBuilder] Building prompt from template with dynamic filtering")
         logger.info(f"   📊 Input parameters:")
         logger.info(f"      - Context length: {len(context)} characters")
-        
+
+        # Default to empty dicts if not provided
+        ground_truth = ground_truth or {}
+        indicators = indicators or {}
+        percentiles = percentiles or {}
+        ticker_data = ticker_data or {}
+        comparative_insights = comparative_insights or {}
+        strategy_performance = strategy_performance or {}
+
         # Get section presence from context builder if available, otherwise use direct checks
         if self.context_builder:
             section_presence = self.context_builder.get_section_presence(
@@ -98,53 +323,100 @@ class PromptBuilder:
             # Fallback: use direct check (backward compatibility)
             has_strategy = bool(strategy_performance)
             section_presence = {'strategy': has_strategy}
-        
+
         logger.info(f"      - Strategy performance included: {has_strategy}")
 
-        # Build all sections using unified pattern
-        narrative_elements = self._build_base_prompt_section()
-        strategy_section = self._build_strategy_section() if has_strategy else ""
-        comparative_section = self._build_comparative_section()
-        structure = self.build_prompt_structure(has_strategy)
+        # Get placeholder definitions from NumberInjector (single source of truth)
+        placeholder_defs = NumberInjector.get_placeholder_definitions()
 
-        # Log section details
-        logger.info(f"   📋 Prompt sections:")
-        logger.info(f"      - Template loaded: {len(self.main_prompt_template)} chars")
-        logger.info(f"      - Narrative elements: {len(narrative_elements)} chars")
-        logger.info(f"      - Strategy section: {len(strategy_section)} chars {'(included)' if strategy_section else '(excluded)'}")
-        logger.info(f"      - Comparative section: {len(comparative_section)} chars")
-        logger.info(f"      - Structure: {len(structure)} chars")
+        # Build filtered placeholder lists (only include available data)
+        risk_vars = self._build_placeholder_list(
+            placeholder_defs['risk_metrics'],
+            ground_truth=ground_truth,
+            indicators=indicators
+        )
 
-        # Log each template variable content for debugging
+        momentum_vars = self._build_placeholder_list(
+            placeholder_defs['momentum_indicators'],
+            indicators=indicators
+        )
+
+        trend_vars = self._build_placeholder_list(
+            placeholder_defs['trend_indicators'],
+            indicators=indicators
+        )
+
+        volatility_vars = self._build_placeholder_list(
+            placeholder_defs['volatility_indicators'],
+            indicators=indicators
+        )
+
+        volume_vars = self._build_placeholder_list(
+            placeholder_defs['volume_indicators'],
+            indicators=indicators
+        )
+
+        fundamental_vars = self._build_placeholder_list(
+            placeholder_defs['fundamentals'],
+            ticker_data=ticker_data
+        )
+
+        comparative_vars = self._build_placeholder_list(
+            placeholder_defs['comparative'],
+            comparative_insights=comparative_insights
+        )
+
+        strategy_vars = self._build_placeholder_list(
+            placeholder_defs['strategy'],
+            strategy_performance=strategy_performance
+        )
+
+        percentiles_vars = self._build_placeholder_list(
+            placeholder_defs['percentiles'],
+            percentiles=percentiles
+        )
+
+        # Log what's available
+        logger.info("   📊 Available placeholder categories:")
+        logger.info(f"      - Risk metrics: {len(risk_vars.split(',')) if risk_vars else 0} variables")
+        logger.info(f"      - Momentum: {len(momentum_vars.split(',')) if momentum_vars else 0} variables")
+        logger.info(f"      - Trend: {len(trend_vars.split(',')) if trend_vars else 0} variables")
+        logger.info(f"      - Volatility: {len(volatility_vars.split(',')) if volatility_vars else 0} variables")
+        logger.info(f"      - Volume: {len(volume_vars.split(',')) if volume_vars else 0} variables")
+        logger.info(f"      - Fundamentals: {len(fundamental_vars.split(',')) if fundamental_vars else 0} variables")
+        logger.info(f"      - Comparative: {len(comparative_vars.split(',')) if comparative_vars else 0} variables")
+        logger.info(f"      - Strategy: {len(strategy_vars.split(',')) if strategy_vars else 0} variables")
+        logger.info(f"      - Percentiles: {len(percentiles_vars.split(',')) if percentiles_vars else 0} variables")
+
+        # Log template variables for v4 minimal (single template approach)
         logger.info("━" * 70)
-        logger.info("📝 TEMPLATE VARIABLE VALUES (what gets injected into main_prompt.txt):")
+        logger.info("📝 TEMPLATE VARIABLE VALUES (v4 dynamic placeholders):")
         logger.info("━" * 70)
+        logger.info("")
+        logger.info(f"   {{TICKER}} = {ticker}")
         logger.info("")
         logger.info("   {CONTEXT} =")
-        logger.info(f"{context}")
+        logger.info(f"{context[:500]}...")  # Show first 500 chars
         logger.info("")
-        logger.info("   {NARRATIVE_ELEMENTS} =")
-        logger.info(f"{narrative_elements}")
-        logger.info("")
-        if strategy_section:
-            logger.info("   {STRATEGY_SECTION} =")
-            logger.info(f"{strategy_section}")
-            logger.info("")
-        logger.info("   {COMPARATIVE_SECTION} =")
-        logger.info(f"{comparative_section}")
-        logger.info("")
-        logger.info("   {PROMPT_STRUCTURE} =")
-        logger.info(f"{structure}")
+        logger.info(f"   {{RISK_METRICS}} = {risk_vars[:100] if risk_vars else '(no data)'}...")
+        logger.info(f"   {{FUNDAMENTAL_VARIABLES}} = {fundamental_vars[:100] if fundamental_vars else '(no data)'}...")
+        logger.info(f"   {{PERCENTILES_VARIABLES}} = {percentiles_vars[:100] if percentiles_vars else '(no data)'}...")
         logger.info("")
         logger.info("━" * 70)
 
-        # Format template with variables (replaces hardcoded concatenation)
+        # Format template with variables (empty categories show fallback message)
         final_prompt = self.main_prompt_template.format(
+            TICKER=ticker,
             CONTEXT=context,
-            NARRATIVE_ELEMENTS=narrative_elements,
-            STRATEGY_SECTION=strategy_section,
-            COMPARATIVE_SECTION=comparative_section,
-            PROMPT_STRUCTURE=structure
+            RISK_METRICS=risk_vars or "(no data available)",
+            MOMENTUM_INDICATORS=momentum_vars or "(no data available)",
+            TREND_INDICATORS=trend_vars or "(no data available)",
+            VOLATILITY_INDICATORS=volatility_vars or "(no data available)",
+            VOLUME_INDICATORS=volume_vars or "(no data available)",
+            FUNDAMENTAL_VARIABLES=fundamental_vars or "(no data available)",
+            COMPARATIVE_VARIABLES=comparative_vars or "(optional - not available)",
+            STRATEGY_VARIABLES=strategy_vars or "(optional - not available)",
+            PERCENTILES_VARIABLES=percentiles_vars or "(optional - not available)"
         )
         
         # Log final prompt summary

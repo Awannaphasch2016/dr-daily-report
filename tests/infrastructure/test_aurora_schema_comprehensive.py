@@ -425,29 +425,29 @@ class TestAuroraSchemaComprehensive:
     # TICKER_DATA_CACHE TABLE
     # =========================================================================
 
-    def test_ticker_data_cache_columns(self):
-        """Schema matches store_ticker_data_cache() INSERT query.
+    def test_ticker_data_columns(self):
+        """Schema matches store_ticker_data() INSERT query.
 
-        Validates ticker data cache columns exist in Aurora.
+        Validates ticker data columns exist in Aurora.
         """
         from src.data.aurora.precompute_service import PrecomputeService
 
         try:
             expected = self.extractor.extract_columns_from_class_method(
                 PrecomputeService,
-                'store_ticker_data_cache'
+                'store_ticker_data'
             )
         except ValueError as e:
             pytest.skip(f"Could not extract schema from code: {e}")
 
-        schema = self._query_aurora_schema('ticker_data_cache')
+        schema = self._query_aurora_schema('ticker_data')
         actual = set(schema.keys())
 
         missing = expected - actual
 
         assert not missing, \
-            f"❌ ticker_data_cache missing columns: {sorted(missing)}\n" \
-            f"   Source: src/data/aurora/precompute_service.py::store_ticker_data_cache"
+            f"❌ ticker_data missing columns: {sorted(missing)}\n" \
+            f"   Source: src/data/aurora/precompute_service.py::store_ticker_data"
 
     # =========================================================================
     # REPOSITORY TABLES

@@ -55,7 +55,7 @@ class TestWorkerCacheFlow:
             mock_response.model_dump.return_value = {
                 "ticker": "DBS19",
                 "narrative_report": "Test report",
-                "generation_metadata": {"strategy": "multi_stage_analysis"},
+                "generation_metadata": {},
             }
             mock_transform.return_value = mock_response
 
@@ -78,7 +78,6 @@ class TestWorkerCacheFlow:
                 symbol="DBS19",
                 report_text=result.get('narrative_report', ''),
                 report_json=result,
-                strategy=result.get('generation_metadata', {}).get('strategy', 'multi_stage_analysis'),
                 chart_base64=final_state.get('chart_base64', ''),
             )
 
@@ -153,16 +152,14 @@ class TestWorkerCacheFlow:
             from src.data.aurora.precompute_service import PrecomputeService
             service = PrecomputeService()
 
-            # Call _store_completed_report directly
+            # Call _store_completed_report directly (without strategy and mini_reports)
             service._store_completed_report(
                 ticker_id=42,
                 symbol="D05.SI",
                 data_date=date.today(),
                 report_text="Test report",
                 report_json={"test": "data"},
-                strategy="multi_stage_analysis",
                 generation_time_ms=1000,
-                mini_reports={},
                 chart_base64="base64",
             )
 

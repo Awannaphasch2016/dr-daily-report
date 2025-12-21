@@ -46,7 +46,6 @@ class TestPrecomputeServiceStoreReportFromAPI:
         - symbol: ticker symbol (e.g., 'DBS19')
         - report_text: narrative report in Thai
         - report_json: full API response dict
-        - strategy: generation strategy used
         """
         from src.data.aurora.precompute_service import PrecomputeService
         import inspect
@@ -136,7 +135,6 @@ class TestAuroraCacheRoundTrip:
             'technical_metrics': [],
             'fundamentals': {},
             'generation_metadata': {
-                'strategy': 'multi_stage_analysis',
                 'cache_hit': False
             }
         }
@@ -218,11 +216,12 @@ class TestAuroraSchemaValidation:
 
         actual_columns = {row['COLUMN_NAME'] for row in columns}
 
-        # Columns that _store_completed_report tries to INSERT
+        # Columns that _store_completed_report tries to INSERT (after migration 011)
+        # NOTE: strategy and mini_reports removed in Semantic Layer Architecture
         code_expects = {
             'ticker_id', 'symbol', 'report_date',
-            'report_text', 'report_json', 'strategy',
-            'generation_time_ms', 'mini_reports', 'chart_base64',
+            'report_text', 'report_json',
+            'generation_time_ms', 'chart_base64',
             'status', 'expires_at', 'computed_at'
         }
 
@@ -249,16 +248,14 @@ class TestAuroraSchemaValidation:
         test_ticker_id = 99999
 
         try:
-            # Try to execute the actual SQL
+            # Try to execute the actual SQL (without strategy and mini_reports)
             service._store_completed_report(
                 ticker_id=test_ticker_id,
                 symbol=test_symbol,
                 data_date=date.today(),
                 report_text="Test report for schema validation",
                 report_json={"test": True, "purpose": "schema_validation"},
-                strategy="test",
                 generation_time_ms=100,
-                mini_reports={},
                 chart_base64="",
             )
 
@@ -307,7 +304,6 @@ class TestAuroraSchemaValidation:
                     "test": True,
                     "narrative_report": "Integration test"
                 },
-                strategy="integration_test",
                 chart_base64="test_base64",
             )
 
@@ -324,19 +320,20 @@ class TestAuroraSchemaValidation:
                         SELECT * FROM precomputed_reports
                         WHERE symbol = 'D05.SI'
                         AND report_date = CURDATE()
-                        AND strategy = 'integration_test'
+                        AND report_text LIKE '%Integration test%'
                     """)
                     result = cursor.fetchone()
 
             assert result is not None, "Report should exist in Aurora cache"
 
         finally:
-            # Cleanup
+            # Cleanup - use report_text pattern to identify test data
             with aurora_client.get_connection() as conn:
                 with conn.cursor() as cursor:
                     cursor.execute("""
                         DELETE FROM precomputed_reports
-                        WHERE strategy = 'integration_test'
+                        WHERE report_text LIKE '%Integration test%'
+                        AND symbol = 'D05.SI'
                     """)
                 conn.commit()
 

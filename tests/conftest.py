@@ -296,7 +296,6 @@ def mock_agent_state() -> Dict[str, Any]:
         ],
         'comparative_data': {},
         'report': '',
-        'strategy': 'single-stage',
         'error': '',
         'messages': []
     }

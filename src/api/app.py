@@ -296,7 +296,6 @@ async def get_report(
             "api_costs": {},
             "database_metrics": {},
             "error": "",
-            "strategy": "multi_stage_analysis"
         }
 
         # Run analysis

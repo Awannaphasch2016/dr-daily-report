@@ -52,8 +52,7 @@ class TestStoreReportFromApi:
         result = service.store_report_from_api(
             symbol='DBS19',  # Known ticker in tickers.csv
             report_text='Test report in Thai',
-            report_json={'ticker': 'DBS19', 'stance': 'bullish'},
-            strategy='multi_stage_analysis'
+            report_json={'ticker': 'DBS19', 'stance': 'bullish'}
         )
 
         # Should succeed because TickerResolver found the ticker via CSV fallback
@@ -140,12 +139,14 @@ class TestStoreCompletedReport:
     def test_store_completed_report_uses_valid_columns(self, mock_get_client):
         """Regression: SQL must only reference columns that exist in schema.
 
-        Expected schema columns:
+        Expected schema columns (after migration 011):
             id, ticker_id, ticker_master_id, symbol, report_date,
-            report_text, report_json, strategy, model_used,
-            generation_time_ms, token_count, cost_usd, mini_reports,
+            report_text, report_json, model_used,
+            generation_time_ms, token_count, cost_usd,
             faithfulness_score, completeness_score, reasoning_score,
             chart_base64, status, error_message, computed_at, expires_at
+
+        NOTE: strategy and mini_reports columns will be removed in migration 011.
         """
         from src.data.aurora.precompute_service import PrecomputeService
         from datetime import date
@@ -157,16 +158,14 @@ class TestStoreCompletedReport:
 
         service = PrecomputeService()
 
-        # Call the internal method directly
+        # Call the internal method directly (without strategy and mini_reports parameters)
         service._store_completed_report(
             ticker_id=1,
             symbol='TEST',
             data_date=date.today(),
             report_text='Test report',
             report_json={'test': 'data'},
-            strategy='multi_stage_analysis',
             generation_time_ms=1000,
-            mini_reports={},
             chart_base64='base64data',
         )
 
@@ -180,14 +179,17 @@ class TestStoreCompletedReport:
         # Verify ONLY valid columns are referenced
         valid_columns = [
             'ticker_id', 'ticker_master_id', 'symbol', 'report_date',
-            'report_text', 'report_json', 'strategy', 'model_used',
-            'generation_time_ms', 'token_count', 'cost_usd', 'mini_reports',
+            'report_text', 'report_json', 'model_used',
+            'generation_time_ms', 'token_count', 'cost_usd',
             'faithfulness_score', 'completeness_score', 'reasoning_score',
             'chart_base64', 'status', 'error_message', 'computed_at', 'expires_at'
         ]
 
-        # These columns should NOT be in the query (they don't exist in schema)
-        invalid_columns = ['date', 'pdf_s3_key', 'pdf_generated_at', 'report_generated_at']
+        # These columns should NOT be in the query (they don't exist in schema or will be removed)
+        invalid_columns = [
+            'date', 'pdf_s3_key', 'pdf_generated_at', 'report_generated_at',
+            'strategy', 'mini_reports'  # Removed in Semantic Layer Architecture
+        ]
 
         for col in invalid_columns:
             # Check column name is not used (avoid false positives like 'date' in 'report_date')

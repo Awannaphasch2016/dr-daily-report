@@ -98,23 +98,21 @@ def list_py():
 
 @utils.command()
 @click.argument('ticker')
-@click.option('--strategy', type=click.Choice(['single-stage', 'multi-stage']), default='single-stage',
-              help='Report generation strategy: single-stage (default) or multi-stage')
 @click.pass_context
-def report(ctx, ticker, strategy):
+def report(ctx, ticker):
     """Generate report for a ticker
 
     Generates a daily report analysis for the specified ticker symbol (Thai only).
+    Uses Semantic Layer Architecture (three-layer pattern).
 
     Examples:
-      dr util report DBS19                         # Single-stage (default)
-      dr util report DBS19 --strategy multi-stage  # Multi-stage report
+      dr util report DBS19
     """
     trace = ctx.obj.get('trace')
 
     cmd = [
         sys.executable, "-c",
-        f"from src.agent import TickerAnalysisAgent; agent = TickerAnalysisAgent(); result = agent.analyze_ticker('{ticker}', strategy='{strategy}'); print(result['report'])"
+        f"from src.agent import TickerAnalysisAgent; agent = TickerAnalysisAgent(); result = agent.analyze_ticker('{ticker}'); print(result['report'])"
     ]
 
     env = {**os.environ, "PYTHONPATH": str(PROJECT_ROOT)}
@@ -125,26 +123,23 @@ def report(ctx, ticker, strategy):
 
 @utils.command()
 @click.argument('ticker')
-@click.option('--strategy', type=click.Choice(['single-stage', 'multi-stage']), default='single-stage',
-              help='Report generation strategy: single-stage (default) or multi-stage')
 @click.option('--date', type=str, default=None,
               help='Report date (YYYY-MM-DD), defaults to today')
 @click.pass_context
-def report_cached(ctx, ticker, strategy, date):
+def report_cached(ctx, ticker, date):
     """Regenerate report from cached data (no API calls, no sink nodes)
 
     Uses existing data in Aurora to generate a new report. This is much faster
     and cheaper than live generation since it skips all API calls.
+    Uses Semantic Layer Architecture (three-layer pattern).
 
     Useful for:
     - Testing new prompts without refetching data
-    - Comparing single-stage vs multi-stage on same data
     - Cost-efficient development iteration
 
     Examples:
-      dr util report-cached DBS19                          # Regenerate with today's data
-      dr util report-cached DBS19 --strategy multi-stage   # Try multi-stage on cached data
-      dr util report-cached DBS19 --date 2024-01-15        # Use specific date's data
+      dr util report-cached DBS19                   # Regenerate with today's data
+      dr util report-cached DBS19 --date 2024-01-15 # Use specific date's data
     """
     # Build Python command
     date_param = f"from datetime import datetime; data_date = datetime.strptime('{date}', '%Y-%m-%d').date(); " if date else "data_date = None; "
@@ -154,7 +149,7 @@ def report_cached(ctx, ticker, strategy, date):
         f"from src.data.aurora.precompute_service import PrecomputeService; "
         f"{date_param}"
         f"service = PrecomputeService(); "
-        f"result = service.regenerate_report_from_cache('{ticker}', strategy='{strategy}', data_date=data_date); "
+        f"result = service.regenerate_report_from_cache('{ticker}', data_date=data_date); "
         f"print(f'\\n✅ Generated in {{result[\"generation_time_ms\"]}}ms\\n'); "
         f"print(result['report_text']); "
         f"print(f'\\n📊 LLM Calls: {{result.get(\"api_costs\", {{}}).get(\"llm_calls\", \"N/A\")}}') if 'api_costs' in result else None"
@@ -162,7 +157,7 @@ def report_cached(ctx, ticker, strategy, date):
 
     env = {**os.environ, "PYTHONPATH": str(PROJECT_ROOT)}
 
-    click.echo(f"🔄 Regenerating {strategy} report for {ticker} from cached data...")
+    click.echo(f"🔄 Regenerating report for {ticker} from cached data...")
     result = subprocess.run(cmd, cwd=PROJECT_ROOT, env=env)
 
     if result.returncode != 0:
@@ -216,21 +211,19 @@ def info():
 
 @utils.command(name='prompt-vars')
 @click.argument('ticker')
-@click.option('--strategy', type=click.Choice(['single-stage', 'multi-stage']), default='single-stage',
-              help='Report generation strategy: single-stage (default) or multi-stage')
 @click.option('--output', type=click.Path(), default=None,
               help='Save output to file (optional)')
 @click.pass_context
-def prompt_vars(ctx, ticker, strategy, output):
+def prompt_vars(ctx, ticker, output):
     """Inspect prompt variables for a ticker (useful for prompt debugging)
 
     Builds the prompt context without generating the full report, displaying
     all template variables in a clean, readable format.
+    Uses Semantic Layer Architecture (three-layer pattern).
 
     Examples:
-      dr util prompt-vars DBS19                         # Single-stage (default)
-      dr util prompt-vars DBS19 --strategy multi-stage  # Multi-stage prompt
-      dr util prompt-vars DBS19 --output prompt.txt     # Save to file
+      dr util prompt-vars DBS19                   # Inspect prompt
+      dr util prompt-vars DBS19 --output prompt.txt  # Save to file
     """
     trace = ctx.obj.get('trace')
     
@@ -272,8 +265,7 @@ initial_state = {{
     "financial_markets_data": {{}},
     "portfolio_insights": {{}},
     "alpaca_data": {{}},
-    "error": "",
-    "strategy": "{strategy}"
+    "error": ""
 }}
 
 # Run workflow nodes to collect data
@@ -317,7 +309,7 @@ try:
     percentiles = state.get("percentiles", {{}})
     news = state.get("news", [])
     news_summary = state.get("news_summary", {{}})
-    strategy_performance = state.get("strategy_performance", {{}}) if "{strategy}" == "single-stage" else None
+    strategy_performance = state.get("strategy_performance", {{}})
     comparative_insights = state.get("comparative_insights", {{}})
     sec_filing_data = state.get("sec_filing_data", {{}})
     financial_markets_data = state.get("financial_markets_data", {{}})
@@ -340,8 +332,27 @@ try:
         alpaca_data=alpaca_data if alpaca_data else None
     )
 
-    # Get section presence from context builder
-    section_presence = agent.context_builder.get_section_presence(
+    # Calculate ground truth from indicators (same as workflow_nodes.py)
+    from src.analysis.market_analyzer import MarketAnalyzer
+    market_analyzer = MarketAnalyzer()
+    conditions = market_analyzer.calculate_market_conditions(indicators)
+
+    ground_truth = {{
+        'uncertainty_score': indicators.get('uncertainty_score', 0),
+        'atr_pct': (indicators.get('atr', 0) / indicators.get('current_price', 1)) * 100
+                   if indicators.get('current_price', 0) > 0 else 0,
+        'vwap_pct': conditions.get('price_vs_vwap_pct', 0),
+        'volume_ratio': conditions.get('volume_ratio', 0),
+    }}
+
+    # Build final prompt using v4 minimal template with dynamic filtering
+    final_prompt = agent.prompt_builder.build_prompt(
+        "{ticker}",
+        context,
+        ground_truth=ground_truth,
+        indicators=indicators,
+        percentiles=percentiles,
+        ticker_data=ticker_data,
         strategy_performance=strategy_performance,
         comparative_insights=comparative_insights,
         sec_filing_data=sec_filing_data if sec_filing_data else None,
@@ -349,67 +360,26 @@ try:
         portfolio_insights=portfolio_insights if portfolio_insights else None,
         alpaca_data=alpaca_data if alpaca_data else None
     )
-    
-    # Build prompt sections using unified pattern
-    narrative_elements = agent.prompt_builder._build_base_prompt_section()
-    strategy_section = agent.prompt_builder._build_strategy_section() if section_presence.get('strategy', False) else ""
-    comparative_section = agent.prompt_builder._build_comparative_section()
-    structure = agent.prompt_builder.build_prompt_structure(section_presence.get('strategy', False))
-
-    # Build final prompt
-    final_prompt = agent.prompt_builder.main_prompt_template.format(
-        CONTEXT=context,
-        NARRATIVE_ELEMENTS=narrative_elements,
-        STRATEGY_SECTION=strategy_section,
-        COMPARATIVE_SECTION=comparative_section,
-        PROMPT_STRUCTURE=structure
-    )
 
     # Calculate token estimate
     token_count = len(final_prompt) // 4
 
     # Display output
     print("━" * 80)
-    print("📝 PROMPT VARIABLES INSPECTION")
+    print("📝 PROMPT INSPECTION (Semantic Layer Architecture)")
     print("━" * 80)
     print(f"Ticker: {ticker}")
-    print(f"Strategy: {strategy}")
     print(f"Token Estimate: ~{{token_count}} tokens")
     print("━" * 80)
     print()
-    print("{{CONTEXT}}")
-    print("━" * 80)
-    print(context)
-    print()
-    print("{{NARRATIVE_ELEMENTS}}")
-    print("━" * 80)
-    print(narrative_elements)
-    print()
-'''
-    
-    if strategy == "multi-stage":
-        script_content += f'''    print("{{STRATEGY_SECTION}}")
-    print("━" * 80)
-    print(strategy_section)
-    print()
-'''
-    
-    script_content += f'''    print("{{COMPARATIVE_SECTION}}")
-    print("━" * 80)
-    print(comparative_section)
-    print()
-    print("{{PROMPT_STRUCTURE}}")
-    print("━" * 80)
-    print(structure)
-    print()
-    print("━" * 80)
-    print("📄 FINAL ASSEMBLED PROMPT")
+    print("FULL PROMPT TO LLM:")
     print("━" * 80)
     print(final_prompt)
     print()
     print("━" * 80)
-    print(f"✅ Total prompt length: {{len(final_prompt)}} characters (~{{token_count}} tokens)")
+    print(f"✅ Total: {{len(final_prompt)}} chars (~{{token_count}} tokens)")
     print("━" * 80)
+    print()
 except Exception as e:
     import traceback
     print(f"❌ Error: {{e}}", file=sys.stderr)

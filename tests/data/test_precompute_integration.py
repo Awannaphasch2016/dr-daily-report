@@ -227,8 +227,7 @@ class TestPrecomputeServiceScoring:
             'api_costs': {},
             'database_metrics': {},
             'user_facing_scores': {},  # NEW field
-            'error': '',
-            'strategy': 'single-stage'
+            'error': ''
         }
 
         # Verify user_facing_scores field exists

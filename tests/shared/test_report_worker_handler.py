@@ -52,7 +52,7 @@ class TestReportWorkerCaching:
         mock_response.model_dump.return_value = {
             "ticker": "DBS19",
             "narrative_report": "Thai language report text",
-            "generation_metadata": {"strategy": "multi_stage_analysis"},
+            "generation_metadata": {},
         }
         mock_transformer.transform_report = AsyncMock(return_value=mock_response)
 
@@ -154,10 +154,6 @@ class TestReportWorkerCaching:
 
             assert call_kwargs["report_text"] == "Thai language report text", \
                 f"report_text should match narrative_report, got {call_kwargs.get('report_text')}"
-
-            # Strategy should be mapped to MySQL ENUM value ('multi-stage' or 'single-stage')
-            assert call_kwargs["strategy"] == "multi-stage", \
-                f"strategy should be 'multi-stage' (MySQL ENUM), got {call_kwargs.get('strategy')}"
 
             assert call_kwargs["chart_base64"] == "BASE64_CHART_DATA", \
                 f"chart_base64 should be 'BASE64_CHART_DATA', got {call_kwargs.get('chart_base64')}"
@@ -355,7 +351,7 @@ class TestCachingArgumentSources:
         mock_response.model_dump.return_value = {
             "ticker": "DBS19",
             "narrative_report": "Report text",
-            "generation_metadata": {"strategy": "test"},
+            "generation_metadata": {},
             # No chart_base64 here - it's not in the API response model
         }
         mock_transformer.transform_report = AsyncMock(return_value=mock_response)
@@ -439,7 +435,7 @@ class TestWorkerSymbolValidation:
         mock_response.model_dump.return_value = {
             "ticker": "DBS19",
             "narrative_report": "Thai report",
-            "generation_metadata": {"strategy": "multi_stage_analysis"},
+            "generation_metadata": {},
         }
         mock_transformer.transform_report = AsyncMock(return_value=mock_response)
 

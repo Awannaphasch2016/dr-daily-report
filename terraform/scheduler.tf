@@ -18,7 +18,7 @@ resource "aws_lambda_function" "ticker_scheduler" {
   image_uri    = "${aws_ecr_repository.lambda.repository_url}:${var.lambda_image_tag}"
 
   image_config {
-    command = ["src.scheduler.handler.lambda_handler"]
+    command = ["src.scheduler.ticker_fetcher_handler.lambda_handler"]
   }
 
   # 5 minutes timeout for fetching ~47 tickers

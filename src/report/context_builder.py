@@ -1,11 +1,20 @@
 # -*- coding: utf-8 -*-
-"""Context building utilities for LLM report generation"""
+"""Context building utilities for LLM report generation
+
+This implements Layer 2 output of the three-layer architecture:
+  Layer 1 (Code): Numeric calculations, ground truth
+  Layer 2 (Code): Semantic state classification + Context building ← THIS MODULE
+  Layer 3 (LLM): Narrative synthesis constrained by states
+
+Research basis: https://www.getdbt.com/blog/semantic-layer-as-the-data-interface-for-llms
+"""
 
 import logging
 from typing import Dict, List, Optional
 from src.analysis import MarketAnalyzer
 from src.formatters import DataFormatter
 from src.analysis.technical_analysis import TechnicalAnalyzer
+from src.analysis.semantic_state_generator import SemanticStateGenerator
 from src.report.section_formatters import SectionRegistry
 
 # Setup logger
@@ -44,28 +53,58 @@ CONTEXT_LABELS = {
 
 
 class ContextBuilder:
-    """Builds context for LLM report generation"""
+    """Builds context for LLM report generation (Layer 2 output)
+
+    CRITICAL: This module builds semantic context (Layer 2), NOT narrative (Layer 3).
+    It converts numeric data to semantic states WITHOUT number leakage.
+
+    Research: Semantic layers improve LLM accuracy by 300%
+    https://www.getdbt.com/blog/semantic-layer-as-the-data-interface-for-llms
+    """
 
     def __init__(self, market_analyzer: MarketAnalyzer, data_formatter: DataFormatter,
                  technical_analyzer: TechnicalAnalyzer):
         """Initialize with required dependencies
 
         Args:
-            market_analyzer: Market analysis service
+            market_analyzer: Market analysis service (for condition calculation)
             data_formatter: Data formatting service
             technical_analyzer: Technical analysis service
         """
         self.market_analyzer = market_analyzer
         self.data_formatter = data_formatter
         self.technical_analyzer = technical_analyzer
+        self.semantic_generator = SemanticStateGenerator()  # NEW: Semantic state generator
         self.labels = CONTEXT_LABELS
-        
+
         # Initialize section registry for unified section handling
         self.section_registry = SectionRegistry(data_formatter)
     
-    def prepare_context(self, ticker: str, ticker_data: dict, indicators: dict, percentiles: dict, news: list, news_summary: dict, strategy_performance: dict = None, comparative_insights: dict = None, sec_filing_data: dict = None, financial_markets_data: dict = None, portfolio_insights: dict = None, alpaca_data: dict = None) -> str:
-        """Prepare context for LLM with uncertainty components and percentile information"""
-        logger.info("📝 [ContextBuilder] Building context for LLM")
+    def prepare_context(self, ticker: str, ticker_data: dict, indicators: dict, percentiles: dict, news: list, news_summary: dict, ground_truth: dict = None, strategy_performance: dict = None, comparative_insights: dict = None, sec_filing_data: dict = None, financial_markets_data: dict = None, portfolio_insights: dict = None, alpaca_data: dict = None) -> str:
+        """Prepare semantic context for LLM (Layer 2 output)
+
+        Design principle: Separate values from semantics
+        - Layer 1 (numeric) → Layer 2 (semantic states) → Layer 3 (LLM narrative)
+
+        Args:
+            ticker: Ticker symbol
+            ticker_data: Fundamental data
+            indicators: Technical indicators
+            percentiles: Percentile data
+            news: News items
+            news_summary: News summary
+            ground_truth: Calculated market conditions (NEW - required for semantic states)
+            strategy_performance: Optional strategy data
+            comparative_insights: Optional peer comparison
+            sec_filing_data: Optional SEC filing data
+            financial_markets_data: Optional market data
+            portfolio_insights: Optional portfolio data
+            alpaca_data: Optional broker data
+
+        Returns:
+            str: Semantic context string with NO number leakage
+        """
+        logger.info("📝 [ContextBuilder] Building semantic context (Layer 2) for LLM")
         logger.info(f"   📊 Input parameters:")
         logger.info(f"      - Ticker: {ticker}")
         logger.info(f"      - Ticker data keys: {list(ticker_data.keys()) if ticker_data else 'None'}")
@@ -77,13 +116,28 @@ class ContextBuilder:
         logger.info(f"      - Comparative insights included: {comparative_insights is not None}")
         logger.info(f"      - SEC filing data included: {sec_filing_data is not None and len(sec_filing_data) > 0}")
         
+        # Calculate market conditions (Layer 1 → ground truth)
         conditions = self.market_analyzer.calculate_market_conditions(indicators)
         current_price = conditions['current_price']
-        
-        uncertainty_level = self.market_analyzer.interpret_uncertainty_level(conditions['uncertainty_score'])
-        volatility_desc = self.market_analyzer.interpret_volatility(conditions['atr'], current_price)
-        vwap_desc = self.market_analyzer.interpret_vwap_pressure(conditions['price_vs_vwap_pct'], conditions['vwap'])
-        volume_desc = self.market_analyzer.interpret_volume(conditions['volume_ratio'])
+
+        # Build ground_truth if not provided (backwards compatibility)
+        if ground_truth is None:
+            ground_truth = {
+                'uncertainty_score': conditions.get('uncertainty_score', 0),
+                'atr_pct': (conditions.get('atr', 0) / current_price * 100) if current_price > 0 else 0,
+                'vwap_pct': conditions.get('price_vs_vwap_pct', 0),
+                'volume_ratio': conditions.get('volume_ratio', 0),
+            }
+
+        # Generate semantic states (Layer 1 → Layer 2)
+        semantic_states = self.semantic_generator.generate_all_states(ground_truth, indicators)
+
+        # ❌ REMOVED: interpret_uncertainty_level() - caused number leakage
+        # ❌ REMOVED: interpret_volatility() - caused number leakage
+        # ❌ REMOVED: interpret_vwap_pressure() - caused number leakage
+        # ❌ REMOVED: interpret_volume() - caused number leakage
+
+        # Format sections (factual data only, NO interpretation)
         percentile_context = self.data_formatter.format_percentile_context(percentiles)
         fundamental_section = self.data_formatter.format_fundamental_section(ticker_data)
         technical_section = self.data_formatter.format_technical_section(indicators, current_price, self.technical_analyzer)
@@ -151,50 +205,66 @@ class ContextBuilder:
         logger.info(f"      - Volume ratio: {ground_truth['volume_ratio']:.2f}x")
         logger.info(f"      - Current price: ${current_price:.2f}")
 
-        context = f"""
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🔢 GROUND TRUTH VALUES - USE THESE PLACEHOLDERS IN YOUR NARRATIVE
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-Market Conditions (use placeholders, current values shown for reference):
-  {{{{UNCERTAINTY}}}} = {ground_truth['uncertainty_score']:.1f}
-  {{{{ATR_PCT}}}} = {ground_truth['atr_pct']:.2f}
-  {{{{VWAP_PCT}}}} = {abs(ground_truth['vwap_pct']):.2f}
-  {{{{VOLUME_RATIO}}}} = {ground_truth['volume_ratio']:.2f}
-  {{{{RSI}}}} = {indicators.get('rsi', 0):.2f}
-  {{{{MACD}}}} = {indicators.get('macd', 0):.4f}
-  {{{{CURRENT_PRICE}}}} = {current_price:.2f}
-
-Percentiles (use placeholders, current values shown for reference):"""
-
-        # Add percentile placeholders
-        for key, value in percentiles.items():
-            percentile_val = value.get('percentile', 0) if isinstance(value, dict) else value
-            context += f"\n  {{{{{key.upper()}_PERCENTILE}}}} = {percentile_val:.1f}"
-
         # Build context with Thai labels
         no_comparative_data_msg = "- ไม่มีข้อมูลเปรียบเทียบ (ใช้ข้อมูลเดียวกับหุ้นตัวนี้เท่านั้น)"
 
+        context = f"""
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📊 MARKET DATA FOR {ticker} (use placeholders below - NO raw numbers)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Market Conditions (interpret context, use placeholders):
+  {{{{UNCERTAINTY}}}}/100 - Market uncertainty (0-25=stable, 50-75=high risk, 75+=extreme)
+  {{{{ATR_PCT}}}}% - Price volatility (<1%=low, 1-2%=moderate, >3%=high)
+  {{{{VWAP_PCT}}}}% - Buy/sell pressure (+positive=buyers winning, -negative=sellers winning)
+  {{{{VOLUME_RATIO}}}}x - Trading volume vs average (>1.5x=high interest, <0.8x=low interest)
+  {{{{RSI}}}} - Momentum indicator (0-30=oversold, 70-100=overbought)
+  {{{{MACD}}}} - Trend strength (positive=bullish, negative=bearish)
+
+Percentiles (historical context - optional to use):"""
+
+        # Add percentile placeholders without values
+        for key, value in percentiles.items():
+            context += f"\n  {{{{{key.upper()}_PERCENTILE}}}}% - How current {key} compares to 1-year history"
+
         context += f"""
 
-REMEMBER: Write "{{{{UNCERTAINTY}}}}/100" NOT "{ground_truth['uncertainty_score']:.1f}/100"
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 {self.labels['symbol']}: {ticker}
 {self.labels['company']}: {ticker_data.get('company_name', ticker)}
-{self.labels['current_price']}: Use {{{{CURRENT_PRICE}}}} placeholder (current: {current_price:.2f})
+{self.labels['current_price']}: Use {{{{CURRENT_PRICE}}}} placeholder
 Date: {ticker_data.get('date')}
 
 {fundamental_section}
 {technical_section}
-Market Condition - USE PLACEHOLDERS FOR THESE VALUES:
-Status: {uncertainty_level}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SEMANTIC STATES (Interpret these, use placeholders for numbers):
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-1. {self.labels['volatility']} (Volatility): {volatility_desc}
+Risk Regime:
+  - Market State: {semantic_states.risk.uncertainty_state}
+  - Volatility: {semantic_states.risk.volatility_regime}
+  - Pressure: {semantic_states.risk.pressure_direction}
+  - Volume Confidence: {semantic_states.risk.volume_confidence}
 
-2. Buy/Sell Pressure: {vwap_desc}
+Momentum State:
+  - RSI Zone: {semantic_states.momentum.rsi_zone}
+  - MACD Signal: {semantic_states.momentum.macd_signal}
+  - Direction: {semantic_states.momentum.momentum_direction}
 
-3. {self.labels['volume']} (Volume): {volume_desc}
+Trend State:
+  - SMA Alignment: {semantic_states.trend.sma_alignment}
+  - Price Position: {semantic_states.trend.price_vs_sma}
+
+Constraint Satisfaction Rules:
+1. NARRATIVE MUST honor semantic states above (e.g., if risk=stable, don't write "risky")
+2. USE placeholders for ALL numeric references: {{{{UNCERTAINTY}}}}/100, {{{{ATR_PCT}}}}%
+3. COMBINE states logically (e.g., oversold + uptrend = "pullback in uptrend")
+4. DIRECTIONAL language from states: "strengthening" not "increasing"
+5. NEVER copy raw numbers from data sections below
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 {percentile_context}
 Relative Analysis:
 - Analyst Recommendation: {(ticker_data.get('recommendation') or 'N/A').upper() if ticker_data.get('recommendation') else 'N/A'}

@@ -13,8 +13,15 @@ import os
 from datetime import datetime
 from typing import Any, Dict
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
+# Configure logging for Lambda
+# Note: basicConfig() doesn't work in Lambda (runtime pre-configures logging)
+# Must set logger level directly on root logger
+root_logger = logging.getLogger()
+if root_logger.handlers:  # Lambda runtime already configured
+    root_logger.setLevel(logging.INFO)
+else:  # Local development
+    logging.basicConfig(level=logging.INFO)
+
 logger = logging.getLogger(__name__)
 
 

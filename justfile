@@ -296,7 +296,6 @@ aurora-test-report SYMBOL="D05.SI":
     @echo ""
     @echo "New pattern:"
     @echo "   just aurora::local util report {{SYMBOL}}"
-    @echo "   just aurora::local util report {{SYMBOL}} --strategy multi-stage"
     @exit 1
 
 # DEPRECATED: Use 'just aurora::local' instead
@@ -606,9 +605,9 @@ info:
     dr util info
 
 # Inspect prompt variables for a ticker (useful for prompt debugging)
-prompt-vars TICKER STRATEGY='single-stage' LANGUAGE='th':
+prompt-vars TICKER LANGUAGE='th':
     @echo "🔍 Inspecting prompt variables for {{TICKER}}..."
-    doppler run --config dev_local --project rag-chatbot-worktree -- dr util prompt-vars {{TICKER}} --strategy {{STRATEGY}} --language {{LANGUAGE}}
+    doppler run --config dev_local --project rag-chatbot-worktree -- dr util prompt-vars {{TICKER}} --language {{LANGUAGE}}
 
 # === MCP SETUP ===
 

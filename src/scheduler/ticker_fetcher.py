@@ -68,6 +68,19 @@ class TickerFetcher:
                 logger.warning(f"Failed to initialize Aurora repository: {e}")
                 self.enable_aurora = False
 
+        # PrecomputeService for ticker_data table (ground truth storage)
+        # Always enabled - Aurora is the primary data store
+        print("🔧 DEBUG: About to initialize PrecomputeService")  # DEBUG
+        try:
+            from src.data.aurora.precompute_service import PrecomputeService
+            self.precompute_service = PrecomputeService()
+            print("🔧 DEBUG: PrecomputeService initialized successfully")  # DEBUG
+            logger.info("PrecomputeService initialized for ticker_data storage")
+        except Exception as e:
+            print(f"🔧 DEBUG: PrecomputeService init FAILED: {e}")  # DEBUG
+            logger.error(f"Failed to initialize PrecomputeService: {e}")
+            self.precompute_service = None
+
         logger.info(
             f"TickerFetcher initialized with {len(self.tickers)} tickers, "
             f"bucket: {self.bucket_name}, "
@@ -144,6 +157,37 @@ class TickerFetcher:
 
             # Fetch from yfinance (DataFetcher handles symbol resolution internally)
             data = self.data_fetcher.fetch_ticker_data(ticker)
+
+            # Store to Aurora ticker_data table (PRIMARY STORAGE - GROUND TRUTH)
+            # This must succeed before other storage operations
+            if self.precompute_service:
+                try:
+                    hist_df = data.get('history')
+                    if isinstance(hist_df, pd.DataFrame) and not hist_df.empty:
+                        price_history = hist_df.to_dict('records')
+                    else:
+                        price_history = []
+
+                    # Extract company_info (all fields except history)
+                    company_info = {k: v for k, v in data.items() if k != 'history'}
+
+                    self.precompute_service.store_ticker_data(
+                        symbol=ticker,
+                        data_date=date.today(),
+                        price_history=price_history,
+                        company_info=company_info,
+                        financials=None  # Not fetched yet
+                    )
+                    logger.info(f"✅ Stored {ticker} to Aurora ticker_data table ({len(price_history)} rows)")
+                except Exception as e:
+                    logger.error(f"❌ Failed to store {ticker} to Aurora ticker_data: {e}", exc_info=True)
+                    # CRITICAL: If Aurora storage fails, consider this a failure
+                    # Aurora is the ground truth - without it, reports won't work
+                    return {
+                        'ticker': ticker,
+                        'status': 'failed',
+                        'error': f'Aurora ticker_data storage failed: {str(e)}'
+                    }
 
             # Store raw data to data lake BEFORE processing (for data lineage)
             # This preserves the exact API response for reproducibility

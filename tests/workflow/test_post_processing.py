@@ -88,7 +88,7 @@ class TestPostProcessingWorkflow:
 
         # When: Post-process called
         result = self.nodes._post_process_report_workflow(
-            raw_report, state, state['indicators'], strategy='single-stage'
+            raw_report, state, state['indicators']
         )
 
         # Then: Verify all components were called (integration test)
@@ -120,7 +120,7 @@ class TestPostProcessingWorkflow:
 
         # When: Post-process called
         result = self.nodes._post_process_report_workflow(
-            raw_report, state, state['indicators'], strategy='single-stage'
+            raw_report, state, state['indicators']
         )
 
         # Then: Verify methods were called (integration test)
@@ -128,36 +128,6 @@ class TestPostProcessingWorkflow:
         self.news_fetcher.get_news_references.assert_not_called()  # No news!
         # Footer added
         assert 'ข้อมูลที่ใช้ในการวิเคราะห์' in result
-
-    def test_post_process_strategy_label_in_footer(self):
-        """Strategy label appears in transparency footer"""
-        raw_report = "Test report"
-
-        state = {
-            'ticker': 'DBS19',
-            'indicators': {
-                'current_price': 123.45,
-                'uncertainty_score': 50.0,
-                'atr': 1.5,
-                'vwap': 120.0
-            },
-            'percentiles': {},
-            'ticker_data': {},
-            'comparative_insights': {},
-            'news': []
-        }
-
-        # Test multi-stage label
-        result_multi = self.nodes._post_process_report_workflow(
-            raw_report, state, state['indicators'], strategy='multi-stage'
-        )
-        assert 'Multi Stage' in result_multi or 'multi-stage' in result_multi.lower()
-
-        # Test single-stage label
-        result_single = self.nodes._post_process_report_workflow(
-            raw_report, state, state['indicators'], strategy='single-stage'
-        )
-        assert 'Single Stage' in result_single or 'single-stage' in result_single.lower()
 
     def test_post_process_handles_missing_ticker_data(self):
         """Test graceful handling when ticker_data missing"""
@@ -179,7 +149,7 @@ class TestPostProcessingWorkflow:
 
         # When: Post-process called
         result = self.nodes._post_process_report_workflow(
-            raw_report, state, state['indicators'], strategy='single-stage'
+            raw_report, state, state['indicators']
         )
 
         # Then: Verify number_injector was called with empty dict for ticker_data
@@ -208,7 +178,7 @@ class TestPostProcessingWorkflow:
 
         # When: Post-process called
         result = self.nodes._post_process_report_workflow(
-            raw_report, state, state['indicators'], strategy='single-stage'
+            raw_report, state, state['indicators']
         )
 
         # Then: Verify ground truth was calculated and passed to number_injector
@@ -245,7 +215,7 @@ class TestPostProcessingWorkflow:
 
         # When: Post-process called
         result = self.nodes._post_process_report_workflow(
-            raw_report, state, state['indicators'], strategy='single-stage'
+            raw_report, state, state['indicators']
         )
 
         # Then: No percentile section added
@@ -273,7 +243,7 @@ class TestPostProcessingWorkflow:
 
         # When: Post-process called
         result = self.nodes._post_process_report_workflow(
-            raw_report, state, state['indicators'], strategy='single-stage'
+            raw_report, state, state['indicators']
         )
 
         # Then: Thai content preserved (mock returns input unchanged)

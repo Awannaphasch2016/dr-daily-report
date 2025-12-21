@@ -2,7 +2,7 @@
 
 **Project**: AI-powered Thai language financial ticker analysis bot
 **Stack**: Python 3.11+, LangGraph, OpenRouter, AWS Lambda, LINE Messaging API
-**Architecture**: Serverless LangGraph agent with multi-stage LLM generation
+**Architecture**: Serverless LangGraph agent with Semantic Layer Architecture
 
 ---
 
@@ -151,6 +151,20 @@ pytest --run-ratelimited            # Include rate-limited tests
 - **NEVER assume code produces expected output without verifying the actual result**: Code that executes without exceptions doesn't guarantee correct output. Workflow nodes can succeed but return empty data structures. Always validate the actual output content, not just execution success. Empty dicts `{}` pass `if result:` checks but fail `if result['key']:` checks.
 
 **System boundary rule:** When crossing boundaries (API ↔ Database, Service ↔ External API), verify data type compatibility explicitly. Strict types like MySQL ENUMs fail silently on mismatch.
+
+**Boundary type validation principle:** Test data type compatibility at every system boundary BEFORE integration. Type mismatches at boundaries (DB ↔ API, Lambda ↔ JSON) cause silent failures that unit tests miss. Pattern: Round-trip test - data must survive serialization/deserialization across the boundary.
+
+```python
+# Example: Aurora → Python → JSON boundary
+result = db.fetch_one("SELECT date FROM ticker_data")
+json.dumps(result)  # ✗ Fails: Python date not JSON-serializable
+
+# Fix: Convert at boundary
+result['date'] = result['date'].isoformat()
+json.dumps(result)  # ✓ Works
+```
+
+See [Testing Guide](../docs/TESTING_GUIDE.md) for boundary contract test patterns.
 
 **Code execution ≠ Correct output:** A function returning without raising an exception doesn't mean it produced the expected data. Always verify output content, not just successful execution.
 
@@ -417,6 +431,42 @@ Log levels are not just severity indicators—they determine whether failures ar
 - Check both application logs and service logs (e.g., Lambda + CloudWatch, database query logs + application logs)
 
 **Why this matters:** An error logged at WARNING level is invisible to monitoring, making it a "discoverable but not discovered" failure.
+
+#### Principle 2.5: Lambda Logging Configuration
+
+**Core Principle:** AWS Lambda pre-configures logging before your code runs. Never use `logging.basicConfig()` in Lambda handlers—it's a no-op.
+
+**The Problem:**
+```python
+# ❌ This does NOTHING in Lambda
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+logger.info("Invisible in CloudWatch")  # Filtered by root logger at WARNING
+```
+
+**Why it fails:** Lambda runtime adds handlers to root logger before your code executes. Python's `basicConfig()` only works if root logger has NO handlers. Result: Your INFO-level logs are invisible.
+
+**The Solution:**
+```python
+# ✅ Works in both Lambda and local dev
+root_logger = logging.getLogger()
+if root_logger.handlers:  # Lambda (already configured)
+    root_logger.setLevel(logging.INFO)
+else:  # Local dev (needs configuration)
+    logging.basicConfig(level=logging.INFO)
+
+logger = logging.getLogger(__name__)
+logger.info("Visible in CloudWatch")  # ✅ Works
+```
+
+**Pattern:** Configure logging at the **handler module entry point** (file with `lambda_handler()` function), not in imported modules. Imported modules just create loggers with `logging.getLogger(__name__)`.
+
+**Common pitfalls:**
+- Setting level on child logger instead of root (doesn't override root's filter)
+- Assuming `print()` and `logger.info()` are equivalent (print bypasses logging entirely)
+- Trying to configure logging in imported modules (too late, Lambda already configured)
+
+See [Lambda Logging Guide](docs/deployment/LAMBDA_LOGGING.md) for comprehensive patterns, testing, and migration checklist.
 
 #### Principle 3: Status Must Reflect Critical Operation Outcomes
 
@@ -1051,482 +1101,45 @@ just report DBS19       # Generate ticker report
 5. Add justfile recipe for common workflows → `justfile`
 6. Update transparency footnote if new data source → `src/report/transparency_footer.py`
 
-### Multi-Stage Report Generation
-```python
-# Single-stage (default)
-dr util report DBS19
-
-# Multi-stage (6 mini-reports → synthesis)
-dr util report DBS19 --strategy multi-stage
-```
-
-Strategy implementation:
-- Check `state["strategy"]` in `workflow_nodes.py:generate_report()`
-- Delegates to `_generate_report_singlestage()` or `_generate_report_multistage()`
-- Transparency footer shows which strategy was used
-
 ---
 
-## Important Architectural Decisions
-
-This section documents **WHY** certain technologies and patterns were chosen (not just WHAT they are).
-
-### Why OpenRouter Instead of Direct OpenAI API
-
-**Decision:** Use OpenRouter as LLM proxy instead of direct OpenAI API.
-
-```python
-# src/agent.py
-self.llm = ChatOpenAI(
-    model="openai/gpt-4o",
-    base_url="https://openrouter.ai/api/v1",  # OpenRouter proxy
-    api_key=os.getenv("OPENROUTER_API_KEY")  # Not OPENAI_API_KEY
-)
-```
-
-**Rationale:**
-- ✅ **Cost Tracking**: OpenRouter dashboard shows per-request costs, model usage
-- ✅ **Usage Monitoring**: Track token consumption across all models
-- ✅ **API Key Rotation**: Easier key management (no OpenAI account needed)
-- ✅ **Multi-Model Support**: Easy to switch models (GPT-4o, Claude, Gemini) without code changes
-- ✅ **Rate Limit Management**: OpenRouter handles rate limiting across providers
-
-**Trade-offs:**
-- ❌ Slight latency overhead (~50ms proxy hop)
-- ❌ Additional service dependency
-- ✅ Overall: Monitoring benefits > latency cost
-
-**Historical Context:** Migrated from direct OpenAI in Sprint 1 after encountering cost tracking issues.
-
-### Why Multi-Stage Report Generation
-
-**Decision:** Support two strategies: single-stage (fast) and multi-stage (balanced).
-
-**Single-Stage:**
-```python
-# One LLM call with all context
-def _generate_report_singlestage(state):
-    context = build_full_context(state)  # All data at once
-    report = llm.generate(prompt, context)
-    return report
-```
-
-**Multi-Stage:**
-```python
-# 6 specialist mini-reports → synthesis
-def _generate_report_multistage(state):
-    mini_reports = {
-        'technical': generate_technical_mini_report(state),
-        'fundamental': generate_fundamental_mini_report(state),
-        'market_conditions': generate_market_mini_report(state),
-        'news': generate_news_mini_report(state),
-        'comparative': generate_comparative_mini_report(state),
-        'strategy': generate_strategy_mini_report(state)
-    }
-    # Synthesis LLM combines mini-reports
-    report = synthesis_generator.synthesize(mini_reports, state)
-    return report
-```
-
-**Rationale:**
-- ❌ **Problem**: Single-stage reports often over-emphasized technical analysis (60%+ of content)
-- ✅ **Solution**: Multi-stage ensures equal representation (each category ~16% of final report)
-- ✅ **Quality**: Specialist prompts for each category → better depth
-- ✅ **Flexibility**: Easy to add/remove categories without rewriting main prompt
-
-**Trade-offs:**
-- ❌ Cost: 7 LLM calls vs 1 (7x token cost)
-- ❌ Latency: ~15s vs ~5s generation time
-- ✅ Quality: More balanced, comprehensive reports
-
-**When to use:**
-- Single-stage: Quick analysis, cost-sensitive, simple tickers
-- Multi-stage: Important decisions, complex tickers, comprehensive analysis
-
-### Why Service Singletons vs Dependency Injection
-
-**Decision:** Use module-level global singletons for API services.
-
-```python
-# Pattern chosen:
-_service: Optional[TickerService] = None
-
-def get_ticker_service() -> TickerService:
-    global _service
-    if _service is None:
-        _service = TickerService()
-    return _service
-
-# NOT dependency injection:
-# class FastAPIApp:
-#     def __init__(self, ticker_service: TickerService):
-#         self.ticker_service = ticker_service
-```
-
-**Rationale:**
-- ✅ **Lambda Cold Starts**: Container reuse preserves singletons (no re-init)
-- ✅ **Simplicity**: No DI container framework needed
-- ✅ **Performance**: CSV data loaded once per container (~2000 tickers)
-- ✅ **Memory**: Single service instance vs multiple per request
-
-**Trade-offs:**
-- ❌ **Testing**: Requires patching globals (harder to mock)
-- ❌ **Flexibility**: Can't easily swap implementations
-- ✅ **Overall**: Lambda performance > testability concerns
-
-**Why not DI:**
-- DI containers (e.g., dependency-injector, punq) add complexity
-- Lambda environment optimizes for speed over flexibility
-- Service interfaces are stable (rarely need swapping)
-
-### Why LangGraph TypedDict State
-
-**Decision:** Use LangGraph with TypedDict state instead of custom orchestration.
-
-```python
-# src/types.py
-class AgentState(TypedDict):
-    messages: Annotated[Sequence[BaseMessage], operator.add]
-    ticker: str
-    indicators: dict
-    # ... all workflow state
-```
-
-**Rationale:**
-- ✅ **Type Safety**: IDE autocomplete, type checking for state fields
-- ✅ **Error Recovery**: state["error"] pattern enables resumable workflows
-- ✅ **Observability**: Clear state evolution through workflow nodes
-- ✅ **LangChain Ecosystem**: Integrates with LangChain tools, agents, memory
-
-**Trade-offs:**
-- ❌ **Learning Curve**: LangGraph concepts (nodes, edges, StateGraph)
-- ❌ **Framework Lock-in**: Tied to LangChain ecosystem
-- ✅ **Overall**: Observability + tracing > framework independence
-
-**Alternatives considered:**
-- Custom orchestration (too much boilerplate, no tracing)
-- Apache Airflow (overkill for single workflow, requires infrastructure)
-- Prefect (good but no LLM-specific features)
-
-### Why Correlation-Based Peer Comparison
-
-**Decision:** Use historical price correlation for finding peer companies.
-
-```python
-# src/api/peer_selector.py
-def find_peers(self, ticker: str, max_peers: int = 5) -> List[str]:
-    """Find peers using 1-year price correlation (Pearson)"""
-    target_data = yf.download(ticker, period='1y')['Close']
-
-    correlations = []
-    for candidate in all_tickers:
-        candidate_data = yf.download(candidate, period='1y')['Close']
-        correlation = target_data.corr(candidate_data)  # Pearson coefficient
-        if correlation > 0.5:  # Threshold
-            correlations.append((candidate, correlation))
-
-    return sorted(correlations, reverse=True)[:max_peers]
-```
-
-**Rationale:**
-- ✅ **No External APIs**: Uses yfinance data already fetched
-- ✅ **Simple & Explainable**: Correlation coefficient easy to understand
-- ✅ **Fast**: pandas.corr() is efficient (~1s for 2000 tickers)
-- ✅ **Historical Data**: Based on actual price movements, not subjective classification
-
-**Alternatives considered:**
-- ❌ **Industry Classification**: Requires external data, not always accurate
-- ❌ **Fundamental Similarity**: Complex, requires financials for all tickers
-- ❌ **ML Clustering**: Overkill, requires training data, harder to explain
-- ❌ **Manual Tagging**: Doesn't scale, requires maintenance
-
-**Trade-offs:**
-- ❌ **Limitation**: Correlation ≠ causation (may find spurious peers)
-- ❌ **Market Bias**: Correlated during bull markets, not fundamentally similar
-- ✅ **Overall**: Simplicity + speed > perfect accuracy
-
-### Why Two Separate Apps (LINE Bot + Telegram Mini App)
-
-**Decision:** Build Telegram Mini App as separate FastAPI app instead of extending LINE Bot.
-
-**Rationale:**
-- ✅ **LINE Limitations**: No rich UI, limited message types, no web views
-- ✅ **Telegram Capabilities**: Mini Apps support full HTML/CSS/JS, charts, interactive UI
-- ✅ **Different UX**: Chat-based (LINE) vs dashboard (Telegram)
-- ✅ **Shared Backend**: Both use same agent/workflow, just different interfaces
-
-**Architecture:**
-```
-Core Backend (Shared):
-  - src/agent.py
-  - src/workflow/
-  - src/data/
-  - src/analysis/
-
-LINE Bot Interface:
-  - src/integrations/line_bot.py
-  - Lambda Function URL
-  - Chat-based UX
-
-Telegram Mini App Interface:
-  - src/api/ (FastAPI)
-  - API Gateway / Lambda
-  - Web-based dashboard UX
-```
-
-**Why not extend LINE Bot:**
-- LINE Messaging API doesn't support rich UI components
-- Can't embed charts, interactive elements in LINE messages
-- LINE Flex Messages limited compared to full HTML/CSS
-
-**Trade-offs:**
-- ❌ **Maintenance**: Two interfaces to maintain
-- ✅ **User Experience**: Each platform optimized for its strengths
-- ✅ **Overall**: Better UX > maintenance simplicity
-
-### Why Single Root Terraform Architecture (Historical Note)
-
-**Current Architecture (Dec 2024):** All infrastructure managed by root terraform in single state file.
-
-```
-terraform/
-├── main.tf              # LINE bot Lambda
-├── telegram_api.tf      # Telegram Lambda
-├── ecr.tf               # ECR repositories
-├── dynamodb.tf          # DynamoDB tables
-├── aurora.tf            # Aurora database
-├── frontend.tf          # CloudFront distributions
-└── layers/
-    └── 00-bootstrap/    # State bucket, DynamoDB locks (local state)
-```
-
-**Historical Context (Pre-Dec 2024):**
-A layered terraform architecture was planned (01-data, 02-platform, 03-apps layers) but never fully implemented. The layer directories existed with terraform code but never managed actual resources (no S3 state files). All resources were created and managed by root terraform from the start.
-
-**Dec 2024 Cleanup:**
-Removed unused layer directories (01-data, 02-platform, 03-apps) after confirming:
-- No S3 state files existed for these layers
-- All resources tracked in root terraform state
-- ~2GB of .terraform cache removed
-
-**Why Keep 00-bootstrap Layer:**
-Bootstrap layer uses LOCAL state (terraform.tfstate in its directory) to manage the S3 bucket and DynamoDB table that root terraform uses for remote state. This is the chicken-and-egg infrastructure - can't use remote state that doesn't exist yet.
-
-**Rationale for Single Root:**
-- ✅ **Simplicity**: Single terraform state, single apply
-- ✅ **No Cross-Layer Complexity**: All resources in same state, direct references
-- ✅ **Faster Development**: No need to coordinate layer dependencies
-- ✅ **Sufficient for Project Scale**: ~100 resources manageable in single state
-
-**Trade-offs:**
-- ❌ **Blast Radius**: Failed apply affects entire infrastructure
-- ❌ **State Lock Contention**: Single lock for all changes
-- ✅ **Overall**: Simplicity > theoretical benefits of layering for this project size
-
-**Why import blocks over CLI imports:**
-```hcl
-# Terraform 1.5+ import blocks (version-controlled, reviewable)
-import {
-  to = aws_lambda_function.telegram_api
-  id = "telegram-api-ticker-report"
-}
-
-# vs CLI imports (ephemeral, not tracked in git)
-# terraform import aws_lambda_function.telegram_api telegram-api-ticker-report
-```
-
-**Historical Context:** Migrated from flat structure after hitting state lock contention with 40+ resources in single state file.
-
-### Why Directory Structure Over Terraform Workspaces
-
-**Decision:** Use environment directories (`envs/dev/`, `envs/staging/`, `envs/prod/`) instead of Terraform workspaces.
-
-| Workspaces | Directory Structure |
-|------------|---------------------|
-| `terraform workspace select prod` accidents | Explicit `cd envs/prod` |
-| Same backend, easy cross-contamination | Separate backends per env |
-| Can't require PR for prod only | Different directories = different PRs |
-| Must share provider versions | Can differ per env |
-| Good for: ephemeral/identical envs | Good for: long-lived envs with different configs |
-
-**Rationale:**
-- ✅ **Safety**: Can't accidentally destroy prod from dev terminal
-- ✅ **Code Review**: prod changes get separate PRs with different reviewers
-- ✅ **Flexibility**: Each env can have different resource sizes, retention, etc.
-- ✅ **State Isolation**: Separate S3 keys prevent cross-env state corruption
-
-**Trade-offs:**
-- ❌ More files: 3x directory duplication
-- ❌ Module updates: Must update all envs (use shared modules to minimize)
-- ✅ Overall: Safety > DRY for infrastructure
-
-**Historical Context:** Chose directories after evaluating workspace accidents in other projects where `terraform destroy` in wrong workspace deleted production.
-
-### Why Artifact Promotion Over Per-Env Builds
-
-**Decision:** Build container images once, promote same image through environments.
-
-```
-Build Once:  sha-abc123-20251127  (IMMUTABLE)
-     │
-     ├──▶  DEV:     lambda_image_uri = "sha-abc123-20251127"
-     │              (auto on merge to main)
-     │
-     ├──▶  STAGING: lambda_image_uri = "sha-abc123-20251127"
-     │              (same image, promoted after dev tests pass)
-     │
-     └──▶  PROD:    lambda_image_uri = "sha-abc123-20251127"
-                    (same image, promoted after staging + approval)
-```
-
-**Rationale:**
-- ✅ **Reproducibility**: What you test in staging is exactly what deploys to prod
-- ✅ **Speed**: No rebuild per environment (save 5-10 min per deploy)
-- ✅ **Rollback**: Can instantly revert to any previous image tag
-- ✅ **Audit Trail**: SHA-based tags link deployments to exact commits
-
-**Implementation:**
-```hcl
-# envs/dev/main.tf
-variable "lambda_image_uri" {
-  description = "ECR image URI from CI build step"
-}
-
-module "telegram_api" {
-  source           = "../../modules/telegram-api"
-  lambda_image_uri = var.lambda_image_uri  # Passed from CI
-}
-```
-
-**CI Pattern:**
-```yaml
-# CI passes same image to each environment
-terraform apply -var="lambda_image_uri=${{ needs.build.outputs.image_uri }}"
-```
-
-**Trade-offs:**
-- ❌ Requires immutable tags (can't use `latest`)
-- ❌ More complex CI (must pass image URI between jobs)
-- ✅ Overall: Reproducibility > simplicity
-
-### Why Infrastructure TDD with OPA + Terratest
-
-**Decision:** Use OPA for pre-apply policy validation and Terratest for post-apply integration testing.
-
-**TDD Flow:**
-```
-terraform plan → OPA validation → terraform apply → Terratest verification
-     ↓                ↓                  ↓                   ↓
-  Generate JSON    Check policies    Create infra    Verify infra works
-```
-
-**Pre-Apply: OPA Policy Validation**
-```bash
-# Convert plan to JSON, validate against policies
-terraform plan -out=tfplan.binary
-terraform show -json tfplan.binary > tfplan.json
-conftest test tfplan.json --policy policies/
-```
-
-**Post-Apply: Terratest Integration Tests**
-```go
-// terraform/tests/lambda_test.go
-func TestTelegramAPIHealthCheck(t *testing.T) {
-    client := getLambdaClient(t)
-    result, err := client.Invoke(&lambda.InvokeInput{
-        FunctionName: aws.String("dr-daily-report-telegram-api-dev"),
-        Payload:      []byte(`{"httpMethod": "GET", "path": "/api/v1/health"}`),
-    })
-    require.NoError(t, err)
-    // Assert response
-}
-```
-
-**Rationale:**
-- ✅ **Shift-Left Security**: Catch IAM/S3/encryption issues before they deploy
-- ✅ **Policy-as-Code**: Version-controlled, reviewable security rules
-- ✅ **Integration Confidence**: Terratest verifies infra actually works
-- ✅ **CI/CD Integration**: OPA blocks PRs, Terratest runs on merge
-
-**Trade-offs:**
-- ❌ Learning curve: Rego language for OPA policies
-- ❌ Test maintenance: Terratest needs updates when infra changes
-- ✅ Overall: Early detection > deployment rollbacks
-
-**Directory Structure:**
-```
-terraform/
-├── policies/                    # OPA policies (Rego)
-│   ├── main.rego               # Entry point
-│   ├── security/               # Security policies
-│   │   ├── iam.rego            # IAM least privilege
-│   │   ├── s3.rego             # S3 security
-│   │   ├── dynamodb.rego       # DynamoDB best practices
-│   │   └── encryption.rego     # Encryption requirements
-│   └── tagging/
-│       └── required_tags.rego  # Tag enforcement
-├── tests/                       # Terratest (Go)
-│   ├── go.mod
-│   ├── lambda_test.go
-│   ├── dynamodb_test.go
-│   └── api_gateway_test.go
-└── envs/                        # Environment configs
-```
-
-**CI/CD Integration:**
-```yaml
-# .github/workflows/terraform-test.yml
-jobs:
-  opa-validate:     # Runs on PRs - blocks on policy violations
-  terratest:        # Runs on push to telegram/staging - verifies deployment
-```
-
-**Justfile Recipes:**
-```bash
-just opa-validate dev    # Run OPA policies against dev plan
-just terratest           # Run Terratest integration tests
-just infra-tdd dev       # Full cycle: OPA → apply → Terratest
-```
-
-### Why Two CloudFront Distributions Per Environment
-
-**Decision:** Create TEST and APP CloudFront distributions for zero-risk frontend deployment.
-
-**Problem:**
-CloudFront cache invalidation is atomic - once invalidated, users immediately see new files.
-If E2E tests run AFTER invalidation and fail, users have already seen the broken frontend.
-
-**Solution:**
-```
-Same S3 Bucket
-     │
-     ├── TEST CloudFront → Invalidated first, E2E tests run here
-     │
-     └── APP CloudFront  → Invalidated ONLY after E2E tests pass
-```
-
-**Rationale:**
-- ✅ **Zero-Risk**: Users never see untested frontend code
-- ✅ **Mirrors Backend Pattern**: Like Lambda's $LATEST (TEST) vs "live" alias (APP)
-- ✅ **Instant Rollback**: Simply don't invalidate APP = users see old working version
-- ✅ **No S3 Duplication**: Both CloudFronts serve same bucket, just different cache timing
-
-**Alternatives considered:**
-- ❌ **Separate S3 buckets**: Doubles storage costs, requires sync logic
-- ❌ **S3 versioning + rollback**: Complex, doesn't prevent initial exposure
-- ❌ **Feature flags**: Adds code complexity, still deploys broken code
-- ❌ **Canary releases**: Overkill for static frontend, CloudFront doesn't support natively
-
-**Trade-offs:**
-- ❌ 2x CloudFront distributions = higher cost (~$1-5/month per distribution)
-- ❌ More GitHub secrets to manage per environment
-- ❌ Longer deployment pipeline (test → promote)
-- ✅ Overall: Safety > cost for production frontends
-
-**Historical Context:** Implemented after realizing CloudFront doesn't honor client-side
-`Cache-Control: no-cache` headers - there's no way to "test before users see" with
-a single distribution. This pattern mirrors the Lambda alias pattern that solved
-the same problem for backend deployments.
+## Architecture Decision Records (ADRs)
+
+**Significant architectural decisions are documented in Architecture Decision Records (ADRs).** Each ADR captures the context, decision, consequences, and alternatives considered for major technology and pattern choices.
+
+### What Decisions Are Tracked as ADRs
+
+Use ADRs to document decisions that:
+- Affect multiple components or the entire system
+- Involve significant trade-offs (cost, performance, complexity)
+- Are difficult or costly to reverse later
+- Would benefit from understanding the "why" in the future
+
+**Current ADRs:**
+- [ADR-001: Semantic Layer Architecture](../docs/adr/001-adopt-semantic-layer-architecture.md) - Three-layer pattern for report generation (replaces multi-stage)
+- [ADR-002: Use OpenRouter as LLM Proxy](../docs/adr/002-use-openrouter-proxy.md) - Cost tracking and multi-model support
+- [ADR-003: Service Singletons vs Dependency Injection](../docs/adr/003-service-singletons.md) - Lambda cold start optimization pattern
+- [ADR-004: LangGraph TypedDict State](../docs/adr/004-langgraph-typeddict-state.md) - Type-safe workflow state management
+- [ADR-005: Correlation-Based Peer Comparison](../docs/adr/005-correlation-based-peer-comparison.md) - Automatic peer company selection
+- [ADR-006: Two Separate Apps (LINE Bot + Telegram Mini App)](../docs/adr/006-two-separate-apps.md) - Platform-specific UX layers
+- [ADR-007: Single Root Terraform Architecture](../docs/adr/007-single-root-terraform-architecture.md) - Monolithic state vs layered approach
+- [ADR-008: Directory Structure Over Terraform Workspaces](../docs/adr/008-directory-structure-over-workspaces.md) - Environment separation pattern
+- [ADR-009: Artifact Promotion Over Per-Env Builds](../docs/adr/009-artifact-promotion-over-per-env-builds.md) - Immutable deployment artifacts
+- [ADR-010: Two CloudFront Distributions Per Environment](../docs/adr/010-two-cloudfront-distributions-per-environment.md) - Zero-risk frontend deployment
+
+**For complete ADR index and template**, see [docs/adr/README.md](../docs/adr/README.md).
+
+### Implementation Documentation
+
+**High-level architecture principles** are documented here in CLAUDE.md (what and why at conceptual level).
+
+**Detailed implementation guides** with code examples, testing patterns, and file organization live in:
+- [docs/SEMANTIC_LAYER_ARCHITECTURE.md](../docs/SEMANTIC_LAYER_ARCHITECTURE.md) - Three-layer pattern implementation (Layer 1: Ground truth, Layer 2: Semantic states, Layer 3: LLM synthesis)
+- [docs/CODE_STYLE.md](../docs/CODE_STYLE.md) - Code organization, naming conventions, patterns
+- [docs/frontend/UI_PRINCIPLES.md](../docs/frontend/UI_PRINCIPLES.md) - Frontend patterns and state management
+- [docs/deployment/](../docs/deployment/) - Deployment workflows, multi-environment setup, Lambda versioning
+
+**Principle:** Keep CLAUDE.md in the "Goldilocks Zone" - reference detailed docs instead of duplicating implementation details here.
 
 ---
 

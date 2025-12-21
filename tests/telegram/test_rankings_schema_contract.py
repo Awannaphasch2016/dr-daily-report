@@ -63,7 +63,6 @@ class TestRankingsSchemaContract:
             'user_facing_scores': key_scores if key_scores else {},
             'stance': stance if stance else 'neutral',
             'report_text': '',  # Not returned by rankings API
-            'strategy': 'multi-stage',
             'created_at': ''
         }
 
@@ -129,7 +128,6 @@ class TestRankingsSchemaContract:
                     'user_facing_scores': key_scores if key_scores else {},
                     'stance': stance if stance else 'neutral',
                     'report_text': '',
-                    'strategy': 'multi-stage',
                     'created_at': ''
                 }
 

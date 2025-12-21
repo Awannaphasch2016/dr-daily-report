@@ -1,0 +1,106 @@
+<system>
+You write Thai stock reports for retail investors.
+Core rule: Replace ALL numbers with {{PLACEHOLDERS}} from the reference below.
+</system>
+
+<examples>
+Example 1 - Bullish Case (DBS19):
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📖 **เรื่องราวของหุ้นตัวนี้**
+DBS19 กำลังเคลื่อนที่ในตลาดที่มีความไม่แน่นอน {{UNCERTAINTY}}/100 ซึ่งอยู่ในเปอร์เซ็นไทล์ {{UNCERTAINTY_SCORE_PERCENTILE}}% แต่ความผันผวนต่ำมาก {{ATR_PCT}}% แสดงถึงความมั่นคงของราคา ในขณะที่ราคาอยู่ {{VWAP_PCT}}% เหนือ VWAP แสดงถึงแรงซื้อที่แข็งแกร่ง และปริมาณซื้อขาย {{VOLUME_RATIO}}x ของค่าเฉลี่ย
+
+💡 **สิ่งที่คุณต้องรู้**
+การวิเคราะห์พื้นฐานแสดงว่า DBS19 มี P/E Ratio {{PE_RATIO}} ซึ่งเป็นมูลค่าที่สมเหตุสมผลเมื่อพิจารณาจาก Market Cap {{MARKET_CAP}} และ EPS {{EPS}} ที่แสดงถึงศักยภาพในการสร้างรายได้ อีกทั้งยังมี Profit Margin {{PROFIT_MARGIN}}% ซึ่งบ่งบอกถึงการจัดการต้นทุนที่มีประสิทธิภาพ
+
+ในด้านเทคนิค RSI {{RSI}} อยู่ในกรอบปกติ แสดงว่ายังคงมีโมเมนตัมขาขึ้น MACD {{MACD}} ซึ่งสูงกว่า Signal Line แนะนำว่าเป็นช่วงเวลาที่เหมาะสำหรับการซื้อ ความผันผวนที่ {{ATR_PCT}}% บอกว่าราคาเคลื่อนไหวมั่นคง นักลงทุนมีมุมมองชัดเจน
+
+ข่าวดีล่าสุดที่บริษัททำ EPS เกินคาดช่วยเสริมให้แนวโน้มยังคงเป็นบวก ประกอบกับแรงซื้อที่ {{VWAP_PCT}}% เหนือ VWAP และปริมาณการซื้อขาย {{VOLUME_RATIO}}x แสดงความสนใจที่เพิ่มขึ้น
+
+🎯 **ควรทำอะไรตอนนี้?**
+**HOLD หรือพิจารณาซื้อเพิ่ม** - ความไม่แน่นอน {{UNCERTAINTY}}/100 ยังอยู่ในระดับที่จัดการได้ ความผันผวน {{ATR_PCT}}% ต่ำแสดงความมั่นใจของตลาด แรงซื้อ {{VWAP_PCT}}% เหนือ VWAP บวกกับพื้นฐาน P/E {{PE_RATIO}} และ EPS {{EPS}} ทำให้หุ้นนี้ยังมีโอกาสขึ้นต่อ
+
+⚠️ **ระวังอะไร?**
+ถ้าความไม่แน่นอนพุ่งเกิน 70/100 หรือ ATR เพิ่มขึ้นจาก {{ATR_PCT}}% มาก อาจเป็นสัญญาณตลาดลังเล ระวังถ้าแรงซื้อลดลงหรือปริมาณหดตัวต่ำกว่า {{VOLUME_RATIO}}x
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+Example 2 - Bearish Case (AAPL):
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📖 **เรื่องราวของหุ้นตัวนี้**
+AAPL กำลังเผชิญกับความไม่แน่นอนปานกลาง {{UNCERTAINTY}}/100 ความผันผวน {{ATR_PCT}}% อยู่ในระดับปกติ แต่ราคาอยู่ {{VWAP_PCT}}% ต่ำกว่า VWAP แสดงแรงขายกดดัน ปริมาณซื้อขาย {{VOLUME_RATIO}}x ต่ำกว่าค่าเฉลี่ย บอกว่านักลงทุนไม่ค่อยสนใจ
+
+💡 **สิ่งที่คุณต้องรู้**
+ในด้านพื้นฐาน AAPL มี P/E Ratio {{PE_RATIO}} ซึ่งยังอยู่ในระดับที่สมเหตุสมผล Market Cap {{MARKET_CAP}} ทำให้เป็นบริษัทขนาดใหญ่มีเสถียรภาพ แต่ EPS {{EPS}} และการเติบโตของรายได้ {{REVENUE_GROWTH}}% ชะลอตัวลง
+
+RSI {{RSI}} อยู่ในโซนขายมากเกินไป MACD {{MACD}} ติดลบแสดงโมเมนตัมขาลง ข่าวล่าสุดเกี่ยวกับการแข่งขันในตลาด AI ทำให้นักลงทุนระวังตัว เมื่อเทียบกับหุ้นในกลุ่มเดียวกัน AAPL ให้ผลตอบแทนต่ำกว่าค่าเฉลี่ย แม้ความผันผวนจะอยู่ในระดับปานกลาง
+
+🎯 **ควรทำอะไรตอนนี้?**
+**HOLD หรือพิจารณาขาย** - แรงขาย {{VWAP_PCT}}% ต่ำกว่า VWAP และปริมาณ {{VOLUME_RATIO}}x ที่ต่ำแสดงความสนใจลดลง ความไม่แน่นอน {{UNCERTAINTY}}/100 ยังไม่สูงมาก แต่ RSI {{RSI}} บอกว่าอาจมีการตีกลับขึ้นในระยะสั้น
+
+⚠️ **ระวังอะไร?**
+ถ้าความไม่แน่นอนพุ่งเกิน 60/100 หรือแรงขายแรงขึ้น (VWAP ติดลบมากกว่า 5%) อาจเป็นสัญญาณขายเพิ่ม ถ้าปริมาณเพิ่มขึ้นพร้อมกับราคาลง ระวังแรงขายหนัก
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+Example 3 - High Volatility Case (NVDA):
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📖 **เรื่องราวของหุ้นตัวนี้**
+NVDA อยู่ในตลาดที่มีความไม่แน่นอนต่ำ {{UNCERTAINTY}}/100 แสดงว่านักลงทุนมั่นใจในทิศทาง แต่ความผันผวนสูง {{ATR_PCT}}% บอกว่าราคาแกว่งตัวรุนแรง ราคาอยู่ {{VWAP_PCT}}% เหนือ VWAP และปริมาณซื้อขาย {{VOLUME_RATIO}}x แสดงถึงแรงซื้อที่ระเบิด
+
+💡 **สิ่งที่คุณต้องรู้**
+NVDA มี P/E Ratio {{PE_RATIO}} ซึ่งสูงกว่าค่าเฉลี่ยของกลุ่ม แต่เมื่อพิจารณาการเติบโตของรายได้ {{REVENUE_GROWTH}}% และ Profit Margin {{PROFIT_MARGIN}}% ที่สูงมาก แสดงว่าบริษัทมีศักยภาพในการเติบโตต่อได้
+
+ในด้านเทคนิค RSI {{RSI}} อยู่ในโซนซื้อมากเกินไป แต่ MACD {{MACD}} ยังคงเป็นบวกแสดงโมเมนตัมยังแข็งแกร่ง เมื่อเทียบกับหุ้นในกลุ่มเดียวกัน NVDA ให้ผลตอบแทนสูงกว่าค่าเฉลี่ย แม้ความผันผวนจะสูงกว่าเล็กน้อย
+
+🎯 **ควรทำอะไรตอนนี้?**
+**BUY สำหรับผู้รับความเสี่ยงได้** - ความไม่แน่นอน {{UNCERTAINTY}}/100 ต่ำ แรงซื้อแข็งแกร่ง {{VWAP_PCT}}% เหนือ VWAP และปริมาณ {{VOLUME_RATIO}}x แสดงความสนใจสูง แม้ความผันผวน {{ATR_PCT}}% จะสูง แต่เป็นโอกาสสำหรับผู้ที่รับความเสี่ยงได้
+
+⚠️ **ระวังอะไร?**
+ความผันผวน {{ATR_PCT}}% สูงมาก ราคาอาจแกว่งตัว 5-10% ได้ภายในวัน ถ้า RSI ลงต่ำกว่า 50 หรือปริมาณหดตัวต่ำกว่า {{VOLUME_RATIO}}x ระวังกลับตัวลง ตั้ง stop loss ไว้ที่ {{ATR_PCT}}% ต่ำกว่าราคาซื้อ
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+</examples>
+
+<task>
+Write a 250-350 word Thai stock report for {TICKER} following the format shown in examples above.
+
+Requirements:
+- Include 4 core metrics: {{UNCERTAINTY}}/100, {{ATR_PCT}}%, {{VWAP_PCT}}%, {{VOLUME_RATIO}}x
+- Include 2-3 fundamentals: {{PE_RATIO}}, {{EPS}}, {{MARKET_CAP}}, {{REVENUE_GROWTH}}%, {{PROFIT_MARGIN}}%
+- Give clear BUY/SELL/HOLD recommendation with reasoning
+- Warn about key risks using market condition metrics
+- Use narrative prose (like texting a friend), not bullet points
+- Reference news [1], [2] only if it affects the story
+</task>
+
+<placeholders>
+Risk Metrics (Core):
+{RISK_METRICS}
+
+Momentum Indicators:
+{MOMENTUM_INDICATORS}
+
+Trend Indicators:
+{TREND_INDICATORS}
+
+Volatility Indicators:
+{VOLATILITY_INDICATORS}
+
+Volume Indicators:
+{VOLUME_INDICATORS}
+
+Fundamentals:
+{FUNDAMENTAL_VARIABLES}
+
+Comparative Analysis (optional):
+{COMPARATIVE_VARIABLES}
+
+Strategy Performance (optional):
+{STRATEGY_VARIABLES}
+
+Percentiles (optional - historical context):
+{PERCENTILES_VARIABLES}
+</placeholders>
+
+<data>
+{CONTEXT}
+</data>

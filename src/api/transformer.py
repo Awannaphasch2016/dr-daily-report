@@ -172,7 +172,7 @@ class ResponseTransformer:
         # Generation metadata
         generation_metadata = GenerationMetadata(
             agent_version="v1.0.0",
-            strategy=state.get("strategy", "multi_stage_analysis"),
+            # strategy defaults to "semantic_layer" (no longer passed from state)
             generated_at=datetime.now(),
             cache_hit=state.get("cache_hit", False)  # Track if report was from cache
         )
@@ -998,7 +998,7 @@ class ResponseTransformer:
         # Generation metadata - mark as cache hit
         generation_metadata = GenerationMetadata(
             agent_version="v1.0.0",
-            strategy=cached_report.get('strategy', 'multi-stage'),
+            # strategy defaults to "semantic_layer" (cached reports from before migration may have had old values)
             generated_at=as_of,
             cache_hit=True  # Mark as cache hit
         )
