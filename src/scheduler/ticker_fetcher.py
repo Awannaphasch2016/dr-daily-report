@@ -149,8 +149,9 @@ class TickerFetcher:
         resolver = get_ticker_resolver()
         ticker_info = resolver.resolve(ticker)
         yahoo_ticker = ticker_info.yahoo_symbol if ticker_info else ticker
-        
-        today = date.today().isoformat()
+
+        # TIMEZONE FIX: Use UTC date to match Aurora storage (Aurora runs in UTC)
+        today = datetime.utcnow().date().isoformat()
 
         try:
             logger.info(f"Fetching data for {ticker} -> {yahoo_ticker}...")
@@ -171,9 +172,10 @@ class TickerFetcher:
                     # Extract company_info (all fields except history)
                     company_info = {k: v for k, v in data.items() if k != 'history'}
 
+                    # TIMEZONE FIX: Use UTC date to match Aurora timezone (Aurora runs in UTC)
                     self.precompute_service.store_ticker_data(
                         symbol=ticker,
-                        data_date=date.today(),
+                        data_date=datetime.utcnow().date(),
                         price_history=price_history,
                         company_info=company_info,
                         financials=None  # Not fetched yet
@@ -307,11 +309,12 @@ class TickerFetcher:
         Returns:
             Dict with success/failed lists and summary
         """
+        # TIMEZONE FIX: Use UTC date to match Aurora timezone (Aurora runs in UTC)
         results = {
             'success': [],
             'failed': [],
             'total': len(tickers),
-            'date': date.today().isoformat()
+            'date': datetime.utcnow().date().isoformat()
         }
 
         for ticker in tickers:
@@ -353,8 +356,9 @@ class TickerFetcher:
         Returns:
             Cached data dict or None if not found
         """
+        # TIMEZONE FIX: Use UTC date to match Aurora timezone (Aurora runs in UTC)
         if fetch_date is None:
-            fetch_date = date.today().isoformat()
+            fetch_date = datetime.utcnow().date().isoformat()
 
         return self.s3_cache.get_json(
             cache_type='ticker_data',

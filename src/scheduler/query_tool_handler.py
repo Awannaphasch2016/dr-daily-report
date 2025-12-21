@@ -377,7 +377,8 @@ def _handle_debug_cache(event: Dict[str, Any], start_time: datetime) -> Dict[str
         service = PrecomputeService()
 
         symbol = event.get('symbol')
-        check_date = event.get('date', str(date.today()))
+        # TIMEZONE FIX: Use UTC date to match Aurora timezone (Aurora runs in UTC)
+        check_date = event.get('date', str(datetime.utcnow().date()))
         limit = event.get('limit', 10)
 
         if symbol:

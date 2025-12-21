@@ -262,7 +262,8 @@ class FundDataRepository:
             ...     end_date=date(2025, 12, 9)
             ... )
         """
-        end = end_date or date.today()
+        # TIMEZONE FIX: Use UTC date to match Aurora timezone (Aurora runs in UTC)
+        end = end_date or datetime.utcnow().date()
         query = """
             SELECT
                 id, d_trade, stock, ticker, col_code,
