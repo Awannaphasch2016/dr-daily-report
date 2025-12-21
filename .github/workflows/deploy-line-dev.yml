@@ -1,0 +1,310 @@
+name: Deploy LINE Bot - Dev Environment
+
+# ============================================================================
+# LINE Bot-Specific Deployment: dev branch → dev environment
+# Runs when LINE-specific or shared backend code changes
+# Skips deployment if only Telegram-specific code changes
+# Note: LINE bot shares Docker image with Telegram (same ECR repository)
+# Required vars: LINE_CHANNEL_ACCESS_TOKEN, LINE_CHANNEL_SECRET
+# ============================================================================
+on:
+  workflow_dispatch:  # Manual trigger for reruns
+  push:
+    branches:
+      - dev  # Deploy to dev environment only
+    paths:
+      # LINE bot-specific paths
+      - 'src/integrations/line_bot.py'
+      - 'tests/line_bot/**'
+      - 'src/lambda_handler.py'  # Main entry point for LINE bot
+      # Shared backend (affects both apps)
+      - 'src/agent.py'
+      - 'src/workflow/**'
+      - 'src/data/**'
+      - 'src/analysis/**'
+      - 'src/report/**'
+      - 'src/scheduler/**'
+      - 'src/types.py'
+      - 'src/config.py'
+      - 'src/report_worker_handler.py'
+      # Infrastructure
+      - 'Dockerfile*'
+      - 'requirements*.txt'
+      - 'terraform/main.tf'  # LINE bot Lambda definition
+      - '.github/workflows/deploy-line-dev.yml'
+      # Explicitly EXCLUDE Telegram-only paths
+      - '!src/api/**'
+      - '!frontend/twinbar/**'
+      - '!tests/telegram/**'
+
+env:
+  AWS_REGION: ap-southeast-1
+  PYTHON_VERSION: '3.11'
+  ECR_REGISTRY: 755283537543.dkr.ecr.ap-southeast-1.amazonaws.com
+  FUNCTION_NAME: dr-daily-report-line-bot-dev
+
+jobs:
+  ###############################################################################
+  # Stage 0: Detect Changes
+  ###############################################################################
+  detect-changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      line_bot: ${{ steps.filter.outputs.line_bot }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Detect changed paths
+        uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            line_bot:
+              - 'src/integrations/line_bot.py'
+              - 'src/lambda_handler.py'
+              - 'tests/line_bot/**'
+            backend:
+              - 'src/**'
+              - 'Dockerfile*'
+              - 'requirements*.txt'
+
+      - name: Log detected changes
+        run: |
+          echo "📊 Change Detection Results:"
+          echo "   LINE bot code:     ${{ steps.filter.outputs.line_bot }}"
+          echo "   Backend changed:   ${{ steps.filter.outputs.backend }}"
+
+  ###############################################################################
+  # Stage 1: Quality Gates (Syntax, Tests, Security)
+  ###############################################################################
+  test:
+    name: Quality Gates
+    runs-on: ubuntu-latest
+    needs: detect-changes
+    if: needs.detect-changes.outputs.backend == 'true' || needs.detect-changes.outputs.line_bot == 'true'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-asyncio
+
+      - name: Syntax check
+        run: |
+          echo "🔍 Checking Python syntax..."
+          python -m py_compile src/**/*.py src/integrations/*.py src/*.py
+          echo "✅ Syntax check passed"
+
+      - name: Unit tests (LINE bot)
+        run: |
+          echo "🧪 Running LINE bot tests..."
+          pytest tests/line_bot tests/shared -m "not integration and not e2e" -v --tb=short -x
+          echo "✅ LINE bot tests passed"
+
+  ###############################################################################
+  # Stage 2: Build or Reuse Existing Image
+  ###############################################################################
+  get-or-build-image:
+    name: Get or Build Docker Image
+    runs-on: ubuntu-latest
+    needs: test
+    outputs:
+      image_uri: ${{ steps.determine-image.outputs.image_uri }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Check if Telegram already built this commit
+        id: check-existing
+        run: |
+          COMMIT_SHA=$(git rev-parse --short HEAD)
+          IMAGE_TAG="sha-${COMMIT_SHA}"
+
+          # Check if image exists in ECR
+          if aws ecr describe-images \
+            --repository-name dr-daily-report-telegram-api \
+            --image-ids imageTag=${IMAGE_TAG} \
+            --region ${{ env.AWS_REGION }} > /dev/null 2>&1; then
+            echo "✅ Found existing image: ${IMAGE_TAG}"
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "image_tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
+          else
+            echo "❌ No existing image found for commit ${COMMIT_SHA}"
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Login to Amazon ECR
+        if: steps.check-existing.outputs.exists == 'false'
+        run: |
+          aws ecr get-login-password --region ${{ env.AWS_REGION }} | \
+            docker login --username AWS --password-stdin ${{ env.ECR_REGISTRY }}
+
+      - name: Build and push Docker image
+        if: steps.check-existing.outputs.exists == 'false'
+        id: build
+        run: |
+          COMMIT_SHA=$(git rev-parse --short HEAD)
+          TIMESTAMP=$(date +%Y%m%d%H%M%S)
+          IMAGE_TAG="sha-${COMMIT_SHA}-${TIMESTAMP}"
+          IMAGE_URI="${{ env.ECR_REGISTRY }}/dr-daily-report-telegram-api:${IMAGE_TAG}"
+
+          echo "🐳 Building Docker image..."
+          docker build -t ${IMAGE_URI} -f Dockerfile .
+
+          echo "📤 Pushing to ECR..."
+          docker push ${IMAGE_URI}
+
+          echo "image_uri=${IMAGE_URI}" >> $GITHUB_OUTPUT
+          echo "image_tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
+
+      - name: Determine final image URI
+        id: determine-image
+        run: |
+          if [ "${{ steps.check-existing.outputs.exists }}" == "true" ]; then
+            IMAGE_URI="${{ env.ECR_REGISTRY }}/dr-daily-report-telegram-api:${{ steps.check-existing.outputs.image_tag }}"
+            echo "Using existing image: ${IMAGE_URI}"
+          else
+            IMAGE_URI="${{ steps.build.outputs.image_uri }}"
+            echo "Using newly built image: ${IMAGE_URI}"
+          fi
+          echo "image_uri=${IMAGE_URI}" >> $GITHUB_OUTPUT
+
+  ###############################################################################
+  # Stage 3: Deploy LINE Bot Lambda
+  ###############################################################################
+  deploy-line-bot:
+    name: Deploy LINE Bot to Dev
+    runs-on: ubuntu-latest
+    needs: get-or-build-image
+
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Update Lambda function code ($LATEST)
+        run: |
+          echo "🚀 Updating LINE bot Lambda function..."
+          aws lambda update-function-code \
+            --function-name ${{ env.FUNCTION_NAME }} \
+            --image-uri ${{ needs.get-or-build-image.outputs.image_uri }}
+
+          echo "⏳ Waiting for function update to complete..."
+          aws lambda wait function-updated \
+            --function-name ${{ env.FUNCTION_NAME }}
+
+          echo "✅ LINE bot Lambda updated to ${{ needs.get-or-build-image.outputs.image_uri }}"
+
+      - name: Smoke test $LATEST
+        run: |
+          echo "🧪 Testing LINE bot health endpoint..."
+
+          # Invoke Lambda with health check payload
+          aws lambda invoke \
+            --function-name ${{ env.FUNCTION_NAME }} \
+            --payload '{"httpMethod":"GET","path":"/health"}' \
+            /tmp/health.json
+
+          # Check response
+          cat /tmp/health.json
+
+          if grep -q "error" /tmp/health.json; then
+            echo "❌ Health check failed"
+            exit 1
+          fi
+
+          echo "✅ LINE bot smoke test passed"
+
+      - name: Publish new version
+        id: publish
+        run: |
+          echo "📦 Publishing immutable version..."
+          VERSION=$(aws lambda publish-version \
+            --function-name ${{ env.FUNCTION_NAME }} \
+            --description "LINE bot dev deployment $(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --query 'Version' \
+            --output text)
+
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "✅ Published version: $VERSION"
+
+      - name: Update 'live' alias to new version (ZERO-DOWNTIME PROMOTION)
+        run: |
+          echo "🔀 Promoting version ${{ steps.publish.outputs.version }} to live..."
+
+          # Check if alias exists
+          if aws lambda get-alias \
+            --function-name ${{ env.FUNCTION_NAME }} \
+            --name live > /dev/null 2>&1; then
+
+            # Update existing alias
+            aws lambda update-alias \
+              --function-name ${{ env.FUNCTION_NAME }} \
+              --name live \
+              --function-version ${{ steps.publish.outputs.version }}
+          else
+            # Create new alias
+            aws lambda create-alias \
+              --function-name ${{ env.FUNCTION_NAME }} \
+              --name live \
+              --function-version ${{ steps.publish.outputs.version }}
+          fi
+
+          echo "✅ LINE bot 'live' alias now points to version ${{ steps.publish.outputs.version }}"
+          echo "🎉 Users will now receive this version"
+
+  ###############################################################################
+  # Stage 4: Store Artifact Metadata (for staging promotion)
+  ###############################################################################
+  store-artifact:
+    name: Store Artifact Metadata
+    runs-on: ubuntu-latest
+    needs: [get-or-build-image, deploy-line-bot]
+
+    steps:
+      - name: Save artifact metadata
+        run: |
+          echo "${{ needs.get-or-build-image.outputs.image_uri }}" > line-artifact-uri.txt
+          cat line-artifact-uri.txt
+
+      - name: Upload artifact metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: line-dev-artifact-metadata
+          path: line-artifact-uri.txt
+          retention-days: 30
+
+      - name: Summary
+        run: |
+          echo "## 🎉 LINE Bot Deployment Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** dev" >> $GITHUB_STEP_SUMMARY
+          echo "**Function:** ${{ env.FUNCTION_NAME }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Image:** \`${{ needs.get-or-build-image.outputs.image_uri }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✅ LINE bot deployed and promoted to live alias" >> $GITHUB_STEP_SUMMARY

@@ -1,8 +1,9 @@
-name: Deploy to Development Environment
+name: Deploy Telegram App - Dev Environment
 
 # ============================================================================
-# Branch-Based Deployment: dev branch → dev environment only
-# Independent deployment with artifact promotion to staging/prod
+# Telegram-Specific Deployment: dev branch → dev environment
+# Runs when Telegram-specific or shared backend code changes
+# Skips deployment if only LINE bot code changes
 # Required vars: CLOUDFRONT_DOMAIN. Secrets: CLOUDFRONT_DISTRIBUTION_ID
 # ============================================================================
 on:
@@ -11,13 +12,29 @@ on:
     branches:
       - dev  # Deploy to dev environment only
     paths:
-      - 'src/**'
+      # Telegram-specific paths
+      - 'telegram/**'
+      - 'src/api/**'
       - 'frontend/twinbar/**'
+      # Shared backend (affects both apps)
+      - 'src/agent.py'
+      - 'src/workflow/**'
+      - 'src/data/**'
+      - 'src/analysis/**'
+      - 'src/report/**'
+      - 'src/scheduler/**'
+      - 'src/types.py'
+      - 'src/config.py'
+      - 'src/report_worker_handler.py'
+      # Infrastructure
       - 'Dockerfile*'
       - 'requirements*.txt'
-      - 'terraform/**'
-      - '.github/workflows/**'
-      - 'tests/**'
+      - 'terraform/telegram*.tf'
+      - 'terraform/modules/telegram-api/**'
+      - '.github/workflows/deploy-telegram-dev.yml'
+      # Explicitly EXCLUDE LINE bot paths
+      - '!line_bot/**'
+      - '!tests/line_bot/**'
 
 env:
   AWS_REGION: ap-southeast-1

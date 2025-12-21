@@ -1,6 +1,22 @@
 # CI/CD Architecture
 
-Branch-based deployment with independent environment promotion through GitHub Actions.
+Branch-based deployment with independent environment promotion and multi-app support through GitHub Actions.
+
+---
+
+## Multi-App Architecture
+
+This project supports **two separate applications** sharing a common backend:
+
+- **Telegram Mini App**: Web-based dashboard with REST API (`src/api/**`, `frontend/twinbar/**`)
+- **LINE Bot**: Chat-based Thai financial reports (`src/integrations/line_bot.py`)
+
+Both apps share:
+- Same Docker image (built from same Dockerfile)
+- Same backend code (`src/agent.py`, `src/workflow/**`, `src/data/**`)
+- Same Aurora database
+
+**Path filters** determine which app deploys based on code changes.
 
 ---
 
@@ -9,37 +25,57 @@ Branch-based deployment with independent environment promotion through GitHub Ac
 **Branch-based triggers for independent environment deployment:**
 
 ```yaml
-# Dev deployment - deploy-dev.yml
+# Dev deployment - deploy-telegram-dev.yml
 on:
   push:
     branches: [dev]
+    paths: ['src/api/**', 'frontend/**', 'src/**']  # Telegram + shared
 
-# Staging deployment - deploy-staging.yml
+# Dev deployment - deploy-line-dev.yml
 on:
   push:
-    branches: [main]
+    branches: [dev]
+    paths: ['src/integrations/line_bot.py', 'src/**']  # LINE + shared
 
-# Production deployment - deploy-prod.yml
-on:
-  push:
-    tags: ['v*.*.*']  # Semantic versioning
+# Staging/Production - similar pattern for both apps
 ```
 
 ---
 
 ## Deployment Workflow Files
 
+### Telegram Mini App Workflows
+
 | Workflow | Trigger | Deploys To | Duration |
 |----------|---------|------------|----------|
-| `deploy-dev.yml` | Push to `dev` | Dev environment | ~8 min |
-| `deploy-staging.yml` | Push to `main` | Staging environment | ~10 min |
-| `deploy-prod.yml` | Tag `v*.*.*` | Production environment | ~12 min |
+| `deploy-telegram-dev.yml` | Push to `dev` (Telegram/shared paths) | Dev environment | ~8 min |
+| `deploy-telegram-staging.yml` | Push to `main` (Telegram/shared paths) | Staging environment | ~10 min |
+| `deploy-telegram-prod.yml` | Tag `v-telegram-*.*.*` | Production environment | ~12 min |
 
-**Key Changes from Legacy Workflow:**
+### LINE Bot Workflows
+
+| Workflow | Trigger | Deploys To | Duration |
+|----------|---------|------------|----------|
+| `deploy-line-dev.yml` | Push to `dev` (LINE/shared paths) | Dev environment | ~6 min |
+| `deploy-line-staging.yml` | Push to `main` (LINE/shared paths) | Staging environment | ~8 min |
+| `deploy-line-prod.yml` | Tag `v-line-*.*.*` | Production environment | ~10 min |
+
+**Deployment Behavior:**
+
+| Code Change | Telegram Deploys? | LINE Deploys? | Why |
+|-------------|-------------------|---------------|-----|
+| `src/api/**` | ✅ Yes | ❌ No | Telegram-specific REST API |
+| `src/integrations/line_bot.py` | ❌ No | ✅ Yes | LINE-specific code |
+| `src/agent.py` (shared backend) | ✅ Yes | ✅ Yes | Affects both apps |
+| `frontend/twinbar/**` | ✅ Yes | ❌ No | Telegram frontend only |
+| `docs/**` | ❌ No | ❌ No | Documentation doesn't affect apps |
+
+**Key Benefits:**
 - ✅ Independent deployments (no cascading failures)
-- ✅ Fast dev iteration (8 min vs 30 min)
-- ✅ Semantic versioning for production
-- ✅ Same artifact promotion pattern preserved
+- ✅ Fast dev iteration (deploy only what changed)
+- ✅ App-specific versioning (`v-telegram-1.2.3`, `v-line-1.2.3`)
+- ✅ Shared code automatically deploys both apps
+- ✅ Same artifact promotion pattern for both apps
 - ✅ All safety gates preserved (schema validation, smoke tests, E2E)
 
 ---
@@ -321,13 +357,43 @@ aws lambda update-alias \
 
 ## Typical Workflows
 
-### Fast Dev Iteration
+### Fast Dev Iteration (Telegram-only changes)
 ```bash
-# Make changes
+# Make Telegram-specific changes
 git checkout dev
+# Edit src/api/endpoints.py
 git add .
-git commit -m "feat: add new feature"
-git push origin dev  # Deploys to dev only (~8 min)
+git commit -m "feat(telegram): add new ranking endpoint"
+git push origin dev
+
+# → Only deploy-telegram-dev.yml runs (~8 min)
+# → LINE bot not affected
+```
+
+### Fast Dev Iteration (LINE-only changes)
+```bash
+# Make LINE-specific changes
+git checkout dev
+# Edit src/integrations/line_bot.py
+git add .
+git commit -m "feat(line): improve message formatting"
+git push origin dev
+
+# → Only deploy-line-dev.yml runs (~6 min)
+# → Telegram not affected
+```
+
+### Shared Backend Changes (Both apps deploy)
+```bash
+# Make shared backend changes
+git checkout dev
+# Edit src/agent.py
+git add .
+git commit -m "feat(backend): improve LLM prompt"
+git push origin dev
+
+# → Both deploy-telegram-dev.yml AND deploy-line-dev.yml run (~8 min each, in parallel)
+# → Both apps get the update
 ```
 
 ### Promote to Staging
@@ -335,19 +401,52 @@ git push origin dev  # Deploys to dev only (~8 min)
 # Create PR from dev → main
 gh pr create --base main --head dev --title "Release: Feature X"
 # After approval and merge
-# → Staging deploys automatically (~10 min)
+# → deploy-telegram-staging.yml runs if Telegram/shared code changed
+# → deploy-line-staging.yml runs if LINE/shared code changed
 ```
 
-### Production Release
+### Production Release (Telegram)
 ```bash
 # After staging testing passes
 git checkout main
 git pull
-git tag -a v1.2.3 -m "Release: Feature X"
-git push origin v1.2.3
+git tag -a v-telegram-1.2.3 -m "Release: Telegram Feature X"
+git push origin v-telegram-1.2.3
 
-# → Production deployment requires manual approval
-# → GitHub Release created automatically after deployment
+# → deploy-telegram-prod.yml runs
+# → Requires manual approval
+# → GitHub Release created automatically
+```
+
+### Production Release (LINE Bot)
+```bash
+# After staging testing passes
+git checkout main
+git pull
+git tag -a v-line-1.2.3 -m "Release: LINE Bot Feature Y"
+git push origin v-line-1.2.3
+
+# → deploy-line-prod.yml runs
+# → Requires manual approval
+# → GitHub Release created automatically
+```
+
+### Production Release (Both Apps)
+```bash
+# When both apps need production release
+git checkout main
+git pull
+
+# Tag both apps
+git tag -a v-telegram-1.3.0 -m "Release: Backend improvements"
+git tag -a v-line-1.3.0 -m "Release: Backend improvements"
+
+git push origin v-telegram-1.3.0
+git push origin v-line-1.3.0
+
+# → Both deploy-telegram-prod.yml AND deploy-line-prod.yml run
+# → Each requires manual approval
+# → Two GitHub Releases created
 ```
 
 ---

@@ -1,0 +1,268 @@
+name: Deploy LINE Bot - Production Environment
+
+# ============================================================================
+# LINE Bot-Specific Deployment: v-line-*.*.* tags on main → production
+# Promotes artifact from staging build (same immutable image tested in dev & staging)
+# Requires manual approval via GitHub environment protection
+# Note: Use 'v-line-1.2.3' for LINE releases, 'v-telegram-1.2.3' for Telegram releases
+# Required vars: LINE_CHANNEL_ACCESS_TOKEN, LINE_CHANNEL_SECRET
+# ============================================================================
+on:
+  workflow_dispatch:  # Manual trigger
+  push:
+    tags:
+      - 'v-line-*.*.*'  # LINE-specific tags: v-line-1.0.0, v-line-1.2.3, etc.
+
+env:
+  AWS_REGION: ap-southeast-1
+  PYTHON_VERSION: '3.11'
+  FUNCTION_NAME: dr-daily-report-line-bot-prod
+
+jobs:
+  ###############################################################################
+  # Stage 0: Validate Tag (Security Gate)
+  ###############################################################################
+  validate-tag:
+    name: Validate Tag
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for branch checking
+
+      - name: Verify tag is on main branch
+        run: |
+          echo "🔍 Validating tag: ${{ github.ref_name }}"
+
+          TAG_COMMIT=$(git rev-list -n 1 ${{ github.ref }})
+          MAIN_COMMITS=$(git rev-list main)
+
+          if ! echo "$MAIN_COMMITS" | grep -q "$TAG_COMMIT"; then
+            echo "❌ Tag ${{ github.ref_name }} is not on main branch"
+            echo "   Production tags must be created from main branch"
+            echo ""
+            echo "To fix:"
+            echo "  git tag -d ${{ github.ref_name }}"
+            echo "  git push origin :refs/tags/${{ github.ref_name }}"
+            echo "  git checkout main"
+            echo "  git tag -a ${{ github.ref_name }} -m 'Production release'"
+            echo "  git push origin ${{ github.ref_name }}"
+            exit 1
+          fi
+
+          echo "✅ Tag is on main branch - safe to deploy to production"
+
+  ###############################################################################
+  # Stage 1: Get Staging Artifact (Artifact Promotion)
+  ###############################################################################
+  get-staging-artifact:
+    name: Get Staging Artifact
+    runs-on: ubuntu-latest
+    needs: validate-tag
+    outputs:
+      image_uri: ${{ steps.download.outputs.image_uri }}
+
+    steps:
+      - name: Download artifact from staging
+        uses: dawidd6/action-download-artifact@v3
+        with:
+          workflow: deploy-line-staging.yml
+          branch: main
+          name: line-staging-artifact-metadata
+          path: ./artifacts
+
+      - name: Read artifact metadata
+        id: download
+        run: |
+          IMAGE_URI=$(cat ./artifacts/line-artifact-uri.txt)
+          echo "📦 Staging artifact: ${IMAGE_URI}"
+          echo "image_uri=${IMAGE_URI}" >> $GITHUB_OUTPUT
+
+  ###############################################################################
+  # Stage 2: Deploy LINE Bot Lambda to Production (Manual Approval Required)
+  ###############################################################################
+  deploy-line-bot:
+    name: Deploy LINE Bot to Production
+    runs-on: ubuntu-latest
+    needs: get-staging-artifact
+    environment:
+      name: production
+      url: https://line.me/R/ti/p/@your-line-bot-id
+
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Update Lambda function code ($LATEST)
+        run: |
+          echo "🚀 Deploying LINE bot to PRODUCTION..."
+          echo "   Tag: ${{ github.ref_name }}"
+          echo "   Image: ${{ needs.get-staging-artifact.outputs.image_uri }}"
+
+          aws lambda update-function-code \
+            --function-name ${{ env.FUNCTION_NAME }} \
+            --image-uri ${{ needs.get-staging-artifact.outputs.image_uri }}
+
+          echo "⏳ Waiting for function update to complete..."
+          aws lambda wait function-updated \
+            --function-name ${{ env.FUNCTION_NAME }}
+
+          echo "✅ LINE bot production Lambda updated (same image tested in dev & staging)"
+
+      - name: Smoke test $LATEST
+        run: |
+          echo "🧪 Testing LINE bot health endpoint..."
+
+          aws lambda invoke \
+            --function-name ${{ env.FUNCTION_NAME }} \
+            --payload '{"httpMethod":"GET","path":"/health"}' \
+            /tmp/health.json
+
+          cat /tmp/health.json
+
+          if grep -q "error" /tmp/health.json; then
+            echo "❌ Health check failed"
+            exit 1
+          fi
+
+          echo "✅ LINE bot smoke test passed"
+
+      - name: Publish new version
+        id: publish
+        run: |
+          echo "📦 Publishing immutable version..."
+          VERSION=$(aws lambda publish-version \
+            --function-name ${{ env.FUNCTION_NAME }} \
+            --description "LINE bot production deployment ${{ github.ref_name }} $(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --query 'Version' \
+            --output text)
+
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "✅ Published version: $VERSION"
+
+      - name: Update 'live' alias to new version (ZERO-DOWNTIME PROMOTION)
+        run: |
+          echo "🔀 Promoting version ${{ steps.publish.outputs.version }} to live..."
+
+          if aws lambda get-alias \
+            --function-name ${{ env.FUNCTION_NAME }} \
+            --name live > /dev/null 2>&1; then
+            aws lambda update-alias \
+              --function-name ${{ env.FUNCTION_NAME }} \
+              --name live \
+              --function-version ${{ steps.publish.outputs.version }}
+          else
+            aws lambda create-alias \
+              --function-name ${{ env.FUNCTION_NAME }} \
+              --name live \
+              --function-version ${{ steps.publish.outputs.version }}
+          fi
+
+          echo "✅ LINE bot 'live' alias now points to version ${{ steps.publish.outputs.version }}"
+          echo "🎉 Production deployment complete!"
+
+  ###############################################################################
+  # Stage 3: Create GitHub Release
+  ###############################################################################
+  create-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: [get-staging-artifact, deploy-line-bot]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          # Get previous LINE release tag
+          PREV_TAG=$(git tag -l "v-line-*" --sort=-v:refname | sed -n '2p')
+
+          if [ -z "$PREV_TAG" ]; then
+            echo "No previous LINE release found, using all commits"
+            COMMITS=$(git log --oneline --no-merges)
+          else
+            echo "Previous release: $PREV_TAG"
+            COMMITS=$(git log ${PREV_TAG}..${{ github.ref_name }} --oneline --no-merges)
+          fi
+
+          # Filter commits relevant to LINE bot
+          LINE_COMMITS=$(echo "$COMMITS" | grep -E "(line|LINE|shared|backend)" || echo "No LINE-specific commits")
+
+          echo "changelog<<EOF" >> $GITHUB_OUTPUT
+          echo "$LINE_COMMITS" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref_name }}
+          release_name: LINE Bot Release ${{ github.ref_name }}
+          body: |
+            ## 🤖 LINE Bot Production Deployment
+
+            **Version:** ${{ github.ref_name }}
+            **Deployed:** ${{ github.event.head_commit.timestamp }}
+            **Commit:** ${{ github.sha }}
+            **Image:** `${{ needs.get-staging-artifact.outputs.image_uri }}`
+
+            ### Changes
+            ${{ steps.changelog.outputs.changelog }}
+
+            ### Rollback Instructions
+            If issues are detected, rollback using:
+            ```bash
+            # Find previous working version
+            aws lambda list-versions-by-function \
+              --function-name ${{ env.FUNCTION_NAME }} \
+              --query 'Versions[?Description contains `production`].[Version,Description]' \
+              --output table
+
+            # Update alias to previous version
+            aws lambda update-alias \
+              --function-name ${{ env.FUNCTION_NAME }} \
+              --name live \
+              --function-version <PREVIOUS_VERSION>
+            ```
+
+            ---
+            🤖 Generated with [Claude Code](https://claude.com/claude-code)
+          draft: false
+          prerelease: false
+
+  ###############################################################################
+  # Summary
+  ###############################################################################
+  summary:
+    name: Deployment Summary
+    runs-on: ubuntu-latest
+    needs: [get-staging-artifact, deploy-line-bot, create-release]
+    if: always()
+
+    steps:
+      - name: Summary
+        run: |
+          echo "## 🎉 LINE Bot Production Deployment Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Tag:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** production" >> $GITHUB_STEP_SUMMARY
+          echo "**Function:** ${{ env.FUNCTION_NAME }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Image:** \`${{ needs.get-staging-artifact.outputs.image_uri }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Artifact Promotion Flow" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Built in dev" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Tested in staging" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Deployed to production" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "🎉 Same immutable image tested in dev & staging now serving production traffic" >> $GITHUB_STEP_SUMMARY
