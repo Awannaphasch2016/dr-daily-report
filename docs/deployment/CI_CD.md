@@ -69,10 +69,17 @@ on:
 | `deploy-scheduler-prod.yml` | Tag `v-scheduler-*.*.*` | Production environment | ~7 min |
 
 **What the Scheduler Does:**
-- **Daily Schedule:** 8 AM Bangkok time (01:00 UTC) via EventBridge
-- **Task:** Fetches 46 tickers from Yahoo Finance
-- **Storage:** Raw data to Aurora ticker_data table
-- **Used By:** Telegram API & LINE Bot for report generation
+- **Daily Schedule:** 8:00 AM Bangkok time (01:00 UTC) via EventBridge
+- **Task:** Fetches 47 tickers from Yahoo Finance
+- **Storage:** Raw data to Aurora `ticker_data` table
+- **Trigger:** Automatically triggers precompute workflow 20 minutes later (8:20 AM Bangkok)
+
+**Automated Precompute Workflow:**
+- **Daily Schedule:** 8:20 AM Bangkok time (01:20 UTC) via EventBridge (20 min after scheduler)
+- **Trigger:** Precompute Controller Lambda → Step Functions state machine
+- **Task:** Generates AI reports for all 47 tickers in parallel (via SQS fan-out)
+- **Storage:** Complete reports cached in Aurora `precomputed_reports` table
+- **Used By:** Telegram API & LINE Bot serve cached reports instantly
 
 **Deployment Behavior:**
 
