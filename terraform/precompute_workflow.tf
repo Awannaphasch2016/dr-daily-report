@@ -204,22 +204,23 @@ resource "aws_lambda_alias" "precompute_controller_live" {
 # EventBridge Rule for Automatic Precompute Triggering
 ###############################################################################
 
-# EventBridge Rule - triggers 20 minutes after scheduler (buffer for data fetch)
-# Scheduler runs at 8:00 AM Bangkok (01:00 UTC)
-# Precompute runs at 8:20 AM Bangkok (01:20 UTC)
+# EventBridge Rule - for automatic precompute triggering (currently DISABLED)
+# Scheduler runs at 5:00 AM Bangkok (22:00 UTC previous day)
+# Precompute would run at 5:20 AM Bangkok (22:20 UTC previous day) if enabled
 resource "aws_cloudwatch_event_rule" "daily_precompute" {
   name                = "${var.project_name}-daily-precompute-${var.environment}"
-  description         = "Trigger precompute workflow after scheduler fetches data (8:20 AM Bangkok = 01:20 UTC)"
-  schedule_expression = "cron(20 1 * * ? *)" # 01:20 UTC = 08:20 Bangkok (20 min after scheduler)
+  description         = "Trigger precompute workflow after scheduler fetches data (5:20 AM Bangkok = 22:20 UTC prev day)"
+  schedule_expression = "cron(20 22 * * ? *)" # 22:20 UTC = 05:20 Bangkok next day (20 min after scheduler)
 
-  # Enabled - automatic precompute after data fetch
-  state = "ENABLED"
+  # DISABLED - manual precompute triggering for now
+  # To enable automatic precompute: change state to "ENABLED" and terraform apply
+  state = "DISABLED"
 
   tags = merge(local.common_tags, {
     Name      = "${var.project_name}-daily-precompute-${var.environment}"
     App       = "telegram-api"
     Component = "precompute-trigger"
-    Schedule  = "daily-8:20am-bangkok"
+    Schedule  = "daily-5:20am-bangkok-disabled"
   })
 }
 

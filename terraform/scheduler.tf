@@ -70,7 +70,7 @@ resource "aws_lambda_function" "ticker_scheduler" {
     Name      = "${var.project_name}-ticker-scheduler-${var.environment}"
     App       = "telegram-api"
     Component = "scheduler"
-    Schedule  = "daily-8am-bangkok"
+    Schedule  = "daily-5am-bangkok"
   })
 
   depends_on = [
@@ -143,22 +143,21 @@ resource "aws_lambda_alias" "ticker_scheduler_live" {
 # EventBridge Rule for Daily Schedule
 ###############################################################################
 
-# NOTE: Schedule is initially DISABLED for manual testing
-# To enable: Change enabled = true, then terraform apply
+# Daily ticker data fetch from Yahoo Finance
+# Schedule: 5 AM Bangkok time (22:00 UTC previous day)
 resource "aws_cloudwatch_event_rule" "daily_ticker_fetch" {
   name                = "${var.project_name}-daily-ticker-fetch-${var.environment}"
-  description         = "Fetch ticker data daily at 8 AM Bangkok time (UTC+7)"
-  schedule_expression = "cron(0 1 * * ? *)" # 01:00 UTC = 08:00 Bangkok
+  description         = "Fetch ticker data daily at 5 AM Bangkok time (UTC+7)"
+  schedule_expression = "cron(0 22 * * ? *)" # 22:00 UTC = 05:00 Bangkok next day
 
-  # Rule enabled - daily precomputation at 8 AM Bangkok (01:00 UTC)
-  # With include_report: true, generates full LLM reports for all tickers
+  # Rule enabled - daily data fetch at 5 AM Bangkok (22:00 UTC previous day)
   state = "ENABLED"
 
   tags = merge(local.common_tags, {
     Name      = "${var.project_name}-daily-ticker-fetch-${var.environment}"
     App       = "telegram-api"
     Component = "scheduler-trigger"
-    Schedule  = "daily-8am-bangkok"
+    Schedule  = "daily-5am-bangkok"
   })
 }
 

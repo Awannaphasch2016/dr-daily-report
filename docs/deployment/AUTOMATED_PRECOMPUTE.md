@@ -2,9 +2,11 @@
 
 ## Overview
 
+**Status:** ⚠️ **CURRENTLY DISABLED** - Manual precompute triggering only
+
 **Problem:** Scheduler fetches raw ticker data but doesn't trigger report generation automatically.
 
-**Solution:** EventBridge chaining - two scheduled rules working in sequence.
+**Solution (when enabled):** EventBridge chaining - two scheduled rules working in sequence.
 
 ---
 
@@ -17,9 +19,9 @@ EventBridge (8:00 AM) → Scheduler Lambda → fetch & store raw data → ❌ ST
                         Precompute Controller exists but NEVER invoked
 ```
 
-### After (Fully Automated)
+### After (When Enabled - Currently DISABLED)
 ```
-EventBridge Rule 1 (8:00 AM Bangkok / 01:00 UTC)
+EventBridge Rule 1 (5:00 AM Bangkok / 22:00 UTC prev day)
     ↓
 Scheduler Lambda
     ↓
@@ -29,7 +31,9 @@ Store raw data to Aurora ticker_data table
     ↓
 ⏰ 20 minute buffer (scheduler completes in ~5-15 min)
     ↓
-EventBridge Rule 2 (8:20 AM Bangkok / 01:20 UTC)
+EventBridge Rule 2 (5:20 AM Bangkok / 22:20 UTC prev day) ⚠️ DISABLED
+    ↓
+[MANUAL TRIGGER REQUIRED]
     ↓
 Precompute Controller Lambda
     ↓
@@ -52,10 +56,10 @@ Store complete reports in Aurora precomputed_reports table
 
 ### EventBridge Rules
 
-| Rule | Schedule | Triggers | Purpose |
-|------|----------|----------|---------|
-| `daily-ticker-fetch` | 8:00 AM Bangkok (01:00 UTC) | Scheduler Lambda | Fetch raw data from Yahoo Finance |
-| `daily-precompute` | 8:20 AM Bangkok (01:20 UTC) | Precompute Controller | Generate AI reports |
+| Rule | Schedule | Status | Triggers | Purpose |
+|------|----------|--------|----------|---------|
+| `daily-ticker-fetch` | 5:00 AM Bangkok (22:00 UTC prev day) | ✅ ENABLED | Scheduler Lambda | Fetch raw data from Yahoo Finance |
+| `daily-precompute` | 5:20 AM Bangkok (22:20 UTC prev day) | ⚠️ DISABLED | Precompute Controller | Generate AI reports (manual trigger required) |
 
 ### Terraform Changes
 
@@ -69,8 +73,8 @@ Store complete reports in Aurora precomputed_reports table
 **Key Configuration:**
 ```hcl
 resource "aws_cloudwatch_event_rule" "daily_precompute" {
-  schedule_expression = "cron(20 1 * * ? *)" # 01:20 UTC = 08:20 Bangkok
-  state               = "ENABLED"
+  schedule_expression = "cron(20 22 * * ? *)" # 22:20 UTC = 05:20 Bangkok next day
+  state               = "DISABLED" # Manual triggering only for now
 }
 
 resource "aws_cloudwatch_event_target" "precompute_controller" {
@@ -83,6 +87,69 @@ resource "aws_cloudwatch_event_target" "precompute_controller" {
   })
 }
 ```
+
+**To Enable Automatic Precompute:**
+1. Change `state = "DISABLED"` to `state = "ENABLED"` in `terraform/precompute_workflow.tf`
+2. Run `terraform apply`
+
+---
+
+## Manual Precompute Triggering
+
+**Current Workflow (Manual):**
+1. Scheduler runs automatically at 5:00 AM Bangkok (fetches raw data)
+2. **Manually** trigger precompute after scheduler completes
+
+### Method 1: Trigger Precompute Controller Directly (Recommended)
+
+```bash
+# Trigger precompute for all 47 tickers
+aws lambda invoke \
+  --function-name dr-daily-report-precompute-controller-dev \
+  --payload '{"source":"manual","limit":null}' \
+  /tmp/precompute.json
+
+cat /tmp/precompute.json
+
+# Trigger precompute for specific number of tickers (testing)
+aws lambda invoke \
+  --function-name dr-daily-report-precompute-controller-dev \
+  --payload '{"source":"manual","limit":5}' \
+  /tmp/precompute.json
+```
+
+### Method 2: Start Step Functions Directly
+
+```bash
+# Get state machine ARN
+STATE_MACHINE_ARN=$(cd terraform && ENV=dev doppler run -- terraform output -raw precompute_workflow_arn)
+
+# Start execution
+aws stepfunctions start-execution \
+  --state-machine-arn $STATE_MACHINE_ARN \
+  --name "manual-$(date +%Y%m%d-%H%M%S)" \
+  --input '{"limit":null,"triggered_by":"manual"}'
+
+# Monitor execution
+aws stepfunctions list-executions \
+  --state-machine-arn $STATE_MACHINE_ARN \
+  --max-results 5
+```
+
+### Method 3: Via AWS Console
+
+1. Go to Step Functions Console: https://console.aws.amazon.com/states/
+2. Select state machine: `dr-daily-report-precompute-workflow-dev`
+3. Click "Start execution"
+4. Input JSON:
+   ```json
+   {
+     "limit": null,
+     "triggered_by": "console-manual"
+   }
+   ```
+5. Click "Start execution"
+6. Monitor progress in visual workflow
 
 ---
 
