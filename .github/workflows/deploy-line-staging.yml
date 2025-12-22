@@ -22,7 +22,6 @@ on:
       - 'src/data/**'
       - 'src/analysis/**'
       - 'src/report/**'
-      - 'src/scheduler/**'
       - 'src/types.py'
       - 'src/config.py'
       - 'src/report_worker_handler.py'

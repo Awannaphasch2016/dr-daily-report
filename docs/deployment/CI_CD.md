@@ -60,15 +60,31 @@ on:
 | `deploy-line-staging.yml` | Push to `main` (LINE/shared paths) | Staging environment | ~8 min |
 | `deploy-line-prod.yml` | Tag `v-line-*.*.*` | Production environment | ~10 min |
 
+### Scheduler Workflows
+
+| Workflow | Trigger | Deploys To | Duration |
+|----------|---------|------------|----------|
+| `deploy-scheduler-dev.yml` | Push to `dev` (scheduler/data paths) | Dev environment | ~5 min |
+| `deploy-scheduler-staging.yml` | Push to `main` (scheduler/data paths) | Staging environment | ~6 min |
+| `deploy-scheduler-prod.yml` | Tag `v-scheduler-*.*.*` | Production environment | ~7 min |
+
+**What the Scheduler Does:**
+- **Daily Schedule:** 8 AM Bangkok time (01:00 UTC) via EventBridge
+- **Task:** Fetches 46 tickers from Yahoo Finance
+- **Storage:** Raw data to Aurora ticker_data table
+- **Used By:** Telegram API & LINE Bot for report generation
+
 **Deployment Behavior:**
 
-| Code Change | Telegram Deploys? | LINE Deploys? | Why |
-|-------------|-------------------|---------------|-----|
-| `src/api/**` | ✅ Yes | ❌ No | Telegram-specific REST API |
-| `src/integrations/line_bot.py` | ❌ No | ✅ Yes | LINE-specific code |
-| `src/agent.py` (shared backend) | ✅ Yes | ✅ Yes | Affects both apps |
-| `frontend/twinbar/**` | ✅ Yes | ❌ No | Telegram frontend only |
-| `docs/**` | ❌ No | ❌ No | Documentation doesn't affect apps |
+| Code Change | Telegram | LINE | Scheduler | Why |
+|-------------|----------|------|-----------|-----|
+| `src/api/**` | ✅ Deploy | ❌ Skip | ❌ Skip | Telegram REST API only |
+| `src/integrations/line_bot.py` | ❌ Skip | ✅ Deploy | ❌ Skip | LINE bot code only |
+| `src/scheduler/**` | ❌ Skip | ❌ Skip | ✅ Deploy | Scheduler code only |
+| `src/agent.py` | ✅ Deploy | ✅ Deploy | ❌ Skip | Used by apps, not scheduler |
+| `src/data/**` | ✅ Deploy | ✅ Deploy | ✅ Deploy | Shared by all (Aurora access) |
+| `frontend/twinbar/**` | ✅ Deploy | ❌ Skip | ❌ Skip | Telegram frontend only |
+| `docs/**` | ❌ Skip | ❌ Skip | ❌ Skip | Documentation only |
 
 **Key Benefits:**
 - ✅ Independent deployments (no cascading failures)

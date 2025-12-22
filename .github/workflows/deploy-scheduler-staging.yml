@@ -1,0 +1,171 @@
+name: Deploy Scheduler - Staging Environment
+
+# ============================================================================
+# Scheduler-Specific Deployment: main branch → staging environment
+# Promotes artifact from dev build (same immutable image tested in dev)
+# Runs when scheduler or data layer code changes
+# ============================================================================
+on:
+  workflow_dispatch:  # Manual trigger
+  push:
+    branches:
+      - main
+    paths:
+      # Scheduler-specific paths
+      - 'src/scheduler/**'
+      # Data layer
+      - 'src/data/**'
+      # Infrastructure
+      - 'Dockerfile*'
+      - 'requirements*.txt'
+      - 'terraform/scheduler.tf'
+      - '.github/workflows/deploy-scheduler-staging.yml'
+      # Explicitly EXCLUDE agent/workflow
+      - '!src/agent.py'
+      - '!src/workflow/**'
+      - '!src/report/**'
+
+env:
+  AWS_REGION: ap-southeast-1
+  PYTHON_VERSION: '3.11'
+  FUNCTION_NAME: dr-daily-report-ticker-scheduler-staging
+
+jobs:
+  ###############################################################################
+  # Stage 1: Get Dev Artifact (Artifact Promotion)
+  ###############################################################################
+  get-dev-artifact:
+    name: Get Dev Artifact
+    runs-on: ubuntu-latest
+    outputs:
+      image_uri: ${{ steps.download.outputs.image_uri }}
+
+    steps:
+      - name: Download artifact from dev
+        uses: dawidd6/action-download-artifact@v3
+        with:
+          workflow: deploy-scheduler-dev.yml
+          branch: dev
+          name: scheduler-dev-artifact-metadata
+          path: ./artifacts
+
+      - name: Read artifact metadata
+        id: download
+        run: |
+          IMAGE_URI=$(cat ./artifacts/scheduler-artifact-uri.txt)
+          echo "📦 Dev artifact: ${IMAGE_URI}"
+          echo "image_uri=${IMAGE_URI}" >> $GITHUB_OUTPUT
+
+  ###############################################################################
+  # Stage 2: Deploy Scheduler Lambda to Staging
+  ###############################################################################
+  deploy-scheduler:
+    name: Deploy Scheduler to Staging
+    runs-on: ubuntu-latest
+    needs: get-dev-artifact
+
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Update Lambda function code ($LATEST)
+        run: |
+          echo "🚀 Updating Scheduler Lambda with dev artifact..."
+          echo "   Image: ${{ needs.get-dev-artifact.outputs.image_uri }}"
+
+          aws lambda update-function-code \
+            --function-name ${{ env.FUNCTION_NAME }} \
+            --image-uri ${{ needs.get-dev-artifact.outputs.image_uri }}
+
+          echo "⏳ Waiting for function update to complete..."
+          aws lambda wait function-updated \
+            --function-name ${{ env.FUNCTION_NAME }}
+
+          echo "✅ Scheduler staging Lambda updated (same image tested in dev)"
+
+      - name: Smoke test $LATEST
+        run: |
+          echo "🧪 Testing scheduler with manual ticker fetch..."
+
+          aws lambda invoke \
+            --function-name ${{ env.FUNCTION_NAME }} \
+            --payload '{"tickers":["NVDA"]}' \
+            /tmp/scheduler-test.json
+
+          cat /tmp/scheduler-test.json
+
+          if grep -q "error\|Error" /tmp/scheduler-test.json; then
+            echo "❌ Scheduler smoke test failed"
+            exit 1
+          fi
+
+          echo "✅ Scheduler smoke test passed"
+
+      - name: Publish new version
+        id: publish
+        run: |
+          echo "📦 Publishing immutable version..."
+          VERSION=$(aws lambda publish-version \
+            --function-name ${{ env.FUNCTION_NAME }} \
+            --description "Scheduler staging deployment $(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --query 'Version' \
+            --output text)
+
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "✅ Published version: $VERSION"
+
+      - name: Update 'live' alias to new version
+        run: |
+          echo "🔀 Promoting version ${{ steps.publish.outputs.version }} to live..."
+
+          if aws lambda get-alias \
+            --function-name ${{ env.FUNCTION_NAME }} \
+            --name live > /dev/null 2>&1; then
+            aws lambda update-alias \
+              --function-name ${{ env.FUNCTION_NAME }} \
+              --name live \
+              --function-version ${{ steps.publish.outputs.version }}
+          else
+            aws lambda create-alias \
+              --function-name ${{ env.FUNCTION_NAME }} \
+              --name live \
+              --function-version ${{ steps.publish.outputs.version }}
+          fi
+
+          echo "✅ Scheduler 'live' alias now points to version ${{ steps.publish.outputs.version }}"
+
+  ###############################################################################
+  # Stage 3: Store Artifact Metadata (for production promotion)
+  ###############################################################################
+  store-artifact:
+    name: Store Artifact Metadata
+    runs-on: ubuntu-latest
+    needs: [get-dev-artifact, deploy-scheduler]
+
+    steps:
+      - name: Save artifact metadata
+        run: |
+          echo "${{ needs.get-dev-artifact.outputs.image_uri }}" > scheduler-artifact-uri.txt
+          cat scheduler-artifact-uri.txt
+
+      - name: Upload artifact metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: scheduler-staging-artifact-metadata
+          path: scheduler-artifact-uri.txt
+          retention-days: 30
+
+      - name: Summary
+        run: |
+          echo "## 🎉 Scheduler Staging Deployment Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** staging" >> $GITHUB_STEP_SUMMARY
+          echo "**Function:** ${{ env.FUNCTION_NAME }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Image:** \`${{ needs.get-dev-artifact.outputs.image_uri }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Same immutable image tested in dev" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Scheduler deployed and promoted to live alias" >> $GITHUB_STEP_SUMMARY

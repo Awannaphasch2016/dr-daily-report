@@ -1,46 +1,36 @@
-name: Deploy LINE Bot - Dev Environment
+name: Deploy Scheduler - Dev Environment
 
 # ============================================================================
-# LINE Bot-Specific Deployment: dev branch → dev environment
-# Runs when LINE-specific or shared backend code changes
-# Skips deployment if only Telegram-specific code changes
-# Note: LINE bot shares Docker image with Telegram (same ECR repository)
-# Required vars: LINE_CHANNEL_ACCESS_TOKEN, LINE_CHANNEL_SECRET
+# Scheduler-Specific Deployment: dev branch → dev environment
+# Runs when scheduler or data layer code changes
+# Does NOT trigger on agent/workflow changes (scheduler only fetches raw data)
+# Required: Scheduler uses same Docker image as Telegram/LINE
 # ============================================================================
 on:
-  workflow_dispatch:  # Manual trigger for reruns
+  workflow_dispatch:  # Manual trigger
   push:
     branches:
-      - dev  # Deploy to dev environment only
+      - dev
     paths:
-      # LINE bot-specific paths
-      - 'src/integrations/line_bot.py'
-      - 'tests/line_bot/**'
-      - 'src/lambda_handler.py'  # Main entry point for LINE bot
-      # Shared backend (affects both apps)
-      - 'src/agent.py'
-      - 'src/workflow/**'
+      # Scheduler-specific paths
+      - 'src/scheduler/**'
+      # Data layer (used by scheduler for Aurora storage)
       - 'src/data/**'
-      - 'src/analysis/**'
-      - 'src/report/**'
-      - 'src/types.py'
-      - 'src/config.py'
-      - 'src/report_worker_handler.py'
       # Infrastructure
       - 'Dockerfile*'
       - 'requirements*.txt'
-      - 'terraform/main.tf'  # LINE bot Lambda definition
-      - '.github/workflows/deploy-line-dev.yml'
-      # Explicitly EXCLUDE Telegram-only paths
-      - '!src/api/**'
-      - '!frontend/twinbar/**'
-      - '!tests/telegram/**'
+      - 'terraform/scheduler.tf'
+      - '.github/workflows/deploy-scheduler-dev.yml'
+      # Explicitly EXCLUDE agent/workflow (scheduler doesn't use these)
+      - '!src/agent.py'
+      - '!src/workflow/**'
+      - '!src/report/**'  # Report generation not used by scheduler
 
 env:
   AWS_REGION: ap-southeast-1
   PYTHON_VERSION: '3.11'
   ECR_REGISTRY: 755283537543.dkr.ecr.ap-southeast-1.amazonaws.com
-  FUNCTION_NAME: dr-daily-report-line-bot-dev
+  FUNCTION_NAME: dr-daily-report-ticker-scheduler-dev
 
 jobs:
   ###############################################################################
@@ -50,8 +40,8 @@ jobs:
     name: Detect Changes
     runs-on: ubuntu-latest
     outputs:
-      backend: ${{ steps.filter.outputs.backend }}
-      line_bot: ${{ steps.filter.outputs.line_bot }}
+      scheduler: ${{ steps.filter.outputs.scheduler }}
+      data: ${{ steps.filter.outputs.data }}
 
     steps:
       - name: Checkout code
@@ -62,29 +52,25 @@ jobs:
         id: filter
         with:
           filters: |
-            line_bot:
-              - 'src/integrations/line_bot.py'
-              - 'src/lambda_handler.py'
-              - 'tests/line_bot/**'
-            backend:
-              - 'src/**'
-              - 'Dockerfile*'
-              - 'requirements*.txt'
+            scheduler:
+              - 'src/scheduler/**'
+            data:
+              - 'src/data/**'
 
       - name: Log detected changes
         run: |
           echo "📊 Change Detection Results:"
-          echo "   LINE bot code:     ${{ steps.filter.outputs.line_bot }}"
-          echo "   Backend changed:   ${{ steps.filter.outputs.backend }}"
+          echo "   Scheduler code:    ${{ steps.filter.outputs.scheduler }}"
+          echo "   Data layer:        ${{ steps.filter.outputs.data }}"
 
   ###############################################################################
-  # Stage 1: Quality Gates (Syntax, Tests, Security)
+  # Stage 1: Quality Gates
   ###############################################################################
   test:
     name: Quality Gates
     runs-on: ubuntu-latest
     needs: detect-changes
-    if: needs.detect-changes.outputs.backend == 'true' || needs.detect-changes.outputs.line_bot == 'true'
+    if: needs.detect-changes.outputs.scheduler == 'true' || needs.detect-changes.outputs.data == 'true'
 
     steps:
       - name: Checkout code
@@ -105,17 +91,17 @@ jobs:
       - name: Syntax check
         run: |
           echo "🔍 Checking Python syntax..."
-          python -m py_compile src/**/*.py src/integrations/*.py src/*.py
+          python -m py_compile src/scheduler/**/*.py src/data/**/*.py
           echo "✅ Syntax check passed"
 
-      - name: Unit tests (LINE bot)
+      - name: Unit tests (scheduler)
         run: |
-          echo "🧪 Running LINE bot tests..."
-          pytest tests/line_bot tests/shared -m "not integration and not e2e" -v --tb=short -x
-          echo "✅ LINE bot tests passed"
+          echo "🧪 Running scheduler tests..."
+          pytest tests/data tests/shared -m "not integration and not e2e" -v --tb=short -x
+          echo "✅ Scheduler tests passed"
 
   ###############################################################################
-  # Stage 2: Build or Reuse Existing Image
+  # Stage 2: Get or Build Docker Image
   ###############################################################################
   get-or-build-image:
     name: Get or Build Docker Image
@@ -135,13 +121,13 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Check if Telegram already built this commit
+      - name: Check if image already exists for this commit
         id: check-existing
         run: |
           COMMIT_SHA=$(git rev-parse --short HEAD)
           IMAGE_TAG="sha-${COMMIT_SHA}"
 
-          # Check if image exists in ECR
+          # Check if Telegram/LINE already built this commit
           if aws ecr describe-images \
             --repository-name dr-daily-report-telegram-api \
             --image-ids imageTag=${IMAGE_TAG} \
@@ -191,10 +177,10 @@ jobs:
           echo "image_uri=${IMAGE_URI}" >> $GITHUB_OUTPUT
 
   ###############################################################################
-  # Stage 3: Deploy LINE Bot Lambda
+  # Stage 3: Deploy Scheduler Lambda
   ###############################################################################
-  deploy-line-bot:
-    name: Deploy LINE Bot to Dev
+  deploy-scheduler:
+    name: Deploy Scheduler to Dev
     runs-on: ubuntu-latest
     needs: get-or-build-image
 
@@ -208,7 +194,7 @@ jobs:
 
       - name: Update Lambda function code ($LATEST)
         run: |
-          echo "🚀 Updating LINE bot Lambda function..."
+          echo "🚀 Updating Scheduler Lambda..."
           aws lambda update-function-code \
             --function-name ${{ env.FUNCTION_NAME }} \
             --image-uri ${{ needs.get-or-build-image.outputs.image_uri }}
@@ -217,27 +203,27 @@ jobs:
           aws lambda wait function-updated \
             --function-name ${{ env.FUNCTION_NAME }}
 
-          echo "✅ LINE bot Lambda updated to ${{ needs.get-or-build-image.outputs.image_uri }}"
+          echo "✅ Scheduler Lambda updated to ${{ needs.get-or-build-image.outputs.image_uri }}"
 
-      - name: Smoke test $LATEST
+      - name: Smoke test $LATEST (trigger manual fetch)
         run: |
-          echo "🧪 Testing LINE bot health endpoint..."
+          echo "🧪 Testing scheduler with manual ticker fetch..."
 
-          # Invoke Lambda with health check payload
+          # Test with a single ticker
           aws lambda invoke \
             --function-name ${{ env.FUNCTION_NAME }} \
-            --payload '{"httpMethod":"GET","path":"/health"}' \
-            /tmp/health.json
+            --payload '{"tickers":["NVDA"]}' \
+            /tmp/scheduler-test.json
 
           # Check response
-          cat /tmp/health.json
+          cat /tmp/scheduler-test.json
 
-          if grep -q "error" /tmp/health.json; then
-            echo "❌ Health check failed"
+          if grep -q "error\|Error" /tmp/scheduler-test.json; then
+            echo "❌ Scheduler smoke test failed"
             exit 1
           fi
 
-          echo "✅ LINE bot smoke test passed"
+          echo "✅ Scheduler smoke test passed"
 
       - name: Publish new version
         id: publish
@@ -245,7 +231,7 @@ jobs:
           echo "📦 Publishing immutable version..."
           VERSION=$(aws lambda publish-version \
             --function-name ${{ env.FUNCTION_NAME }} \
-            --description "LINE bot dev deployment $(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --description "Scheduler dev deployment $(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             --query 'Version' \
             --output text)
 
@@ -274,8 +260,8 @@ jobs:
               --function-version ${{ steps.publish.outputs.version }}
           fi
 
-          echo "✅ LINE bot 'live' alias now points to version ${{ steps.publish.outputs.version }}"
-          echo "🎉 Users will now receive this version"
+          echo "✅ Scheduler 'live' alias now points to version ${{ steps.publish.outputs.version }}"
+          echo "🎉 EventBridge will use this version for daily runs"
 
   ###############################################################################
   # Stage 4: Store Artifact Metadata (for staging promotion)
@@ -283,27 +269,32 @@ jobs:
   store-artifact:
     name: Store Artifact Metadata
     runs-on: ubuntu-latest
-    needs: [get-or-build-image, deploy-line-bot]
+    needs: [get-or-build-image, deploy-scheduler]
 
     steps:
       - name: Save artifact metadata
         run: |
-          echo "${{ needs.get-or-build-image.outputs.image_uri }}" > line-artifact-uri.txt
-          cat line-artifact-uri.txt
+          echo "${{ needs.get-or-build-image.outputs.image_uri }}" > scheduler-artifact-uri.txt
+          cat scheduler-artifact-uri.txt
 
       - name: Upload artifact metadata
         uses: actions/upload-artifact@v4
         with:
-          name: line-dev-artifact-metadata
-          path: line-artifact-uri.txt
+          name: scheduler-dev-artifact-metadata
+          path: scheduler-artifact-uri.txt
           retention-days: 30
 
       - name: Summary
         run: |
-          echo "## 🎉 LINE Bot Deployment Complete" >> $GITHUB_STEP_SUMMARY
+          echo "## 🎉 Scheduler Deployment Complete" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Environment:** dev" >> $GITHUB_STEP_SUMMARY
           echo "**Function:** ${{ env.FUNCTION_NAME }}" >> $GITHUB_STEP_SUMMARY
           echo "**Image:** \`${{ needs.get-or-build-image.outputs.image_uri }}\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "✅ LINE bot deployed and promoted to live alias" >> $GITHUB_STEP_SUMMARY
+          echo "### Daily Schedule" >> $GITHUB_STEP_SUMMARY
+          echo "- EventBridge triggers daily at 8 AM Bangkok time (01:00 UTC)" >> $GITHUB_STEP_SUMMARY
+          echo "- Fetches 46 tickers from Yahoo Finance" >> $GITHUB_STEP_SUMMARY
+          echo "- Stores raw data to Aurora ticker_data table" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Scheduler deployed and promoted to live alias" >> $GITHUB_STEP_SUMMARY
