@@ -250,6 +250,57 @@ lambda-check:
     @docker build -q -f Dockerfile.lambda.container -t lambda-quick-test . > /dev/null
     @docker run --rm -e PYTHONPATH=/var/task --entrypoint sh lambda-quick-test -c "python3 scripts/test_lambda_imports.py"
 
+# === SCHEDULER TESTING (7-Layer Strategy) ===
+# Test scheduler + precompute trigger implementation
+# Layers: Unit → Docker Import → Docker Local → Contracts → Terraform → Integration
+
+# Run scheduler unit tests (fastest, ~15 seconds)
+test-scheduler-unit:
+    @echo "🧪 Running scheduler unit tests..."
+    pytest tests/scheduler/test_get_ticker_list_handler.py tests/scheduler/test_ticker_fetcher_handler.py -v --tb=short
+    @echo "✅ Unit tests passed!"
+
+# Run Docker import and local execution tests (~90 seconds)
+test-scheduler-docker:
+    @echo "🐳 Running Docker validation tests..."
+    @echo ""
+    @echo "1️⃣  Testing imports..."
+    ./scripts/test_docker_imports.sh
+    @echo ""
+    @echo "2️⃣  Testing local execution..."
+    ./scripts/test_docker_local.sh
+    @echo ""
+    @echo "✅ Docker tests passed!"
+
+# Run Step Functions contract tests (~10 seconds)
+test-scheduler-contracts:
+    @echo "📋 Running Step Functions contract tests..."
+    ./scripts/test_contracts.sh
+    @echo "✅ Contract tests passed!"
+
+# Run integration tests (requires AWS deployment, ~60 seconds)
+test-scheduler-integration:
+    @echo "🔗 Running scheduler integration tests..."
+    @echo "   ℹ️  Requires deployed Lambda functions"
+    pytest tests/integration/test_precompute_trigger_integration.py -v -m integration --tb=short
+    @echo "✅ Integration tests passed!"
+
+# Run all scheduler tests (full 7-layer strategy, ~5 minutes)
+test-scheduler-all:
+    @echo "🎯 Running all scheduler tests (7-layer strategy)..."
+    @echo ""
+    ./scripts/test_all.sh --full
+    @echo ""
+    @echo "✅ All scheduler tests passed!"
+
+# Quick scheduler validation (layers 1-5, ~2 minutes)
+test-scheduler:
+    @echo "⚡ Quick scheduler validation (layers 1-5)..."
+    @echo ""
+    ./scripts/test_all.sh
+    @echo ""
+    @echo "✅ Quick validation passed!"
+
 # === AURORA DATABASE INTERACTION ===
 # NOTE: Aurora recipes have been moved to modules/aurora.just
 # Use 'just aurora::' to access them, or use aliases below

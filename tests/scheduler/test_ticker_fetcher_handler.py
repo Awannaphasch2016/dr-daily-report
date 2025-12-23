@@ -409,3 +409,265 @@ class TestTickerFetcherHandlerResponseFormat:
             # Body should be dict, not string
             assert isinstance(result['body'], dict)
             assert not isinstance(result['body'], str)
+
+
+class TestPrecomputeTrigger:
+    """Test _trigger_precompute() async Lambda invocation."""
+
+    def setup_method(self):
+        """Set up test fixtures."""
+        self.valid_env = {
+            'PDF_BUCKET_NAME': 'test-pdf-bucket',
+            'DATA_LAKE_BUCKET': 'test-data-lake-bucket',
+            'PRECOMPUTE_CONTROLLER_ARN': 'arn:aws:lambda:region:account:function:precompute-controller'
+        }
+
+        self.fetch_results = {
+            'success_count': 47,
+            'failed_count': 0,
+            'total': 47,
+            'date': '2025-12-13',
+            'success': [
+                {'ticker': 'NVDA', 'yahoo_ticker': 'NVDA', 'rows_written': 365},
+                {'ticker': 'DBS19', 'yahoo_ticker': 'D05.SI', 'rows_written': 365}
+            ],
+            'failed': []
+        }
+
+    @patch.dict(os.environ, {}, clear=True)
+    @patch('src.scheduler.ticker_fetcher_handler.boto3.client')
+    @patch('src.scheduler.ticker_fetcher.TickerFetcher')
+    def test_triggers_precompute_on_successful_fetch(self, mock_fetcher_class, mock_boto_client):
+        """GIVEN successful ticker fetch
+        WHEN handler completes
+        THEN it should trigger precompute Lambda asynchronously
+        """
+        # Setup fetch mock
+        mock_fetcher = MagicMock()
+        mock_fetcher.fetch_all_tickers.return_value = self.fetch_results
+        mock_fetcher_class.return_value = mock_fetcher
+
+        # Setup Lambda client mock
+        mock_lambda = MagicMock()
+        mock_lambda.invoke.return_value = {'StatusCode': 202}  # Async accepted
+        mock_boto_client.return_value = mock_lambda
+
+        with patch.dict(os.environ, self.valid_env):
+            from src.scheduler.ticker_fetcher_handler import lambda_handler
+
+            result = lambda_handler({}, MagicMock())
+
+            # Verify Lambda invocation
+            mock_boto_client.assert_called_once_with('lambda')
+            mock_lambda.invoke.assert_called_once()
+
+            # Verify invocation parameters
+            invoke_args = mock_lambda.invoke.call_args
+            assert invoke_args.kwargs['FunctionName'] == self.valid_env['PRECOMPUTE_CONTROLLER_ARN']
+            assert invoke_args.kwargs['InvocationType'] == 'Event'  # Async fire-and-forget
+
+            # Verify payload structure
+            payload = json.loads(invoke_args.kwargs['Payload'])
+            assert payload['triggered_by'] == 'scheduler'
+            assert 'fetch_summary' in payload
+            assert payload['fetch_summary']['success_count'] == 47
+            assert payload['fetch_summary']['total'] == 47
+            assert 'NVDA' in payload['fetch_summary']['success_tickers']
+            assert 'DBS19' in payload['fetch_summary']['success_tickers']
+
+            # Verify response indicates precompute was triggered
+            assert result['body']['precompute_triggered'] is True
+
+    @patch.dict(os.environ, {}, clear=True)
+    @patch('src.scheduler.ticker_fetcher_handler.boto3.client')
+    @patch('src.scheduler.ticker_fetcher.TickerFetcher')
+    def test_skips_precompute_when_no_successful_fetches(self, mock_fetcher_class, mock_boto_client):
+        """GIVEN fetch with zero successes
+        WHEN handler completes
+        THEN it should NOT trigger precompute
+        """
+        # All fetches failed
+        failed_results = {
+            'success_count': 0,
+            'failed_count': 47,
+            'total': 47,
+            'date': '2025-12-13',
+            'success': [],
+            'failed': [{'ticker': 'NVDA', 'error': 'Connection timeout'}]
+        }
+
+        mock_fetcher = MagicMock()
+        mock_fetcher.fetch_all_tickers.return_value = failed_results
+        mock_fetcher_class.return_value = mock_fetcher
+
+        with patch.dict(os.environ, self.valid_env):
+            from src.scheduler.ticker_fetcher_handler import lambda_handler
+
+            result = lambda_handler({}, MagicMock())
+
+            # Verify Lambda was NOT invoked
+            mock_boto_client.assert_not_called()
+
+            # Verify response indicates precompute was NOT triggered
+            assert result['body']['precompute_triggered'] is False
+
+    @patch.dict(os.environ, {}, clear=True)
+    @patch('src.scheduler.ticker_fetcher_handler.boto3.client')
+    @patch('src.scheduler.ticker_fetcher.TickerFetcher')
+    def test_skips_precompute_when_arn_not_configured(self, mock_fetcher_class, mock_boto_client):
+        """GIVEN missing PRECOMPUTE_CONTROLLER_ARN env var
+        WHEN handler completes
+        THEN it should skip precompute trigger gracefully
+        """
+        mock_fetcher = MagicMock()
+        mock_fetcher.fetch_all_tickers.return_value = self.fetch_results
+        mock_fetcher_class.return_value = mock_fetcher
+
+        # Environment without PRECOMPUTE_CONTROLLER_ARN
+        env_without_arn = {
+            'PDF_BUCKET_NAME': 'test-bucket',
+            'DATA_LAKE_BUCKET': 'test-lake'
+        }
+
+        with patch.dict(os.environ, env_without_arn):
+            from src.scheduler.ticker_fetcher_handler import lambda_handler
+
+            result = lambda_handler({}, MagicMock())
+
+            # Should complete successfully without triggering
+            assert result['statusCode'] == 200
+            assert result['body']['precompute_triggered'] is False
+
+            # Lambda client should not be created
+            mock_boto_client.assert_not_called()
+
+    @patch.dict(os.environ, {}, clear=True)
+    @patch('src.scheduler.ticker_fetcher_handler.boto3.client')
+    @patch('src.scheduler.ticker_fetcher.TickerFetcher')
+    def test_handles_lambda_invoke_failure_gracefully(self, mock_fetcher_class, mock_boto_client):
+        """GIVEN Lambda invoke fails
+        WHEN _trigger_precompute() is called
+        THEN scheduler should still succeed (defensive error handling)
+        """
+        mock_fetcher = MagicMock()
+        mock_fetcher.fetch_all_tickers.return_value = self.fetch_results
+        mock_fetcher_class.return_value = mock_fetcher
+
+        # Lambda invoke raises exception
+        mock_lambda = MagicMock()
+        mock_lambda.invoke.side_effect = Exception("Lambda service error")
+        mock_boto_client.return_value = mock_lambda
+
+        with patch.dict(os.environ, self.valid_env):
+            from src.scheduler.ticker_fetcher_handler import lambda_handler
+
+            result = lambda_handler({}, MagicMock())
+
+            # Scheduler should succeed despite precompute trigger failure
+            assert result['statusCode'] == 200
+            assert result['body']['success_count'] == 47
+
+            # Precompute trigger failed
+            assert result['body']['precompute_triggered'] is False
+
+    @patch.dict(os.environ, {}, clear=True)
+    @patch('src.scheduler.ticker_fetcher_handler.boto3.client')
+    @patch('src.scheduler.ticker_fetcher.TickerFetcher')
+    def test_handles_unexpected_status_code(self, mock_fetcher_class, mock_boto_client):
+        """GIVEN Lambda invoke returns unexpected status code
+        WHEN _trigger_precompute() is called
+        THEN it should handle gracefully
+        """
+        mock_fetcher = MagicMock()
+        mock_fetcher.fetch_all_tickers.return_value = self.fetch_results
+        mock_fetcher_class.return_value = mock_fetcher
+
+        # Unexpected status code (not 202)
+        mock_lambda = MagicMock()
+        mock_lambda.invoke.return_value = {'StatusCode': 500}
+        mock_boto_client.return_value = mock_lambda
+
+        with patch.dict(os.environ, self.valid_env):
+            from src.scheduler.ticker_fetcher_handler import lambda_handler
+
+            result = lambda_handler({}, MagicMock())
+
+            # Scheduler succeeds but precompute trigger failed
+            assert result['statusCode'] == 200
+            assert result['body']['precompute_triggered'] is False
+
+    @patch.dict(os.environ, {}, clear=True)
+    @patch('src.scheduler.ticker_fetcher_handler.boto3.client')
+    @patch('src.scheduler.ticker_fetcher.TickerFetcher')
+    def test_precompute_payload_includes_timestamp(self, mock_fetcher_class, mock_boto_client):
+        """GIVEN precompute trigger
+        WHEN payload is constructed
+        THEN it should include scheduler start timestamp
+        """
+        mock_fetcher = MagicMock()
+        mock_fetcher.fetch_all_tickers.return_value = self.fetch_results
+        mock_fetcher_class.return_value = mock_fetcher
+
+        mock_lambda = MagicMock()
+        mock_lambda.invoke.return_value = {'StatusCode': 202}
+        mock_boto_client.return_value = mock_lambda
+
+        with patch.dict(os.environ, self.valid_env):
+            from src.scheduler.ticker_fetcher_handler import lambda_handler
+
+            lambda_handler({}, MagicMock())
+
+            # Extract payload
+            payload = json.loads(mock_lambda.invoke.call_args.kwargs['Payload'])
+
+            # Verify timestamp is present and valid ISO format
+            assert 'timestamp' in payload
+            from datetime import datetime
+            # Should not raise exception
+            timestamp = datetime.fromisoformat(payload['timestamp'])
+            assert isinstance(timestamp, datetime)
+
+    @patch.dict(os.environ, {}, clear=True)
+    @patch('src.scheduler.ticker_fetcher_handler.boto3.client')
+    @patch('src.scheduler.ticker_fetcher.TickerFetcher')
+    def test_precompute_payload_includes_failed_tickers(self, mock_fetcher_class, mock_boto_client):
+        """GIVEN fetch with some failures
+        WHEN precompute is triggered
+        THEN payload should include both success and failed ticker lists
+        """
+        # Results with failures
+        mixed_results = {
+            'success_count': 45,
+            'failed_count': 2,
+            'total': 47,
+            'date': '2025-12-13',
+            'success': [
+                {'ticker': 'NVDA', 'yahoo_ticker': 'NVDA', 'rows_written': 365}
+            ],
+            'failed': [
+                {'ticker': 'INVALID1', 'error': 'Not found'},
+                {'ticker': 'INVALID2', 'error': 'Timeout'}
+            ]
+        }
+
+        mock_fetcher = MagicMock()
+        mock_fetcher.fetch_all_tickers.return_value = mixed_results
+        mock_fetcher_class.return_value = mock_fetcher
+
+        mock_lambda = MagicMock()
+        mock_lambda.invoke.return_value = {'StatusCode': 202}
+        mock_boto_client.return_value = mock_lambda
+
+        with patch.dict(os.environ, self.valid_env):
+            from src.scheduler.ticker_fetcher_handler import lambda_handler
+
+            lambda_handler({}, MagicMock())
+
+            # Extract payload
+            payload = json.loads(mock_lambda.invoke.call_args.kwargs['Payload'])
+
+            # Verify failed tickers are included
+            assert payload['fetch_summary']['success_count'] == 45
+            assert payload['fetch_summary']['failed_count'] == 2
+            assert payload['fetch_summary']['failed_tickers'] == mixed_results['failed']
+            assert 'NVDA' in payload['fetch_summary']['success_tickers']
