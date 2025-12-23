@@ -3,21 +3,18 @@
   "StartAt": "PrepareTickerList",
   "States": {
     "PrepareTickerList": {
-      "Type": "Pass",
-      "Comment": "In production, this would query ticker_resolver. For MVP, use hardcoded list or pass from input.",
-      "Parameters": {
-        "tickers": [
-          "SIA19", "STEG19", "VENTURE19", "NINTENDO19", "SMFG19", "GOLD19",
-          "INDIAESG19", "DBS19", "THAIBEV19", "UOB19", "MITSU19", "HONDA19",
-          "MUFG19", "VNM19", "TAIWAN19", "FPTVN19", "VCB19", "MWG19",
-          "TENCENT19", "CHMOBILE19", "XIAOMI19", "MEITUAN19", "HAIERS19",
-          "JPMUS19", "PFIZER19", "DISNEY19", "NVDA19", "COSTCO19", "QQQM19",
-          "GOLDUS19", "ITOCHU19", "AIA19", "CHHONGQ19", "ICBC19", "SUNNY19",
-          "JDHEAL19", "HPG19", "VHM19", "ABBV19", "DELL19", "ORCL19",
-          "SP500US19", "SGX19", "SEMB19", "BONDAS19", "UNH19"
-        ]
-      },
+      "Type": "Task",
+      "Resource": "arn:aws:lambda:${region}:${account_id}:function:${get_ticker_list_function_name}",
+      "Comment": "Query ticker_master for active DR symbols (dynamic list from database)",
       "ResultPath": "$.ticker_list",
+      "Retry": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0
+        }
+      ],
       "Next": "FanOutToWorkers"
     },
 

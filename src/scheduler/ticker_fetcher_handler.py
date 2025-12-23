@@ -12,6 +12,7 @@ import logging
 import os
 from datetime import datetime
 from typing import Any, Dict
+import boto3
 
 # Configure logging for Lambda
 # Note: basicConfig() doesn't work in Lambda (runtime pre-configures logging)
@@ -23,6 +24,76 @@ else:  # Local development
     logging.basicConfig(level=logging.INFO)
 
 logger = logging.getLogger(__name__)
+
+
+def _trigger_precompute(fetch_results: Dict[str, Any], start_time: datetime) -> bool:
+    """
+    Trigger precompute workflow asynchronously after successful fetch.
+
+    This invokes the precompute controller Lambda with Event invocation type
+    (fire-and-forget). The scheduler returns immediately without waiting for
+    precompute to complete (~15-20 min).
+
+    Args:
+        fetch_results: Results from ticker fetch operation
+        start_time: Scheduler start timestamp
+
+    Returns:
+        True if precompute was triggered, False otherwise
+    """
+    # Only trigger if at least one ticker succeeded
+    if fetch_results['success_count'] == 0:
+        logger.warning("No successful fetches, skipping precompute trigger")
+        return False
+
+    precompute_arn = os.environ.get('PRECOMPUTE_CONTROLLER_ARN')
+
+    if not precompute_arn:
+        logger.warning("PRECOMPUTE_CONTROLLER_ARN not set, skipping precompute trigger")
+        logger.warning("Set this env var in terraform/scheduler.tf to enable automatic precompute")
+        return False
+
+    try:
+        logger.info(f"✨ Triggering precompute for {fetch_results['total']} tickers")
+
+        lambda_client = boto3.client('lambda')
+
+        # Prepare payload with fetch summary
+        payload = {
+            'triggered_by': 'scheduler',
+            'fetch_summary': {
+                'success_count': fetch_results['success_count'],
+                'failed_count': fetch_results['failed_count'],
+                'total': fetch_results['total'],
+                'date': fetch_results['date'],
+                'success_tickers': [r['ticker'] for r in fetch_results['success']],
+                'failed_tickers': fetch_results['failed']
+            },
+            'timestamp': start_time.isoformat()
+        }
+
+        # Async invocation (fire-and-forget)
+        response = lambda_client.invoke(
+            FunctionName=precompute_arn,
+            InvocationType='Event',  # Async - don't wait for response
+            Payload=json.dumps(payload)
+        )
+
+        status_code = response['StatusCode']
+        logger.info(f"✅ Precompute controller invoked (async): HTTP {status_code}")
+
+        if status_code == 202:  # Accepted for async processing
+            return True
+        else:
+            logger.warning(f"Unexpected status code from Lambda invoke: {status_code}")
+            return False
+
+    except Exception as e:
+        # Don't fail scheduler if precompute trigger fails
+        logger.error(f"⚠️ Failed to trigger precompute: {e}")
+        logger.error("Scheduler completed successfully, but precompute was NOT triggered")
+        logger.error("You may need to trigger precompute manually")
+        return False
 
 
 def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
@@ -71,6 +142,9 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         end_time = datetime.now()
         duration_seconds = (end_time - start_time).total_seconds()
 
+        # Trigger precompute workflow (async, fire-and-forget)
+        precompute_triggered = _trigger_precompute(results, start_time)
+
         response = {
             'statusCode': 200,
             'body': {
@@ -81,7 +155,8 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                 'date': results['date'],
                 'duration_seconds': duration_seconds,
                 'success': [r['ticker'] for r in results['success']],
-                'failed': results['failed']
+                'failed': results['failed'],
+                'precompute_triggered': precompute_triggered
             }
         }
 

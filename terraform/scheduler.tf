@@ -46,6 +46,9 @@ resource "aws_lambda_function" "ticker_scheduler" {
       # DynamoDB for job tracking
       JOBS_TABLE_NAME = aws_dynamodb_table.report_jobs.name
 
+      # Precompute Controller (for automatic triggering after fetch)
+      PRECOMPUTE_CONTROLLER_ARN = aws_lambda_function.precompute_controller.arn
+
       # Aurora MySQL (direct env vars - bypasses Secrets Manager for simplicity)
       # NOTE: Using direct env vars instead of AURORA_SECRET_ARN to avoid VPC endpoint requirement
       # TODO: Add VPC endpoint for Secrets Manager for production security
@@ -105,6 +108,25 @@ resource "aws_iam_role_policy" "scheduler_secrets_access" {
           "secretsmanager:DescribeSecret"
         ]
         Resource = aws_secretsmanager_secret.aurora_credentials.arn
+      }
+    ]
+  })
+}
+
+# Allow scheduler to invoke precompute controller (for automatic precompute triggering)
+resource "aws_iam_role_policy" "scheduler_invoke_precompute" {
+  name = "${var.project_name}-scheduler-invoke-precompute-${var.environment}"
+  role = aws_iam_role.telegram_lambda_role.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "lambda:InvokeFunction"
+        ]
+        Resource = aws_lambda_function.precompute_controller.arn
       }
     ]
   })

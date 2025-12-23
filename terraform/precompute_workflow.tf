@@ -39,7 +39,7 @@ resource "aws_iam_role" "precompute_workflow_role" {
   })
 }
 
-# IAM Policy for Step Functions to send SQS messages
+# IAM Policy for Step Functions to send SQS messages and invoke Lambda
 resource "aws_iam_role_policy" "precompute_workflow_policy" {
   name = "${var.project_name}-precompute-workflow-policy-${var.environment}"
   role = aws_iam_role.precompute_workflow_role.id
@@ -69,6 +69,14 @@ resource "aws_iam_role_policy" "precompute_workflow_policy" {
           "sqs:SendMessage"
         ]
         Resource = aws_sqs_queue.report_jobs.arn
+      },
+      # Lambda - Invoke get_ticker_list function
+      {
+        Effect = "Allow"
+        Action = [
+          "lambda:InvokeFunction"
+        ]
+        Resource = aws_lambda_function.get_ticker_list.arn
       }
     ]
   })
@@ -77,7 +85,10 @@ resource "aws_iam_role_policy" "precompute_workflow_policy" {
 # Read state machine definition template and substitute variables
 locals {
   precompute_workflow_definition = templatefile("${path.module}/step_functions/precompute_workflow.json", {
-    sqs_queue_url = aws_sqs_queue.report_jobs.url
+    sqs_queue_url                 = aws_sqs_queue.report_jobs.url
+    region                        = var.aws_region
+    account_id                    = data.aws_caller_identity.current.account_id
+    get_ticker_list_function_name = aws_lambda_function.get_ticker_list.function_name
   })
 }
 
@@ -188,6 +199,99 @@ resource "aws_cloudwatch_log_group" "precompute_controller_logs" {
   })
 }
 
+###############################################################################
+# Get Ticker List Lambda (for Step Functions)
+###############################################################################
+
+resource "aws_lambda_function" "get_ticker_list" {
+  function_name = "${var.project_name}-get-ticker-list-${var.environment}"
+  role          = aws_iam_role.get_ticker_list_role.arn
+
+  # Container image deployment from ECR (same image as other Lambdas)
+  package_type = "Image"
+  image_uri    = "${aws_ecr_repository.lambda.repository_url}:${var.lambda_image_tag}"
+
+  image_config {
+    command = ["src.scheduler.get_ticker_list_handler.lambda_handler"]
+  }
+
+  timeout     = 30
+  memory_size = 256
+
+  environment {
+    variables = {
+      ENVIRONMENT      = var.environment
+      LOG_LEVEL        = "INFO"
+      AURORA_HOST      = aws_rds_cluster.aurora.endpoint
+      AURORA_PORT      = "3306"
+      AURORA_DATABASE  = var.aurora_database
+      AURORA_USERNAME  = var.aurora_username
+      AURORA_PASSWORD  = var.aurora_password
+    }
+  }
+
+  vpc_config {
+    subnet_ids         = aws_subnet.private[*].id
+    security_group_ids = [aws_security_group.lambda.id]
+  }
+
+  tags = merge(local.common_tags, {
+    Name      = "${var.project_name}-get-ticker-list-${var.environment}"
+    App       = "telegram-api"
+    Component = "ticker-list-query"
+    Layer     = "data"
+  })
+
+  depends_on = [
+    aws_ecr_repository.lambda,
+    aws_rds_cluster.aurora
+  ]
+}
+
+# IAM Role for Get Ticker List Lambda
+resource "aws_iam_role" "get_ticker_list_role" {
+  name = "${var.project_name}-get-ticker-list-role-${var.environment}"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Action = "sts:AssumeRole"
+      Effect = "Allow"
+      Principal = {
+        Service = "lambda.amazonaws.com"
+      }
+    }]
+  })
+
+  tags = merge(local.common_tags, {
+    Name      = "${var.project_name}-get-ticker-list-role-${var.environment}"
+    App       = "telegram-api"
+    Component = "get-ticker-list-role"
+  })
+}
+
+# VPC + CloudWatch Logs permissions
+resource "aws_iam_role_policy_attachment" "get_ticker_list_vpc" {
+  role       = aws_iam_role.get_ticker_list_role.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
+}
+
+# CloudWatch Log Group
+resource "aws_cloudwatch_log_group" "get_ticker_list_logs" {
+  name              = "/aws/lambda/${aws_lambda_function.get_ticker_list.function_name}"
+  retention_in_days = var.log_retention_days
+
+  tags = merge(local.common_tags, {
+    Name      = "${var.project_name}-get-ticker-list-logs-${var.environment}"
+    App       = "telegram-api"
+    Component = "get-ticker-list-logging"
+  })
+}
+
+###############################################################################
+# Precompute Controller Alias
+###############################################################################
+
 # Lambda Alias
 resource "aws_lambda_alias" "precompute_controller_live" {
   name             = "live"
@@ -204,16 +308,19 @@ resource "aws_lambda_alias" "precompute_controller_live" {
 # EventBridge Rule for Automatic Precompute Triggering
 ###############################################################################
 
-# EventBridge Rule - for automatic precompute triggering (currently DISABLED)
-# Scheduler runs at 5:00 AM Bangkok (22:00 UTC previous day)
-# Precompute would run at 5:20 AM Bangkok (22:20 UTC previous day) if enabled
+# EventBridge Rule - DISABLED (scheduler triggers precompute directly now)
+# Architecture change: Scheduler Lambda invokes precompute controller asynchronously
+# This EventBridge rule kept for manual testing/backup, but normally DISABLED
+#
+# Previous: EventBridge (5:20 AM) → Precompute Controller
+# Current:  Scheduler (5:00 AM) → Precompute Controller (async, immediate)
 resource "aws_cloudwatch_event_rule" "daily_precompute" {
   name                = "${var.project_name}-daily-precompute-${var.environment}"
-  description         = "Trigger precompute workflow after scheduler fetches data (5:20 AM Bangkok = 22:20 UTC prev day)"
-  schedule_expression = "cron(20 22 * * ? *)" # 22:20 UTC = 05:20 Bangkok next day (20 min after scheduler)
+  description         = "DISABLED - Scheduler triggers precompute directly. Kept for manual testing."
+  schedule_expression = "cron(20 22 * * ? *)" # 22:20 UTC = 05:20 Bangkok next day
 
-  # DISABLED - manual precompute triggering for now
-  # To enable automatic precompute: change state to "ENABLED" and terraform apply
+  # DISABLED - Scheduler now triggers precompute directly (no EventBridge needed)
+  # Can be re-enabled for manual testing if needed
   state = "DISABLED"
 
   tags = merge(local.common_tags, {
