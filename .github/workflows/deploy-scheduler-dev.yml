@@ -209,10 +209,13 @@ jobs:
         run: |
           echo "🧪 Testing scheduler with manual ticker fetch..."
 
+          # Create test payload file
+          echo '{"tickers":["NVDA"]}' > /tmp/payload.json
+
           # Test with a single ticker
           aws lambda invoke \
             --function-name ${{ env.FUNCTION_NAME }} \
-            --payload '{"tickers":["NVDA"]}' \
+            --payload file:///tmp/payload.json \
             /tmp/scheduler-test.json
 
           # Check response
