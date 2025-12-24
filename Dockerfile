@@ -6,8 +6,14 @@ COPY requirements.txt ${LAMBDA_TASK_ROOT}/
 # Upgrade pip to latest version for better wheel support
 RUN pip install --upgrade pip
 
-# Install build dependencies for packages that require compilation (contourpy, etc.)
-RUN yum install -y gcc gcc-c++ && yum clean all
+# Install build dependencies for packages that require compilation
+# - gcc, gcc-c++: C/C++ compilers (for contourpy, matplotlib deps)
+# - curl: Download rustup installer
+RUN yum install -y gcc gcc-c++ curl && yum clean all
+
+# Install Rust compiler (required for tiktoken)
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+ENV PATH="/root/.cargo/bin:${PATH}"
 
 # Install dependencies
 RUN pip install --no-cache-dir -r ${LAMBDA_TASK_ROOT}/requirements.txt
