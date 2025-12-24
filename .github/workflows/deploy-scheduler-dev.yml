@@ -91,7 +91,7 @@ jobs:
       - name: Syntax check
         run: |
           echo "🔍 Checking Python syntax..."
-          python -m py_compile src/scheduler/**/*.py src/data/**/*.py
+          find src/scheduler src/data -name "*.py" -exec python -m py_compile {} +
           echo "✅ Syntax check passed"
 
       - name: Unit tests (scheduler)
