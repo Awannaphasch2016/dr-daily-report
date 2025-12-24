@@ -215,7 +215,7 @@ jobs:
           # Test with a single ticker
           aws lambda invoke \
             --function-name ${{ env.FUNCTION_NAME }} \
-            --payload file:///tmp/payload.json \
+            --payload fileb:///tmp/payload.json \
             /tmp/scheduler-test.json
 
           # Check response
