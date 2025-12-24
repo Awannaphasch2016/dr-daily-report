@@ -97,7 +97,7 @@ jobs:
       - name: Unit tests (scheduler)
         run: |
           echo "🧪 Running scheduler tests..."
-          pytest tests/data tests/shared -m "not integration and not e2e" -v --tb=short -x
+          pytest tests/scheduler -m "not integration and not e2e" -v --tb=short -x
           echo "✅ Scheduler tests passed"
 
   ###############################################################################
