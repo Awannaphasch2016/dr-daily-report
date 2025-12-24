@@ -3,6 +3,9 @@ FROM public.ecr.aws/lambda/python:3.11
 # Copy requirements file
 COPY requirements.txt ${LAMBDA_TASK_ROOT}/
 
+# Upgrade pip to latest version for better wheel support
+RUN pip install --upgrade pip
+
 # Install build dependencies for packages that require compilation (contourpy, etc.)
 RUN yum install -y gcc gcc-c++ && yum clean all
 
