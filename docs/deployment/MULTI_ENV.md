@@ -186,6 +186,367 @@ terraform apply -var-file=envs/prod/terraform.tfvars
 
 ---
 
+## Branch-Based Deployment
+
+**Principle:** Git branches determine environment deployment.
+
+### Development Environment (dev branch)
+
+**Purpose:** Fast feedback loop for active development.
+
+**Deployment Trigger:**
+```bash
+# Work on feature branch
+git checkout -b feature/user-analytics
+# ... make changes ...
+git add .
+git commit -m "feat: Add user analytics tracking"
+
+# Merge to dev branch
+git checkout dev
+git merge feature/user-analytics
+git push origin dev
+
+# GitHub Actions automatically deploys to dev
+```
+
+**CI/CD Workflow (.github/workflows/deploy-dev.yml):**
+
+```yaml
+name: Deploy to Dev
+on:
+  push:
+    branches: [dev]
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker image
+        id: build
+        run: |
+          IMAGE_TAG=${{ secrets.ECR_REGISTRY }}/worker:${{ github.sha }}
+          docker build -t $IMAGE_TAG .
+          docker push $IMAGE_TAG
+
+          # Get immutable digest for promotion
+          DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' $IMAGE_TAG)
+          echo "digest=$DIGEST" >> $GITHUB_OUTPUT
+
+      - name: Deploy to dev Lambda
+        run: |
+          aws lambda update-function-code \
+            --function-name dr-daily-report-worker-dev \
+            --image-uri ${{ steps.build.outputs.digest }}
+
+          aws lambda wait function-updated \
+            --function-name dr-daily-report-worker-dev
+
+      - name: Run smoke tests
+        run: |
+          pytest tests/smoke --env=dev --tier=3
+
+      - name: Save digest for promotion
+        run: |
+          echo "${{ steps.build.outputs.digest }}" > digest.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: image-digest
+          path: digest.txt
+```
+
+**What Gets Deployed:**
+- Lambda function: `dr-daily-report-worker-dev`
+- Database: `dr-daily-report-dev` (Aurora cluster)
+- S3 bucket: `dr-daily-report-data-dev`
+- CloudFront: dev distribution
+
+**When to Use:**
+- Feature development
+- Bug fixes
+- Experiments
+- Fast iteration
+
+### Staging Environment (main branch)
+
+**Purpose:** Pre-production validation.
+
+**Deployment Trigger:**
+```bash
+# Create PR from dev to main
+git checkout dev
+gh pr create --base main --title "Release v1.2.0"
+
+# After review and approval
+gh pr merge 123
+
+# GitHub Actions automatically deploys to staging
+```
+
+**CI/CD Workflow (.github/workflows/deploy-staging.yml):**
+
+```yaml
+name: Deploy to Staging
+on:
+  push:
+    branches: [main]
+
+jobs:
+  promote-to-staging:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Find dev image digest
+        id: find-image
+        run: |
+          # Get digest from dev (don't rebuild!)
+          DEV_DIGEST=$(aws lambda get-function \
+            --function-name dr-daily-report-worker-dev \
+            --query 'Code.ImageUri' --output text)
+
+          echo "digest=$DEV_DIGEST" >> $GITHUB_OUTPUT
+
+      - name: Deploy to staging Lambda
+        run: |
+          # Deploy SAME image as dev (artifact promotion)
+          aws lambda update-function-code \
+            --function-name dr-daily-report-worker-staging \
+            --image-uri ${{ steps.find-image.outputs.digest }}
+
+          aws lambda wait function-updated \
+            --function-name dr-daily-report-worker-staging
+
+      - name: Run integration tests
+        run: |
+          pytest tests/integration --env=staging --tier=2
+
+      - name: Smoke test staging
+        run: |
+          curl -f https://staging.example.com/api/health || exit 1
+```
+
+**What Gets Deployed:**
+- Lambda function: `dr-daily-report-worker-staging`
+- Database: `dr-daily-report-staging` (Aurora cluster)
+- S3 bucket: `dr-daily-report-data-staging`
+- CloudFront: staging distribution
+
+**When to Use:**
+- Pre-production validation
+- QA testing
+- Performance testing
+- Integration testing
+
+### Production Environment (tags on main)
+
+**Purpose:** Live user traffic.
+
+**Deployment Trigger:**
+```bash
+# On main branch, create release tag
+git tag v1.2.0 -m "Release v1.2.0: User analytics"
+git push origin v1.2.0
+
+# GitHub Actions automatically deploys to production
+```
+
+**CI/CD Workflow (.github/workflows/deploy-production.yml):**
+
+```yaml
+name: Deploy to Production
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  promote-to-production:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Find staging image digest
+        id: find-image
+        run: |
+          # Get digest from staging
+          STAGING_DIGEST=$(aws lambda get-function \
+            --function-name dr-daily-report-worker-staging \
+            --query 'Code.ImageUri' --output text)
+
+          echo "digest=$STAGING_DIGEST" >> $GITHUB_OUTPUT
+
+      - name: Deploy to production Lambda
+        run: |
+          # Deploy SAME image as staging
+          aws lambda update-function-code \
+            --function-name dr-daily-report-worker-prod \
+            --image-uri ${{ steps.find-image.outputs.digest }}
+
+          aws lambda wait function-updated \
+            --function-name dr-daily-report-worker-prod
+
+      - name: Smoke test production
+        run: |
+          curl -f https://api.example.com/health || exit 1
+
+      - name: Publish version
+        run: |
+          VERSION=$(aws lambda publish-version \
+            --function-name dr-daily-report-worker-prod \
+            --query 'Version' --output text)
+
+          echo "Published Lambda version: $VERSION"
+
+          # Update live alias
+          aws lambda update-alias \
+            --function-name dr-daily-report-worker-prod \
+            --name live \
+            --function-version $VERSION
+```
+
+**What Gets Deployed:**
+- Lambda function: `dr-daily-report-worker-prod`
+- Database: `dr-daily-report-prod` (Aurora cluster)
+- S3 bucket: `dr-daily-report-data-prod`
+- CloudFront: production distribution
+
+**When to Use:**
+- Releases only
+- After staging validation
+- Semantic versioning (v1.2.3)
+
+---
+
+## Artifact Promotion Principle
+
+**Principle:** Build once, deploy many times.
+
+### The Problem: Rebuilding Per Environment
+
+**Traditional approach (inefficient):**
+
+```yaml
+# ❌ DON'T: Rebuild for each environment
+dev-deploy:
+  - Build Docker image
+  - Test
+  - Deploy to dev
+
+staging-deploy:
+  - Build Docker image again  # Different build!
+  - Test
+  - Deploy to staging
+
+prod-deploy:
+  - Build Docker image again  # Yet another build!
+  - Test
+  - Deploy to production
+```
+
+**Problems:**
+- Different builds may have subtle differences
+- Can't guarantee "what you tested is what you deployed"
+- Wastes build time (3x longer)
+- Docker layer caching doesn't work across builds
+- Git SHA doesn't guarantee identical binary
+
+### The Solution: Immutable Artifact Promotion
+
+```yaml
+# ✅ DO: Build once, promote same artifact
+build:
+  - Build Docker image
+  - Push to ECR with digest
+  - Save digest as artifact
+
+dev-deploy:
+  - Deploy digest from build job
+  - Test
+
+staging-deploy:
+  - Deploy SAME digest as dev
+  - Test
+
+prod-deploy:
+  - Deploy SAME digest as staging
+  - Publish version
+```
+
+**Benefits:**
+- ✅ Exact same binary in all environments
+- ✅ Staging validation applies to production
+- ✅ Faster deployments (no rebuild)
+- ✅ Traceability (Git SHA → Digest → Environments)
+
+### Implementation Pattern
+
+**Step 1: Build and Tag**
+
+```bash
+# Build image with Git SHA tag
+IMAGE_TAG=$ECR_REGISTRY/worker:$GIT_SHA
+docker build -t $IMAGE_TAG .
+docker push $IMAGE_TAG
+
+# Get immutable digest
+DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' $IMAGE_TAG)
+# Example: 123456.dkr.ecr.ap-southeast-1.amazonaws.com/worker@sha256:abc123...
+```
+
+**Step 2: Deploy to Dev**
+
+```bash
+aws lambda update-function-code \
+  --function-name worker-dev \
+  --image-uri $DIGEST
+```
+
+**Step 3: Promote to Staging**
+
+```bash
+# Get digest from dev (don't rebuild!)
+DEV_DIGEST=$(aws lambda get-function \
+  --function-name worker-dev \
+  --query 'Code.ImageUri' --output text)
+
+# Deploy SAME digest
+aws lambda update-function-code \
+  --function-name worker-staging \
+  --image-uri $DEV_DIGEST
+```
+
+**Step 4: Promote to Production**
+
+```bash
+# Get digest from staging
+STAGING_DIGEST=$(aws lambda get-function \
+  --function-name worker-staging \
+  --query 'Code.ImageUri' --output text)
+
+# Deploy SAME digest
+aws lambda update-function-code \
+  --function-name worker-prod \
+  --image-uri $STAGING_DIGEST
+```
+
+**Verification:**
+
+```bash
+# Prove all environments use EXACT same image
+aws lambda get-function --function-name worker-dev --query 'Code.ImageUri'
+aws lambda get-function --function-name worker-staging --query 'Code.ImageUri'
+aws lambda get-function --function-name worker-prod --query 'Code.ImageUri'
+
+# All three should output IDENTICAL digest:
+# 123456.dkr.ecr.ap-southeast-1.amazonaws.com/worker@sha256:abc123...
+```
+
+---
+
 ## Environment Promotion Flow
 
 ```

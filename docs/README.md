@@ -17,6 +17,7 @@ This project uses a tiered documentation system:
 ## Getting Started
 
 - [Quick Start](QUICKSTART.md) - 5-minute setup guide
+- [Project Conventions](PROJECT_CONVENTIONS.md) - Directory structure, naming patterns, CLI commands, extension points
 - [CLI Reference](cli.md) - Complete command guide
 - [AWS Setup](AWS_SETUP.md) - IAM permissions and configuration
 - [AWS Operations](AWS_OPERATIONS.md) - Quick reference for AWS service commands (EC2, Aurora, Lambda)
@@ -62,6 +63,7 @@ This project uses a tiered documentation system:
 - [Tagging Policy](../terraform/TAGGING_POLICY.md) - AWS resource tagging standards
 - [API Implementation](../src/api/README.md) - FastAPI implementation guide
 - [Type System Integration](TYPE_SYSTEM_INTEGRATION.md) - Cross-system type compatibility patterns
+- [Relationship Analysis Guide](RELATIONSHIP_ANALYSIS.md) - OWL-based methodology for structured concept comparison
 
 ---
 
@@ -78,6 +80,7 @@ This project uses a tiered documentation system:
 | Task | Documentation |
 |------|--------------|
 | First-time setup | [Quick Start](QUICKSTART.md) |
+| Find files and commands | [Project Conventions](PROJECT_CONVENTIONS.md) |
 | Deploy to production | [Deployment Runbook](deployment/TELEGRAM_DEPLOYMENT_RUNBOOK.md) |
 | Configure S3 caching | [S3 Deployment](deployment/S3_DEPLOYMENT.md) |
 | Fix deployment error | [Troubleshooting](TROUBLESHOOTING.md) |

@@ -1,8 +1,11 @@
 # -*- coding: utf-8 -*-
+import logging
 import yfinance as yf
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional
 import re
+
+logger = logging.getLogger(__name__)
 
 class NewsFetcher:
     """Fetch and filter high-impact news from Yahoo Finance"""

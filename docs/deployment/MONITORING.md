@@ -372,6 +372,142 @@ gh run view 12345 --log-failed
 
 ---
 
+## Infrastructure-Deployment Contract Validation
+
+**Principle:** Query AWS infrastructure, validate secrets match reality.
+
+### The Problem: Configuration Drift
+
+**Scenario:** Terraform creates CloudFront distribution with ID `E123ABC`. GitHub secret `CLOUDFRONT_DISTRIBUTION_ID` is set to `E123ABC`.
+
+**Months later:** Someone manually creates new distribution in AWS console, deletes old one. Terraform doesn't track manual changes. GitHub secret still points to `E123ABC` (which no longer exists).
+
+**Result:** Deployment fails with "DistributionNotFound" error.
+
+### The Solution: Pre-Deployment Validation
+
+**Pattern:** First job in every deployment pipeline queries AWS, validates secrets match reality.
+
+```yaml
+# .github/workflows/deploy.yml
+jobs:
+  validate-deployment-config:
+    name: Validate Infrastructure & Secrets
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ap-southeast-1
+
+      - name: Validate CloudFront Distributions
+        env:
+          GITHUB_TEST_DIST: ${{ secrets.CLOUDFRONT_TEST_DISTRIBUTION_ID }}
+          GITHUB_APP_DIST: ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }}
+        run: |
+          # Query actual infrastructure from AWS (single source of truth)
+          ACTUAL_TEST=$(aws cloudfront list-distributions \
+            --query 'DistributionList.Items[?Comment==`dr-daily-report TEST CloudFront - dev`].Id' \
+            --output text)
+
+          ACTUAL_APP=$(aws cloudfront list-distributions \
+            --query 'DistributionList.Items[?Comment==`dr-daily-report APP CloudFront - dev`].Id' \
+            --output text)
+
+          # Validate secrets match reality
+          if [ "$ACTUAL_TEST" != "$GITHUB_TEST_DIST" ]; then
+            echo "❌ Mismatch: CLOUDFRONT_TEST_DISTRIBUTION_ID"
+            echo "   AWS (reality):    $ACTUAL_TEST"
+            echo "   GitHub (secret):  $GITHUB_TEST_DIST"
+            echo ""
+            echo "Update GitHub secret to match AWS infrastructure:"
+            echo "  gh secret set CLOUDFRONT_TEST_DISTRIBUTION_ID --body \"$ACTUAL_TEST\""
+            exit 1  # Fail fast - blocks entire pipeline
+          fi
+
+          if [ "$ACTUAL_APP" != "$GITHUB_APP_DIST" ]; then
+            echo "❌ Mismatch: CLOUDFRONT_DISTRIBUTION_ID"
+            echo "   AWS (reality):    $ACTUAL_APP"
+            echo "   GitHub (secret):  $GITHUB_APP_DIST"
+            echo ""
+            echo "Update GitHub secret to match AWS infrastructure:"
+            echo "  gh secret set CLOUDFRONT_DISTRIBUTION_ID --body \"$ACTUAL_APP\""
+            exit 1
+          fi
+
+          echo "✅ All secrets match actual infrastructure"
+
+      - name: Validate S3 Buckets
+        env:
+          GITHUB_BUCKET: ${{ secrets.S3_FRONTEND_BUCKET }}
+        run: |
+          # Check bucket exists
+          if ! aws s3 ls s3://$GITHUB_BUCKET > /dev/null 2>&1; then
+            echo "❌ S3 bucket does not exist: $GITHUB_BUCKET"
+            exit 1
+          fi
+
+          # Validate bucket is in correct region
+          BUCKET_REGION=$(aws s3api get-bucket-location \
+            --bucket $GITHUB_BUCKET \
+            --query 'LocationConstraint' --output text)
+
+          if [ "$BUCKET_REGION" != "ap-southeast-1" ]; then
+            echo "❌ Bucket in wrong region: $BUCKET_REGION (expected: ap-southeast-1)"
+            exit 1
+          fi
+
+          echo "✅ S3 bucket validated"
+
+      - name: Validate Lambda Functions
+        run: |
+          # Check Lambda functions exist
+          FUNCTIONS=(
+            "dr-daily-report-worker-dev"
+            "dr-daily-report-scheduler-dev"
+          )
+
+          for FUNC in "${FUNCTIONS[@]}"; do
+            if ! aws lambda get-function --function-name $FUNC > /dev/null 2>&1; then
+              echo "❌ Lambda function does not exist: $FUNC"
+              exit 1
+            fi
+          done
+
+          echo "✅ All Lambda functions validated"
+
+  build:
+    needs: validate-deployment-config  # Won't run if validation fails
+    runs-on: ubuntu-latest
+    steps:
+      # ... rest of build/deploy pipeline
+```
+
+**Benefits:**
+- ✅ Self-healing: Automatically detects when secrets are stale
+- ✅ No manual checklist: Code queries AWS, compares to secrets
+- ✅ Catches drift: Even if someone changed AWS console manually
+- ✅ Single source of truth: AWS infrastructure is reality
+- ✅ Fail fast: First job, blocks deployment if secrets wrong (< 30 seconds)
+- ✅ Helpful error messages: Shows exact command to fix mismatch
+
+### When to Validate
+
+**Always validate:**
+- CloudFront distribution IDs (for cache invalidation)
+- S3 bucket names (for file sync)
+- Lambda function names (if not in Terraform variables)
+- Any AWS resource ID referenced in deployment scripts
+
+**DON'T validate:**
+- Secrets managed by Doppler (already version-controlled)
+- Terraform-managed resources (Terraform state is source of truth)
+- Resources created during deployment (don't exist yet)
+
+---
+
 ## Monitoring Checklist
 
 Before declaring a deployment "successful" or "failed", verify:
@@ -383,6 +519,7 @@ Before declaring a deployment "successful" or "failed", verify:
 - [ ] Checked metrics (invocation count, error rate)
 - [ ] Monitored job status if parallel execution
 - [ ] Used `--exit-status` with `gh run watch`
+- [ ] Validated infrastructure-deployment contract (secrets match AWS reality)
 
 ---
 

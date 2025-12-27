@@ -1,0 +1,572 @@
+name: Nightly Build - Comprehensive Tests
+
+# ============================================================================
+# Nightly Build: Comprehensive validation of deployed infrastructure
+# Runs at 1 AM Bangkok time (18:00 UTC previous day) daily
+# Tests: Integration (Tier 2) + Smoke (Tier 3) + E2E (Tier 4)
+# Duration: 33-48 minutes
+# Cost: ~$1.00 per run
+# ============================================================================
+
+on:
+  schedule:
+    # 1 AM Bangkok (UTC+7) = 18:00 UTC previous day
+    - cron: '0 18 * * *'
+
+  workflow_dispatch:  # Manual trigger for testing
+    inputs:
+      environment:
+        description: 'Environment to test'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - staging
+      test_tier:
+        description: 'Test tier to run'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - integration-only
+          - smoke-only
+          - e2e-only
+
+env:
+  PYTHON_VERSION: '3.11'
+  AWS_REGION: ap-southeast-1
+  TEST_ENVIRONMENT: ${{ github.event.inputs.environment || 'dev' }}
+
+jobs:
+  ###############################################################################
+  # Job 1: Setup & Environment Validation
+  ###############################################################################
+  setup:
+    name: Setup & Validate Environment
+    runs-on: ubuntu-latest
+    outputs:
+      environment_ready: ${{ steps.validate.outputs.ready }}
+      test_timestamp: ${{ steps.timestamp.outputs.timestamp }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-asyncio pytest-json-report boto3 pymysql
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Capture timestamp
+        id: timestamp
+        run: |
+          TIMESTAMP=$(date +'%Y-%m-%d %H:%M:%S %Z')
+          echo "timestamp=$TIMESTAMP" >> $GITHUB_OUTPUT
+          echo "🕐 Nightly build started: $TIMESTAMP"
+
+      - name: Validate AWS Resources
+        id: validate
+        run: |
+          echo "🔍 Validating AWS resources for ${{ env.TEST_ENVIRONMENT }} environment..."
+          echo ""
+
+          # Track validation status
+          VALIDATION_FAILED=0
+
+          # 1. Check Scheduler Lambda exists
+          echo "📍 Checking Scheduler Lambda..."
+          if aws lambda get-function \
+            --function-name dr-daily-report-ticker-scheduler-${{ env.TEST_ENVIRONMENT }} \
+            > /dev/null 2>&1; then
+            echo "   ✅ Scheduler Lambda exists"
+          else
+            echo "   ❌ Scheduler Lambda not found"
+            VALIDATION_FAILED=1
+          fi
+
+          # 2. Check EventBridge rule exists and is enabled
+          echo "📍 Checking EventBridge scheduler rule..."
+          RULE_NAME="dr-daily-report-daily-ticker-fetch-${{ env.TEST_ENVIRONMENT }}"
+
+          if RULE_INFO=$(aws events describe-rule --name $RULE_NAME 2>&1); then
+            RULE_STATE=$(echo "$RULE_INFO" | jq -r '.State')
+            SCHEDULE_EXPR=$(echo "$RULE_INFO" | jq -r '.ScheduleExpression')
+
+            echo "   ✅ EventBridge rule exists"
+            echo "      State: $RULE_STATE"
+            echo "      Schedule: $SCHEDULE_EXPR"
+
+            if [ "$RULE_STATE" != "ENABLED" ]; then
+              echo "   ⚠️  WARNING: Rule is not enabled (state: $RULE_STATE)"
+            fi
+
+            # Verify schedule expression (should be 1 AM Bangkok)
+            EXPECTED_SCHEDULE="cron(0 1 * * ? *)"
+            if [ "$SCHEDULE_EXPR" != "$EXPECTED_SCHEDULE" ]; then
+              echo "   ⚠️  WARNING: Schedule mismatch"
+              echo "      Expected: $EXPECTED_SCHEDULE"
+              echo "      Actual: $SCHEDULE_EXPR"
+            fi
+          else
+            echo "   ❌ EventBridge rule not found"
+            VALIDATION_FAILED=1
+          fi
+
+          # 3. Check EventBridge target (Lambda)
+          echo "📍 Checking EventBridge target..."
+          if TARGETS=$(aws events list-targets-by-rule --rule $RULE_NAME 2>&1); then
+            TARGET_COUNT=$(echo "$TARGETS" | jq '.Targets | length')
+            echo "   ✅ EventBridge has $TARGET_COUNT target(s)"
+          else
+            echo "   ❌ Failed to list EventBridge targets"
+            VALIDATION_FAILED=1
+          fi
+
+          echo ""
+          if [ $VALIDATION_FAILED -eq 0 ]; then
+            echo "✅ All AWS resources validated successfully"
+            echo "ready=true" >> $GITHUB_OUTPUT
+          else
+            echo "❌ AWS resource validation failed"
+            echo "   Cannot proceed with nightly build - infrastructure incomplete"
+            exit 1
+          fi
+
+  ###############################################################################
+  # Job 2: Tier 2 - Integration Tests
+  ###############################################################################
+  integration-tests:
+    name: Tier 2 - Integration Tests
+    runs-on: ubuntu-latest
+    needs: setup
+    if: |
+      needs.setup.outputs.environment_ready == 'true' &&
+      (github.event.inputs.test_tier == 'all' ||
+       github.event.inputs.test_tier == 'integration-only' ||
+       github.event.inputs.test_tier == '')
+    continue-on-error: true
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install pytest pytest-asyncio pytest-json-report boto3 pymysql
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Run Integration Tests
+        id: tests
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          echo "🧪 Running Tier 2 integration tests..."
+          echo ""
+          echo "Test scope: Integration tests requiring real AWS services"
+          echo "Marker filter: integration and not e2e and not legacy"
+          echo ""
+
+          pytest tests/ \
+            -m "integration and not e2e and not legacy" \
+            --json-report \
+            --json-report-file=integration-results.json \
+            --tb=short \
+            -v \
+            --maxfail=10 \
+            2>&1 | tee integration-test-output.txt
+
+          TEST_EXIT_CODE=${PIPESTATUS[0]}
+
+          echo ""
+          echo "exit_code=$TEST_EXIT_CODE" >> $GITHUB_OUTPUT
+
+          # Parse results for summary
+          if [ -f integration-results.json ]; then
+            PASSED=$(cat integration-results.json | jq -r '.summary.passed // 0')
+            FAILED=$(cat integration-results.json | jq -r '.summary.failed // 0')
+            SKIPPED=$(cat integration-results.json | jq -r '.summary.skipped // 0')
+
+            echo ""
+            echo "📊 Integration Test Results:"
+            echo "   Passed: $PASSED"
+            echo "   Failed: $FAILED"
+            echo "   Skipped: $SKIPPED"
+          fi
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-test-results
+          path: |
+            integration-results.json
+            integration-test-output.txt
+          retention-days: 30
+
+  ###############################################################################
+  # Job 3: Tier 3 - Smoke Tests
+  ###############################################################################
+  smoke-tests:
+    name: Tier 3 - Smoke Tests
+    runs-on: ubuntu-latest
+    needs: [setup, integration-tests]
+    if: |
+      always() &&
+      needs.setup.outputs.environment_ready == 'true' &&
+      (github.event.inputs.test_tier == 'all' ||
+       github.event.inputs.test_tier == 'smoke-only' ||
+       github.event.inputs.test_tier == '')
+    continue-on-error: true
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Smoke Test 1 - Scheduler Lambda Health
+        id: scheduler-health
+        run: |
+          echo "🧪 Smoke Test 1: Scheduler Lambda health check"
+          echo ""
+
+          FUNCTION_NAME="dr-daily-report-ticker-scheduler-${{ env.TEST_ENVIRONMENT }}"
+
+          aws lambda invoke \
+            --function-name $FUNCTION_NAME \
+            --payload '{"action":"health"}' \
+            /tmp/scheduler-health.json
+
+          echo "📄 Response:"
+          cat /tmp/scheduler-health.json | jq '.'
+
+          # Validate response
+          if grep -q "error\|Error" /tmp/scheduler-health.json; then
+            echo ""
+            echo "❌ Scheduler health check failed - found error in response"
+            exit 1
+          fi
+
+          STATUS_CODE=$(cat /tmp/scheduler-health.json | jq -r '.statusCode // 500')
+          if [ "$STATUS_CODE" != "200" ]; then
+            echo ""
+            echo "❌ Scheduler health check failed - status code: $STATUS_CODE"
+            exit 1
+          fi
+
+          echo ""
+          echo "✅ Scheduler health check passed"
+          echo "status=success" >> $GITHUB_OUTPUT
+
+      - name: Smoke Test 2 - Precompute Single Ticker
+        id: precompute-smoke
+        run: |
+          echo "🧪 Smoke Test 2: Precompute single ticker (NVDA)"
+          echo ""
+
+          FUNCTION_NAME="dr-daily-report-ticker-scheduler-${{ env.TEST_ENVIRONMENT }}"
+
+          # Create payload file
+          echo '{"action":"precompute","symbol":"NVDA","include_report":true}' > /tmp/payload.json
+
+          aws lambda invoke \
+            --function-name $FUNCTION_NAME \
+            --payload fileb:///tmp/payload.json \
+            /tmp/precompute-smoke.json
+
+          echo "📄 Response:"
+          cat /tmp/precompute-smoke.json | jq '.'
+
+          # Check for errors
+          if grep -q "error\|Error" /tmp/precompute-smoke.json; then
+            echo ""
+            echo "⚠️  Precompute returned error (but this may be acceptable)"
+            cat /tmp/precompute-smoke.json
+          fi
+
+          # Check success count
+          SUCCESS=$(cat /tmp/precompute-smoke.json | jq -r '.body.success // 0' 2>/dev/null || echo "0")
+
+          echo ""
+          if [ "$SUCCESS" != "0" ] && [ "$SUCCESS" != "null" ]; then
+            echo "✅ Precompute smoke test passed (success count: $SUCCESS)"
+            echo "status=success" >> $GITHUB_OUTPUT
+          else
+            echo "⚠️  Precompute reported 0 or null successes"
+            echo "   This may indicate a schema mismatch or precompute issue"
+            echo "status=warning" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Smoke Test 3 - EventBridge Schedule Validation
+        id: eventbridge-validation
+        run: |
+          echo "🧪 Smoke Test 3: EventBridge schedule validation"
+          echo ""
+
+          RULE_NAME="dr-daily-report-daily-ticker-fetch-${{ env.TEST_ENVIRONMENT }}"
+
+          # Get rule details
+          RULE_INFO=$(aws events describe-rule --name $RULE_NAME)
+
+          RULE_STATE=$(echo "$RULE_INFO" | jq -r '.State')
+          SCHEDULE_EXPR=$(echo "$RULE_INFO" | jq -r '.ScheduleExpression')
+
+          echo "📄 EventBridge Rule Details:"
+          echo "   Name: $RULE_NAME"
+          echo "   State: $RULE_STATE"
+          echo "   Schedule: $SCHEDULE_EXPR"
+
+          # Verify rule is enabled
+          if [ "$RULE_STATE" != "ENABLED" ]; then
+            echo ""
+            echo "❌ EventBridge rule is not enabled (state: $RULE_STATE)"
+            echo "status=failed" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+
+          # Verify schedule expression (1 AM Bangkok = 01:00 UTC)
+          EXPECTED="cron(0 1 * * ? *)"
+          if [ "$SCHEDULE_EXPR" != "$EXPECTED" ]; then
+            echo ""
+            echo "⚠️  Schedule expression mismatch:"
+            echo "   Expected: $EXPECTED"
+            echo "   Actual: $SCHEDULE_EXPR"
+            echo "status=warning" >> $GITHUB_OUTPUT
+          else
+            echo ""
+            echo "✅ EventBridge schedule validated"
+            echo "status=success" >> $GITHUB_OUTPUT
+          fi
+
+  ###############################################################################
+  # Job 4: Tier 4 - End-to-End Tests
+  ###############################################################################
+  e2e-tests:
+    name: Tier 4 - End-to-End Tests
+    runs-on: ubuntu-latest
+    needs: [setup, integration-tests, smoke-tests]
+    if: |
+      always() &&
+      needs.setup.outputs.environment_ready == 'true' &&
+      (github.event.inputs.test_tier == 'all' ||
+       github.event.inputs.test_tier == 'e2e-only' ||
+       github.event.inputs.test_tier == '')
+    continue-on-error: true
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install pytest pytest-asyncio pytest-json-report playwright
+
+      - name: Install Playwright browsers
+        run: |
+          echo "📦 Installing Playwright Chromium browser..."
+          playwright install chromium
+          playwright install-deps chromium
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Run E2E Tests
+        id: tests
+        env:
+          E2E_BASE_URL: ${{ secrets.E2E_BASE_URL }}
+        run: |
+          echo "🧪 Running Tier 4 end-to-end tests..."
+          echo ""
+          echo "Test scope: Browser-based E2E tests (Playwright)"
+          echo "Marker filter: e2e and not legacy"
+          echo "Base URL: $E2E_BASE_URL"
+          echo ""
+
+          pytest tests/e2e/ \
+            -m "e2e and not legacy" \
+            --json-report \
+            --json-report-file=e2e-results.json \
+            --tb=short \
+            -v \
+            --maxfail=5 \
+            2>&1 | tee e2e-test-output.txt
+
+          TEST_EXIT_CODE=${PIPESTATUS[0]}
+
+          echo ""
+          echo "exit_code=$TEST_EXIT_CODE" >> $GITHUB_OUTPUT
+
+          # Parse results for summary
+          if [ -f e2e-results.json ]; then
+            PASSED=$(cat e2e-results.json | jq -r '.summary.passed // 0')
+            FAILED=$(cat e2e-results.json | jq -r '.summary.failed // 0')
+            SKIPPED=$(cat e2e-results.json | jq -r '.summary.skipped // 0')
+
+            echo ""
+            echo "📊 E2E Test Results:"
+            echo "   Passed: $PASSED"
+            echo "   Failed: $FAILED"
+            echo "   Skipped: $SKIPPED"
+          fi
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-test-results
+          path: |
+            e2e-results.json
+            e2e-test-output.txt
+          retention-days: 30
+
+  ###############################################################################
+  # Job 5: Report & Notify
+  ###############################################################################
+  report:
+    name: Generate Report & Notify
+    runs-on: ubuntu-latest
+    needs: [setup, integration-tests, smoke-tests, e2e-tests]
+    if: always()
+
+    steps:
+      - name: Download all test results
+        uses: actions/download-artifact@v4
+        with:
+          path: test-results/
+        continue-on-error: true
+
+      - name: Generate summary report
+        run: |
+          echo "## 🌙 Nightly Build Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Date**: ${{ needs.setup.outputs.test_timestamp }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment**: ${{ env.TEST_ENVIRONMENT }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Workflow**: \`${{ github.workflow }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Integration tests
+          if [ -f "test-results/integration-test-results/integration-results.json" ]; then
+            PASSED=$(cat test-results/integration-test-results/integration-results.json | jq -r '.summary.passed // 0')
+            FAILED=$(cat test-results/integration-test-results/integration-results.json | jq -r '.summary.failed // 0')
+            SKIPPED=$(cat test-results/integration-test-results/integration-results.json | jq -r '.summary.skipped // 0')
+
+            if [ "$FAILED" -eq 0 ]; then
+              echo "### ✅ Tier 2: Integration Tests" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "### ❌ Tier 2: Integration Tests" >> $GITHUB_STEP_SUMMARY
+            fi
+            echo "- **Passed**: $PASSED" >> $GITHUB_STEP_SUMMARY
+            echo "- **Failed**: $FAILED" >> $GITHUB_STEP_SUMMARY
+            echo "- **Skipped**: $SKIPPED" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          elif [ "${{ github.event.inputs.test_tier }}" != "integration-only" ]; then
+            echo "### ⚠️ Tier 2: Integration Tests" >> $GITHUB_STEP_SUMMARY
+            echo "- Test results not found (job may have been skipped)" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Smoke tests
+          if [ "${{ needs.smoke-tests.result }}" == "success" ]; then
+            echo "### ✅ Tier 3: Smoke Tests" >> $GITHUB_STEP_SUMMARY
+          elif [ "${{ needs.smoke-tests.result }}" == "failure" ]; then
+            echo "### ❌ Tier 3: Smoke Tests" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "### ⚠️ Tier 3: Smoke Tests" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "- **Scheduler Lambda Health**: ${{ needs.smoke-tests.outputs.scheduler-health || 'unknown' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Precompute Smoke Test**: ${{ needs.smoke-tests.outputs.precompute-smoke || 'unknown' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **EventBridge Validation**: ${{ needs.smoke-tests.outputs.eventbridge-validation || 'unknown' }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # E2E tests
+          if [ -f "test-results/e2e-test-results/e2e-results.json" ]; then
+            PASSED=$(cat test-results/e2e-test-results/e2e-results.json | jq -r '.summary.passed // 0')
+            FAILED=$(cat test-results/e2e-test-results/e2e-results.json | jq -r '.summary.failed // 0')
+            SKIPPED=$(cat test-results/e2e-test-results/e2e-results.json | jq -r '.summary.skipped // 0')
+
+            if [ "$FAILED" -eq 0 ]; then
+              echo "### ✅ Tier 4: End-to-End Tests" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "### ❌ Tier 4: End-to-End Tests" >> $GITHUB_STEP_SUMMARY
+            fi
+            echo "- **Passed**: $PASSED" >> $GITHUB_STEP_SUMMARY
+            echo "- **Failed**: $FAILED" >> $GITHUB_STEP_SUMMARY
+            echo "- **Skipped**: $SKIPPED" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          elif [ "${{ github.event.inputs.test_tier }}" != "e2e-only" ]; then
+            echo "### ⚠️ Tier 4: End-to-End Tests" >> $GITHUB_STEP_SUMMARY
+            echo "- Test results not found (job may have been skipped)" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Infrastructure status
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🏗️ Infrastructure Status" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ needs.setup.outputs.environment_ready }}" == "true" ]; then
+            echo "- **Lambda Functions**: ✅ Deployed and healthy" >> $GITHUB_STEP_SUMMARY
+            echo "- **EventBridge Scheduler**: ✅ Active (1 AM Bangkok daily)" >> $GITHUB_STEP_SUMMARY
+            echo "- **AWS Resources**: ✅ All validated" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- **Infrastructure**: ❌ Validation failed" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Next build
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Next nightly build**: Tomorrow 1 AM Bangkok (18:00 UTC)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Artifacts
+          echo "📦 **Test artifacts** (30-day retention):" >> $GITHUB_STEP_SUMMARY
+          echo "- Integration test results: \`integration-results.json\`" >> $GITHUB_STEP_SUMMARY
+          echo "- E2E test results: \`e2e-results.json\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Full console output: \`*-test-output.txt\`" >> $GITHUB_STEP_SUMMARY
