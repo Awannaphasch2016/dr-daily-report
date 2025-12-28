@@ -9,6 +9,51 @@
         "AWS_REGION": "ap-southeast-1"
       }
     },
+    "cloudwatch": {
+      "type": "stdio",
+      "command": "/home/anak/dev/dr-daily-report_telegram/scripts/mcp_wrapper_cloudwatch.sh",
+      "args": [],
+      "env": {
+        "FASTMCP_LOG_LEVEL": "ERROR",
+        "AWS_REGION": "ap-southeast-1"
+      }
+    },
+    "aws-cost": {
+      "type": "stdio",
+      "command": "/home/anak/dev/dr-daily-report_telegram/scripts/mcp_wrapper_aws_cost.sh",
+      "args": [],
+      "env": {
+        "FASTMCP_LOG_LEVEL": "ERROR",
+        "AWS_REGION": "ap-southeast-1"
+      }
+    },
+    "lambda": {
+      "type": "stdio",
+      "command": "/home/anak/dev/dr-daily-report_telegram/scripts/mcp_wrapper_lambda.sh",
+      "args": [],
+      "env": {
+        "FASTMCP_LOG_LEVEL": "ERROR",
+        "AWS_REGION": "ap-southeast-1"
+      }
+    },
+    "secrets": {
+      "type": "stdio",
+      "command": "/home/anak/dev/dr-daily-report_telegram/scripts/mcp_wrapper_secrets.sh",
+      "args": [],
+      "env": {
+        "FASTMCP_LOG_LEVEL": "ERROR",
+        "AWS_REGION": "ap-southeast-1"
+      }
+    },
+    "stepfunctions": {
+      "type": "stdio",
+      "command": "/home/anak/dev/dr-daily-report_telegram/scripts/mcp_wrapper_stepfunctions.sh",
+      "args": [],
+      "env": {
+        "FASTMCP_LOG_LEVEL": "ERROR",
+        "AWS_REGION": "ap-southeast-1"
+      }
+    },
     "github": {
       "type": "stdio",
       "command": "/home/anak/dev/dr-daily-report_telegram/scripts/mcp_wrapper_github.sh",
