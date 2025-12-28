@@ -250,6 +250,75 @@ jobs:
 
           echo "✅ LINE bot Lambda is active and ready"
 
+      - name: End-to-end smoke test
+        run: |
+          echo "🧪 Testing LINE bot webhook handling..."
+
+          # Create LINE webhook payload (cache miss scenario)
+          cat > /tmp/line-webhook.json <<'EOF'
+          {
+            "events": [{
+              "type": "message",
+              "replyToken": "smoke_test_token_e2e",
+              "source": {
+                "userId": "U_smoke_test_e2e",
+                "type": "user"
+              },
+              "timestamp": 1735408800000,
+              "message": {
+                "type": "text",
+                "id": "smoke_test_msg",
+                "text": "DBS19"
+              }
+            }]
+          }
+          EOF
+
+          echo "📤 Invoking Lambda with LINE webhook payload..."
+          aws lambda invoke \
+            --function-name ${{ env.FUNCTION_NAME }} \
+            --payload file:///tmp/line-webhook.json \
+            --log-type Tail \
+            /tmp/response.json
+
+          echo "📥 Lambda response:"
+          cat /tmp/response.json | jq '.'
+
+          # Verify response structure
+          echo "🔍 Validating response structure..."
+
+          # Check status code is 200
+          STATUS_CODE=$(jq -r '.statusCode' /tmp/response.json)
+          if [ "$STATUS_CODE" != "200" ]; then
+            echo "❌ Expected statusCode 200, got $STATUS_CODE"
+            exit 1
+          fi
+          echo "✅ Status code: 200"
+
+          # Check body contains responses array (test mode)
+          BODY=$(jq -r '.body' /tmp/response.json)
+          if ! echo "$BODY" | jq -e '.responses' > /dev/null 2>&1; then
+            echo "❌ Response body missing 'responses' array"
+            echo "Body: $BODY"
+            exit 1
+          fi
+          echo "✅ Response contains 'responses' array"
+
+          # Verify response is not empty
+          RESPONSE_COUNT=$(echo "$BODY" | jq -r '.responses | length')
+          if [ "$RESPONSE_COUNT" -eq 0 ]; then
+            echo "❌ Responses array is empty"
+            exit 1
+          fi
+          echo "✅ Response contains $RESPONSE_COUNT message(s)"
+
+          # Display first response (for debugging)
+          FIRST_RESPONSE=$(echo "$BODY" | jq -r '.responses[0]')
+          echo "📨 First response: $FIRST_RESPONSE"
+
+          echo "✅ End-to-end smoke test passed"
+          echo "   Lambda successfully processes LINE webhook events"
+
       - name: Publish new version
         id: publish
         run: |
