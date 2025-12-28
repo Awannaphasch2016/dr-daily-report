@@ -235,10 +235,13 @@ jobs:
         run: |
           echo "🧪 Testing LINE bot health endpoint..."
 
+          # Create payload file
+          echo '{"httpMethod":"GET","path":"/health"}' > /tmp/payload.json
+
           # Invoke Lambda with health check payload
           aws lambda invoke \
             --function-name ${{ env.FUNCTION_NAME }} \
-            --payload '{"httpMethod":"GET","path":"/health"}' \
+            --payload file:///tmp/payload.json \
             /tmp/health.json
 
           # Check response
