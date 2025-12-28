@@ -145,14 +145,12 @@ class TestLineBotWebhook:
 
         assert result['statusCode'] == 200
 
-    def test_cache_miss_generates_new_report(self, mock_dependencies, line_bot):
-        """Test full workflow when Aurora cache is empty: cache miss → generate → store"""
+    def test_cache_miss_returns_error(self, mock_dependencies, line_bot):
+        """Test Aurora-First architecture: cache miss returns fail-fast error (no on-demand generation)"""
         # Setup: Aurora returns None (cache miss)
         mock_dependencies['precompute'].get_cached_report.return_value = None
 
-        # Setup: Store to cache returns True (success)
         mock_precompute_instance = mock_dependencies['precompute']
-        mock_precompute_instance.store_report_from_api.return_value = True
 
         # Create webhook event with ticker message
         event = {
@@ -170,26 +168,23 @@ class TestLineBotWebhook:
         with patch.object(line_bot, 'verify_signature', return_value=True):
             result = line_bot.handle_webhook(body, signature)
 
-        # Verify workflow executed all steps
+        # Verify fail-fast behavior (Aurora-First principle)
         assert result['statusCode'] == 200
 
         # Step 1: Checked cache (cache miss)
         mock_precompute_instance.get_cached_report.assert_called_once_with('DBS19')
 
-        # Step 2: Generated new report (since cache miss)
-        # Note: agent.analyze_ticker is called on the instance created by LINE bot
-        # We can't easily assert this without more complex mocking, but we can verify the outcome
+        # Step 2: Did NOT generate on-demand (fail-fast architecture)
+        mock_precompute_instance.store_report_from_api.assert_not_called()
 
-        # Step 3: Stored report to cache
-        mock_precompute_instance.store_report_from_api.assert_called_once()
-        call_args = mock_precompute_instance.store_report_from_api.call_args
-        assert call_args[1]['symbol'] == 'DBS19'
-        assert call_args[1]['report_text'] == "Test report in Thai"  # Default from fixture
-
-        # Step 4: Response returned to user (test mode returns responses in body)
+        # Step 3: Returned error message to user
         response_body = json.loads(result['body'])
         assert 'responses' in response_body
         assert len(response_body['responses']) > 0
+        # Check for Thai error message (report not ready)
+        # In test mode, responses are stringified directly
+        response_text = str(response_body['responses'][0])
+        assert 'ยังไม่พร้อม' in response_text or 'not ready' in response_text.lower()
 
     def test_cache_storage_failure_is_detected(self, mock_dependencies, line_bot):
         """Test that cache storage failure (0 rows affected) is detected and logged"""
