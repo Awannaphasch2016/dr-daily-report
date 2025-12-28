@@ -16,6 +16,7 @@ on:
       # LINE bot-specific paths
       - 'src/integrations/line_bot.py'
       - 'tests/line_bot/**'
+      - 'tests/shared/**'  # Shared tests (affect both LINE bot and Telegram API)
       - 'src/lambda_handler.py'  # Main entry point for LINE bot
       # Shared backend (affects both apps)
       - 'src/agent.py'
@@ -66,6 +67,7 @@ jobs:
               - 'src/integrations/line_bot.py'
               - 'src/lambda_handler.py'
               - 'tests/line_bot/**'
+              - 'tests/shared/**'
             backend:
               - 'src/**'
               - 'Dockerfile*'
