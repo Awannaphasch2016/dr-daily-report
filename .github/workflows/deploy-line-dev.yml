@@ -114,6 +114,16 @@ jobs:
           pytest tests/line_bot tests/shared -m "not integration and not e2e" -v --tb=short -x
           echo "✅ LINE bot tests passed"
 
+      - name: Docker import validation (Lambda environment)
+        run: |
+          echo "🐳 Testing LINE bot imports in Lambda Docker container..."
+          echo "This validates deployment package in Lambda-identical environment"
+          echo ""
+          chmod +x scripts/test_line_bot_docker.sh
+          ./scripts/test_line_bot_docker.sh
+          echo ""
+          echo "✅ Docker import tests passed - Lambda will work!"
+
   ###############################################################################
   # Stage 2: Build or Reuse Existing Image
   ###############################################################################

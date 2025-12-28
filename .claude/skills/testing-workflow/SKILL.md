@@ -26,6 +26,60 @@ For Lambda/infrastructure testing (layers beyond pytest):
 
 See [Progressive Testing Strategy](PROGRESSIVE-TESTING.md) for the 7-layer approach.
 
+---
+
+## Docker-Based Testing for Lambda Functions
+
+**NEW: Docker-based testing prevents "filesystem unaware" deployment failures**
+
+For Lambda functions (LINE bot, Telegram API), run tests in Docker to match production runtime:
+
+```bash
+# LINE bot Docker import validation
+./scripts/test_line_bot_docker.sh
+
+# Pre-commit validation (syntax + unit tests + Docker imports)
+./scripts/test_line_bot_pre_commit.sh
+```
+
+**Why Docker tests matter**:
+- ✅ **Runtime fidelity**: Tests run in exact Lambda Python 3.11 environment
+- ✅ **Filesystem aware**: Validates deployment package structure (`/var/task`)
+- ✅ **Catches import errors**: "cannot import handle_webhook" caught before production
+- ✅ **2 birds 1 stone**: Tests logic AND validates deployment environment
+
+**CI/CD integration**:
+- GitHub Actions runs Docker import tests automatically (`.github/workflows/deploy-line-dev.yml`)
+- Tests block deployment if imports fail
+- Prevents false positive deployments (tests pass but Lambda fails)
+
+**Anti-pattern prevented**:
+❌ Running tests in dev environment (setup-python) but deploying to Lambda (Docker container)
+✅ Run tests in Docker container that matches deployed environment
+
+See: `.claude/specifications/workflow/2025-12-29-implement-test-workflow-to-reduce-false-positive-deployment.md`
+
+---
+
+## Loop Pattern: Synchronize Loop (Test-Code Alignment)
+
+**Escalation Trigger**:
+- Tests pass but code still buggy (drift between test intent and reality)
+- `/validate` shows tests don't actually test the claim
+- Knowledge drift: Test assumptions outdated
+
+**Tools Used**:
+- `/validate` - Verify tests actually test what they claim (sabotage code, test should fail)
+- `/consolidate` - Align test intent with code reality (update tests or fix code)
+- `/trace` - Understand test failure causality (why did this test fail?)
+- `/reflect` - Assess test quality (are we testing outcomes or just execution?)
+
+**Why This Works**: Testing naturally involves synchronize loop—ensuring tests align with code behavior, not just pass.
+
+See [Thinking Process Architecture - Feedback Loops](../../.claude/diagrams/thinking-process-architecture.md#11-feedback-loop-types-self-healing-properties) for structural overview.
+
+---
+
 ## Test Structure
 
 ```
