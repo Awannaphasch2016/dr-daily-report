@@ -186,45 +186,28 @@ class TestLineBotWebhook:
         response_text = str(response_body['responses'][0])
         assert 'ยังไม่พร้อม' in response_text or 'not ready' in response_text.lower()
 
+    @pytest.mark.skip(reason="Obsolete: Aurora-First architecture no longer generates reports on-demand. Cache is populated only by scheduler. See CLAUDE.md Core Principle #3")
     def test_cache_storage_failure_is_detected(self, mock_dependencies, line_bot):
-        """Test that cache storage failure (0 rows affected) is detected and logged"""
-        # Setup: Aurora returns None (cache miss)
-        mock_dependencies['precompute'].get_cached_report.return_value = None
+        """OBSOLETE: Test for on-demand report generation behavior (no longer used)
 
-        # Setup: Agent generates new report
-        mock_dependencies['agent'].analyze_ticker.return_value = "Report text"
+        This test validated cache storage failure detection during on-demand report
+        generation. However, Aurora-First architecture (CLAUDE.md Core Principle #3)
+        changed the system to:
+        - Cache populated ONLY by nightly scheduler (46 tickers)
+        - APIs are read-only and query Aurora directly
+        - Cache miss returns fail-fast error (no on-demand generation)
 
-        # Setup: Store to cache returns False (0 rows affected - FK constraint failure)
-        mock_precompute_instance = mock_dependencies['precompute']
-        mock_precompute_instance.store_report_from_api.return_value = False  # Failure!
+        Original behavior (obsolete):
+        - Cache miss → generate report → store to cache → respond
 
-        # Setup: Mock fetcher
-        mock_dependencies['fetcher'].load_tickers.return_value = {'NVDA19': 'NVIDIA'}
+        Current behavior (Aurora-First):
+        - Cache miss → return error immediately (fail-fast)
 
-        # Create webhook event
-        event = {
-            "events": [{
-                "type": "message",
-                "replyToken": "test_token",
-                "source": {"userId": "U_test", "type": "user"},
-                "timestamp": 1462629479859,
-                "message": {"type": "text", "id": "msg_123", "text": "NVDA19"}
-            }]
-        }
-
-        with patch.object(line_bot, 'verify_signature', return_value=True):
-            with patch.object(line_bot, 'reply_message', return_value=True):
-                # Should complete despite cache failure
-                result = line_bot.handle_webhook(json.dumps(event), "test_signature")
-
-        # Verify webhook succeeded (cache failure shouldn't block user response)
-        assert result['statusCode'] == 200
-
-        # Verify storage was attempted
-        mock_precompute_instance.store_report_from_api.assert_called_once()
-
-        # Test verifies: Silent failure detected (method returned False)
-        # In production, this logs warning: "Cache storage failed for NVDA19 (0 rows affected)"
+        Keeping test for historical context. For current cache behavior, see:
+        - test_cache_hit_returns_cached_report (cache hit path)
+        - test_cache_miss_returns_error (cache miss fail-fast path)
+        """
+        pass
 
 
 class TestLineBotMessageParsing:
