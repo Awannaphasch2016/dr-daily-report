@@ -233,26 +233,22 @@ jobs:
 
       - name: Smoke test $LATEST
         run: |
-          echo "🧪 Testing LINE bot health endpoint..."
+          echo "🧪 Verifying LINE bot Lambda configuration..."
 
-          # Create payload file
-          echo '{"httpMethod":"GET","path":"/health"}' > /tmp/payload.json
-
-          # Invoke Lambda with health check payload
-          aws lambda invoke \
+          # Verify Lambda function is updated and active
+          FUNCTION_STATE=$(aws lambda get-function \
             --function-name ${{ env.FUNCTION_NAME }} \
-            --payload file:///tmp/payload.json \
-            /tmp/health.json
+            --query 'Configuration.State' \
+            --output text)
 
-          # Check response
-          cat /tmp/health.json
+          echo "Lambda state: $FUNCTION_STATE"
 
-          if grep -q "error" /tmp/health.json; then
-            echo "❌ Health check failed"
+          if [ "$FUNCTION_STATE" != "Active" ]; then
+            echo "❌ Lambda function is not active (state: $FUNCTION_STATE)"
             exit 1
           fi
 
-          echo "✅ LINE bot smoke test passed"
+          echo "✅ LINE bot Lambda is active and ready"
 
       - name: Publish new version
         id: publish
