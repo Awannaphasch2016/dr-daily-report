@@ -254,23 +254,14 @@ jobs:
         run: |
           echo "🧪 Testing LINE bot webhook handling..."
 
-          # Create LINE webhook payload (cache miss scenario)
+          # Create Lambda event with LINE webhook payload (cache miss scenario)
+          # Lambda event must include headers (for signature) and body (webhook payload as JSON string)
           cat > /tmp/line-webhook.json <<'EOF'
           {
-            "events": [{
-              "type": "message",
-              "replyToken": "smoke_test_token_e2e",
-              "source": {
-                "userId": "U_smoke_test_e2e",
-                "type": "user"
-              },
-              "timestamp": 1735408800000,
-              "message": {
-                "type": "text",
-                "id": "smoke_test_msg",
-                "text": "DBS19"
-              }
-            }]
+            "headers": {
+              "x-line-signature": "test_signature"
+            },
+            "body": "{\"events\":[{\"type\":\"message\",\"replyToken\":\"smoke_test_token_e2e\",\"source\":{\"userId\":\"U_smoke_test_e2e\",\"type\":\"user\"},\"timestamp\":1735408800000,\"message\":{\"type\":\"text\",\"id\":\"smoke_test_msg\",\"text\":\"DBS19\"}}]}"
           }
           EOF
 
