@@ -277,7 +277,7 @@ jobs:
           echo "📤 Invoking Lambda with LINE webhook payload..."
           aws lambda invoke \
             --function-name ${{ env.FUNCTION_NAME }} \
-            --payload file:///tmp/line-webhook.json \
+            --payload fileb:///tmp/line-webhook.json \
             --log-type Tail \
             /tmp/response.json
 
