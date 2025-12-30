@@ -162,58 +162,9 @@ resource "aws_lambda_alias" "ticker_scheduler_live" {
 }
 
 ###############################################################################
-# EventBridge Rule for Daily Schedule
-###############################################################################
-
-# Daily ticker data fetch from Yahoo Finance
-# Schedule: 5 AM Bangkok time (22:00 UTC previous day)
-resource "aws_cloudwatch_event_rule" "daily_ticker_fetch" {
-  name                = "${var.project_name}-daily-ticker-fetch-${var.environment}"
-  description         = "Fetch ticker data daily at 5 AM Bangkok time (UTC+7)"
-  schedule_expression = "cron(0 22 * * ? *)" # 22:00 UTC = 05:00 Bangkok next day
-
-  # Shadow Run: Toggle controlled by var.old_scheduler_enabled
-  # Phase 1-2: ENABLED (old continues as fallback)
-  # Phase 3+: DISABLED (cutover to new Scheduler)
-  state = var.old_scheduler_enabled ? "ENABLED" : "DISABLED"
-
-  tags = merge(local.common_tags, {
-    Name      = "${var.project_name}-daily-ticker-fetch-${var.environment}"
-    App       = "telegram-api"
-    Component = "scheduler-trigger"
-    Schedule  = "daily-5am-bangkok"
-  })
-}
-
-# EventBridge Target - connects rule to Lambda (via live alias)
-# Uses alias ARN for zero-downtime deployment - EventBridge always invokes tested code
-resource "aws_cloudwatch_event_target" "ticker_scheduler" {
-  rule      = aws_cloudwatch_event_rule.daily_ticker_fetch.name
-  target_id = "ticker-scheduler-lambda"
-  arn       = aws_lambda_alias.ticker_scheduler_live.arn # Invoke via alias, not $LATEST
-
-  # Precompute all tickers with full LLM report generation
-  # Reports are cached in Aurora and served instantly via API
-  input = jsonencode({
-    action         = "precompute"
-    include_report = true
-  })
-}
-
-# Lambda Permission for EventBridge to invoke (via live alias)
-resource "aws_lambda_permission" "eventbridge_invoke_scheduler" {
-  statement_id  = "AllowEventBridgeInvoke"
-  action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.ticker_scheduler.function_name
-  qualifier     = aws_lambda_alias.ticker_scheduler_live.name # Permission for alias, not $LATEST
-  principal     = "events.amazonaws.com"
-  source_arn    = aws_cloudwatch_event_rule.daily_ticker_fetch.arn
-}
-
-###############################################################################
-# EventBridge Scheduler (NEW Architecture)
+# EventBridge Scheduler (Native Timezone Support)
 # Native timezone support: schedule_expression_timezone = "Asia/Bangkok"
-# Replaces EventBridge Rules with better semantic clarity
+# Replaced EventBridge Rules (removed 2025-12-31 after successful cutover)
 ###############################################################################
 
 # IAM Role for EventBridge Scheduler to invoke Lambda
@@ -342,31 +293,12 @@ output "ticker_scheduler_alias_arn" {
   description = "ARN of the ticker scheduler live alias (for EventBridge invocation)"
 }
 
-output "ticker_scheduler_eventbridge_rule" {
-  value       = aws_cloudwatch_event_rule.daily_ticker_fetch.name
-  description = "Name of legacy EventBridge rule (Phase 1-2)"
-}
-
-output "ticker_scheduler_eventbridge_rule_v2" {
+output "ticker_scheduler_schedule_name" {
   value       = var.new_scheduler_enabled ? aws_scheduler_schedule.daily_ticker_fetch_v2[0].name : null
-  description = "Name of new Scheduler schedule (Phase 2+, null if disabled)"
+  description = "Name of EventBridge Scheduler schedule"
 }
 
 output "ticker_scheduler_enabled" {
-  value       = aws_cloudwatch_event_rule.daily_ticker_fetch.state == "ENABLED"
-  description = "Whether the legacy daily ticker fetch schedule is enabled"
-}
-
-output "ticker_scheduler_v2_enabled" {
   value       = var.new_scheduler_enabled ? aws_scheduler_schedule.daily_ticker_fetch_v2[0].state == "ENABLED" : false
-  description = "Whether the new Scheduler schedule is enabled (false if not deployed)"
-}
-
-output "ticker_scheduler_migration_phase" {
-  value = var.old_scheduler_enabled && !var.new_scheduler_enabled ? "phase-1-new-disabled" : (
-    var.old_scheduler_enabled && var.new_scheduler_enabled ? "phase-2-parallel" : (
-      !var.old_scheduler_enabled && var.new_scheduler_enabled ? "phase-3-cutover" : "phase-4-cleanup"
-    )
-  )
-  description = "Current migration phase based on toggle variables"
+  description = "Whether the daily ticker fetch schedule is enabled"
 }

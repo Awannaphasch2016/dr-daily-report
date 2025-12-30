@@ -207,25 +207,13 @@ variable "terraform_role_arn" {
 }
 
 ###############################################################################
-# EventBridge Scheduler Migration Toggle Variables
-# Shadow Run Pattern: Both schedulers coexist during migration
+# EventBridge Scheduler Configuration
 ###############################################################################
 
-variable "old_scheduler_enabled" {
-  description = "Enable legacy EventBridge Rules scheduler (Phase 1-2: true, Phase 3+: false)"
+variable "new_scheduler_enabled" {
+  description = "Enable EventBridge Scheduler (Native timezone support)"
   type        = bool
   default     = true
-
-  validation {
-    condition     = can(tobool(var.old_scheduler_enabled))
-    error_message = "old_scheduler_enabled must be a boolean"
-  }
-}
-
-variable "new_scheduler_enabled" {
-  description = "Enable new EventBridge Scheduler (Phase 1: false, Phase 2+: true)"
-  type        = bool
-  default     = false
 
   validation {
     condition     = can(tobool(var.new_scheduler_enabled))
