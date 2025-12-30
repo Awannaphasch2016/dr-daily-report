@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Optional
 import pandas as pd
 
 from src.data.aurora.client import AuroraClient, get_aurora_client
+from src.data.aurora.table_names import DAILY_PRICES, TICKER_CACHE_METADATA
 
 logger = logging.getLogger(__name__)
 
@@ -22,13 +23,14 @@ class TickerRepository:
     """Repository for ticker data operations.
 
     Provides CRUD operations for:
-    - ticker_info: Company metadata
-    - daily_prices: Historical OHLCV data
+    - ticker_data: Historical OHLCV data with company metadata
+    - daily_indicators: Technical indicators
+
+    Note: ticker_info table removed (migration 018) - use ticker_master + ticker_aliases instead
 
     Example:
         >>> repo = TickerRepository()
-        >>> repo.upsert_ticker_info('NVDA', 'NVIDIA', market='us_market')
-        >>> prices = repo.get_prices('NVDA', start_date='2025-01-01')
+        >>> prices = repo.get_ticker_data('NVDA', start_date='2025-01-01')
     """
 
     def __init__(self, client: Optional[AuroraClient] = None):
@@ -40,350 +42,10 @@ class TickerRepository:
         self.client = client or get_aurora_client()
 
     # =========================================================================
-    # Ticker Info Operations
+    # Historical Price Query Operations (Read-only)
     # =========================================================================
-
-    def upsert_ticker_info(
-        self,
-        symbol: str,
-        display_name: str,
-        company_name: Optional[str] = None,
-        exchange: Optional[str] = None,
-        market: Optional[str] = None,
-        currency: Optional[str] = None,
-        sector: Optional[str] = None,
-        industry: Optional[str] = None,
-        quote_type: Optional[str] = None,
-    ) -> int:
-        """Insert or update ticker info.
-
-        Args:
-            symbol: Ticker symbol (e.g., 'NVDA', 'DBS.SI')
-            display_name: Display name
-            company_name: Full company name
-            exchange: Exchange code (e.g., 'NMS', 'SGX')
-            market: Market classification
-            currency: Trading currency
-            sector: Business sector
-            industry: Industry classification
-            quote_type: Type (EQUITY, ETF, etc.)
-
-        Returns:
-            Number of affected rows (1 for insert, 2 for update)
-        """
-        query = """
-            INSERT INTO ticker_info (
-                symbol, display_name, company_name, exchange, market,
-                currency, sector, industry, quote_type, last_fetched_at
-            ) VALUES (
-                %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW()
-            )
-            ON DUPLICATE KEY UPDATE
-                display_name = VALUES(display_name),
-                company_name = VALUES(company_name),
-                exchange = VALUES(exchange),
-                market = VALUES(market),
-                currency = VALUES(currency),
-                sector = VALUES(sector),
-                industry = VALUES(industry),
-                quote_type = VALUES(quote_type),
-                last_fetched_at = NOW()
-        """
-        params = (
-            symbol, display_name, company_name, exchange, market,
-            currency, sector, industry, quote_type
-        )
-        return self.client.execute(query, params)
-
-    def get_ticker_info(self, symbol: str) -> Optional[Dict[str, Any]]:
-        """Get ticker info by symbol.
-
-        Args:
-            symbol: Ticker symbol
-
-        Returns:
-            Dict with ticker info or None if not found
-        """
-        query = "SELECT * FROM ticker_info WHERE symbol = %s AND is_active = TRUE"
-        return self.client.fetch_one(query, (symbol,))
-
-    def get_all_tickers(self, market: Optional[str] = None) -> List[Dict[str, Any]]:
-        """Get all active tickers.
-
-        Args:
-            market: Optional market filter
-
-        Returns:
-            List of ticker info dicts
-        """
-        if market:
-            query = "SELECT * FROM ticker_info WHERE is_active = TRUE AND market = %s ORDER BY symbol"
-            return self.client.fetch_all(query, (market,))
-        else:
-            query = "SELECT * FROM ticker_info WHERE is_active = TRUE ORDER BY symbol"
-            return self.client.fetch_all(query)
-
-    def bulk_upsert_ticker_info(self, tickers: List[Dict[str, Any]]) -> int:
-        """Bulk insert/update ticker info.
-
-        Args:
-            tickers: List of ticker info dicts with keys matching columns
-
-        Returns:
-            Number of affected rows
-        """
-        query = """
-            INSERT INTO ticker_info (
-                symbol, display_name, company_name, exchange, market,
-                currency, sector, industry, quote_type, last_fetched_at
-            ) VALUES (
-                %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW()
-            )
-            ON DUPLICATE KEY UPDATE
-                display_name = VALUES(display_name),
-                company_name = VALUES(company_name),
-                exchange = VALUES(exchange),
-                market = VALUES(market),
-                currency = VALUES(currency),
-                sector = VALUES(sector),
-                industry = VALUES(industry),
-                quote_type = VALUES(quote_type),
-                last_fetched_at = NOW()
-        """
-        params_list = [
-            (
-                t['symbol'],
-                t.get('display_name', t['symbol']),
-                t.get('company_name'),
-                t.get('exchange'),
-                t.get('market'),
-                t.get('currency'),
-                t.get('sector'),
-                t.get('industry'),
-                t.get('quote_type'),
-            )
-            for t in tickers
-        ]
-        return self.client.execute_many(query, params_list)
-
-    # =========================================================================
-    # Daily Prices Operations
-    # =========================================================================
-
-    def upsert_daily_price(
-        self,
-        symbol: str,
-        price_date: date,
-        open_price: float,
-        high: float,
-        low: float,
-        close: float,
-        adj_close: Optional[float] = None,
-        volume: Optional[int] = None,
-    ) -> int:
-        """Insert or update a single daily price.
-
-        Args:
-            symbol: Ticker symbol
-            price_date: Date of the price
-            open_price: Opening price
-            high: High price
-            low: Low price
-            close: Closing price
-            adj_close: Adjusted close price
-            volume: Trading volume
-
-        Returns:
-            Number of affected rows
-        """
-        # Get ticker_id
-        ticker_info = self.get_ticker_info(symbol)
-        if not ticker_info:
-            raise ValueError(f"Ticker not found: {symbol}. Insert into ticker_info first.")
-
-        ticker_id = ticker_info['id']
-
-        # Calculate daily return
-        prev_close = self._get_previous_close(symbol, price_date)
-        daily_return = None
-        if prev_close and prev_close != 0:
-            daily_return = (close - prev_close) / prev_close
-
-        query = """
-            INSERT INTO daily_prices (
-                ticker_id, symbol, price_date,
-                open, high, low, close, adj_close, volume, daily_return
-            ) VALUES (
-                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
-            )
-            ON DUPLICATE KEY UPDATE
-                open = VALUES(open),
-                high = VALUES(high),
-                low = VALUES(low),
-                close = VALUES(close),
-                adj_close = VALUES(adj_close),
-                volume = VALUES(volume),
-                daily_return = VALUES(daily_return),
-                fetched_at = NOW()
-        """
-        params = (
-            ticker_id, symbol, price_date,
-            open_price, high, low, close, adj_close, volume, daily_return
-        )
-        return self.client.execute(query, params)
-
-    def bulk_upsert_daily_prices(
-        self,
-        symbol: str,
-        prices: List[Dict[str, Any]]
-    ) -> int:
-        """Bulk insert/update daily prices for a symbol.
-
-        Args:
-            symbol: Ticker symbol
-            prices: List of price dicts with keys: date, open, high, low, close, adj_close, volume
-
-        Returns:
-            Number of affected rows
-
-        Example:
-            >>> prices = [
-            ...     {'date': '2025-01-01', 'open': 100, 'high': 105, 'low': 99, 'close': 104, 'volume': 1000000},
-            ...     {'date': '2025-01-02', 'open': 104, 'high': 108, 'low': 103, 'close': 107, 'volume': 1200000},
-            ... ]
-            >>> repo.bulk_upsert_daily_prices('NVDA', prices)
-        """
-        # Get ticker_id
-        ticker_info = self.get_ticker_info(symbol)
-        if not ticker_info:
-            raise ValueError(f"Ticker not found: {symbol}. Insert into ticker_info first.")
-
-        ticker_id = ticker_info['id']
-
-        query = """
-            INSERT INTO daily_prices (
-                ticker_id, symbol, price_date,
-                open, high, low, close, adj_close, volume
-            ) VALUES (
-                %s, %s, %s, %s, %s, %s, %s, %s, %s
-            )
-            ON DUPLICATE KEY UPDATE
-                open = VALUES(open),
-                high = VALUES(high),
-                low = VALUES(low),
-                close = VALUES(close),
-                adj_close = VALUES(adj_close),
-                volume = VALUES(volume),
-                fetched_at = NOW()
-        """
-        params_list = [
-            (
-                ticker_id,
-                symbol,
-                p.get('date') or p.get('price_date'),
-                p.get('open'),
-                p.get('high'),
-                p.get('low'),
-                p.get('close'),
-                p.get('adj_close') or p.get('close'),
-                p.get('volume'),
-            )
-            for p in prices
-        ]
-        return self.client.execute_many(query, params_list)
-
-    def bulk_upsert_from_dataframe(
-        self,
-        symbol: str,
-        df: pd.DataFrame
-    ) -> int:
-        """Bulk insert/update from pandas DataFrame (yfinance format).
-
-        Args:
-            symbol: Ticker symbol
-            df: DataFrame with DatetimeIndex and columns: Open, High, Low, Close, Adj Close, Volume
-
-        Returns:
-            Number of affected rows
-
-        Example:
-            >>> import yfinance as yf
-            >>> ticker = yf.Ticker('NVDA')
-            >>> hist = ticker.history(period='1y')
-            >>> repo.bulk_upsert_from_dataframe('NVDA', hist)
-        """
-        if df.empty:
-            logger.warning(f"Empty DataFrame for {symbol}, skipping insert")
-            return 0
-
-        # Get ticker_id
-        ticker_info = self.get_ticker_info(symbol)
-        if not ticker_info:
-            raise ValueError(f"Ticker not found: {symbol}. Insert into ticker_info first.")
-
-        ticker_id = ticker_info['id']
-
-        # Convert DataFrame to list of tuples
-        query = """
-            INSERT INTO daily_prices (
-                ticker_id, symbol, price_date,
-                open, high, low, close, adj_close, volume
-            ) VALUES (
-                %s, %s, %s, %s, %s, %s, %s, %s, %s
-            )
-            ON DUPLICATE KEY UPDATE
-                open = VALUES(open),
-                high = VALUES(high),
-                low = VALUES(low),
-                close = VALUES(close),
-                adj_close = VALUES(adj_close),
-                volume = VALUES(volume),
-                fetched_at = NOW()
-        """
-
-        params_list = []
-        for idx, row in df.iterrows():
-            # Handle various date formats
-            price_date = None
-
-            # First, check if index is a valid date
-            if hasattr(idx, 'date'):
-                price_date = idx.date()
-            elif isinstance(idx, str) and len(idx) == 10 and '-' in idx:
-                try:
-                    price_date = datetime.strptime(idx, '%Y-%m-%d').date()
-                except ValueError:
-                    pass
-
-            # If index isn't a date, look for 'Date' column in the row
-            if price_date is None:
-                date_col = row.get('Date') or row.get('date')
-                if date_col is not None:
-                    if hasattr(date_col, 'date'):
-                        price_date = date_col.date()
-                    elif isinstance(date_col, str):
-                        price_date = datetime.strptime(date_col, '%Y-%m-%d').date()
-                    elif isinstance(date_col, date):
-                        price_date = date_col
-
-            # Skip row if no valid date found
-            if price_date is None:
-                logger.warning(f"Skipping row with invalid date: idx={idx}, row={dict(row)}")
-                continue
-
-            params_list.append((
-                ticker_id,
-                symbol,
-                price_date,
-                self._to_float(row.get('Open')),
-                self._to_float(row.get('High')),
-                self._to_float(row.get('Low')),
-                self._to_float(row.get('Close')),
-                self._to_float(row.get('Adj Close') or row.get('Close')),
-                self._to_int(row.get('Volume')),
-            ))
-
-        return self.client.execute_many(query, params_list)
+    # Note: Write operations removed (migration 018) due to ticker_info dependency
+    # If Aurora historical data storage is needed, refactor to use ticker_master
 
     def get_prices(
         self,
@@ -416,7 +78,7 @@ class TickerRepository:
 
         where_clause = " AND ".join(conditions)
         query = f"""
-            SELECT * FROM daily_prices
+            SELECT * FROM {DAILY_PRICES}
             WHERE {where_clause}
             ORDER BY price_date DESC
             LIMIT %s
@@ -480,46 +142,13 @@ class TickerRepository:
         Returns:
             Latest price dict or None
         """
-        query = """
-            SELECT * FROM daily_prices
+        query = f"""
+            SELECT * FROM {DAILY_PRICES}
             WHERE symbol = %s
             ORDER BY price_date DESC
             LIMIT 1
         """
         return self.client.fetch_one(query, (symbol,))
-
-    def get_latest_prices_all(self) -> List[Dict[str, Any]]:
-        """Get latest prices for all tickers.
-
-        Returns:
-            List of latest price dicts for all active tickers
-        """
-        query = """
-            SELECT dp.*, ti.display_name, ti.company_name, ti.sector
-            FROM daily_prices dp
-            INNER JOIN ticker_info ti ON dp.symbol = ti.symbol
-            WHERE dp.price_date = (
-                SELECT MAX(price_date)
-                FROM daily_prices
-                WHERE symbol = dp.symbol
-            )
-            AND ti.is_active = TRUE
-            ORDER BY dp.symbol
-        """
-        return self.client.fetch_all(query)
-
-    def _get_previous_close(self, symbol: str, price_date: date) -> Optional[float]:
-        """Get the previous day's close price."""
-        query = """
-            SELECT close FROM daily_prices
-            WHERE symbol = %s AND price_date < %s
-            ORDER BY price_date DESC
-            LIMIT 1
-        """
-        result = self.client.fetch_one(query, (symbol, price_date))
-        if result:
-            return float(result['close']) if result['close'] else None
-        return None
 
     @staticmethod
     def _to_float(value) -> Optional[float]:
@@ -571,8 +200,8 @@ class TickerRepository:
         Returns:
             Number of affected rows
         """
-        query = """
-            INSERT INTO ticker_cache_metadata (
+        query = f"""
+            INSERT INTO {TICKER_CACHE_METADATA} (
                 symbol, cache_date, status, s3_key,
                 rows_in_aurora, error_message, cached_at
             ) VALUES (
@@ -601,18 +230,18 @@ class TickerRepository:
         """
         stats = {}
 
-        # Ticker count
-        result = self.client.fetch_one("SELECT COUNT(*) as count FROM ticker_info WHERE is_active = TRUE")
+        # Ticker count (from ticker_master instead of removed ticker_info)
+        result = self.client.fetch_one("SELECT COUNT(*) as count FROM ticker_master WHERE is_active = TRUE")
         stats['ticker_count'] = result['count'] if result else 0
 
         # Price row count
-        result = self.client.fetch_one("SELECT COUNT(*) as count FROM daily_prices")
+        result = self.client.fetch_one(f"SELECT COUNT(*) as count FROM {DAILY_PRICES}")
         stats['price_row_count'] = result['count'] if result else 0
 
         # Date range
-        result = self.client.fetch_one("""
+        result = self.client.fetch_one(f"""
             SELECT MIN(price_date) as min_date, MAX(price_date) as max_date
-            FROM daily_prices
+            FROM {DAILY_PRICES}
         """)
         if result:
             stats['min_date'] = str(result['min_date']) if result['min_date'] else None

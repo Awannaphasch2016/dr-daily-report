@@ -95,6 +95,30 @@ Use Doppler for centralized secret management with config inheritance to prevent
 
 See [Doppler Config Guide](docs/deployment/DOPPLER_CONFIG.md) for setup workflows and troubleshooting.
 
+### 14. Table Name Centralization
+All Aurora table names are defined in `src/data/aurora/table_names.py` as constants. This provides a single modification point if table schema evolves.
+
+**Pattern**:
+```python
+from src.data.aurora.table_names import DAILY_PRICES
+
+query = f"SELECT * FROM {DAILY_PRICES} WHERE symbol = %s"
+```
+
+**Rationale**:
+- Table names are stable but treating them as configuration enables future flexibility
+- Centralized constants (not environment variables) since names don't vary per environment
+- f-string interpolation for table names, parameterized queries for user data (SQL injection safety)
+
+**If renaming a table**:
+1. Update constant in `table_names.py`
+2. Create migration SQL file
+3. Run tests to verify
+4. Deploy (constants propagate automatically via imports)
+
+**Removed tables**:
+- `ticker_info` - Dropped in migration 018 (empty table, replaced by ticker_master)
+
 ---
 
 ## Extension Points

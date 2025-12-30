@@ -410,8 +410,10 @@ def _handle_debug_cache(event: Dict[str, Any], start_time: datetime) -> Dict[str
                 }
         else:
             # List all cached reports for the date
-            query = """
-                SELECT * FROM precomputed_reports
+            from src.data.aurora.table_names import PRECOMPUTED_REPORTS
+
+            query = f"""
+                SELECT * FROM {PRECOMPUTED_REPORTS}
                 WHERE report_date = %s
                 ORDER BY id DESC
                 LIMIT %s
@@ -532,9 +534,11 @@ def _handle_debug_prices(event: Dict[str, Any], start_time: datetime) -> Dict[st
 # For local testing
 if __name__ == '__main__':
     # Test query
+    from src.data.aurora.table_names import TICKER_MASTER
+
     test_event = {
         'action': 'query',
-        'sql': 'SELECT COUNT(*) as total FROM ticker_info;'
+        'sql': f'SELECT COUNT(*) as total FROM {TICKER_MASTER};'
     }
     result = lambda_handler(test_event, None)
     print(json.dumps(result, indent=2))

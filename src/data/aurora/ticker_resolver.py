@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 from src.data.aurora.client import AuroraClient, get_aurora_client
+from src.data.aurora.table_names import TICKER_MASTER, TICKER_ALIASES
 
 logger = logging.getLogger(__name__)
 
@@ -70,8 +71,8 @@ class TickerInfo:
 # SQL Statements
 # =============================================================================
 
-CREATE_TICKER_MASTER_TABLE = """
-CREATE TABLE IF NOT EXISTS ticker_master (
+CREATE_TICKER_MASTER_TABLE = f"""
+CREATE TABLE IF NOT EXISTS {TICKER_MASTER} (
     id INT AUTO_INCREMENT PRIMARY KEY,
     company_name VARCHAR(255) NOT NULL,
     exchange VARCHAR(50),
@@ -88,8 +89,8 @@ CREATE TABLE IF NOT EXISTS ticker_master (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 """
 
-CREATE_TICKER_ALIASES_TABLE = """
-CREATE TABLE IF NOT EXISTS ticker_aliases (
+CREATE_TICKER_ALIASES_TABLE = f"""
+CREATE TABLE IF NOT EXISTS {TICKER_ALIASES} (
     id INT AUTO_INCREMENT PRIMARY KEY,
     ticker_id INT NOT NULL,
     symbol VARCHAR(50) NOT NULL,
@@ -101,7 +102,7 @@ CREATE TABLE IF NOT EXISTS ticker_aliases (
     INDEX idx_symbol_type (symbol, symbol_type),
     INDEX idx_ticker_id (ticker_id),
 
-    FOREIGN KEY (ticker_id) REFERENCES ticker_master(id) ON DELETE CASCADE
+    FOREIGN KEY (ticker_id) REFERENCES {TICKER_MASTER}(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 """
 
@@ -160,8 +161,8 @@ class TickerResolver:
         """Check if ticker_master and ticker_aliases tables exist."""
         try:
             result = self.client.fetch_one(
-                "SELECT COUNT(*) as cnt FROM information_schema.tables "
-                "WHERE table_schema = DATABASE() AND table_name = 'ticker_master'"
+                f"SELECT COUNT(*) as cnt FROM information_schema.tables "
+                f"WHERE table_schema = DATABASE() AND table_name = '{TICKER_MASTER}'"
             )
             return result and result.get('cnt', 0) > 0
         except Exception:
@@ -169,7 +170,7 @@ class TickerResolver:
 
     def _load_from_aurora(self) -> None:
         """Load symbol mappings from Aurora database."""
-        query = """
+        query = f"""
             SELECT
                 m.id as ticker_id,
                 m.company_name,
@@ -184,8 +185,8 @@ class TickerResolver:
                     ORDER BY a.is_primary DESC
                     SEPARATOR '|'
                 ) as aliases
-            FROM ticker_master m
-            LEFT JOIN ticker_aliases a ON m.id = a.ticker_id
+            FROM {TICKER_MASTER} m
+            LEFT JOIN {TICKER_ALIASES} a ON m.id = a.ticker_id
             WHERE m.is_active = TRUE
             GROUP BY m.id
         """
@@ -501,8 +502,8 @@ class TickerResolver:
                     continue
 
                 # Insert into ticker_master
-                insert_master = """
-                    INSERT INTO ticker_master (company_name, exchange, currency, sector, industry, quote_type)
+                insert_master = f"""
+                    INSERT INTO {TICKER_MASTER} (company_name, exchange, currency, sector, industry, quote_type)
                     VALUES (%s, %s, %s, %s, %s, %s)
                 """
                 self.client.execute(
@@ -517,8 +518,8 @@ class TickerResolver:
                 ticker_id = result['id']
 
                 # Insert aliases
-                insert_alias = """
-                    INSERT INTO ticker_aliases (ticker_id, symbol, symbol_type, is_primary)
+                insert_alias = f"""
+                    INSERT INTO {TICKER_ALIASES} (ticker_id, symbol, symbol_type, is_primary)
                     VALUES (%s, %s, %s, %s)
                     ON DUPLICATE KEY UPDATE ticker_id = VALUES(ticker_id)
                 """

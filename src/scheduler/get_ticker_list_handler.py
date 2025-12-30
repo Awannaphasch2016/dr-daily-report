@@ -65,10 +65,12 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         # Query for active DR symbols
         # Uses normalized schema:
         #   ticker_master (company info) + ticker_aliases (symbol mappings)
-        query = """
+        from src.data.aurora.table_names import TICKER_MASTER, TICKER_ALIASES
+
+        query = f"""
             SELECT DISTINCT a.symbol
-            FROM ticker_master m
-            JOIN ticker_aliases a ON m.id = a.ticker_id
+            FROM {TICKER_MASTER} m
+            JOIN {TICKER_ALIASES} a ON m.id = a.ticker_id
             WHERE m.is_active = TRUE
               AND a.symbol_type = 'dr'
             ORDER BY a.symbol

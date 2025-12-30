@@ -68,13 +68,15 @@ def fetch_fund_data_metrics(
     client = get_aurora_client()
 
     # Query fund_data for latest metrics using resolved Eikon symbol
-    query = """
+    from src.data.aurora.table_names import FUND_DATA
+
+    query = f"""
         SELECT col_code, value_numeric, value_text
-        FROM fund_data
+        FROM {FUND_DATA}
         WHERE ticker = %s
         AND d_trade = COALESCE(%s, (
             SELECT MAX(d_trade)
-            FROM fund_data
+            FROM {FUND_DATA}
             WHERE ticker = %s
         ))
         ORDER BY col_code

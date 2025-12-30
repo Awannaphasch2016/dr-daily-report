@@ -21,6 +21,7 @@ from decimal import Decimal
 from typing import Any, Dict, List, Optional
 
 from src.data.aurora.client import AuroraClient, get_aurora_client
+from src.data.aurora.table_names import FUND_DATA
 
 logger = logging.getLogger(__name__)
 
@@ -153,8 +154,8 @@ class FundDataRepository:
             RuntimeError: If batch affects 0 rows (defensive check)
         """
         # Build INSERT query with multiple VALUES clauses
-        query = """
-            INSERT INTO fund_data (
+        query = f"""
+            INSERT INTO {FUND_DATA} (
                 d_trade, stock, ticker, col_code,
                 value_numeric, value_text,
                 source, s3_source_key,
@@ -226,13 +227,13 @@ class FundDataRepository:
             >>> for record in data:
             ...     print(f"{record['d_trade']} {record['col_code']}: {record['value_numeric']}")
         """
-        query = """
+        query = f"""
             SELECT
                 id, d_trade, stock, ticker, col_code,
                 value_numeric, value_text,
                 source, s3_source_key,
                 synced_at, updated_at
-            FROM fund_data
+            FROM {FUND_DATA}
             WHERE ticker = %s
               AND d_trade >= DATE_SUB(CURDATE(), INTERVAL %s DAY)
             ORDER BY d_trade DESC, col_code
@@ -266,13 +267,13 @@ class FundDataRepository:
         """
         # TIMEZONE FIX: Use UTC date to match Aurora timezone (Aurora runs in UTC)
         end = end_date or datetime.utcnow().date()
-        query = """
+        query = f"""
             SELECT
                 id, d_trade, stock, ticker, col_code,
                 value_numeric, value_text,
                 source, s3_source_key,
                 synced_at, updated_at
-            FROM fund_data
+            FROM {FUND_DATA}
             WHERE ticker = %s
               AND d_trade BETWEEN %s AND %s
             ORDER BY d_trade DESC, col_code
@@ -295,13 +296,13 @@ class FundDataRepository:
             ... )
             >>> print(f"Loaded {len(data)} records from S3")
         """
-        query = """
+        query = f"""
             SELECT
                 id, d_trade, stock, ticker, col_code,
                 value_numeric, value_text,
                 source, s3_source_key,
                 synced_at, updated_at
-            FROM fund_data
+            FROM {FUND_DATA}
             WHERE s3_source_key = %s
             ORDER BY d_trade DESC, ticker, col_code
         """

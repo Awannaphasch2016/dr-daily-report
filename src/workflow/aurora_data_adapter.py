@@ -19,6 +19,11 @@ import pandas as pd
 
 from src.data.aurora.client import get_aurora_client
 from src.data.aurora.repository import TickerRepository
+from src.data.aurora.table_names import (
+    PRECOMPUTED_REPORTS,
+    DAILY_INDICATORS,
+    INDICATOR_PERCENTILES,
+)
 from src.data.aurora.fund_data_fetcher import (
     fetch_fund_data_metrics,
     DataNotFoundError as FundDataNotFoundError
@@ -89,9 +94,9 @@ def fetch_ticker_data_from_aurora(symbol: str) -> Dict[str, Any]:
     logger.info(f"🔍 Fetching data from Aurora precomputed_reports for {symbol}")
 
     # Query most recent completed report
-    query = """
+    query = f"""
         SELECT report_json, report_date, symbol
-        FROM precomputed_reports
+        FROM {PRECOMPUTED_REPORTS}
         WHERE symbol = %s
           AND status = 'completed'
         ORDER BY report_date DESC
@@ -314,9 +319,9 @@ def fetch_peer_data_from_aurora(peer_symbols: List[str], days: int = 90) -> Dict
     for symbol in peer_symbols:
         try:
             # Query most recent precomputed report
-            query = """
+            query = f"""
                 SELECT report_json
-                FROM precomputed_reports
+                FROM {PRECOMPUTED_REPORTS}
                 WHERE symbol = %s
                   AND status = 'completed'
                 ORDER BY report_date DESC
@@ -416,9 +421,9 @@ def fetch_indicators_from_aurora(symbol: str, indicator_date: date) -> Dict[str,
     """
     client = get_aurora_client()
 
-    query = """
+    query = f"""
         SELECT *
-        FROM daily_indicators
+        FROM {DAILY_INDICATORS}
         WHERE symbol = %s AND date = %s
         LIMIT 1
     """
@@ -465,9 +470,9 @@ def fetch_percentiles_from_aurora(symbol: str, percentile_date: date) -> Dict[st
     """
     client = get_aurora_client()
 
-    query = """
+    query = f"""
         SELECT *
-        FROM indicator_percentiles
+        FROM {INDICATOR_PERCENTILES}
         WHERE symbol = %s AND date = %s
         LIMIT 1
     """

@@ -52,10 +52,11 @@ class AuroraClient:
         user: Database username
 
     Example:
+        >>> from src.data.aurora.table_names import DAILY_PRICES
         >>> client = AuroraClient()
         >>> with client.get_connection() as conn:
         ...     with conn.cursor() as cursor:
-        ...         cursor.execute("SELECT * FROM ticker_info LIMIT 10")
+        ...         cursor.execute(f"SELECT * FROM {DAILY_PRICES} LIMIT 10")
         ...         results = cursor.fetchall()
     """
 
@@ -206,9 +207,10 @@ class AuroraClient:
             Number of affected rows
 
         Example:
+            >>> from src.data.aurora.table_names import DAILY_PRICES
             >>> client.execute(
-            ...     "INSERT INTO ticker_info (symbol, display_name) VALUES (%s, %s)",
-            ...     ('NVDA', 'NVIDIA')
+            ...     f"INSERT INTO {DAILY_PRICES} (symbol, price_date, close) VALUES (%s, %s, %s)",
+            ...     ('NVDA', '2025-01-15', 145.50)
             ... )
         """
         with self.get_connection() as conn:
@@ -235,8 +237,9 @@ class AuroraClient:
             Number of affected rows
 
         Example:
+            >>> from src.data.aurora.table_names import DAILY_PRICES
             >>> client.execute_many(
-            ...     "INSERT INTO daily_prices (symbol, price_date, close) VALUES (%s, %s, %s)",
+            ...     f"INSERT INTO {DAILY_PRICES} (symbol, price_date, close) VALUES (%s, %s, %s)",
             ...     [('NVDA', '2025-01-01', 150.0), ('NVDA', '2025-01-02', 152.0)]
             ... )
         """
@@ -262,9 +265,9 @@ class AuroraClient:
             Dict with column names as keys, or None if not found
 
         Example:
+            >>> from src.data.aurora.table_names import TICKER_MASTER
             >>> result = client.fetch_one(
-            ...     "SELECT * FROM ticker_info WHERE symbol = %s",
-            ...     ('NVDA',)
+            ...     f"SELECT * FROM {TICKER_MASTER} WHERE is_active = TRUE LIMIT 1"
             ... )
         """
         with self.get_connection() as conn:
@@ -287,9 +290,10 @@ class AuroraClient:
             List of dicts with column names as keys
 
         Example:
+            >>> from src.data.aurora.table_names import DAILY_PRICES
             >>> results = client.fetch_all(
-            ...     "SELECT * FROM ticker_info WHERE market = %s",
-            ...     ('us_market',)
+            ...     f"SELECT * FROM {DAILY_PRICES} WHERE symbol = %s ORDER BY price_date DESC LIMIT 10",
+            ...     ('NVDA',)
             ... )
         """
         with self.get_connection() as conn:

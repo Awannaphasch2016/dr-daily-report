@@ -27,6 +27,13 @@ import pandas as pd
 from botocore.exceptions import ClientError
 
 from src.types import extract_raw_data_for_storage
+from src.data.aurora.table_names import (
+    TICKER_DATA,
+    DAILY_INDICATORS,
+    INDICATOR_PERCENTILES,
+    COMPARATIVE_FEATURES,
+    PRECOMPUTED_REPORTS,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -194,8 +201,8 @@ class PrecomputeService:
 
         ticker_id = ticker_info['id']
 
-        query = """
-            INSERT INTO daily_indicators (
+        query = f"""
+            INSERT INTO {DAILY_INDICATORS} (
                 ticker_id, symbol, indicator_date,
                 open_price, high_price, low_price, close_price, volume,
                 sma_20, sma_50, sma_200,
@@ -382,8 +389,8 @@ class PrecomputeService:
 
         ticker_id = ticker_info['id']
 
-        query = """
-            INSERT INTO indicator_percentiles (
+        query = f"""
+            INSERT INTO {INDICATOR_PERCENTILES} (
                 ticker_id, symbol, percentile_date, lookback_days,
                 current_price_percentile,
                 rsi_percentile, rsi_mean, rsi_std, rsi_freq_above_70, rsi_freq_below_30,
@@ -545,8 +552,8 @@ class PrecomputeService:
 
         ticker_id = ticker_info['id']
 
-        query = """
-            INSERT INTO comparative_features (
+        query = f"""
+            INSERT INTO {COMPARATIVE_FEATURES} (
                 ticker_id, symbol, feature_date,
                 daily_return, weekly_return, monthly_return, ytd_return,
                 volatility_30d, volatility_90d,
@@ -912,8 +919,8 @@ class PrecomputeService:
         Schema confirmed via Lambda describe_table: 21 columns including report_date, computed_at.
         """
         # Use actual schema columns (report_date, computed_at)
-        query = """
-            INSERT INTO precomputed_reports (ticker_id, symbol, report_date, status, error_message, computed_at)
+        query = f"""
+            INSERT INTO {PRECOMPUTED_REPORTS} (ticker_id, symbol, report_date, status, error_message, computed_at)
             VALUES (%s, %s, %s, %s, %s, NOW())
             ON DUPLICATE KEY UPDATE
                 status = VALUES(status),
@@ -948,8 +955,8 @@ class PrecomputeService:
 
         Note: strategy, mini_reports, and raw_data_json columns removed in migration 011.
         """
-        query = """
-            INSERT INTO precomputed_reports (
+        query = f"""
+            INSERT INTO {PRECOMPUTED_REPORTS} (
                 ticker_id, symbol, report_date,
                 report_text, report_json,
                 generation_time_ms,
@@ -1278,8 +1285,8 @@ class PrecomputeService:
             logger.warning(f"Symbol '{symbol}' not found in ticker_master")
             return None
 
-        query = """
-            SELECT * FROM daily_indicators
+        query = f"""
+            SELECT * FROM {DAILY_INDICATORS}
             WHERE ticker_master_id = %s
             ORDER BY indicator_date DESC
             LIMIT 1
@@ -1306,8 +1313,8 @@ class PrecomputeService:
             logger.warning(f"Symbol '{symbol}' not found in ticker_master")
             return None
 
-        query = """
-            SELECT * FROM indicator_percentiles
+        query = f"""
+            SELECT * FROM {INDICATOR_PERCENTILES}
             WHERE ticker_master_id = %s
             ORDER BY percentile_date DESC
             LIMIT 1
@@ -1355,7 +1362,7 @@ class PrecomputeService:
         # This ensures we can find reports stored with the resolved ticker_id
         placeholders = ', '.join(['%s'] * len(symbols_to_check))
         query = f"""
-            SELECT * FROM precomputed_reports
+            SELECT * FROM {PRECOMPUTED_REPORTS}
             WHERE (symbol IN ({placeholders}) OR ticker_id = %s)
             AND report_date = %s
             AND status = 'completed'
@@ -1500,8 +1507,8 @@ class PrecomputeService:
         expires_at = datetime.combine(data_date + timedelta(days=1), datetime.min.time())
         expires_at = expires_at.replace(hour=1)  # 8 AM Bangkok = 1 AM UTC
 
-        query = """
-            INSERT INTO ticker_data (
+        query = f"""
+            INSERT INTO {TICKER_DATA} (
                 ticker_master_id, symbol, date, fetched_at,
                 price_history, company_info, financials_json,
                 history_start_date, history_end_date, row_count,
@@ -1559,8 +1566,8 @@ class PrecomputeService:
         if master_id is None:
             return None
 
-        query = """
-            SELECT * FROM ticker_data
+        query = f"""
+            SELECT * FROM {TICKER_DATA}
             WHERE ticker_master_id = %s AND date = %s
             AND (expires_at IS NULL OR expires_at > NOW())
         """
@@ -1667,9 +1674,9 @@ class PrecomputeService:
         logger.info(f"Regenerating {strategy} report for {symbol} from cached data (date={data_date})")
 
         # Read raw_data_json from Aurora (NOT report_json which is formatted)
-        query = """
+        query = f"""
             SELECT raw_data_json
-            FROM precomputed_reports
+            FROM {PRECOMPUTED_REPORTS}
             WHERE symbol = %s AND report_date = %s
             ORDER BY computed_at DESC
             LIMIT 1
