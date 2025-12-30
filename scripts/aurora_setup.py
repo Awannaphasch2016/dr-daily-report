@@ -2,6 +2,12 @@
 """
 Aurora MySQL Setup Script
 
+DEPRECATED: This script is deprecated after ticker_info table removal (migration 018).
+The historical price storage system (ticker_info + daily_prices) has been removed.
+Use database migrations (db/migrations/) for schema changes instead.
+
+If Aurora historical storage is needed, refactor to use ticker_master instead of ticker_info.
+
 Run this from Lambda or a VPC-connected environment to:
 1. Create database tables
 2. Import ticker data from S3 to Aurora

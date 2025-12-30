@@ -5,6 +5,8 @@
 **Problem:** Date fields like `price_date` vs `fetched_at` require context to understand semantics
 **Requirement:** Documentation must be queryable, maintainable, inline with schema, and MySQL/Aurora compatible
 
+**Note (2025-12-30):** Examples in this document reference `ticker_info` table which was removed in migration 018. The documentation principles remain valid - examples show historical schema patterns. For current schema, see `db/migrations/` and use `ticker_master` instead.
+
 ---
 
 ## Executive Summary

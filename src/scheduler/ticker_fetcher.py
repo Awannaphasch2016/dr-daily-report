@@ -263,44 +263,22 @@ class TickerFetcher:
         """
         Write ticker data to Aurora MySQL.
 
+        DEPRECATED: ticker_info table removed (migration 018).
+        Aurora historical price storage requires refactoring to use ticker_master.
+        This method is kept as a stub to avoid breaking enable_aurora flag logic.
+
         Args:
             ticker: Yahoo Finance ticker symbol (must be resolved before calling)
             data: Data dict from DataFetcher
 
         Returns:
-            Number of price rows written
+            Always returns 0 (no-op)
         """
-        if not self._aurora_repo:
-            return 0
-
-        try:
-            # Upsert ticker info
-            info = data.get('info', {})
-            self._aurora_repo.upsert_ticker_info(
-                symbol=ticker,
-                display_name=info.get('shortName', ticker),
-                company_name=info.get('longName'),
-                exchange=info.get('exchange'),
-                market=info.get('market'),
-                currency=info.get('currency'),
-                sector=info.get('sector'),
-                industry=info.get('industry'),
-                quote_type=info.get('quoteType'),
-            )
-            logger.debug(f"Aurora: upserted ticker_info for {ticker}")
-
-            # Upsert historical prices
-            history = data.get('history')
-            if history is not None and isinstance(history, pd.DataFrame) and not history.empty:
-                rows = self._aurora_repo.bulk_upsert_from_dataframe(ticker, history)
-                logger.info(f"Aurora: upserted {rows} price rows for {ticker}")
-                return rows
-
-            return 0
-
-        except Exception as e:
-            logger.error(f"Aurora write failed for {ticker}: {e}")
-            return 0
+        logger.warning(
+            f"Aurora write for {ticker} skipped: ticker_info table removed. "
+            "To re-enable Aurora storage, refactor daily_prices to use ticker_master."
+        )
+        return 0
 
     def fetch_tickers(self, tickers: List[str]) -> Dict[str, Any]:
         """

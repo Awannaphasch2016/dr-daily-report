@@ -8,6 +8,8 @@
 - Migrating production databases with zero downtime
 - Understanding MySQL-specific migration gotchas
 
+**Note (2025-12-30):** Examples reference `ticker_info` table (removed in migration 018). Principles remain valid - examples show historical patterns. For current migrations, see `db/migrations/018_drop_ticker_info_table.sql` as reference.
+
 ---
 
 ## Table of Contents

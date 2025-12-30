@@ -436,7 +436,7 @@ if __name__ == '__main__':
     # Test execute_migration
     test_event = {
         'action': 'execute_migration',
-        'sql': 'SELECT COUNT(*) FROM ticker_info;'
+        'sql': 'SELECT COUNT(*) FROM ticker_master;'
     }
     result = lambda_handler(test_event, None)
     print(json.dumps(result, indent=2))
