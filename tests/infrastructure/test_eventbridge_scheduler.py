@@ -1,23 +1,35 @@
 # -*- coding: utf-8 -*-
 """
-Infrastructure tests for EventBridge Scheduler
+Infrastructure tests for EventBridge Rules (legacy architecture - pre-Scheduler migration)
 
-Tests that verify the EventBridge rule and Lambda target are correctly deployed.
-These tests require AWS credentials with EventBridge read permissions.
+DEPRECATION NOTICE:
+    These tests validate the OLD EventBridge Rules implementation.
+    After migration Phase 4, this file will be DELETED.
+    New tests are in: test_eventbridge_scheduler_v2.py
+
+Migration timeline:
+    Phase 1-2: This file continues to PASS (old rule still enabled)
+    Phase 3: Tests START FAILING (old rule disabled - expected behavior)
+    Phase 4: File DELETED (old resources removed from Terraform)
 
 Markers:
     @pytest.mark.integration - Requires real AWS access
     @pytest.mark.infrastructure - Infrastructure verification tests
 """
 
+import os
 import pytest
 import boto3
 from botocore.exceptions import ClientError
 
 
+@pytest.mark.skipif(
+    os.environ.get('SCHEDULER_MIGRATION_PHASE', '1') >= '3',
+    reason="Legacy EventBridge Rules disabled in Phase 3+ (expected - not a failure)"
+)
 @pytest.mark.integration
-class TestEventBridgeScheduler:
-    """Test suite for EventBridge scheduler infrastructure"""
+class TestEventBridgeRulesLegacy:
+    """Test suite for EventBridge Rules (legacy architecture - pre-Scheduler migration)"""
 
     @pytest.fixture(autouse=True)
     def setup(self):

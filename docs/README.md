@@ -33,6 +33,7 @@ This project uses a tiered documentation system:
 - [Testing Guide](testing/TESTING_GUIDE.md) - How to run tests
 - [E2E Testing](testing/E2E_TESTING.md) - Playwright browser tests
 - [Database Migrations](DATABASE_MIGRATIONS.md) - Schema management and migration patterns
+- [Database Schema Documentation](DATABASE_SCHEMA_DOCUMENTATION.md) - Research on embedding documentation in database schema
 
 ---
 
@@ -64,6 +65,7 @@ This project uses a tiered documentation system:
 - [API Implementation](../src/api/README.md) - FastAPI implementation guide
 - [Type System Integration](TYPE_SYSTEM_INTEGRATION.md) - Cross-system type compatibility patterns
 - [Relationship Analysis Guide](RELATIONSHIP_ANALYSIS.md) - OWL-based methodology for structured concept comparison
+- [Database Schema Documentation](DATABASE_SCHEMA_DOCUMENTATION.md) - Inline schema documentation patterns (COMMENT syntax, validation, best practices)
 
 ---
 
@@ -81,6 +83,7 @@ This project uses a tiered documentation system:
 |------|--------------|
 | First-time setup | [Quick Start](QUICKSTART.md) |
 | Find files and commands | [Project Conventions](PROJECT_CONVENTIONS.md) |
+| Inventory of all tools/services | [Architecture Inventory](ARCHITECTURE_INVENTORY.md) |
 | Deploy to production | [Deployment Runbook](deployment/TELEGRAM_DEPLOYMENT_RUNBOOK.md) |
 | Configure S3 caching | [S3 Deployment](deployment/S3_DEPLOYMENT.md) |
 | Fix deployment error | [Troubleshooting](TROUBLESHOOTING.md) |

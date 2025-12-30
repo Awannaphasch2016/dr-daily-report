@@ -72,6 +72,116 @@ Systematically explore the solution space BEFORE committing to a specific approa
 /research "How to manage global state in React" --focus=simplicity
 ```
 
+### Online Tool Discovery Examples
+
+```bash
+# Find logging/monitoring services
+/explore "Which logging service for production monitoring" --focus=cost
+→ Compares: Datadog ($15/host/mo), New Relic ($25/host/mo), CloudWatch ($0.50/GB), Langfuse (free)
+→ Evaluates: Features, pricing tiers, integration effort, AWS native vs third-party
+
+# Find payment processors
+/explore "Payment gateway for subscription billing"
+→ Analyzes: Stripe (2.9% + $0.30), PayPal (3.5%), Braintree (2.9% + $0.30)
+→ Compares: Recurring billing features, webhook reliability, API quality
+
+# Find CDN providers
+/explore "CDN for static asset delivery" --focus=performance
+→ Evaluates: CloudFront (AWS native), Cloudflare (free tier), Fastly (edge compute)
+→ Benchmarks: Latency by region, cache hit rates, purge speed
+```
+
+### Codebase Discovery Examples
+
+```bash
+# Discover existing patterns
+/explore "How do we currently handle database connections"
+→ Searches: src/ for connection pooling patterns
+→ Finds: PyMySQL + RDS Proxy pattern in src/services/aurora.py
+→ Documents: Current approach (connection per request vs pooling)
+
+# Find integrated tools
+/explore "What error monitoring tools are we using"
+→ Searches: Import statements for monitoring libraries
+→ Finds: Langfuse integration in src/report/ for LLM observability
+→ Output: Current Langfuse setup, usage patterns, scoring dimensions
+
+# Discover CLI commands
+/explore "What CLI commands exist for deployment"
+→ Searches: Justfile recipes, dr_cli/commands/deploy.py
+→ Documents: `dr deploy dev`, `dr deploy staging`, `dr deploy prod`
+→ Shows: Two-layer design (Justfile = intent, dr CLI = implementation)
+```
+
+### Hybrid Discovery (Online + Codebase)
+
+```bash
+# Compare current vs alternatives
+/explore "Should we switch from OpenAI to Anthropic Claude"
+→ Step 1: Analyzes current OpenAI usage (grep for 'openai' imports)
+→ Step 2: Finds: GPT-4 for reports, tiktoken for token counting
+→ Step 3: Compares alternatives:
+  - OpenAI GPT-4: $0.03/1K tokens (current), 8K context, function calling
+  - Anthropic Claude 3: $0.015/1K tokens, 100K context, XML preferred
+  - Cost delta: ~50% savings but migration effort ~20 hours
+→ Recommendation: Stay with OpenAI (migration cost > savings for current usage)
+
+# Evaluate adoption of new tool
+/explore "Add Redis for caching vs use DynamoDB"
+→ Analyzes: Current DynamoDB usage for caching (src/cache/)
+→ Compares:
+  - Redis: Faster (sub-ms), more features, but new infrastructure
+  - DynamoDB: Already in use, serverless, familiar to team
+→ Trade-off: 2-5ms latency difference vs operational simplicity
+→ Recommendation: DynamoDB unless latency becomes bottleneck
+```
+
+### Anti-Patterns to Avoid
+
+```markdown
+### ❌ Don't Use /explore For
+
+**Simple lookups** (information readily available):
+```bash
+# Bad
+/explore "What is Docker?"
+# Good
+Just ask: "What is Docker?" (no exploration needed, factual question)
+```
+
+**Answers already in docs**:
+```bash
+# Bad
+/explore "What CLI commands exist?"
+# Good
+Read docs/cli.md or run `dr --help` (documented information)
+```
+
+**Single option** (no alternatives to compare):
+```bash
+# Bad
+/explore "Should we use AWS Lambda?" (already decided by architecture)
+# Good
+Only use /explore when genuinely exploring multiple alternatives
+```
+
+**Trivial decisions** (easily reversible):
+```bash
+# Bad
+/explore "Should this variable be named 'user_id' or 'userId'?"
+# Good
+Just pick one (low impact, easy to change later)
+```
+
+**When you already know the answer**:
+```bash
+# Bad
+/explore "Best practice for password hashing" (industry consensus: bcrypt/argon2)
+# Good
+Use established best practice without exploration
+```
+```
+
 ---
 
 ## Output

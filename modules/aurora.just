@@ -129,6 +129,73 @@ list-tickers:
     mysql -h 127.0.0.1 -P 3307 -u admin -p'AuroraDevDb2025SecureX1' \
         ticker_data -e "SELECT symbol, COUNT(*) as reports, MAX(report_date) as latest_report FROM precomputed_reports WHERE status='completed' GROUP BY symbol ORDER BY symbol"
 
+# Describe table structure with column comments
+describe TABLE:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    # Check tunnel inline
+    if ! ss -ltn | grep -q 3307; then
+        echo "❌ Aurora SSM tunnel not running on port 3307"
+        echo ""
+        echo "Start tunnel in another terminal:"
+        echo "   just --unstable aurora tunnel"
+        echo ""
+        exit 1
+    fi
+
+    echo "📋 Describing table: {{TABLE}}"
+    echo ""
+    mysql -h 127.0.0.1 -P 3307 -u admin -p'AuroraDevDb2025SecureX1' \
+        ticker_data -e "
+        SELECT
+            COLUMN_NAME as 'Column',
+            DATA_TYPE as 'Type',
+            IS_NULLABLE as 'Null',
+            COLUMN_KEY as 'Key',
+            COLUMN_DEFAULT as 'Default',
+            LEFT(COLUMN_COMMENT, 80) as 'Comment'
+        FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = 'ticker_data'
+          AND TABLE_NAME = '{{TABLE}}'
+        ORDER BY ORDINAL_POSITION
+        " 2>/dev/null | grep -v "insecure" | column -t -s $'\t'
+
+# Count ticker_info rows created/updated on a specific date
+count-ticker-info DATE="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    # Check tunnel inline
+    if ! ss -ltn | grep -q 3307; then
+        echo "❌ Aurora SSM tunnel not running on port 3307"
+        echo ""
+        echo "Start tunnel in another terminal:"
+        echo "   just --unstable aurora tunnel"
+        echo ""
+        exit 1
+    fi
+
+    # Default to today if no date provided
+    if [ -z "{{DATE}}" ]; then
+        QUERY_DATE=$(date +%Y-%m-%d)
+    else
+        QUERY_DATE="{{DATE}}"
+    fi
+
+    echo "📊 Counting ticker_info rows for date: $QUERY_DATE"
+    echo ""
+    mysql -h 127.0.0.1 -P 3307 -u admin -p'AuroraDevDb2025SecureX1' \
+        ticker_data -e "
+        SELECT
+            '$QUERY_DATE' as query_date,
+            COUNT(*) as total,
+            SUM(CASE WHEN DATE(created_at) = '$QUERY_DATE' THEN 1 ELSE 0 END) as created,
+            SUM(CASE WHEN DATE(updated_at) = '$QUERY_DATE' THEN 1 ELSE 0 END) as updated
+        FROM ticker_info
+        WHERE DATE(created_at) = '$QUERY_DATE' OR DATE(updated_at) = '$QUERY_DATE'
+        " 2>/dev/null | grep -v "insecure"
+
 # === HELP ===
 
 # Show Aurora commands and usage
@@ -148,9 +215,10 @@ help:
     @echo ""
     @echo "Database Operations:"
     @echo "  just aurora::query 'SELECT * FROM ticker_master LIMIT 5'"
-    @echo "  just aurora::query 'DESCRIBE precomputed_reports'"
-    @echo "  just aurora::query '...' --output vd   # Open in VisiData"
+    @echo "  just aurora::describe ticker_info       # Show table structure with comments"
+    @echo "  just aurora::query '...' --output vd    # Open in VisiData"
     @echo "  just aurora::list-tickers               # Show cached tickers"
+    @echo "  just aurora::count-ticker-info 2025-12-30  # Count rows for date"
     @echo ""
     @echo "Workflow:"
     @echo "  1. Start tunnel:  just aurora::tunnel (in separate terminal)"

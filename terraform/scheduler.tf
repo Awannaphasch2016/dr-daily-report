@@ -64,9 +64,9 @@ resource "aws_lambda_function" "ticker_scheduler" {
   # IMPORTANT: Only use subnets with NAT Gateway routes (local.private_subnets_with_nat)
   # Lambda needs internet access for yfinance, OpenRouter, and DynamoDB APIs
   vpc_config {
-      subnet_ids         = local.private_subnets_with_nat
-      security_group_ids = [aws_security_group.lambda_aurora.id]
-    }
+    subnet_ids         = local.private_subnets_with_nat
+    security_group_ids = [aws_security_group.lambda_aurora.id]
+  }
 
 
   tags = merge(local.common_tags, {
@@ -172,8 +172,10 @@ resource "aws_cloudwatch_event_rule" "daily_ticker_fetch" {
   description         = "Fetch ticker data daily at 5 AM Bangkok time (UTC+7)"
   schedule_expression = "cron(0 22 * * ? *)" # 22:00 UTC = 05:00 Bangkok next day
 
-  # Rule enabled - daily data fetch at 5 AM Bangkok (22:00 UTC previous day)
-  state = "ENABLED"
+  # Shadow Run: Toggle controlled by var.old_scheduler_enabled
+  # Phase 1-2: ENABLED (old continues as fallback)
+  # Phase 3+: DISABLED (cutover to new Scheduler)
+  state = var.old_scheduler_enabled ? "ENABLED" : "DISABLED"
 
   tags = merge(local.common_tags, {
     Name      = "${var.project_name}-daily-ticker-fetch-${var.environment}"
@@ -209,6 +211,119 @@ resource "aws_lambda_permission" "eventbridge_invoke_scheduler" {
 }
 
 ###############################################################################
+# EventBridge Scheduler (NEW Architecture)
+# Native timezone support: schedule_expression_timezone = "Asia/Bangkok"
+# Replaces EventBridge Rules with better semantic clarity
+###############################################################################
+
+# IAM Role for EventBridge Scheduler to invoke Lambda
+# Note: Scheduler uses IAM role (not resource-based policy like EventBridge Rules)
+resource "aws_iam_role" "eventbridge_scheduler" {
+  count = var.new_scheduler_enabled ? 1 : 0
+
+  name = "${var.project_name}-eventbridge-scheduler-role-${var.environment}"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Action = "sts:AssumeRole"
+      Effect = "Allow"
+      Principal = {
+        Service = "scheduler.amazonaws.com" # EventBridge Scheduler service principal
+      }
+    }]
+  })
+
+  tags = merge(local.common_tags, {
+    Name      = "${var.project_name}-eventbridge-scheduler-role-${var.environment}"
+    App       = "telegram-api"
+    Component = "scheduler-role"
+    Purpose   = "EventBridge Scheduler Lambda invocation"
+  })
+}
+
+# IAM Policy: Allow Scheduler to invoke Lambda (via live alias)
+resource "aws_iam_role_policy" "eventbridge_scheduler_lambda" {
+  count = var.new_scheduler_enabled ? 1 : 0
+
+  name = "${var.project_name}-scheduler-lambda-invoke-${var.environment}"
+  role = aws_iam_role.eventbridge_scheduler[0].id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Action = [
+        "lambda:InvokeFunction"
+      ]
+      Resource = [
+        aws_lambda_alias.ticker_scheduler_live.arn,     # Specific alias
+        "${aws_lambda_function.ticker_scheduler.arn}:*" # Any alias/version
+      ]
+    }]
+  })
+}
+
+# EventBridge Scheduler Schedule - Daily ticker data fetch
+# Semantic clarity: cron(0 5 * * ? *) + timezone = "Asia/Bangkok"
+# No more UTC offset mental math!
+resource "aws_scheduler_schedule" "daily_ticker_fetch_v2" {
+  count = var.new_scheduler_enabled ? 1 : 0
+
+  name       = "${var.project_name}-daily-ticker-fetch-v2-${var.environment}"
+  group_name = "default" # Use default schedule group
+
+  # Required parameter for Scheduler (not in EventBridge Rules)
+  flexible_time_window {
+    mode = "OFF" # Execute exactly at scheduled time (no flexibility)
+  }
+
+  # SEMANTIC CLARITY: Bangkok time with explicit timezone!
+  # Phase 1-2: Runs at same time as old rule (5 AM Bangkok)
+  # Replaces: cron(0 22 * * ? *) in UTC (confusing!)
+  schedule_expression          = "cron(0 5 * * ? *)" # 5 AM Bangkok
+  schedule_expression_timezone = "Asia/Bangkok"      # Explicit timezone
+
+  # Shadow Run Phase 2: Enable for parallel testing
+  # When new_scheduler_enabled=true, schedule becomes ENABLED
+  # Both old and new will trigger (2x invocations per day)
+  state = var.new_scheduler_enabled ? "ENABLED" : "DISABLED"
+
+  # Lambda target configuration (same as old EventBridge target)
+  target {
+    arn      = aws_lambda_alias.ticker_scheduler_live.arn
+    role_arn = aws_iam_role.eventbridge_scheduler[0].arn
+
+    # Same payload as old EventBridge target (line 197-200)
+    input = jsonencode({
+      action         = "precompute"
+      include_report = true
+    })
+
+    # Retry policy (optional but recommended)
+    retry_policy {
+      maximum_retry_attempts       = 2
+      maximum_event_age_in_seconds = 3600 # 1 hour
+    }
+
+    # Dead letter queue (optional, for failed invocations)
+    # Future enhancement: Add DLQ for monitoring failures
+    # dead_letter_config {
+    #   arn = aws_sqs_queue.scheduler_dlq.arn
+    # }
+  }
+
+  # Note: aws_scheduler_schedule does not support tags argument
+  # Tags can be applied via schedule groups instead
+
+  # Ensure IAM role exists before creating schedule
+  depends_on = [
+    aws_iam_role.eventbridge_scheduler,
+    aws_iam_role_policy.eventbridge_scheduler_lambda
+  ]
+}
+
+###############################################################################
 # Outputs
 ###############################################################################
 
@@ -229,10 +344,29 @@ output "ticker_scheduler_alias_arn" {
 
 output "ticker_scheduler_eventbridge_rule" {
   value       = aws_cloudwatch_event_rule.daily_ticker_fetch.name
-  description = "Name of the EventBridge rule for daily ticker fetch"
+  description = "Name of legacy EventBridge rule (Phase 1-2)"
+}
+
+output "ticker_scheduler_eventbridge_rule_v2" {
+  value       = var.new_scheduler_enabled ? aws_scheduler_schedule.daily_ticker_fetch_v2[0].name : null
+  description = "Name of new Scheduler schedule (Phase 2+, null if disabled)"
 }
 
 output "ticker_scheduler_enabled" {
   value       = aws_cloudwatch_event_rule.daily_ticker_fetch.state == "ENABLED"
-  description = "Whether the daily ticker fetch schedule is enabled"
+  description = "Whether the legacy daily ticker fetch schedule is enabled"
+}
+
+output "ticker_scheduler_v2_enabled" {
+  value       = var.new_scheduler_enabled ? aws_scheduler_schedule.daily_ticker_fetch_v2[0].state == "ENABLED" : false
+  description = "Whether the new Scheduler schedule is enabled (false if not deployed)"
+}
+
+output "ticker_scheduler_migration_phase" {
+  value = var.old_scheduler_enabled && !var.new_scheduler_enabled ? "phase-1-new-disabled" : (
+    var.old_scheduler_enabled && var.new_scheduler_enabled ? "phase-2-parallel" : (
+      !var.old_scheduler_enabled && var.new_scheduler_enabled ? "phase-3-cutover" : "phase-4-cleanup"
+    )
+  )
+  description = "Current migration phase based on toggle variables"
 }

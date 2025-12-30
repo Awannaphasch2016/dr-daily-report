@@ -174,6 +174,27 @@ resource "aws_db_subnet_group" "aurora" {
 }
 
 ###############################################################################
+# Aurora Parameter Group (Bangkok Timezone)
+###############################################################################
+
+resource "aws_rds_cluster_parameter_group" "aurora" {
+  name        = "${var.project_name}-aurora-params-${var.environment}"
+  family      = "aurora-mysql8.0"
+  description = "Aurora parameter group with Bangkok timezone (Asia/Bangkok)"
+
+  parameter {
+    name  = "time_zone"
+    value = "Asia/Bangkok"
+  }
+
+  tags = merge(local.common_tags, {
+    Name      = "${var.project_name}-aurora-params"
+    App       = "shared"
+    Component = "aurora-parameter-group"
+  })
+}
+
+###############################################################################
 # Aurora Serverless v2 Cluster
 ###############################################################################
 
@@ -186,8 +207,9 @@ resource "aws_rds_cluster" "aurora" {
   master_username    = var.aurora_master_username
   master_password    = var.AURORA_MASTER_PASSWORD
 
-  db_subnet_group_name   = aws_db_subnet_group.aurora.name
-  vpc_security_group_ids = [aws_security_group.aurora.id]
+  db_subnet_group_name            = aws_db_subnet_group.aurora.name
+  db_cluster_parameter_group_name = aws_rds_cluster_parameter_group.aurora.name
+  vpc_security_group_ids          = [aws_security_group.aurora.id]
 
   # Serverless v2 capacity configuration
   serverlessv2_scaling_configuration {

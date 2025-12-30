@@ -138,7 +138,7 @@ flowchart TD
 
     APPLY --> GUIDE{Skill Guides:<br/>How to approach?}
 
-    GUIDE -->|Research| M1[Multi-layer verification]
+    GUIDE -->|Research| M1[Progressive Evidence Strengthening:<br/>Surface → Content → Observability → Ground Truth]
     GUIDE -->|Code Review| M2[Security + Performance checklist]
     GUIDE -->|Deploy| M3[Zero-downtime pattern]
     GUIDE -->|Refactor| M4[Complexity analysis first]
@@ -168,6 +168,49 @@ flowchart TD
 - Loads skill methodology automatically
 - Applies "how to" guidance from skill
 - User never explicitly invokes skills (auto-discovered)
+
+---
+
+### 3.1 Progressive Evidence Strengthening Pattern
+
+**Universal verification principle**: Evidence sources have natural strength hierarchies. Always verify from weakest to strongest, never stop at surface signals.
+
+**Pattern structure**:
+```
+Weak Evidence → Stronger Evidence → Strongest Evidence
+     ↓                  ↓                    ↓
+  Confirms          Validates            Proves
+  execution         correctness          ground truth
+```
+
+**Domain instantiations**:
+
+| Domain | Surface | Content | Observability | Ground Truth |
+|--------|---------|---------|---------------|--------------|
+| HTTP APIs | Status code | Response payload | Application logs | Database state |
+| File ops | Exit code | File content | System logs | Disk state |
+| Database | Rowcount | Query result | DB logs | Table inspection |
+| Testing | Test passed | Output matches | No error logs | Side effects correct |
+| Deployments | Process exit | Health checks | CloudWatch logs | Traffic metrics |
+
+**Anti-pattern**: Trusting weak evidence
+```python
+# WRONG: Stop at surface signal
+if response.status_code == 200:
+    return "Success"  # But payload might be error!
+
+# CORRECT: Progress to ground truth
+if response.status_code == 200:
+    if validate_schema(response.json()):
+        if check_logs_clean():
+            if verify_database_state():
+                return "Verified success"
+```
+
+**Application in commands**:
+- `/validate`: Should progress through all evidence layers (currently stops at surface)
+- `/verify` (proposed): Always enforces full hierarchy
+- `/bug-hunt`: Should check data integrity (ground truth), not just existence (surface)
 
 ---
 
@@ -945,3 +988,260 @@ Feedback updates knowledge base
 ```
 
 **Result**: Claude thinks systematically, consistently, and learns over time.
+
+---
+
+## 11. Feedback Loop Types (Self-Healing Properties)
+
+Claude's thinking process includes self-healing mechanisms through five fundamental feedback loop types. These loops enable recovery from failures and continuous improvement.
+
+### Progress as Gradient (Implicit, Not Measured)
+
+**Principle**: Failure is not binary (0 or 1), but a gradient (0.0 to 1.0)
+
+**Gradient Definition**:
+- **1.0**: Goal fully achieved
+- **0.5**: Halfway toward goal (making progress)
+- **0.0**: Maximum distance from goal (complete failure)
+
+**Failure Redefined**: "Step taken moves away from goal"
+- **Negative gradient** (moving from 0.5 → 0.3) = failure (regressing)
+- **Positive gradient** (moving from 0.3 → 0.5) = progress (improving)
+- **Zero gradient** (stuck at 0.3) = no progress (trigger for escalation, not failure itself)
+
+**Key Insight**: "Not reaching goal" ≠ failure
+- Progress (0.0 → 0.7) without reaching goal (1.0) = still success (moving in right direction)
+- Regression (0.7 → 0.5) even if above baseline = failure (moved away from goal)
+
+**Relationship to Thinking Tools**:
+- Gradient is **implicit** (not measured explicitly)
+- Tools reveal gradient through patterns:
+  - Same `/trace` output repeatedly = zero gradient (stuck)
+  - Different `/trace` output each time = positive gradient (learning)
+  - `/reflect` makes gradient patterns visible ("I'm stuck" or "I'm making progress")
+- **No numeric measurement required** - pattern recognition sufficient
+
+---
+
+### Five Fundamental Loop Types
+
+#### 1. Retrying Loop (Single-Loop Learning)
+
+**What changes**: Execution (HOW), strategy unchanged
+
+**When to use**: First occurrence of failure, execution error
+
+**Tools**: `/trace` (find root cause), `/validate` (test fix)
+
+**Example**:
+```
+Bug: Lambda timeout
+→ /trace → Root cause: N+1 query
+→ Fix: Add batch loading
+→ /validate → Still timing out
+→ /trace → Root cause: Still N+1 (different location)
+→ Fix: Add caching
+→ /validate → Success
+```
+
+**Escalation signal**: Same `/trace` output repeatedly (stuck)
+
+---
+
+#### 2. Initial-Sensitive Loop (Double-Loop Learning)
+
+**What changes**: Assumptions/initial state (WHAT), approach unchanged
+
+**When to use**: Execution varies but outcome identical, assumptions might be wrong
+
+**Tools**: `/hypothesis` (generate alternatives), `/research` (test), `/validate` (check)
+
+**Example**:
+```
+After 3 retrying attempts with same failure:
+→ /reflect → "Execution varies, outcome identical"
+→ /hypothesis → "Maybe assumption X is wrong"
+→ /research → Test alternative assumption
+→ /validate → New assumption correct
+→ Success with different starting point
+```
+
+**Escalation signal**: `/validate` fails multiple hypotheses
+
+---
+
+#### 3. Branching Loop (Double-Loop Learning)
+
+**What changes**: Exploration path (WHERE), problem unchanged
+
+**When to use**: Multiple approaches needed, current path inadequate
+
+**Tools**: `/compare` (evaluate paths), `/impact` (assess consequences)
+
+**Example**:
+```
+Problem: Improve API performance
+→ Path 1: Caching → /impact → Limited gains
+→ Path 2: Query optimization → /impact → Better but complex
+→ Path 3: Async processing → /impact → Best trade-off
+→ /compare → Choose async processing
+```
+
+**Escalation signal**: `/impact` shows all paths inadequate
+
+---
+
+#### 4. Synchronize Loop (Single/Double-Loop Learning)
+
+**What changes**: Knowledge alignment with reality
+
+**When to use**: Drift detected, knowledge outdated (NOT failure-driven)
+
+**Tools**: `/validate` (check reality), `/consolidate` (align knowledge)
+
+**Example**:
+```
+Documentation says API uses JWT, code uses sessions
+→ /validate → Code reality = sessions
+→ /consolidate → Update mental model
+→ Documentation updated
+```
+
+**Escalation signal**: Drift recurring despite `/consolidate`
+
+---
+
+#### 5. Meta-Loop (Triple-Loop Learning)
+
+**What changes**: Loop type itself (PERSPECTIVE)
+
+**When to use**: Current loop type not making progress, perspective shift needed
+
+**Tools**: `/reflect` (detect stuck pattern), `/compare` (evaluate loop types)
+
+**Example**:
+```
+After multiple retrying attempts:
+→ /reflect → "I'm stuck in retrying loop"
+→ Pattern: Execution changes but outcome doesn't
+→ Meta-loop trigger: Switch to initial-sensitive
+→ /hypothesis → Question assumptions instead
+```
+
+**Escalation signal**: `/reflect` reveals loop type ineffective
+
+---
+
+### Escalation via Thinking Tools
+
+**Retrying → Initial-Sensitive**:
+- **Tool signal**: `/trace` shows same root cause repeatedly
+- **`/reflect` reveals**: "Execution varies but outcome identical"
+- **Pattern**: Retrying loop isn't working
+- **Escalate**: Use `/hypothesis` to question assumptions (initial-sensitive)
+
+**Initial-Sensitive → Branching**:
+- **Tool signal**: `/validate` shows multiple assumptions all fail
+- **`/reflect` reveals**: "Assumptions vary but all wrong"
+- **Pattern**: Initial-sensitive loop isn't working
+- **Escalate**: Use `/compare` to evaluate different paths (branching)
+
+**Branching → Meta-Loop**:
+- **Tool signal**: `/impact` shows all paths inadequate
+- **`/reflect` reveals**: "Multiple paths explored, none work"
+- **Pattern**: Branching loop isn't working
+- **Escalate**: Use `/reflect` to question problem framing (meta-loop)
+
+**Synchronize → Meta-Loop**:
+- **Tool signal**: `/validate` shows drift recurring despite sync
+- **`/reflect` reveals**: "Synchronization strategy ineffective"
+- **Pattern**: Synchronize loop isn't working
+- **Escalate**: Use `/compare` to evaluate sync strategies (meta-loop)
+
+---
+
+### Tool-Loop Mapping
+
+| Loop Type | Primary Tools | Escalation Signal | Learning Level |
+|-----------|---------------|-------------------|----------------|
+| **Retrying** | `/trace`, `/validate` | Same `/trace` output repeatedly | Single-Loop |
+| **Initial-Sensitive** | `/hypothesis`, `/research`, `/validate` | `/validate` fails multiple hypotheses | Double-Loop |
+| **Branching** | `/compare`, `/impact` | `/impact` shows all paths inadequate | Double-Loop |
+| **Synchronize** | `/validate`, `/consolidate` | Drift recurring despite `/consolidate` | Single/Double-Loop |
+| **Meta-Loop** | `/reflect`, `/compare` | `/reflect` reveals loop type ineffective | Triple-Loop |
+
+**Learning Levels** (Argyris & Schön, 1978):
+- **Single-Loop**: Error correction at execution level
+- **Double-Loop**: Question assumptions/strategy
+- **Triple-Loop**: Update learning process itself
+
+---
+
+### Metacognitive Self-Check (Tool-Based)
+
+When debugging or stuck, ask:
+
+**Pattern Detection**:
+- `/reflect`: "What pattern do I see in my attempts?"
+  - Same execution → Same outcome = normal progress
+  - Different execution → Same outcome = stuck in retrying (escalate!)
+
+**Root Cause Analysis**:
+- `/trace`: "What's the root cause?"
+  - If same answer repeatedly → stuck in retrying loop
+  - If different answers → making progress
+
+**Assumption Validation**:
+- `/validate`: "Is my assumption correct?"
+  - If fails repeatedly → escalate to initial-sensitive
+
+**Path Evaluation**:
+- `/compare`: "Which approach is better?"
+  - If all inadequate → escalate to branching or meta-loop
+
+**Progress Assessment**:
+- Gradient implicit in tool outputs
+- Repetition = zero gradient = escalation trigger
+- Variation = positive gradient = keep current loop
+
+---
+
+### Full Cycle with Self-Healing
+
+**Happy path**:
+```
+Problem → Decompose → Explore → Specify → Validate → Implement → Observe → Success
+```
+
+**Failure path (Retrying Loop)**:
+```
+Observe (failure) → /trace (root cause) → Fix → Implement → Observe → Success
+```
+
+**Strategy failure (Initial-Sensitive Loop)**:
+```
+Retrying (3x same error)
+    → /reflect (stuck signal)
+    → /hypothesis (new assumptions)
+    → /research (test)
+    → /validate (check)
+    → Success with different assumption
+```
+
+**Approach failure (Branching Loop)**:
+```
+Multiple approaches tried, all fail
+    → /compare (evaluate paths)
+    → /impact (assess alternatives)
+    → Choose best path
+    → Success with different direction
+```
+
+**Meta-cognitive failure (Meta-Loop)**:
+```
+Current loop type not working
+    → /reflect (detect pattern)
+    → /compare (loop types)
+    → Switch loop type
+    → Success with different perspective
+```

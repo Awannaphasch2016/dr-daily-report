@@ -100,9 +100,11 @@ production environment (~12 min)
 
 See [MULTI_ENV.md](MULTI_ENV.md) for environment separation patterns.
 
+> **Note**: Deployment verification applies **Progressive Evidence Strengthening** (CLAUDE.md Principle #2). We verify from weak evidence (exit codes) to strong evidence (actual traffic metrics).
+
 ### Pattern 3: Deployment Validation
 
-**Multi-Layer Verification:**
+**Multi-Layer Verification (Deployment Application):**
 
 1. **Status Code** (weakest signal)
    ```bash

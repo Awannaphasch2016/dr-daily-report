@@ -224,15 +224,15 @@ resource "aws_lambda_function" "get_ticker_list" {
       LOG_LEVEL        = "INFO"
       AURORA_HOST      = aws_rds_cluster.aurora.endpoint
       AURORA_PORT      = "3306"
-      AURORA_DATABASE  = var.aurora_database
-      AURORA_USERNAME  = var.aurora_username
-      AURORA_PASSWORD  = var.aurora_password
+      AURORA_DATABASE  = var.aurora_database_name
+      AURORA_USER      = var.aurora_master_username
+      AURORA_PASSWORD  = var.AURORA_MASTER_PASSWORD
     }
   }
 
   vpc_config {
-    subnet_ids         = aws_subnet.private[*].id
-    security_group_ids = [aws_security_group.lambda.id]
+    subnet_ids         = data.aws_subnets.default.ids
+    security_group_ids = [aws_security_group.lambda_aurora.id]
   }
 
   tags = merge(local.common_tags, {

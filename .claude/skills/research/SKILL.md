@@ -60,6 +60,27 @@ What's the problem?
 
 ---
 
+## Loop Pattern: Meta-Loop → Initial-Sensitive
+
+**Escalation Trigger**:
+- `/reflect` reveals: "I've tried 3 fixes, all failed with same error"
+- `/trace` output identical across attempts
+- **Pattern**: Stuck in retrying loop (execution changes, outcome doesn't)
+- **Action**: Use `/hypothesis` to question assumptions (switch to initial-sensitive)
+
+**Tools Used**:
+- `/observe` - Notice system behavior (what's failing)
+- `/hypothesis` - Generate alternative explanations (why might it fail differently than I think?)
+- `/research` - Test hypotheses systematically
+- `/validate` - Check if new understanding correct
+- `/reflect` - Synthesize learnings after investigation
+
+**Why This Works**: Research skill naturally fits initial-sensitive loop—you're questioning assumptions, not just fixing execution.
+
+See [Thinking Process Architecture - Feedback Loops](../../.claude/diagrams/thinking-process-architecture.md#11-feedback-loop-types-self-healing-properties) for structural overview.
+
+---
+
 ## Core Research Principles
 
 ### Principle 1: Research Before Iteration

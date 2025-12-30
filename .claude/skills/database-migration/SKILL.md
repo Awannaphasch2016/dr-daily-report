@@ -165,6 +165,92 @@ See [MYSQL-GOTCHAS.md](MYSQL-GOTCHAS.md) for detailed MySQL-specific issues.
 
 ---
 
+### Principle 4: Add Column Comments to Prevent Semantic Confusion
+
+**Pattern:** Use MySQL's native `COMMENT` syntax to document column semantics directly in the database schema.
+
+**Problem:** Column names alone can be semantically ambiguous:
+```sql
+-- What does "date" mean?
+CREATE TABLE ticker_data (
+    date DATE NOT NULL  -- Is this fetch date? Trading date? Calendar date?
+);
+```
+
+**Real Bug Example (2025-12-29):**
+- User queried `WHERE date = '2025-12-29'` expecting "today's data"
+- Got 0 results because `date` represents **trading date** (market close), NOT fetch date
+- Data for Dec 29 won't exist until Dec 30 5:00 AM Bangkok (19-hour gap)
+- Root cause: Semantic confusion about what "date" field represents
+
+**Solution:** Add `COLUMN COMMENT` to clarify semantics:
+```sql
+ALTER TABLE ticker_data
+MODIFY COLUMN date DATE NOT NULL
+COMMENT 'Trading date for stock market data (NOT fetch date). Represents the date when market closed, not when data was retrieved. Data for date D is fetched at 5:00 AM Bangkok on date D+1.';
+
+ALTER TABLE ticker_data
+MODIFY COLUMN fetched_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+COMMENT 'UTC timestamp when this data was fetched from Yahoo Finance API. Compare with date field to understand data age.';
+```
+
+**When to Add Comments:**
+1. **Date/timestamp columns** (highest confusion risk):
+   - Clarify what the date represents (trading date vs fetch date vs calendar date)
+   - Document timezone semantics (UTC vs local time)
+   - Explain time windows when data won't exist yet
+
+2. **JSON columns** (structure documentation):
+   - Document expected schema: `{date, open, high, low, close, volume}`
+   - List required vs optional fields
+
+3. **Enum-like VARCHAR columns** (valid values):
+   - Document valid values: `'pending', 'in_progress', 'completed', 'failed'`
+
+4. **Foreign key columns** (relationship clarity):
+   - Document what they reference: `'References ticker_master.id'`
+
+**Querying Column Comments:**
+```sql
+-- Get all comments for a table
+SELECT COLUMN_NAME, DATA_TYPE, COLUMN_COMMENT
+FROM INFORMATION_SCHEMA.COLUMNS
+WHERE TABLE_SCHEMA = DATABASE()
+  AND TABLE_NAME = 'ticker_data'
+ORDER BY ORDINAL_POSITION;
+
+-- Find uncommented date/timestamp columns (needs attention)
+SELECT TABLE_NAME, COLUMN_NAME
+FROM INFORMATION_SCHEMA.COLUMNS
+WHERE TABLE_SCHEMA = DATABASE()
+  AND DATA_TYPE IN ('date', 'timestamp')
+  AND (COLUMN_COMMENT IS NULL OR COLUMN_COMMENT = '');
+```
+
+**Migration Pattern:**
+```sql
+-- Migration 016: Add semantic comments to prevent date field confusion
+ALTER TABLE ticker_data
+MODIFY COLUMN date DATE NOT NULL
+COMMENT 'Trading date for stock market data (NOT fetch date). Represents the date when market closed, not when data was retrieved. Data for date D is fetched at 5:00 AM Bangkok on date D+1.';
+
+-- Always preserve existing column definition (type, constraints, defaults)
+-- when adding comments - use MODIFY COLUMN with full definition
+```
+
+**Benefits:**
+- Self-documenting database (no separate docs needed)
+- Queryable via `INFORMATION_SCHEMA.COLUMNS`
+- Zero performance impact (comments are metadata only)
+- Version-controlled via migration files
+- Prevents semantic misinterpretation bugs
+
+**Cost:** Zero (comments are metadata, don't affect queries or storage)
+
+See migration `db/migrations/016_add_semantic_comments.sql` for real example.
+
+---
+
 ## Migration Workflow
 
 ### 1. Development Migration

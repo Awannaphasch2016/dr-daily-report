@@ -44,7 +44,53 @@ def test_store_data(self):
     assert stored['price'] == 150.25
 ```
 
-### 3. No Silent Fallbacks
+### 3. Progressive Evidence Strengthening in Tests
+
+Tests should verify through **all evidence layers**, not just surface signals.
+
+**Evidence hierarchy for tests**:
+1. **Surface**: Test didn't raise exception (weakest)
+2. **Content**: Assertions passed (stronger)
+3. **Observability**: No error logs during test (stronger)
+4. **Ground truth**: Actual side effects match intent (strongest)
+
+**Example**:
+```python
+def test_user_creation():
+    # Layer 1: Surface (test runs without exception)
+    user = create_user("test@example.com")
+
+    # Layer 2: Content (assertions pass)
+    assert user.email == "test@example.com"
+    assert user.id is not None
+
+    # Layer 3: Observability (no errors logged)
+    assert len(caplog.records) == 0
+
+    # Layer 4: Ground truth (database state matches)
+    db_user = db.query(User).filter_by(id=user.id).first()
+    assert db_user is not None
+    assert db_user.email == "test@example.com"
+```
+
+**Anti-pattern**: Stopping at surface
+```python
+def test_save_data():
+    save_data(item)
+    # Test passes but doesn't verify data actually saved! (only verified no exception)
+```
+
+**Correct pattern**: Verify ground truth
+```python
+def test_save_data():
+    save_data(item)
+    # Verify database state (ground truth)
+    assert db.query(Item).filter_by(id=item.id).first() is not None
+```
+
+See CLAUDE.md Principle #2 for the general pattern.
+
+### 4. No Silent Fallbacks
 
 **Principle**: Default values should be explicit, not hidden error recovery.
 

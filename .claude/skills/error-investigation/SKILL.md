@@ -59,6 +59,26 @@ What's failing?
 
 ---
 
+## Loop Pattern: Retrying Loop → Synchronize Loop
+
+**Escalation Trigger**:
+- `/trace` shows root cause
+- Fix applied, `/validate` shows success
+- But error recurs later (knowledge drift)
+
+**Tools Used**:
+- `/trace` - Find root cause (backward trace from error)
+- `/validate` - Verify fix works (test the solution)
+- `/consolidate` - Update knowledge base (documentation, runbooks)
+- `/observe` - Monitor for recurring issues (drift detection)
+- `/reflect` - Assess if error represents pattern vs one-off
+
+**Why This Works**: Error investigation fits retrying loop (find root cause, fix execution), but recurring errors trigger synchronize loop (update knowledge/documentation).
+
+See [Thinking Process Architecture - Feedback Loops](../../.claude/diagrams/thinking-process-architecture.md#11-feedback-loop-types-self-healing-properties) for structural overview.
+
+---
+
 ## Core Investigation Principles
 
 ### Principle 1: Execution Completion ≠ Operational Success
@@ -91,7 +111,9 @@ logs = cloudwatch.filter_log_events(
 assert len(logs['events']) == 0
 ```
 
-### Principle 2: Multi-Layer Verification
+> **Note**: This is the AWS-specific application of **Progressive Evidence Strengthening** (CLAUDE.md Principle #2). The general pattern applies across all domains—here we show how it manifests in AWS Lambda/API debugging.
+
+### Principle 2: Multi-Layer Verification (AWS Application)
 
 **The Three Layers:**
 

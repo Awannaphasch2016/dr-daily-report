@@ -684,17 +684,17 @@ Execute /journal [category inferred from report]
 ```markdown
 ---
 composition:
-  - script: .claude/skills/refactor/scripts/analyze_complexity.py
-  - skill: refactor
+  - script: .claude/skills/refacter/scripts/analyze_complexity.py
+  - skill: refacter
 ---
 
 # In prompt template:
 Run complexity analysis:
 ```bash
-python .claude/skills/refactor/scripts/analyze_complexity.py src/
+python .claude/skills/refacter/scripts/analyze_complexity.py src/
 ```
 
-Then use refactor skill to interpret results and suggest improvements.
+Then use refacter skill to interpret results and suggest improvements.
 ```
 
 **Example**: Complexity review could run analysis script, then invoke refactor skill

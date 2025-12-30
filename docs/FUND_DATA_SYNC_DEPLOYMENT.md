@@ -47,6 +47,29 @@ Aurora MySQL (fund_data table)
 | **Security** | VPC isolation, least privilege IAM, SSE-SQS encryption |
 | **Data Lineage** | s3_source_key tracks origin of every record |
 
+### Timezone Configuration
+
+**System timezone**: Asia/Bangkok (UTC+7)
+
+**Components**:
+- **On-premise export**: Bangkok time (04:00 AM daily)
+- **S3 uploads**: Bangkok timestamps (04:11 AM pattern)
+- **Lambda processing**: Bangkok time (TZ env var)
+- **Aurora storage**: Bangkok time (parameter group)
+
+**Migration date**: 2025-12-30
+
+**Historical data**:
+- Pre-2025-12-30: `synced_at` in UTC
+- Post-2025-12-30: `synced_at` in Bangkok time
+- Both are acceptable - no conversion needed
+
+**Verification**:
+```sql
+SELECT @@global.time_zone, NOW(), UTC_TIMESTAMP();
+-- Expected: Asia/Bangkok, <Bangkok time>, <UTC 7 hours behind>
+```
+
 ---
 
 ## Components Implemented

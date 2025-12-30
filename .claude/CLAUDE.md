@@ -27,8 +27,17 @@ For complete component inventory, technology stack, and directory structure, see
 ### 1. Defensive Programming
 Fail fast and visibly when something is wrong. Silent failures hide bugs. Validate configuration at startup, not on first use. Explicitly detect operation failures (rowcount, status codes). No silent fallbacks or default values that hide error recovery. **Never assume data exists** without validating first. See [code-review skill](.claude/skills/code-review/).
 
-### 2. Multi-Layer Verification
-Execution completion ≠ Operational success. Verify actual outcomes across multiple layers: status code (weakest), response payload (stronger), CloudWatch logs (strongest). Services can complete successfully while critical operations fail internally. See [error-investigation skill](.claude/skills/error-investigation/).
+### 2. Progressive Evidence Strengthening
+Execution completion ≠ Operational success. Trust but verify through increasingly strong evidence sources. **Surface signals** (status codes, exit codes) are weakest—they confirm execution finished but not correctness. **Content signals** (payloads, data structures) are stronger—they validate schema and presence. **Observability signals** (execution traces, logs) are stronger still—they reveal what actually happened. **Ground truth** (actual state changes, side effects) is strongest—it confirms intent matched reality. Never stop verification at weak evidence—progress until ground truth is verified.
+
+**Domain applications**:
+- **HTTP APIs**: Status code → Response payload → Application logs → Database state
+- **File operations**: Exit code → File content → System logs → Disk state
+- **Database ops**: Rowcount → Query result → DB logs → Table inspection
+- **Deployments**: Process exit → Service health → CloudWatch logs → Traffic metrics
+- **Testing**: Test passed → Output correct → No errors logged → Side effects verified
+
+See [error-investigation skill](.claude/skills/error-investigation/) for AWS-specific application.
 
 ### 3. Aurora-First Data Architecture
 Aurora is the source of truth. Data precomputed nightly via scheduler (46 tickers). Report APIs are read-only and query Aurora directly. If data missing, APIs return error (fail-fast) instead of falling back to external APIs. Ensures consistent performance and prevents unpredictable latency.
@@ -40,7 +49,7 @@ Research type compatibility BEFORE integrating heterogeneous systems (APIs, data
 Migration files are immutable once committed—never edit them. Always create new migrations for schema changes. Use reconciliation migrations (idempotent operations: CREATE TABLE IF NOT EXISTS) when database state is unknown. Prevents migration conflicts and unclear execution states. Verify with `DESCRIBE table_name` after applying. See [database-migration skill](.claude/skills/database-migration/).
 
 ### 6. Deployment Monitoring Discipline
-Use AWS CLI waiters (`aws lambda wait function-updated`), never `sleep X`. Use GitHub Actions `gh run watch --exit-status` for proper exit codes. Multi-layer verification: status code + payload + CloudWatch logs. Validate infrastructure-deployment contract before deploying (GitHub secrets match AWS reality). See [deployment skill](.claude/skills/deployment/).
+Use AWS CLI waiters (`aws lambda wait function-updated`), never `sleep X`. Use GitHub Actions `gh run watch --exit-status` for proper exit codes. Apply Progressive Evidence Strengthening (Principle #2): verify status code + payload + logs + actual behavior. Validate infrastructure-deployment contract before deploying (GitHub secrets match AWS reality). See [deployment skill](.claude/skills/deployment/).
 
 ### 7. Loud Mock Pattern
 Mock/stub data in production code must be centralized, explicit, and loud. Register ALL mocks in centralized registry (`src/mocks/__init__.py`), log loudly at startup (WARNING level), gate behind environment variables (fail in production if unexpected mocks active), document why each mock exists (owner, date, reason). Valid: speeding local dev. Invalid: hiding implementation gaps, bypassing security.
@@ -48,14 +57,43 @@ Mock/stub data in production code must be centralized, explicit, and loud. Regis
 ### 8. Error Handling Duality
 Workflow nodes use state-based error propagation (collect all errors, enable resumable workflows). Utility functions raise descriptive exceptions (fail fast). Never mix patterns. Functions returning `None` on failure create cascading silent failures—prefer explicit exceptions. See [Code Style Guide](docs/CODE_STYLE.md#error-handling-patterns).
 
-### 9. Testing Anti-Patterns Awareness
+### 9. Feedback Loop Awareness
+When failures persist, use `/reflect` to identify which loop type you're using: retrying (fix execution), initial-sensitive (change assumptions), branching (try different path), synchronize (align knowledge), or meta-loop (change loop type itself). Thinking tools reveal progress patterns without explicit metrics—use `/trace` for root cause, `/hypothesis` for new assumptions, `/compare` for path evaluation. See [Thinking Process Architecture - Feedback Loops](.claude/diagrams/thinking-process-architecture.md#11-feedback-loop-types-self-healing-properties) and [Metacognitive Commands](.claude/diagrams/thinking-process-architecture.md#metacognitive-commands-thinking-about-thinking).
+
+### 10. Testing Anti-Patterns Awareness
 Test outcomes, not execution. Verify results, not just that functions were called. MagicMock defaults are truthy—explicitly mock failure states. Round-trip tests for persistence. Schema testing at boundaries. Database operations fail without exceptions—check rowcount. After writing test, break code to verify test catches it. See [testing-workflow skill](.claude/skills/testing-workflow/).
 
-### 10. Artifact Promotion Principle
+### 11. Artifact Promotion Principle
 Build once, promote same immutable Docker image through all environments (dev → staging → prod). What you test in staging is exactly what deploys to production. Use immutable image digests, not tags. Verify all environments use identical digest. See [deployment skill](.claude/skills/deployment/MULTI_ENV.md) and [docs/deployment/MULTI_ENV.md](docs/deployment/MULTI_ENV.md).
 
-### 11. OWL-Based Relationship Analysis
+### 12. OWL-Based Relationship Analysis
 Use formal ontology relationships (OWL, RDF) for structured concept comparison. Eliminates "it depends" answers by applying 4 fundamental relationship types: part-whole, complement, substitution, composition. Transforms vague "X vs Y" questions into precise analytical frameworks with concrete examples. See [Relationship Analysis Guide](docs/RELATIONSHIP_ANALYSIS.md).
+
+### 13. Secret Management Discipline
+Use Doppler for centralized secret management with config inheritance to prevent duplication. Cross-environment inheritance (dev → local_dev in `local` environment) automatically syncs shared secrets while allowing local overrides. Validate secrets at application startup, not on first use (fail-fast principle).
+
+**Doppler Constraints** (platform limitations):
+1. **Same-environment inheritance forbidden**: Configs in same environment cannot inherit from each other
+2. **Environment-prefixed naming required**: Configs must use environment prefix (e.g., `local_*` for `local` environment)
+3. **Cross-environment inheritance allowed**: `local_dev` (in `local` env) can inherit from `dev` (in `dev` env)
+
+**Config Organization**:
+- `dev` (root, AWS): Shared development secrets
+- `local_dev` (branch, inherits from dev): Local overrides only (localhost, mock flags)
+- `stg` (root, AWS): Staging secrets
+- `prd` (root, AWS): Production secrets
+
+**Benefits**:
+- No secret duplication (9 local overrides + 9 inherited = 18 total)
+- Automatic propagation when dev secrets updated
+- Clear separation between environments
+
+**Anti-patterns**:
+- ❌ Duplicating secrets across configs (breaks single source of truth)
+- ❌ Same-environment inheritance (violates Doppler constraint)
+- ❌ Manual secret sync (error-prone, causes drift)
+
+See [Doppler Config Guide](docs/deployment/DOPPLER_CONFIG.md) for setup workflows and troubleshooting.
 
 ---
 

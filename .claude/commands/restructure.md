@@ -1,5 +1,5 @@
 ---
-name: refactor
+name: restructure
 description: Analyze code complexity and hotspots with actionable refactoring recommendations (auto-detects analysis mode)
 accepts_args: true
 arg_schema:
@@ -10,10 +10,10 @@ arg_schema:
     required: false
     description: "Analysis mode (complexity/hotspots/all) OR output filename"
 composition:
-  - skill: refactor
+  - skill: refacter
 ---
 
-# Refactor Command
+# Restructure Command
 
 **Purpose**: Analyze code complexity and hotspots to identify high-priority refactoring opportunities
 
@@ -176,7 +176,7 @@ echo "Target: $TARGET"
 
 **Complexity mode**:
 ```bash
-python .claude/skills/refactor/scripts/analyze_complexity.py "$TARGET" \
+python .claude/skills/refacter/scripts/analyze_complexity.py "$TARGET" \
   --max-cc 10 \
   --max-cognitive 15 \
   --max-loc 50 \
@@ -186,7 +186,7 @@ python .claude/skills/refactor/scripts/analyze_complexity.py "$TARGET" \
 
 **Hotspots mode**:
 ```bash
-python .claude/skills/refactor/scripts/analyze_hotspots.py "$TARGET" \
+python .claude/skills/refacter/scripts/analyze_hotspots.py "$TARGET" \
   --since "6 months ago" \
   --top 20 \
   --min-commits 15 \
@@ -322,7 +322,7 @@ EXPECTED IMPROVEMENT:
 • Cognitive: {before_cog} → {after_cog} (no deep nesting)
 
 Pattern reference:
-  .claude/skills/refactor/REFACTORING-PATTERNS.md#{pattern_id}
+  .claude/skills/refacter/REFACTORING-PATTERNS.md#{pattern_id}
 ```
 
 ---
@@ -350,7 +350,7 @@ P0 - CRITICAL HOTSPOTS ({count} files)
    Complex functions:
    • {function_name} (line {lineno}) - CC: {cc}, Cognitive: {cognitive}, LOC: {loc}
      Patterns: {pattern1}, {pattern2}
-     See: .claude/skills/refactor/REFACTORING-PATTERNS.md#{pattern_id}
+     See: .claude/skills/refacter/REFACTORING-PATTERNS.md#{pattern_id}
 
    🚨 Action: URGENT - Refactor before next feature
 
@@ -479,17 +479,17 @@ COMPLEX FUNCTIONS (3 functions above threshold)
 🔴 score_report (line 248)
    CC: 18, Cognitive: 22, LOC: 68, Params: 1
    Patterns: Extract Method, Simplify Conditionals, Guard Clauses
-   See: .claude/skills/refactor/REFACTORING-PATTERNS.md#extract-method
+   See: .claude/skills/refacter/REFACTORING-PATTERNS.md#extract-method
 
 ⚠️  validate_ticker_data (line 156)
    CC: 14, Cognitive: 16, LOC: 52, Params: 1
    Patterns: Guard Clauses
-   See: .claude/skills/refactor/REFACTORING-PATTERNS.md#guard-clauses
+   See: .claude/skills/refacter/REFACTORING-PATTERNS.md#guard-clauses
 
 ⚠️  process_news_feed (line 324)
    CC: 12, Cognitive: 14, LOC: 45, Params: 2
    Patterns: Extract Method
-   See: .claude/skills/refactor/REFACTORING-PATTERNS.md#extract-method
+   See: .claude/skills/refacter/REFACTORING-PATTERNS.md#extract-method
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 EXAMPLE REFACTORING: score_report
@@ -772,7 +772,7 @@ Cyclomatic complexity > 10 is hard to test. Aim for 5-7 for critical code.
 
 ## See Also
 
-- `.claude/skills/refactor/SKILL.md` - Refactor skill documentation
-- `.claude/skills/refactor/REFACTORING-PATTERNS.md` - Pattern catalog
-- `.claude/skills/refactor/scripts/analyze_complexity.py` - Complexity analysis tool
-- `.claude/skills/refactor/scripts/analyze_hotspots.py` - Hotspot detection tool
+- `.claude/skills/refacter/SKILL.md` - Refacter skill documentation
+- `.claude/skills/refacter/REFACTORING-PATTERNS.md` - Pattern catalog
+- `.claude/skills/refacter/scripts/analyze_complexity.py` - Complexity analysis tool
+- `.claude/skills/refacter/scripts/analyze_hotspots.py` - Hotspot detection tool

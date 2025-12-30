@@ -17,6 +17,7 @@ from typing import Dict, List, Any, Optional
 import pandas as pd
 import numpy as np
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from src.data.data_fetcher import DataFetcher
 from src.data.s3_cache import S3Cache
@@ -150,8 +151,9 @@ class TickerFetcher:
         ticker_info = resolver.resolve(ticker)
         yahoo_ticker = ticker_info.yahoo_symbol if ticker_info else ticker
 
-        # TIMEZONE FIX: Use UTC date to match Aurora storage (Aurora runs in UTC)
-        today = datetime.utcnow().date().isoformat()
+        # Use Bangkok timezone for date (scheduler runs at 5 AM Bangkok)
+        bangkok_tz = ZoneInfo("Asia/Bangkok")
+        today = datetime.now(bangkok_tz).date().isoformat()
 
         try:
             logger.info(f"Fetching data for {ticker} -> {yahoo_ticker}...")
@@ -172,10 +174,11 @@ class TickerFetcher:
                     # Extract company_info (all fields except history)
                     company_info = {k: v for k, v in data.items() if k != 'history'}
 
-                    # TIMEZONE FIX: Use UTC date to match Aurora timezone (Aurora runs in UTC)
+                    # Use Bangkok timezone for date (scheduler runs at 5 AM Bangkok)
+                    bangkok_tz = ZoneInfo("Asia/Bangkok")
                     self.precompute_service.store_ticker_data(
                         symbol=ticker,
-                        data_date=datetime.utcnow().date(),
+                        data_date=datetime.now(bangkok_tz).date(),
                         price_history=price_history,
                         company_info=company_info,
                         financials=None  # Not fetched yet
@@ -309,12 +312,13 @@ class TickerFetcher:
         Returns:
             Dict with success/failed lists and summary
         """
-        # TIMEZONE FIX: Use UTC date to match Aurora timezone (Aurora runs in UTC)
+        # Use Bangkok timezone for date (scheduler runs at 5 AM Bangkok)
+        bangkok_tz = ZoneInfo("Asia/Bangkok")
         results = {
             'success': [],
             'failed': [],
             'total': len(tickers),
-            'date': datetime.utcnow().date().isoformat()
+            'date': datetime.now(bangkok_tz).date().isoformat()
         }
 
         for ticker in tickers:
@@ -356,9 +360,10 @@ class TickerFetcher:
         Returns:
             Cached data dict or None if not found
         """
-        # TIMEZONE FIX: Use UTC date to match Aurora timezone (Aurora runs in UTC)
+        # Use Bangkok timezone for date (scheduler runs at 5 AM Bangkok)
         if fetch_date is None:
-            fetch_date = datetime.utcnow().date().isoformat()
+            bangkok_tz = ZoneInfo("Asia/Bangkok")
+            fetch_date = datetime.now(bangkok_tz).date().isoformat()
 
         return self.s3_cache.get_json(
             cache_type='ticker_data',

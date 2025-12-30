@@ -166,6 +166,7 @@ class FundDataRepository:
         values_clauses = []
         params = []
         for record in batch:
+            # synced_at = NOW() uses Bangkok timezone (Asia/Bangkok) - matches on-premise export timezone
             values_clauses.append("(%s, %s, %s, %s, %s, %s, %s, %s, NOW())")
             params.extend([
                 self._normalize_date(record['d_trade']),
@@ -181,6 +182,7 @@ class FundDataRepository:
         query += ", ".join(values_clauses)
 
         # ON DUPLICATE KEY UPDATE (idempotency)
+        # synced_at updated to Bangkok time (Asia/Bangkok) on duplicate
         query += """
             ON DUPLICATE KEY UPDATE
                 value_numeric = VALUES(value_numeric),

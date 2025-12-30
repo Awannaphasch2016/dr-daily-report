@@ -57,6 +57,232 @@ verify:
     @echo "🔍 Verifying development environment..."
     dr dev verify
 
+# Verify Fund Data ETL workflow (S3 → SQS → Lambda → Aurora)
+verify-fund-data:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    echo "=========================================="
+    echo "Fund Data ETL Workflow Verification"
+    echo "=========================================="
+    echo ""
+    echo "Flow: On-premise SQL Server → S3 → SQS → Lambda → Aurora"
+    echo ""
+
+    # Check if Aurora tunnel is running
+    if ! ss -ltn | grep -q 3307; then
+        echo "⚠️  Aurora tunnel not running on port 3307"
+        echo "   Start tunnel: just --unstable aurora tunnel"
+        echo ""
+        echo "Skipping Aurora verification..."
+        AURORA_AVAILABLE=false
+    else
+        AURORA_AVAILABLE=true
+    fi
+
+    # ============================================================================
+    # Layer 1: Aurora Database (Ground Truth)
+    # ============================================================================
+
+    if [ "$AURORA_AVAILABLE" = true ]; then
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "1️⃣  Aurora Database Verification"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo ""
+
+        # Query recent fund_data records
+        mysql -h 127.0.0.1 -P 3307 -u admin -p'AuroraDevDb2025SecureX1' ticker_data -e "
+        SELECT
+          d_trade as 'Trading Date',
+          COUNT(*) as 'Total Records',
+          COUNT(DISTINCT stock) as 'Unique Stocks',
+          SUM(CASE WHEN value_numeric IS NOT NULL THEN 1 ELSE 0 END) as 'Numeric Values',
+          SUM(CASE WHEN value_text IS NOT NULL THEN 1 ELSE 0 END) as 'Text Values',
+          DATE_FORMAT(MAX(synced_at), '%Y-%m-%d %H:%i:%s') as 'Last Sync (Bangkok)'
+        FROM fund_data
+        WHERE d_trade >= CURDATE() - INTERVAL 7 DAY
+        GROUP BY d_trade
+        ORDER BY d_trade DESC
+        LIMIT 7;
+        " 2>/dev/null | grep -v "insecure"
+
+        echo ""
+
+        # Get latest record details
+        LATEST_DATE=$(mysql -h 127.0.0.1 -P 3307 -u admin -p'AuroraDevDb2025SecureX1' ticker_data -N -e "SELECT MAX(d_trade) FROM fund_data" 2>/dev/null)
+        LATEST_COUNT=$(mysql -h 127.0.0.1 -P 3307 -u admin -p'AuroraDevDb2025SecureX1' ticker_data -N -e "SELECT COUNT(*) FROM fund_data WHERE d_trade = '$LATEST_DATE'" 2>/dev/null)
+
+        if [ "$LATEST_COUNT" -gt 0 ]; then
+            echo "✅ Aurora has fund_data: Latest date = $LATEST_DATE ($LATEST_COUNT records)"
+        else
+            echo "❌ No fund_data found in Aurora"
+        fi
+        echo ""
+    fi
+
+    # ============================================================================
+    # Layer 2: S3 Data Lake (Upload Verification)
+    # ============================================================================
+
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "2️⃣  S3 Data Lake Verification"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+
+    # List recent S3 uploads
+    echo "Recent CSV uploads (last 10):"
+    ENV=dev doppler run -- aws s3 ls \
+      s3://dr-daily-report-data-lake-dev/raw/sql_server/fund_data/ \
+      --recursive \
+      --human-readable \
+      | tail -10 || echo "❌ Failed to list S3 objects"
+
+    echo ""
+
+    # Check for today's upload
+    TODAY=$(date +%Y-%m-%d)
+    if ENV=dev doppler run -- aws s3 ls \
+      s3://dr-daily-report-data-lake-dev/raw/sql_server/fund_data/ \
+      --recursive | grep -q "$TODAY"; then
+        echo "✅ S3 has CSV upload for today ($TODAY)"
+    else
+        echo "⚠️  No S3 upload found for today ($TODAY)"
+        echo "   This may be expected if export hasn't run yet"
+    fi
+    echo ""
+
+    # ============================================================================
+    # Layer 3: SQS Queue (Event Processing)
+    # ============================================================================
+
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "3️⃣  SQS Queue Health"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+
+    # Get queue URL
+    QUEUE_URL=$(ENV=dev doppler run -- aws sqs get-queue-url \
+      --queue-name dr-daily-report-fund-data-sync-queue-dev \
+      --query 'QueueUrl' \
+      --output text 2>/dev/null)
+
+    if [ -n "$QUEUE_URL" ]; then
+        # Get queue attributes
+        QUEUE_ATTRS=$(ENV=dev doppler run -- aws sqs get-queue-attributes \
+          --queue-url "$QUEUE_URL" \
+          --attribute-names ApproximateNumberOfMessages,ApproximateNumberOfMessagesNotVisible,ApproximateNumberOfMessagesDelayed \
+          2>/dev/null)
+
+        MSGS_AVAILABLE=$(echo "$QUEUE_ATTRS" | jq -r '.Attributes.ApproximateNumberOfMessages // "0"')
+        MSGS_IN_FLIGHT=$(echo "$QUEUE_ATTRS" | jq -r '.Attributes.ApproximateNumberOfMessagesNotVisible // "0"')
+        MSGS_DELAYED=$(echo "$QUEUE_ATTRS" | jq -r '.Attributes.ApproximateNumberOfMessagesDelayed // "0"')
+
+        echo "Queue: dr-daily-report-fund-data-sync-queue-dev"
+        echo "  Messages Available:  $MSGS_AVAILABLE (waiting to be processed)"
+        echo "  Messages In Flight:  $MSGS_IN_FLIGHT (currently processing)"
+        echo "  Messages Delayed:    $MSGS_DELAYED (scheduled for future)"
+        echo ""
+
+        if [ "$MSGS_AVAILABLE" -gt 10 ]; then
+            echo "⚠️  High message backlog ($MSGS_AVAILABLE messages)"
+            echo "   Lambda may be failing or processing slowly"
+        elif [ "$MSGS_AVAILABLE" -eq 0 ] && [ "$MSGS_IN_FLIGHT" -eq 0 ]; then
+            echo "✅ Queue is healthy (no backlog)"
+        else
+            echo "✅ Queue is processing messages normally"
+        fi
+    else
+        echo "❌ Failed to get SQS queue URL"
+    fi
+    echo ""
+
+    # ============================================================================
+    # Layer 4: Lambda Function (Processing)
+    # ============================================================================
+
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "4️⃣  Lambda Function Status"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+
+    # Get Lambda function info
+    LAMBDA_INFO=$(ENV=dev doppler run -- aws lambda get-function \
+      --function-name dr-daily-report-fund-data-sync-dev 2>/dev/null)
+
+    if [ -n "$LAMBDA_INFO" ]; then
+        LAMBDA_STATE=$(echo "$LAMBDA_INFO" | jq -r '.Configuration.State')
+        LAMBDA_MODIFIED=$(echo "$LAMBDA_INFO" | jq -r '.Configuration.LastModified')
+
+        echo "Function: dr-daily-report-fund-data-sync-dev"
+        echo "  State:         $LAMBDA_STATE"
+        echo "  Last Modified: $LAMBDA_MODIFIED"
+        echo ""
+
+        if [ "$LAMBDA_STATE" = "Active" ]; then
+            echo "✅ Lambda is active and ready"
+        else
+            echo "❌ Lambda is not active (state: $LAMBDA_STATE)"
+        fi
+    else
+        echo "❌ Failed to get Lambda function info"
+    fi
+    echo ""
+
+    # ============================================================================
+    # Summary
+    # ============================================================================
+
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "Summary"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+    echo "Verification complete! Check results above."
+    echo ""
+    echo "Next steps:"
+    echo "  • View Lambda logs:  just fund-data-logs"
+    echo "  • Test upload:       just fund-data-test-upload"
+    echo "  • Aurora tunnel:     just --unstable aurora tunnel"
+    echo ""
+
+# View Fund Data Lambda logs (last 1 hour)
+fund-data-logs:
+    @echo "📜 Tailing Fund Data Sync Lambda logs (last 1 hour)..."
+    @echo ""
+    ENV=dev doppler run -- aws logs tail \
+      /aws/lambda/dr-daily-report-fund-data-sync-dev \
+      --since 1h \
+      --format short \
+      --follow
+
+# Test Fund Data ETL with sample S3 upload
+fund-data-test-upload:
+    @echo "🧪 Testing Fund Data ETL with sample upload..."
+    @echo ""
+    @echo "This will:"
+    @echo "  1. Upload sample CSV to S3"
+    @echo "  2. Trigger S3 event → SQS → Lambda → Aurora"
+    @echo "  3. Verify processing succeeded"
+    @echo ""
+    @read -p "Continue? (y/N) " confirm && [ "$$confirm" = "y" ] || exit 0
+    @echo ""
+    @echo "Creating sample CSV..."
+    @cat > /tmp/fund_data_test.csv <<'EOF'
+    D_TRADE,STOCK,TICKER,COL_CODE,VALUE_NUMERIC,VALUE_TEXT,SOURCE,UPDATED_AT
+    2025-12-30,TEST01,TEST.SI,FY1_PE,15.50,,,2025-12-30 08:00:00
+    2025-12-30,TEST01,TEST.SI,SECTOR,,Technology,,2025-12-30 08:00:00
+    EOF
+    @echo "✅ Sample CSV created"
+    @echo ""
+    @echo "Uploading to S3..."
+    ENV=dev doppler run -- aws s3 cp \
+      /tmp/fund_data_test.csv \
+      s3://dr-daily-report-data-lake-dev/raw/sql_server/fund_data/test_$(date +%Y%m%d_%H%M%S).csv
+    @echo ""
+    @echo "✅ Upload complete!"
+    @echo ""
+    @echo "Wait 5-10 seconds for processing, then check:"
+    @echo "  just verify-fund-data"
+
 # === TELEGRAM MINI APP DEVELOPMENT ===
 
 # Verify Telegram Mini App development setup

@@ -5,7 +5,7 @@ accepts_args: true
 arg_schema:
   - name: focus_area
     required: false
-    description: "Optional focus: testing, deployment, error-handling, architecture, or 'all' (default)"
+    description: "Optional focus: testing, deployment, error-handling, architecture, docs, cli, or 'all' (default)"
 composition:
   - skill: research
 ---
@@ -32,6 +32,8 @@ composition:
 /evolve deployment       # Focus on deployment practices
 /evolve error-handling   # Focus on error handling
 /evolve architecture     # Focus on architecture patterns
+/evolve docs             # Focus on documentation drift
+/evolve cli              # Focus on CLI command drift
 ```
 
 ---
@@ -100,6 +102,122 @@ composition:
 - New design patterns adopted
 - Architectural principles violated
 - Patterns used don't match docs
+
+---
+
+### `docs` - Documentation Quality & Drift
+
+**What it reviews**:
+- Documentation files (`docs/**/*.md`, `README.md`, ADRs)
+- Documentation journals (if any doc-specific journals exist)
+- Code comments and docstrings
+- CLAUDE.md documentation references
+- API documentation (if exists)
+- Internal links between documentation
+
+**Drift indicators**:
+- Documentation describes features that don't exist (false documentation)
+- Features exist but not documented (missing documentation)
+- Examples in docs are outdated or broken
+- API docs don't match actual endpoints/signatures
+- README setup instructions don't work
+- Broken internal links in documentation
+- TODOs/FIXMEs in code not reflected in docs
+- Deployment instructions out of sync with actual process
+
+**What to check**:
+```bash
+# Find all documentation
+find docs/ -name "*.md"
+find . -maxdepth 1 -name "*.md"
+
+# Check code comments and TODOs
+grep -r "TODO\|FIXME\|XXX" src/ tests/
+
+# Find orphaned doc references (referenced but not existing)
+grep -r "docs/" **/*.md | grep -v "^docs/"
+
+# Check for broken internal links
+grep -r "\[.*\](\./" **/*.md
+```
+
+**Example drift detection**:
+- README says "Run `dr deploy`" but actual command is `dr deploy dev`
+- ADR-008 describes Aurora caching strategy but code uses DynamoDB
+- `docs/API.md` lists `/v1/report` endpoint that doesn't exist in code
+- Code has new `/v2/backtest` endpoint added 2 weeks ago, not documented anywhere
+- Deployment runbook references `just deploy-prod` but recipe doesn't exist
+
+**Proposed updates**:
+- Update outdated examples in README and docs
+- Document new features added in last 30 days
+- Fix broken internal links
+- Remove documentation for removed features
+- Add missing API endpoint documentation
+- Sync deployment instructions with actual process
+- Convert recurring TODOs into documentation sections
+
+---
+
+### `cli` - CLI Command Consistency & Usability
+
+**What it reviews**:
+- dr CLI commands (`dr_cli/commands/*.py`)
+- Justfile recipes (if exists)
+- CLI command documentation (`docs/cli.md`, `docs/PROJECT_CONVENTIONS.md`)
+- CLI usage patterns in git commits
+- Command help text vs actual behavior
+- Two-layer design consistency (Justfile intent vs CLI implementation)
+
+**Drift indicators**:
+- Justfile recipe exists but no dr CLI equivalent
+- dr CLI command exists but no Justfile recipe
+- Command help text doesn't match actual behavior
+- Commands documented but not implemented (or vice versa)
+- New commands added but not documented
+- Inconsistent naming between Justfile and CLI
+- Missing examples in help text
+- Command groups not aligned with functional areas
+
+**What to check**:
+```bash
+# List all Justfile recipes (if exists)
+just --list 2>/dev/null || echo "No Justfile"
+
+# List all dr CLI commands
+python3 -c "from dr_cli.main import cli; print(list(cli.commands.keys()))"
+
+# Find CLI command files
+ls -la dr_cli/commands/*.py
+
+# Check git usage patterns
+git log --since="30 days ago" --all -S "dr " --oneline
+
+# Verify command documentation
+grep "dr " docs/PROJECT_CONVENTIONS.md docs/cli.md 2>/dev/null
+```
+
+**Example drift detection**:
+- Justfile has `just deploy-staging` but `dr deploy staging` doesn't exist
+- `dr dev verify` exists (added 2 weeks ago) but no corresponding Justfile recipe
+- `dr test tier` command added recently but not in docs or Justfile
+- Command help says "Deploy to AWS Lambda" but command name `dr deploy lambda-deploy` is unclear
+- PROJECT_CONVENTIONS.md shows old command structure before recent refactor
+
+**Proposed updates**:
+- Add missing Justfile recipes for new dr commands
+- Implement dr CLI commands for commonly used Justfile recipes
+- Update command help text for clarity and consistency
+- Document new commands in PROJECT_CONVENTIONS.md and cli.md
+- Ensure consistent naming (kebab-case throughout)
+- Add usage examples to command help text
+- Create mapping table showing Justfile ↔ CLI equivalents
+
+**Two-layer design principle**:
+- **Justfile** = Intent (WHEN/WHY) - "When should I use this command?"
+- **dr CLI** = Implementation (HOW) - "How does this command work?"
+
+Ensure both layers stay synchronized and complementary.
 
 ---
 

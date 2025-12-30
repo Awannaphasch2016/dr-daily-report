@@ -108,6 +108,7 @@ resource "aws_lambda_function" "fund_data_sync" {
       SQS_QUEUE_URL        = module.fund_data_sync_queue.queue_url
       LOG_LEVEL            = "INFO"
       PYTHONUNBUFFERED     = "1"  # Real-time CloudWatch Logs
+      TZ                   = "Asia/Bangkok"  # Bangkok timezone (UTC+7)
     }
   }
 

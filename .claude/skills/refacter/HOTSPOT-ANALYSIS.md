@@ -87,16 +87,16 @@ git log --since="6 months ago" --oneline --follow src/workflow/workflow_nodes.py
 
 ```bash
 # Analyze hotspots (last 6 months)
-python .claude/skills/refactor/scripts/analyze_hotspots.py src/
+python .claude/skills/refacter/scripts/analyze_hotspots.py src/
 
 # Custom time range
-python .claude/skills/refactor/scripts/analyze_hotspots.py src/ --since "3 months ago"
+python .claude/skills/refacter/scripts/analyze_hotspots.py src/ --since "3 months ago"
 
 # Show top 10 hotspots
-python .claude/skills/refactor/scripts/analyze_hotspots.py src/ --top 10
+python .claude/skills/refacter/scripts/analyze_hotspots.py src/ --top 10
 
 # JSON output for dashboards
-python .claude/skills/refactor/scripts/analyze_hotspots.py src/ --json > hotspots.json
+python .claude/skills/refacter/scripts/analyze_hotspots.py src/ --json > hotspots.json
 ```
 
 ### Example Output
@@ -366,7 +366,7 @@ echo "✅ Complexity check passed"
 
 ```bash
 # Run hotspot analysis
-python .claude/skills/refactor/scripts/analyze_hotspots.py src/
+python .claude/skills/refacter/scripts/analyze_hotspots.py src/
 
 # Top 10 most changed files
 git log --since="6 months ago" --pretty=format: --name-only src/ \

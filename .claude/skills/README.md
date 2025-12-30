@@ -66,7 +66,7 @@ Claude: [Detects "review" + "performance" keywords]
 
 ---
 
-### 3. refactor
+### 3. refacter
 **Focus**: Code complexity analysis, hotspot detection, refactoring patterns
 
 **When Claude uses this**:
@@ -253,7 +253,7 @@ Skills use **progressive disclosure** to balance detail and navigability:
 | "Test this function" | testing-workflow | Writing/reviewing tests |
 | "Review this PR" | code-review | Code quality, security, performance |
 | "Deploy to production" | deployment | Deployment patterns, validation |
-| "This code is complex" | refactor | Complexity analysis, refactoring |
+| "This code is complex" | refacter | Complexity analysis, refactoring |
 | "Lambda not logging" | error-investigation | Lambda logging config |
 | "Migration failed" | database-migration | Schema reconciliation |
 | "Fix LINE bot bug" | line-uiux | Legacy LINE Bot maintenance |
@@ -369,7 +369,7 @@ Want to know which skills are most useful? Check CLAUDE.md references:
 | testing-workflow | Testing Anti-Patterns, Testing Principles | "test", "pytest" |
 | deployment | Deployment Section | "deploy", "production" |
 | database-migration | Database Migration Principles | "migration", "schema" |
-| refactor | (Implicit via code quality) | "refactor", "complexity" |
+| refacter | (Implicit via code quality) | "refactor", "complexity" |
 | telegram-uiux | UI/Frontend Principles | "UI", "state", "component" |
 | research | (Implicit via investigation) | "investigate", "root cause" |
 | line-uiux | (Legacy - minimal references) | "LINE", "legacy" |
@@ -427,7 +427,7 @@ CLAUDE.md says "fail fast and visibly." The code-review skill shows you 5 specif
 
 1. **testing-workflow** - Test patterns, anti-patterns, defensive testing
 2. **telegram-uiux** - Telegram Mini App UI/UX, state management
-3. **refactor** - Complexity analysis, hotspot detection, refactoring
+3. **refacter** - Complexity analysis, hotspot detection, refactoring
 4. **deployment** - Zero-downtime deployments, multi-environment
 5. **research** - Investigation methodology, research vs iteration
 6. **error-investigation** - Multi-layer verification, CloudWatch, Lambda logging

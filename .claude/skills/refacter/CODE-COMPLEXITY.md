@@ -246,15 +246,15 @@ M 248:4 WorkflowNodes.score_report - C (11)
 
 ```bash
 # Analyze directory
-python .claude/skills/refactor/scripts/analyze_complexity.py src/
+python .claude/skills/refacter/scripts/analyze_complexity.py src/
 
 # With thresholds
-python .claude/skills/refactor/scripts/analyze_complexity.py src/ \
+python .claude/skills/refacter/scripts/analyze_complexity.py src/ \
   --max-cc 10 \
   --max-cognitive 15
 
 # JSON output
-python .claude/skills/refactor/scripts/analyze_complexity.py src/ --json
+python .claude/skills/refacter/scripts/analyze_complexity.py src/ --json
 ```
 
 ### Example Output

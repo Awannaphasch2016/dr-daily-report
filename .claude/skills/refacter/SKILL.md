@@ -1,9 +1,9 @@
 ---
-name: refactor
-description: Refactor code using complexity analysis and hotspot detection. Use when asked to refactor code, improve code quality, reduce complexity, or identify high-risk areas that need attention.
+name: refacter
+description: Refacter code using complexity analysis and hotspot detection. Use when asked to refactor code, improve code quality, reduce complexity, or identify high-risk areas that need attention.
 ---
 
-# Refactor Skill
+# Refacter Skill
 
 **Tech Stack**: Python 3.11+, radon (complexity analysis), git (code churn analysis)
 
@@ -52,16 +52,35 @@ Is code complex/hard to understand?
 
 ---
 
+## Loop Pattern: Branching Loop (Evaluate Refactoring Approaches)
+
+**Escalation Trigger**:
+- Multiple refactoring approaches available
+- `/compare` needed to evaluate trade-offs
+- `/impact` assessment for each approach
+
+**Tools Used**:
+- `/compare` - Compare refactoring strategies (extract method vs extract class vs redesign)
+- `/impact` - Assess blast radius of each approach (files affected, test changes, deployment risk)
+- `/validate` - Verify refactoring preserves behavior (run tests)
+- `/reflect` - Synthesize which approach worked best
+
+**Why This Works**: Refactoring naturally involves branching—choosing between different improvement paths based on complexity analysis.
+
+See [Thinking Process Architecture - Feedback Loops](../../.claude/diagrams/thinking-process-architecture.md#11-feedback-loop-types-self-healing-properties) for structural overview.
+
+---
+
 ## Refactoring Workflow
 
 ### Step 1: Profile Current State
 
 ```bash
 # Analyze code complexity
-python .claude/skills/refactor/scripts/analyze_complexity.py src/
+python .claude/skills/refacter/scripts/analyze_complexity.py src/
 
 # Identify hotspots (high churn + high complexity)
-python .claude/skills/refactor/scripts/analyze_hotspots.py src/
+python .claude/skills/refacter/scripts/analyze_hotspots.py src/
 ```
 
 ### Step 2: Prioritize Refactoring Targets
@@ -96,7 +115,7 @@ See [REFACTORING-PATTERNS.md](REFACTORING-PATTERNS.md) for specific techniques:
 
 ```bash
 # Run complexity analysis again
-python .claude/skills/refactor/scripts/analyze_complexity.py src/
+python .claude/skills/refacter/scripts/analyze_complexity.py src/
 
 # Ensure complexity decreased
 # Run tests to ensure behavior unchanged
@@ -152,26 +171,26 @@ pytest tests/
 
 ```bash
 # Analyze specific directory
-python .claude/skills/refactor/scripts/analyze_complexity.py src/agent/
+python .claude/skills/refacter/scripts/analyze_complexity.py src/agent/
 
 # Analyze with thresholds
-python .claude/skills/refactor/scripts/analyze_complexity.py src/ --max-cc 10 --max-cognitive 15
+python .claude/skills/refacter/scripts/analyze_complexity.py src/ --max-cc 10 --max-cognitive 15
 
 # Output to JSON for further processing
-python .claude/skills/refactor/scripts/analyze_complexity.py src/ --json > complexity.json
+python .claude/skills/refacter/scripts/analyze_complexity.py src/ --json > complexity.json
 ```
 
 ### Run Hotspot Analysis
 
 ```bash
 # Analyze git hotspots (last 6 months)
-python .claude/skills/refactor/scripts/analyze_hotspots.py src/
+python .claude/skills/refacter/scripts/analyze_hotspots.py src/
 
 # Custom time range
-python .claude/skills/refactor/scripts/analyze_hotspots.py src/ --since "3 months ago"
+python .claude/skills/refacter/scripts/analyze_hotspots.py src/ --since "3 months ago"
 
 # Show top 10 hotspots
-python .claude/skills/refactor/scripts/analyze_hotspots.py src/ --top 10
+python .claude/skills/refacter/scripts/analyze_hotspots.py src/ --top 10
 ```
 
 ---
@@ -262,7 +281,7 @@ See [REFACTORING-PATTERNS.md](REFACTORING-PATTERNS.md) for connascence-based ref
 ## File Organization
 
 ```
-.claude/skills/refactor/
+.claude/skills/refacter/
 ├── SKILL.md                  # This file (entry point)
 ├── CODE-COMPLEXITY.md        # Complexity metrics guide
 ├── HOTSPOT-ANALYSIS.md       # Code churn + complexity
