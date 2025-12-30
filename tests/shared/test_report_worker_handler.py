@@ -37,7 +37,7 @@ class TestReportWorkerCaching:
         mock_agent_class = MagicMock()
         mock_agent = MagicMock()
         mock_agent.graph.invoke.return_value = {
-            "ticker": "DBS19",
+            "ticker": "D05.SI",  # Yahoo symbol (worker resolves DBS19 → D05.SI)
             "report": "Test Thai report",
             "chart_base64": "BASE64_CHART_DATA",
             "indicators": {"rsi": 50},
@@ -50,7 +50,7 @@ class TestReportWorkerCaching:
         mock_transformer = MagicMock()
         mock_response = MagicMock()
         mock_response.model_dump.return_value = {
-            "ticker": "DBS19",
+            "ticker": "D05.SI",  # Yahoo symbol (worker uses Yahoo symbols for Aurora queries)
             "narrative_report": "Thai language report text",
             "generation_metadata": {},
         }
@@ -149,8 +149,9 @@ class TestReportWorkerCaching:
             call_kwargs = mock_dependencies["precompute"].store_report_from_api.call_args.kwargs
 
             # Verify each argument
-            assert call_kwargs["symbol"] == "DBS19", \
-                f"symbol should be 'DBS19', got {call_kwargs.get('symbol')}"
+            # Worker resolves DBS19 → D05.SI (Yahoo symbol) for Aurora queries
+            assert call_kwargs["symbol"] == "D05.SI", \
+                f"symbol should be 'D05.SI' (Yahoo symbol), got {call_kwargs.get('symbol')}"
 
             assert call_kwargs["report_text"] == "Thai language report text", \
                 f"report_text should match narrative_report, got {call_kwargs.get('report_text')}"
@@ -160,7 +161,7 @@ class TestReportWorkerCaching:
 
             # Verify report_json is passed
             assert "report_json" in call_kwargs, "report_json should be passed"
-            assert call_kwargs["report_json"]["ticker"] == "DBS19"
+            assert call_kwargs["report_json"]["ticker"] == "D05.SI"
 
     @pytest.mark.asyncio
     async def test_caching_failure_does_not_fail_job(self, mock_dependencies):
@@ -577,10 +578,10 @@ class TestWorkerSymbolValidation:
             assert "INVALID123" in fail_args[0][1]  # error message contains ticker
 
     @pytest.mark.asyncio
-    async def test_worker_uses_dr_symbol_for_agent(self):
-        """Worker should pass DR symbol (not raw input) to agent.
+    async def test_worker_uses_yahoo_symbol_for_agent(self):
+        """Worker should pass Yahoo symbol to agent for Aurora data queries.
 
-        Even if message contains Yahoo symbol, agent should receive DR symbol.
+        Symbols are resolved to Yahoo format because ticker_data is stored with Yahoo symbols.
         """
         mocks = self._create_base_mocks()
 
@@ -605,7 +606,8 @@ class TestWorkerSymbolValidation:
 
             await process_record(record)
 
-            # Verify agent.graph.invoke received DR symbol (DBS19), not Yahoo (D05.SI)
+            # Verify agent.graph.invoke received Yahoo symbol (D05.SI)
+            # Worker resolves all symbols to Yahoo format for Aurora data queries
             invoke_args = mocks["agent"].graph.invoke.call_args[0][0]
-            assert invoke_args["ticker"] == "DBS19", \
-                f"Agent should receive DR symbol 'DBS19', got '{invoke_args['ticker']}'"
+            assert invoke_args["ticker"] == "D05.SI", \
+                f"Agent should receive Yahoo symbol 'D05.SI', got '{invoke_args['ticker']}'"

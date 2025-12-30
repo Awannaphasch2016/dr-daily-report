@@ -144,9 +144,12 @@ async def process_record(record: dict) -> None:
             job_service.fail_job(job_id, error_msg)
             raise ValueError(error_msg)
 
-        # Use DR symbol for consistency
-        ticker = resolved.dr_symbol
-        logger.info(f"Processing job {job_id} for ticker {ticker} (resolved from {ticker_raw})")
+        # Use Yahoo symbol for Aurora data queries
+        # ticker_data is stored with Yahoo symbols (D05.SI, NVDA, 1378.HK)
+        # Workers receive DR symbols from SQS but must query Aurora with Yahoo symbols
+        ticker = resolved.yahoo_symbol
+        dr_symbol = resolved.dr_symbol  # Keep for reference
+        logger.info(f"Processing job {job_id} for ticker {ticker_raw} → {ticker} (Yahoo) / {dr_symbol} (DR)")
 
         # Get services
         job_service = get_job_service()
