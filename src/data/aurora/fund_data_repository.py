@@ -265,8 +265,10 @@ class FundDataRepository:
             ...     end_date=date(2025, 12, 9)
             ... )
         """
-        # TIMEZONE FIX: Use UTC date to match Aurora timezone (Aurora runs in UTC)
-        end = end_date or datetime.utcnow().date()
+        # Use Bangkok timezone for business dates (CLAUDE.md Principle #14: Timezone Discipline)
+        from zoneinfo import ZoneInfo
+        bangkok_tz = ZoneInfo("Asia/Bangkok")
+        end = end_date or datetime.now(bangkok_tz).date()
         query = f"""
             SELECT
                 id, d_trade, stock, ticker, col_code,

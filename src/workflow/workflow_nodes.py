@@ -285,9 +285,11 @@ class WorkflowNodes:
 
         # Query Aurora for ticker data (ground truth)
         precompute_service = PrecomputeService()
-        # TEMPORARY: Use UTC date to match Aurora timezone (TODO: fix all date.today() to use UTC)
+        # Use Bangkok timezone for business dates (CLAUDE.md Principle #14: Timezone Discipline)
         from datetime import datetime
-        ticker_data = precompute_service.get_ticker_data(symbol=ticker, data_date=datetime.utcnow().date())
+        from zoneinfo import ZoneInfo
+        bangkok_tz = ZoneInfo("Asia/Bangkok")
+        ticker_data = precompute_service.get_ticker_data(symbol=ticker, data_date=datetime.now(bangkok_tz).date())
 
         if not ticker_data:
             # Data not available - FAIL FAST (no fallback)

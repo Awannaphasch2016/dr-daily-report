@@ -1341,9 +1341,13 @@ class PrecomputeService:
         """
         from src.data.aurora.ticker_resolver import get_ticker_resolver
         from datetime import datetime
+        from zoneinfo import ZoneInfo
 
-        # TIMEZONE FIX: Use UTC date to match Aurora storage (Aurora runs in UTC)
-        data_date = data_date or datetime.utcnow().date()
+        # Use Bangkok timezone for business dates (CLAUDE.md Principle #14: Timezone Discipline)
+        # Prevents date boundary bugs when UTC date differs from Bangkok date
+        # Example: 21:00 UTC Dec 30 = 04:00 Bangkok Dec 31 (different dates!)
+        bangkok_tz = ZoneInfo("Asia/Bangkok")
+        data_date = data_date or datetime.now(bangkok_tz).date()
 
         # Get ticker info to resolve symbol to all possible formats
         resolver = get_ticker_resolver()
