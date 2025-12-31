@@ -206,17 +206,3 @@ variable "terraform_role_arn" {
   default     = ""
 }
 
-###############################################################################
-# EventBridge Scheduler Configuration
-###############################################################################
-
-variable "new_scheduler_enabled" {
-  description = "Enable EventBridge Scheduler (Native timezone support)"
-  type        = bool
-  default     = true
-
-  validation {
-    condition     = can(tobool(var.new_scheduler_enabled))
-    error_message = "new_scheduler_enabled must be a boolean"
-  }
-}

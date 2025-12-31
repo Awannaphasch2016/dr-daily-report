@@ -170,8 +170,6 @@ resource "aws_lambda_alias" "ticker_scheduler_live" {
 # IAM Role for EventBridge Scheduler to invoke Lambda
 # Note: Scheduler uses IAM role (not resource-based policy like EventBridge Rules)
 resource "aws_iam_role" "eventbridge_scheduler" {
-  count = var.new_scheduler_enabled ? 1 : 0
-
   name = "${var.project_name}-eventbridge-scheduler-role-${var.environment}"
 
   assume_role_policy = jsonencode({
@@ -195,10 +193,8 @@ resource "aws_iam_role" "eventbridge_scheduler" {
 
 # IAM Policy: Allow Scheduler to invoke Lambda (via live alias)
 resource "aws_iam_role_policy" "eventbridge_scheduler_lambda" {
-  count = var.new_scheduler_enabled ? 1 : 0
-
   name = "${var.project_name}-scheduler-lambda-invoke-${var.environment}"
-  role = aws_iam_role.eventbridge_scheduler[0].id
+  role = aws_iam_role.eventbridge_scheduler.id
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -219,8 +215,6 @@ resource "aws_iam_role_policy" "eventbridge_scheduler_lambda" {
 # Semantic clarity: cron(0 5 * * ? *) + timezone = "Asia/Bangkok"
 # No more UTC offset mental math!
 resource "aws_scheduler_schedule" "daily_ticker_fetch_v2" {
-  count = var.new_scheduler_enabled ? 1 : 0
-
   name       = "${var.project_name}-daily-ticker-fetch-v2-${var.environment}"
   group_name = "default" # Use default schedule group
 
@@ -230,20 +224,17 @@ resource "aws_scheduler_schedule" "daily_ticker_fetch_v2" {
   }
 
   # SEMANTIC CLARITY: Bangkok time with explicit timezone!
-  # Phase 1-2: Runs at same time as old rule (5 AM Bangkok)
-  # Replaces: cron(0 22 * * ? *) in UTC (confusing!)
+  # Replaces old EventBridge Rules that used UTC cron expressions
   schedule_expression          = "cron(0 5 * * ? *)" # 5 AM Bangkok
   schedule_expression_timezone = "Asia/Bangkok"      # Explicit timezone
 
-  # Shadow Run Phase 2: Enable for parallel testing
-  # When new_scheduler_enabled=true, schedule becomes ENABLED
-  # Both old and new will trigger (2x invocations per day)
-  state = var.new_scheduler_enabled ? "ENABLED" : "DISABLED"
+  # Always enabled - old EventBridge Rules removed 2025-12-31 after successful migration
+  state = "ENABLED"
 
-  # Lambda target configuration (same as old EventBridge target)
+  # Lambda target configuration
   target {
     arn      = aws_lambda_alias.ticker_scheduler_live.arn
-    role_arn = aws_iam_role.eventbridge_scheduler[0].arn
+    role_arn = aws_iam_role.eventbridge_scheduler.arn
 
     # Same payload as old EventBridge target (line 197-200)
     input = jsonencode({
@@ -294,11 +285,11 @@ output "ticker_scheduler_alias_arn" {
 }
 
 output "ticker_scheduler_schedule_name" {
-  value       = var.new_scheduler_enabled ? aws_scheduler_schedule.daily_ticker_fetch_v2[0].name : null
+  value       = aws_scheduler_schedule.daily_ticker_fetch_v2.name
   description = "Name of EventBridge Scheduler schedule"
 }
 
 output "ticker_scheduler_enabled" {
-  value       = var.new_scheduler_enabled ? aws_scheduler_schedule.daily_ticker_fetch_v2[0].state == "ENABLED" : false
+  value       = aws_scheduler_schedule.daily_ticker_fetch_v2.state == "ENABLED"
   description = "Whether the daily ticker fetch schedule is enabled"
 }

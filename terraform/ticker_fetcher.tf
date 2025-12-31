@@ -117,56 +117,6 @@ resource "aws_lambda_alias" "ticker_fetcher_live" {
     ignore_changes = [function_version] # Let CI/CD control the version
   }
 }
-
-###############################################################################
-# EventBridge Rule for Daily Schedule (DISABLED for Shadow Run)
-###############################################################################
-
-# Shadow Run Phase 1: Rule is DISABLED - deploy and test manually first
-# Shadow Run Phase 2: Enable rule after validating identical behavior to old scheduler
-# Shadow Run Phase 3: Cutover complete - this becomes the production trigger
-resource "aws_cloudwatch_event_rule" "ticker_fetcher_daily" {
-  name                = "${var.project_name}-ticker-fetcher-daily-${var.environment}"
-  description         = "Fetch raw ticker data daily at 8 AM Bangkok time (UTC+7)"
-  schedule_expression = "cron(0 1 * * ? *)" # 01:00 UTC = 08:00 Bangkok
-
-  # SHADOW RUN: Initially DISABLED for manual testing
-  # To enable after validation: Change to "ENABLED", then terraform apply
-  state = "DISABLED"
-
-  tags = merge(local.common_tags, {
-    Name      = "${var.project_name}-ticker-fetcher-daily-${var.environment}"
-    App       = "telegram-api"
-    Component = "ticker-fetcher-trigger"
-    Schedule  = "daily-8am-bangkok"
-    Status    = "shadow-run-disabled"
-  })
-}
-
-# EventBridge Target - connects rule to Lambda (via live alias)
-# Uses alias ARN for zero-downtime deployment - EventBridge always invokes tested code
-resource "aws_cloudwatch_event_target" "ticker_fetcher" {
-  rule      = aws_cloudwatch_event_rule.ticker_fetcher_daily.name
-  target_id = "ticker-fetcher-lambda"
-  arn       = aws_lambda_alias.ticker_fetcher_live.arn # Invoke via alias, not $LATEST
-
-  # Empty payload = default action (fetch all tickers)
-  # The handler checks event.get('tickers') to determine fetch mode:
-  #   - {} or no payload -> Fetch all 47 tickers
-  #   - {"tickers": ["NVDA", "DBS19"]} -> Fetch specific tickers only
-  input = jsonencode({})
-}
-
-# Lambda Permission for EventBridge to invoke (via live alias)
-resource "aws_lambda_permission" "eventbridge_invoke_ticker_fetcher" {
-  statement_id  = "AllowEventBridgeInvoke"
-  action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.ticker_fetcher.function_name
-  qualifier     = aws_lambda_alias.ticker_fetcher_live.name # Permission for alias, not $LATEST
-  principal     = "events.amazonaws.com"
-  source_arn    = aws_cloudwatch_event_rule.ticker_fetcher_daily.arn
-}
-
 ###############################################################################
 # Outputs
 ###############################################################################
@@ -186,12 +136,3 @@ output "ticker_fetcher_alias_arn" {
   description = "ARN of the ticker fetcher live alias (for EventBridge invocation)"
 }
 
-output "ticker_fetcher_eventbridge_rule" {
-  value       = aws_cloudwatch_event_rule.ticker_fetcher_daily.name
-  description = "Name of the EventBridge rule for daily ticker fetch"
-}
-
-output "ticker_fetcher_enabled" {
-  value       = aws_cloudwatch_event_rule.ticker_fetcher_daily.state == "ENABLED"
-  description = "Whether the daily ticker fetch schedule is enabled (false during shadow run)"
-}

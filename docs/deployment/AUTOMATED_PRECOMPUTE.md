@@ -172,18 +172,19 @@ ENV=prod doppler run -- terraform plan -var-file=environments/prod.tfvars
 ENV=prod doppler run -- terraform apply -var-file=environments/prod.tfvars
 ```
 
-### 2. Verify EventBridge Rules
+### 2. Verify EventBridge Scheduler
 
 ```bash
-# List all EventBridge rules
-aws events list-rules --name-prefix "dr-daily-report"
+# Check EventBridge Scheduler schedule
+ENV=dev doppler run -- aws scheduler get-schedule \
+  --name dr-daily-report-daily-ticker-fetch-v2-dev \
+  --group-name default
 
-# Check specific rules
-aws events describe-rule --name dr-daily-report-daily-ticker-fetch-dev
-aws events describe-rule --name dr-daily-report-daily-precompute-dev
-
-# Verify targets
-aws events list-targets-by-rule --rule dr-daily-report-daily-precompute-dev
+# Verify schedule is ENABLED and timezone is Asia/Bangkok
+# Expected output:
+#   State: ENABLED
+#   ScheduleExpression: cron(0 5 * * ? *)
+#   ScheduleExpressionTimezone: Asia/Bangkok
 ```
 
 ### 3. Test the Flow
@@ -285,10 +286,10 @@ ORDER BY generated_at DESC;
 - **Root cause:** Yahoo Finance API slow or retry logic triggered
 - **Fix:** Increase buffer or add completion check (see Alternative Solutions below)
 
-**Issue 3: EventBridge not triggering Lambda**
-- **Verify permission:** `aws lambda get-policy --function-name <name>`
-- **Check rule state:** `aws events describe-rule --name <rule-name>`
-- **Check CloudWatch metrics:** EventBridge → Metrics → Invocations
+**Issue 3: EventBridge Scheduler not triggering Lambda**
+- **Verify schedule state:** `aws scheduler get-schedule --name <schedule-name> --group-name default`
+- **Check IAM role permissions:** Ensure scheduler role has lambda:InvokeFunction permission
+- **Check CloudWatch Logs:** `/aws/lambda/dr-daily-report-ticker-scheduler-dev` for execution logs
 
 ---
 

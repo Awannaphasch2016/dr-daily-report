@@ -305,57 +305,6 @@ resource "aws_lambda_alias" "precompute_controller_live" {
 }
 
 ###############################################################################
-# EventBridge Rule for Automatic Precompute Triggering
-###############################################################################
-
-# EventBridge Rule - DISABLED (scheduler triggers precompute directly now)
-# Architecture change: Scheduler Lambda invokes precompute controller asynchronously
-# This EventBridge rule kept for manual testing/backup, but normally DISABLED
-#
-# Previous: EventBridge (5:20 AM) → Precompute Controller
-# Current:  Scheduler (5:00 AM) → Precompute Controller (async, immediate)
-resource "aws_cloudwatch_event_rule" "daily_precompute" {
-  name                = "${var.project_name}-daily-precompute-${var.environment}"
-  description         = "DISABLED - Scheduler triggers precompute directly. Kept for manual testing."
-  schedule_expression = "cron(20 22 * * ? *)" # 22:20 UTC = 05:20 Bangkok next day
-
-  # DISABLED - Scheduler now triggers precompute directly (no EventBridge needed)
-  # Can be re-enabled for manual testing if needed
-  state = "DISABLED"
-
-  tags = merge(local.common_tags, {
-    Name      = "${var.project_name}-daily-precompute-${var.environment}"
-    App       = "telegram-api"
-    Component = "precompute-trigger"
-    Schedule  = "daily-5:20am-bangkok-disabled"
-  })
-}
-
-# EventBridge Target - connects rule to Precompute Controller Lambda
-resource "aws_cloudwatch_event_target" "precompute_controller" {
-  rule      = aws_cloudwatch_event_rule.daily_precompute.name
-  target_id = "precompute-controller-lambda"
-  arn       = aws_lambda_alias.precompute_controller_live.arn # Invoke via alias
-
-  # Input to controller: trigger all 47 tickers
-  input = jsonencode({
-    source      = "eventbridge-scheduler"
-    limit       = null # null = process all tickers
-    description = "Daily automatic precompute after scheduler data fetch"
-  })
-}
-
-# Lambda Permission for EventBridge to invoke Precompute Controller
-resource "aws_lambda_permission" "eventbridge_invoke_precompute_controller" {
-  statement_id  = "AllowEventBridgeInvokePrecomputeController"
-  action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.precompute_controller.function_name
-  qualifier     = aws_lambda_alias.precompute_controller_live.name # Permission for alias
-  principal     = "events.amazonaws.com"
-  source_arn    = aws_cloudwatch_event_rule.daily_precompute.arn
-}
-
-###############################################################################
 # Outputs
 ###############################################################################
 
@@ -379,12 +328,7 @@ output "precompute_controller_function_arn" {
   description = "ARN of the precompute controller Lambda function"
 }
 
-output "precompute_eventbridge_rule" {
-  value       = aws_cloudwatch_event_rule.daily_precompute.name
-  description = "Name of the EventBridge rule for daily precompute triggering"
-}
-
 output "precompute_schedule" {
-  value       = "Daily at 8:20 AM Bangkok time (01:20 UTC) - 20 minutes after scheduler"
-  description = "Precompute workflow schedule"
+  value       = "Triggered automatically by EventBridge Scheduler at 5:00 AM Bangkok time"
+  description = "Precompute workflow schedule (invoked by scheduler Lambda)"
 }
