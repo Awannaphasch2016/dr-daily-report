@@ -697,3 +697,112 @@ class PDFReportGenerator:
             return "Below average investment opportunity. Consider alternative options."
         else:
             return "Weak investment opportunity. High risk or unfavorable conditions."
+
+
+# =============================================================================
+# Standalone Function for Scheduled Workflows
+# =============================================================================
+
+def generate_pdf(report_text: str, ticker: str, chart_base64: str) -> Optional[bytes]:
+    """Generate a simple PDF report from narrative text and chart.
+
+    This is a lightweight wrapper for scheduled workflows that only have
+    the final report text and chart, without intermediate structured data.
+
+    Args:
+        report_text: Complete narrative report text
+        ticker: Ticker symbol
+        chart_base64: Base64-encoded chart image
+
+    Returns:
+        PDF bytes or None if generation fails
+    """
+    try:
+        # Create PDF buffer
+        buffer = BytesIO()
+
+        # Create document
+        doc = SimpleDocTemplate(
+            buffer,
+            pagesize=A4,
+            rightMargin=20*mm,
+            leftMargin=20*mm,
+            topMargin=20*mm,
+            bottomMargin=20*mm
+        )
+
+        # Build story (content elements)
+        story = []
+        styles = getSampleStyleSheet()
+
+        # Title
+        title_style = ParagraphStyle(
+            name='CustomTitle',
+            parent=styles['Title'],
+            fontSize=20,
+            textColor=HexColor('#1f77b4'),
+            spaceAfter=20,
+            alignment=TA_CENTER
+        )
+        story.append(Paragraph(f"Daily Report: {ticker}", title_style))
+        story.append(Spacer(1, 12))
+
+        # Date
+        subtitle_style = ParagraphStyle(
+            name='Subtitle',
+            parent=styles['Normal'],
+            fontSize=12,
+            textColor=HexColor('#555555'),
+            spaceAfter=20,
+            alignment=TA_CENTER
+        )
+        story.append(Paragraph(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}", subtitle_style))
+        story.append(Spacer(1, 20))
+
+        # Chart (if available)
+        if chart_base64:
+            try:
+                # Decode base64 to bytes
+                chart_data = base64.b64decode(chart_base64)
+                chart_buffer = BytesIO(chart_data)
+
+                # Add chart image (fit to page width with margin)
+                img = Image(chart_buffer, width=6*inch, height=4*inch)
+                story.append(img)
+                story.append(Spacer(1, 20))
+            except Exception as e:
+                # Chart failed - continue without it
+                pass
+
+        # Report text
+        body_style = ParagraphStyle(
+            name='Body',
+            parent=styles['Normal'],
+            fontSize=11,
+            leading=16,
+            alignment=TA_JUSTIFY,
+            spaceAfter=10
+        )
+
+        # Split report into paragraphs and add each
+        for paragraph in report_text.split('\n\n'):
+            if paragraph.strip():
+                # Clean and format paragraph (preserve line breaks as <br/>)
+                cleaned = paragraph.strip().replace('\n', '<br/>')
+                story.append(Paragraph(cleaned, body_style))
+                story.append(Spacer(1, 10))
+
+        # Build PDF
+        doc.build(story)
+
+        # Get PDF bytes
+        pdf_bytes = buffer.getvalue()
+        buffer.close()
+
+        return pdf_bytes
+
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Failed to generate PDF: {e}", exc_info=True)
+        return None
