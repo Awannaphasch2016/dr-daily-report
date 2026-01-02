@@ -2,44 +2,35 @@
 
 ## Overview
 
-**Status:** ⚠️ **CURRENTLY DISABLED** - Manual precompute triggering only
+**Status:** ✅ **ENABLED** - EventBridge Scheduler v2 with native Bangkok timezone support
 
-**Problem:** Scheduler fetches raw ticker data but doesn't trigger report generation automatically.
+**Architecture:** EventBridge Scheduler triggers ticker data fetch at 5:00 AM Bangkok daily. Precompute workflow can be triggered manually or scheduled separately.
 
-**Solution (when enabled):** EventBridge chaining - two scheduled rules working in sequence.
+**Migration Note:** Old EventBridge Rules architecture removed 2025-12-31 after successful EventBridge Scheduler v2 cutover.
 
 ---
 
 ## Architecture
 
-### Before (Manual Triggering Required)
+### Current Flow (EventBridge Scheduler v2)
 ```
-EventBridge (8:00 AM) → Scheduler Lambda → fetch & store raw data → ❌ STOPS
-
-                        Precompute Controller exists but NEVER invoked
-```
-
-### After (When Enabled - Currently DISABLED)
-```
-EventBridge Rule 1 (5:00 AM Bangkok / 22:00 UTC prev day)
+EventBridge Scheduler (5:00 AM Bangkok daily)
     ↓
 Scheduler Lambda
     ↓
-Fetch 47 tickers from Yahoo Finance
+Fetch 46 tickers from Yahoo Finance
     ↓
 Store raw data to Aurora ticker_data table
     ↓
-⏰ 20 minute buffer (scheduler completes in ~5-15 min)
-    ↓
-EventBridge Rule 2 (5:20 AM Bangkok / 22:20 UTC prev day) ⚠️ DISABLED
-    ↓
-[MANUAL TRIGGER REQUIRED]
+✅ COMPLETES (~5-15 min)
+
+[MANUAL TRIGGER for Precompute]
     ↓
 Precompute Controller Lambda
     ↓
 Start Step Functions state machine
     ↓
-Fan out 47 SQS messages (one per ticker)
+Fan out 46 SQS messages (one per ticker)
     ↓
 Report Worker Lambdas (parallel processing)
     ↓
@@ -50,47 +41,61 @@ Store complete reports in Aurora precomputed_reports table
 ✅ Telegram API & LINE Bot serve cached reports instantly
 ```
 
+**Key Features:**
+- **Native timezone support**: Schedule uses `Asia/Bangkok` timezone (no UTC conversion needed)
+- **Single scheduler**: One EventBridge Scheduler replaces old EventBridge Rules
+- **Manual precompute**: Reports generated on-demand via Lambda invoke or Step Functions
+
 ---
 
 ## Implementation Details
 
-### EventBridge Rules
+### EventBridge Scheduler (Current)
 
-| Rule | Schedule | Status | Triggers | Purpose |
-|------|----------|--------|----------|---------|
-| `daily-ticker-fetch` | 5:00 AM Bangkok (22:00 UTC prev day) | ✅ ENABLED | Scheduler Lambda | Fetch raw data from Yahoo Finance |
-| `daily-precompute` | 5:20 AM Bangkok (22:20 UTC prev day) | ⚠️ DISABLED | Precompute Controller | Generate AI reports (manual trigger required) |
+| Schedule | Cron Expression | Timezone | Status | Triggers | Purpose |
+|----------|----------------|----------|--------|----------|---------|
+| `daily-ticker-fetch-v2` | `cron(0 5 * * ? *)` | `Asia/Bangkok` | ✅ ENABLED | Scheduler Lambda | Fetch raw data from Yahoo Finance at 5:00 AM Bangkok |
 
-### Terraform Changes
+**Note**: Precompute workflow is triggered manually. For automatic scheduling, create a separate EventBridge Scheduler schedule that invokes the Precompute Controller Lambda.
 
-**File:** `terraform/precompute_workflow.tf`
+### Terraform Configuration
 
-**Added:**
-1. `aws_cloudwatch_event_rule.daily_precompute` - EventBridge rule at 8:20 AM
-2. `aws_cloudwatch_event_target.precompute_controller` - Connects rule to Lambda
-3. `aws_lambda_permission.eventbridge_invoke_precompute_controller` - Allows invocation
+**File:** `terraform/scheduler.tf`
 
-**Key Configuration:**
+**Current EventBridge Scheduler:**
 ```hcl
-resource "aws_cloudwatch_event_rule" "daily_precompute" {
-  schedule_expression = "cron(20 22 * * ? *)" # 22:20 UTC = 05:20 Bangkok next day
-  state               = "DISABLED" # Manual triggering only for now
-}
+resource "aws_scheduler_schedule" "daily_ticker_fetch_v2" {
+  name        = "${var.project_name}-daily-ticker-fetch-v2-${var.environment}"
+  group_name  = "default"
+  description = "Daily ticker data fetch at 5:00 AM Bangkok (EventBridge Scheduler v2)"
 
-resource "aws_cloudwatch_event_target" "precompute_controller" {
-  arn = aws_lambda_alias.precompute_controller_live.arn
+  flexible_time_window {
+    mode = "OFF"  # Exact time execution
+  }
 
-  input = jsonencode({
-    source      = "eventbridge-scheduler"
-    limit       = null # Process all 47 tickers
-    description = "Daily automatic precompute after scheduler data fetch"
-  })
+  schedule_expression          = "cron(0 5 * * ? *)"  # 5:00 AM daily
+  schedule_expression_timezone = "Asia/Bangkok"        # Native timezone support!
+  state                        = "ENABLED"
+
+  target {
+    arn      = aws_lambda_function.ticker_scheduler.arn
+    role_arn = aws_iam_role.eventbridge_scheduler.arn
+
+    retry_policy {
+      maximum_retry_attempts = 2
+    }
+  }
 }
 ```
 
-**To Enable Automatic Precompute:**
-1. Change `state = "DISABLED"` to `state = "ENABLED"` in `terraform/precompute_workflow.tf`
-2. Run `terraform apply`
+**Key Improvements Over Old EventBridge Rules:**
+- ✅ Native timezone support (`Asia/Bangkok` instead of UTC offset calculation)
+- ✅ Simpler configuration (no separate rule + target resources)
+- ✅ Built-in retry policy
+- ✅ No UTC conversion errors
+
+**To Add Automatic Precompute Scheduling:**
+Create a second EventBridge Scheduler schedule in `terraform/scheduler.tf` that invokes the Precompute Controller Lambda at a scheduled time (e.g., 5:30 AM Bangkok).
 
 ---
 
@@ -287,7 +292,12 @@ ORDER BY generated_at DESC;
 - **Fix:** Increase buffer or add completion check (see Alternative Solutions below)
 
 **Issue 3: EventBridge Scheduler not triggering Lambda**
-- **Verify schedule state:** `aws scheduler get-schedule --name <schedule-name> --group-name default`
+- **Verify schedule state:**
+  ```bash
+  ENV=dev doppler run -- aws scheduler get-schedule \
+    --name dr-daily-report-daily-ticker-fetch-v2-dev \
+    --group-name default
+  ```
 - **Check IAM role permissions:** Ensure scheduler role has lambda:InvokeFunction permission
 - **Check CloudWatch Logs:** `/aws/lambda/dr-daily-report-ticker-scheduler-dev` for execution logs
 
@@ -295,15 +305,16 @@ ORDER BY generated_at DESC;
 
 ## Alternative Solutions
 
-### Option 1: EventBridge Chaining (CURRENT - Implemented)
+### Option 1: EventBridge Scheduler v2 (CURRENT - Implemented)
 **Pros:**
-- ✅ Simple to implement (just EventBridge rules)
+- ✅ Native timezone support (no UTC conversion)
+- ✅ Simpler configuration (single resource vs rule + target)
 - ✅ Clean separation of concerns
 - ✅ Easy to monitor independently
+- ✅ Built-in retry policy
 
 **Cons:**
-- ❌ Fixed time buffer (scheduler might finish earlier, wasting time)
-- ❌ Scheduler could take longer than buffer (rare)
+- ❌ Manual precompute triggering required (can be automated with second schedule)
 
 ### Option 2: Scheduler Invokes Controller (Tighter Coupling)
 Modify `ticker_fetcher_handler.py` to invoke Precompute Controller after completion.
@@ -369,23 +380,31 @@ Create parent Step Functions that orchestrates: Scheduler → Wait → Precomput
 
 ## Rollback Procedure
 
-**If issues occur after Terraform apply:**
+**If issues occur with EventBridge Scheduler:**
 
 ```bash
-# Disable the new precompute rule (emergency stop)
-aws events disable-rule --name dr-daily-report-daily-precompute-dev
+# Option 1: Disable the schedule (emergency stop)
+ENV=dev doppler run -- aws scheduler update-schedule \
+  --name dr-daily-report-daily-ticker-fetch-v2-dev \
+  --group-name default \
+  --state DISABLED \
+  --schedule-expression "cron(0 5 * * ? *)" \
+  --schedule-expression-timezone "Asia/Bangkok" \
+  --flexible-time-window Mode=OFF \
+  --target '{"Arn":"<lambda-arn>","RoleArn":"<role-arn>"}'
 
-# Revert Terraform changes
+# Option 2: Revert Terraform changes
 cd terraform
 git revert HEAD
 ENV=dev doppler run -- terraform apply -var-file=environments/dev.tfvars
 
-# Manual cleanup if needed
-aws events delete-rule --name dr-daily-report-daily-precompute-dev
-aws lambda remove-permission \
-  --function-name dr-daily-report-precompute-controller-dev \
-  --statement-id AllowEventBridgeInvokePrecomputeController
+# Option 3: Manual schedule deletion (use with caution)
+ENV=dev doppler run -- aws scheduler delete-schedule \
+  --name dr-daily-report-daily-ticker-fetch-v2-dev \
+  --group-name default
 ```
+
+**Note**: EventBridge Scheduler v2 is the current production implementation. Reverting to old EventBridge Rules would require restoring deleted Terraform code from git history (commits before 6766300).
 
 ---
 
