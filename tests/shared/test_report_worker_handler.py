@@ -578,10 +578,11 @@ class TestWorkerSymbolValidation:
             assert "INVALID123" in fail_args[0][1]  # error message contains ticker
 
     @pytest.mark.asyncio
-    async def test_worker_uses_yahoo_symbol_for_agent(self):
-        """Worker should pass Yahoo symbol to agent for Aurora data queries.
+    async def test_worker_uses_dr_symbol_in_state_for_workflow_nodes(self):
+        """Worker should pass DR symbol in state['ticker'] for workflow node ticker_map lookups.
 
-        Symbols are resolved to Yahoo format because ticker_data is stored with Yahoo symbols.
+        Workflow nodes expect DR symbols in state['ticker'] because their ticker_map is indexed
+        by DR symbols (DBS19, NVDA19). Workflow nodes internally convert DR → Yahoo for Aurora queries.
         """
         mocks = self._create_base_mocks()
 
@@ -598,7 +599,7 @@ class TestWorkerSymbolValidation:
 
             from src.report_worker_handler import process_record
 
-            # Send Yahoo symbol
+            # Send Yahoo symbol (will be resolved to DR symbol for state)
             record = {
                 "messageId": "test-dr",
                 "body": json.dumps({"job_id": "rpt_dr", "ticker": "D05.SI"})
@@ -606,8 +607,8 @@ class TestWorkerSymbolValidation:
 
             await process_record(record)
 
-            # Verify agent.graph.invoke received Yahoo symbol (D05.SI)
-            # Worker resolves all symbols to Yahoo format for Aurora data queries
+            # Verify agent.graph.invoke received DR symbol (DBS19) in state['ticker']
+            # Workflow nodes expect DR symbols for their ticker_map lookups
             invoke_args = mocks["agent"].graph.invoke.call_args[0][0]
-            assert invoke_args["ticker"] == "D05.SI", \
-                f"Agent should receive Yahoo symbol 'D05.SI', got '{invoke_args['ticker']}'"
+            assert invoke_args["ticker"] == "DBS19", \
+                f"Agent should receive DR symbol 'DBS19' in state, got '{invoke_args['ticker']}'"
