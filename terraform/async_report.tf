@@ -193,6 +193,9 @@ resource "aws_lambda_function" "report_worker" {
 
   environment {
     variables = {
+      # Timezone (Principle #16: Timezone Discipline)
+      TZ = "Asia/Bangkok"
+
       OPENROUTER_API_KEY       = var.OPENROUTER_API_KEY
       JOBS_TABLE_NAME          = aws_dynamodb_table.report_jobs.name
       PDF_STORAGE_BUCKET       = aws_s3_bucket.pdf_reports.id

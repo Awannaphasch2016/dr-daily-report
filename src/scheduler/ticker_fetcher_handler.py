@@ -26,6 +26,35 @@ else:  # Local development
 logger = logging.getLogger(__name__)
 
 
+def _validate_required_config() -> None:
+    """Validate required environment variables at Lambda startup.
+
+    Defensive programming principle (CLAUDE.md #1): Validate configuration
+    at startup, not on first use. Fails fast if critical config is missing.
+
+    Raises:
+        RuntimeError: If any required environment variable is missing
+    """
+    required_vars = {
+        'PDF_BUCKET_NAME': 'S3 bucket for ticker data storage',
+        'DATA_LAKE_BUCKET': 'Data lake bucket for raw data',
+        'TZ': 'Bangkok timezone for date handling'
+    }
+
+    missing = {var: purpose for var, purpose in required_vars.items()
+               if not os.getenv(var)}
+
+    if missing:
+        error_msg = "Missing required environment variables:\n"
+        for var, purpose in missing.items():
+            error_msg += f"  - {var} (needed for: {purpose})\n"
+        error_msg += "\nLambda cannot fetch tickers without these variables."
+        logger.error(error_msg)
+        raise RuntimeError(error_msg)
+
+    logger.info(f"✅ All {len(required_vars)} required env vars present")
+
+
 def _trigger_precompute(fetch_results: Dict[str, Any], start_time: datetime) -> bool:
     """
     Trigger precompute workflow asynchronously after successful fetch.
@@ -111,6 +140,9 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     Returns:
         Response dict with fetch results
     """
+    # Validate configuration at startup - fail fast!
+    _validate_required_config()
+
     start_time = datetime.now()
     logger.info(f"Ticker Fetcher Lambda invoked at {start_time.isoformat()}")
     logger.info(f"Event: {json.dumps(event)}")

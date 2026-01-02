@@ -32,6 +32,34 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+def _validate_required_config() -> None:
+    """Validate required environment variables at Lambda startup.
+
+    Defensive programming principle (CLAUDE.md #1): Validate configuration
+    at startup, not on first use. Fails fast if critical config is missing.
+
+    Raises:
+        RuntimeError: If any required environment variable is missing
+    """
+    required_vars = {
+        'PRECOMPUTE_STATE_MACHINE_ARN': 'Step Functions state machine ARN',
+        'TZ': 'Bangkok timezone for date handling'
+    }
+
+    missing = {var: purpose for var, purpose in required_vars.items()
+               if not os.getenv(var)}
+
+    if missing:
+        error_msg = "Missing required environment variables:\n"
+        for var, purpose in missing.items():
+            error_msg += f"  - {var} (needed for: {purpose})\n"
+        error_msg += "\nLambda cannot start precompute workflow without these variables."
+        logger.error(error_msg)
+        raise RuntimeError(error_msg)
+
+    logger.info(f"✅ All {len(required_vars)} required env vars present")
+
+
 def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """
     Start Step Functions workflow for parallel precomputation.
@@ -48,21 +76,16 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     Returns:
         Response dict with Step Functions execution ARN
     """
+    # Validate configuration at startup - fail fast!
+    _validate_required_config()
+
     start_time = datetime.now()
     logger.info(f"Precompute Controller invoked at {start_time.isoformat()}")
     logger.info(f"Event: {json.dumps(event)}")
 
     try:
         # Get Step Functions state machine ARN from environment
-        state_machine_arn = os.environ.get('PRECOMPUTE_STATE_MACHINE_ARN')
-        if not state_machine_arn:
-            return {
-                'statusCode': 500,
-                'body': {
-                    'message': 'Configuration error',
-                    'error': 'PRECOMPUTE_STATE_MACHINE_ARN environment variable not set'
-                }
-            }
+        state_machine_arn = os.environ['PRECOMPUTE_STATE_MACHINE_ARN']
 
         # Create Step Functions client
         sfn_client = boto3.client('stepfunctions')

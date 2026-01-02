@@ -27,6 +27,37 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+def _validate_required_config() -> None:
+    """Validate required environment variables at Lambda startup.
+
+    Defensive programming principle (CLAUDE.md #1): Validate configuration
+    at startup, not on first use. Fails fast if critical config is missing.
+
+    Raises:
+        RuntimeError: If any required environment variable is missing
+    """
+    required_vars = {
+        'AURORA_HOST': 'Aurora database connection',
+        'AURORA_DATABASE': 'Aurora database name',
+        'AURORA_USER': 'Aurora database user',
+        'AURORA_PASSWORD': 'Aurora database password',
+        'TZ': 'Bangkok timezone for date handling'
+    }
+
+    missing = {var: purpose for var, purpose in required_vars.items()
+               if not os.getenv(var)}
+
+    if missing:
+        error_msg = "Missing required environment variables:\n"
+        for var, purpose in missing.items():
+            error_msg += f"  - {var} (needed for: {purpose})\n"
+        error_msg += "\nLambda cannot manage schema without these variables."
+        logger.error(error_msg)
+        raise RuntimeError(error_msg)
+
+    logger.info(f"✅ All {len(required_vars)} required env vars present")
+
+
 def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """
     Handle schema and migration operations.
@@ -44,6 +75,9 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     Returns:
         Response dict with operation results
     """
+    # Validate configuration at startup - fail fast!
+    _validate_required_config()
+
     start_time = datetime.now()
     action = event.get('action', 'execute_migration')  # Default action
 

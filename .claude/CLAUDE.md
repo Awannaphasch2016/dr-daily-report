@@ -119,7 +119,84 @@ query = f"SELECT * FROM {DAILY_PRICES} WHERE symbol = %s"
 **Removed tables**:
 - `ticker_info` - Dropped in migration 018 (empty table, replaced by ticker_master)
 
-### 18. Shared Virtual Environment Pattern
+### 15. Infrastructure-Application Contract
+
+When adding new principles requiring environment variables, update in this order:
+1. Add principle to CLAUDE.md
+2. Update application code to follow principle
+3. **Update Terraform env vars for ALL affected Lambdas**
+4. Update Doppler secrets (if sensitive)
+5. Run pre-deployment validation (`scripts/validate_deployment_ready.sh`)
+6. Deploy and verify env vars present
+
+Missing step 3 causes silent failures or data inconsistencies hours after deployment.
+
+**Multi-file synchronization pattern**:
+- Application code: `src/` directory
+- Infrastructure: `terraform/` directory
+- Principles: `.claude/CLAUDE.md`
+- Must maintain contract between all three layers
+
+**Anti-patterns**:
+- ❌ Copy-paste Lambda config without checking new requirements
+- ❌ Silent fallbacks: `os.environ.get('TZ', 'UTC')` hides missing config
+- ❌ No startup validation (fail on first use, not at startup)
+- ❌ Infrastructure updated after deployment (reactive, not proactive)
+
+**Startup validation pattern** (all Lambda handlers):
+```python
+def _validate_configuration() -> None:
+    """Validate required environment variables at Lambda startup.
+
+    Fails fast if critical configuration is missing.
+    """
+    required = ['AURORA_HOST', 'TZ', 'CACHE_TABLE_NAME', ...]
+    missing = [var for var in required if not os.environ.get(var)]
+
+    if missing:
+        raise RuntimeError(
+            f"Missing required env vars: {missing}\n"
+            f"Lambda cannot start without these variables."
+        )
+
+def handler(event, context):
+    _validate_configuration()  # Call FIRST
+    # ... rest of handler logic
+```
+
+See [Missing Deployment Flags Pattern](.claude/abstractions/failure_mode-2026-01-02-missing-deployment-flags.md) for detailed failure mode analysis.
+
+### 16. Timezone Discipline
+
+Use Bangkok timezone (Asia/Bangkok, UTC+7) consistently across all system components. For Bangkok-based users with no UTC requirements, single-timezone standardization eliminates mental conversion overhead and prevents date boundary bugs.
+
+**Infrastructure configuration**:
+- Aurora MySQL: `time_zone = "Asia/Bangkok"` (RDS parameter group)
+- Lambda functions: `TZ = "Asia/Bangkok"` (environment variable)
+- EventBridge Scheduler: UTC cron (platform limitation) but executes at Bangkok time equivalent
+
+**Code pattern** (explicit timezone):
+```python
+from zoneinfo import ZoneInfo
+
+# Explicit Bangkok timezone for business dates
+bangkok_tz = ZoneInfo("Asia/Bangkok")
+today = datetime.now(bangkok_tz).date()
+```
+
+**Anti-patterns**:
+- ❌ Using `datetime.utcnow()` (implicit UTC, wrong for Bangkok business dates)
+- ❌ Using `datetime.now()` without explicit timezone (ambiguous, depends on env var)
+- ❌ Missing TZ env var in Lambda (defaults to UTC, causes date boundary bugs)
+
+**Rationale**:
+- Bangkok users + Bangkok scheduler = Bangkok dates everywhere
+- Prevents cache misses (21:00 UTC Dec 30 ≠ 04:00 Bangkok Dec 31)
+- Single timezone = no mental conversion overhead
+
+See [Timezone Implementation](.claude/validations/2025-12-30-etl-bangkok-timezone-verification.md) for validation.
+
+### 17. Shared Virtual Environment Pattern
 
 **Context**: This project is part of a four-repository ecosystem (`dr-daily-report`, `dr-daily-report_telegram`, `dr-daily-report_media`, `dr-daily-report_news`) sharing common dependencies.
 
