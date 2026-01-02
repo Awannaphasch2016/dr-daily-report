@@ -247,6 +247,36 @@ pip install -e .  # Install DR CLI
 - See [Principle #13: Secret Management Discipline](#13-secret-management-discipline) for Doppler config inheritance (similar "share instead of duplicate" philosophy)
 - See [Shared Virtual Environment Pattern](.claude/abstractions/architecture-2026-01-02-shared-venv-pattern.md) for complete technical details
 
+### 18. Logging Discipline (Storytelling Pattern)
+
+Log for narrative reconstruction, not just event recording. Each log level tells a story: ERROR (what failed), WARNING (what's unexpected), INFO (what happened), DEBUG (how it happened). Reading logs should explain what was executed or failed without needing to inspect traces directly. Logs serve as "weaker ground truth"—faster to inspect than traces, more reliable than status codes.
+
+**Narrative structure**:
+- **Beginning**: What we're doing (context, inputs)
+- **Middle**: Key steps (transformations, milestones with breadcrumbs)
+- **End**: Outcome (✅ success / ❌ failure with details)
+
+**Visual scanability**:
+- **Symbols**: ✅ (success), ⚠️ (degraded), ❌ (failure)
+- **Chapters**: `====` separators, 📄 phase emojis
+- **Correlation**: `[job_id]` prefix for distributed threads
+
+**Verification logging** (defensive storytelling):
+```python
+result = client.execute(query)
+if result.rowcount == 0:
+    logger.error("❌ Operation failed - 0 rows affected")  # Explicit
+else:
+    logger.info(f"✅ Affected {result.rowcount} rows")     # Verified
+```
+
+**Anti-patterns**:
+- ❌ Logging errors at WARNING level (invisible to monitoring)
+- ❌ Missing narrative phases (can't reconstruct execution from logs)
+- ❌ Silent success (only logging failures hides what happened)
+
+See [Logging as Storytelling](.claude/abstractions/architecture-2026-01-03-logging-as-storytelling.md) for comprehensive templates and examples. Integrates with Principle #2 (Progressive Evidence Strengthening - logs as Layer 3) and Principle #1 (Defensive Programming - verification logging).
+
 ---
 
 ## Extension Points
