@@ -153,7 +153,54 @@ def _basic_verify(target, use_doppler):
     else:
         click.echo(f"⚠️  Python {py_version.major}.{py_version.minor} (3.11+ recommended)")
 
+    # === Virtual Environment Integrity Checks ===
+    # See CLAUDE.md Principle #18: Shared Virtual Environment Pattern
+    click.echo()
+    click.echo("📦 Virtual Environment:")
+
+    venv_path = PROJECT_ROOT / "venv"
+
+    # Check 1: Symlink exists
+    if venv_path.exists():
+        if venv_path.is_symlink():
+            target_path = venv_path.resolve()
+            click.echo(f"✅ venv is symlink → {target_path}")
+
+            # Check 2: Target exists
+            if target_path.exists():
+                click.echo(f"✅ Symlink target exists")
+            else:
+                click.echo(f"❌ Symlink target missing: {target_path}")
+                click.echo(f"   Fix: Clone parent project or create isolated venv")
+
+            # Check 3: Python path points to shared venv
+            python_exe = Path(sys.executable)
+            if str(target_path) in str(python_exe):
+                click.echo(f"✅ Python path points to shared venv")
+            else:
+                click.echo(f"⚠️  Python path: {python_exe}")
+                click.echo(f"   Expected: {target_path / 'bin' / 'python'}")
+
+        else:
+            click.echo(f"⚠️  venv exists but is NOT a symlink (isolated venv)")
+            click.echo(f"   Location: {venv_path}")
+    else:
+        click.echo(f"❌ venv not found at: {venv_path}")
+        click.echo(f"   Fix: source venv/bin/activate (if symlink) or python -m venv venv")
+
+    # Check 4: DR CLI installed
+    click.echo()
+    click.echo("🛠️  DR CLI:")
+    result = subprocess.run([sys.executable, "-m", "dr_cli", "--help"],
+                          capture_output=True, text=True)
+    if result.returncode == 0:
+        click.echo("✅ DR CLI installed and working")
+    else:
+        click.echo("❌ DR CLI not found")
+        click.echo("   Fix: pip install -e . (from project root)")
+
     # Check if requirements.txt exists
+    click.echo()
     req_file = PROJECT_ROOT / "requirements.txt"
     if req_file.exists():
         click.echo("✅ requirements.txt found")
@@ -162,6 +209,7 @@ def _basic_verify(target, use_doppler):
 
     # Check Doppler if flag set
     if use_doppler:
+        click.echo()
         result = subprocess.run(["doppler", "--version"],
                               capture_output=True, text=True)
         if result.returncode == 0:
@@ -171,6 +219,7 @@ def _basic_verify(target, use_doppler):
 
     # Check Docker for Telegram target
     if target in ['telegram', 'all']:
+        click.echo()
         result = subprocess.run(["docker", "--version"],
                               capture_output=True, text=True)
         if result.returncode == 0:
@@ -181,4 +230,5 @@ def _basic_verify(target, use_doppler):
     click.echo()
     click.echo("=" * 50)
     click.echo("ℹ️  Run full verification: dr dev verify telegram")
+    click.echo("ℹ️  See: CLAUDE.md Principle #18 for venv details")
     click.echo()

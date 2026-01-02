@@ -13,6 +13,7 @@ This document contains factual information about how the codebase is organized. 
 - [CLI Commands](#cli-commands)
 - [Module Organization](#module-organization)
 - [Extension Points](#extension-points)
+- [Python Environment Management](#python-environment-management)
 - [File Locations Reference](#file-locations-reference)
 
 ---
@@ -404,6 +405,55 @@ my_service = MyService()
 - Pattern: Implement sync first, wrap in async for API
 
 **See**: [API Architecture Patterns](CODE_STYLE.md#telegram-api-architecture-patterns)
+
+---
+
+## Python Environment Management
+
+**Virtual Environment**: Shared venv via symlink to parent project (`dr-daily-report`)
+
+**Setup**:
+```bash
+# Activate shared virtual environment (via symlink)
+source venv/bin/activate
+
+# Install production dependencies
+pip install -r requirements.txt
+
+# Install development dependencies
+pip install -r requirements-dev.txt
+
+# Install DR CLI in editable mode
+pip install -e .
+```
+
+**Verification**: `dr dev verify` checks venv integrity
+
+**Why shared venv**:
+- **Consistency**: All 4 repositories use identical package versions
+- **Disk efficiency**: 75% savings (500MB shared vs 2GB isolated)
+- **Simplicity**: One venv to manage across ecosystem
+- **Development speed**: Updates immediately available to all projects
+
+**Troubleshooting**:
+```bash
+# Check if venv is symlink
+ls -la venv
+# Should show: venv -> ../dr-daily-report/venv
+
+# Verify Python path
+which python
+# Should point to: .../dr-daily-report/venv/bin/python
+
+# If symlink broken, create isolated venv (fallback)
+rm venv
+python -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+pip install -e .
+```
+
+**See**: [CLAUDE.md Principle #18](../.claude/CLAUDE.md#18-shared-virtual-environment-pattern) for complete details and rationale
 
 ---
 

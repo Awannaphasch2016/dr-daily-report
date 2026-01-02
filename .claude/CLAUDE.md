@@ -119,6 +119,57 @@ query = f"SELECT * FROM {DAILY_PRICES} WHERE symbol = %s"
 **Removed tables**:
 - `ticker_info` - Dropped in migration 018 (empty table, replaced by ticker_master)
 
+### 18. Shared Virtual Environment Pattern
+
+**Context**: This project is part of a four-repository ecosystem (`dr-daily-report`, `dr-daily-report_telegram`, `dr-daily-report_media`, `dr-daily-report_news`) sharing common dependencies.
+
+**Pattern**: Use symlinked virtual environment to parent project for dependency consistency.
+
+**Setup**:
+```bash
+# Symlink exists (created during initial setup)
+ls -la venv  # Should show: venv -> ../dr-daily-report/venv
+
+# Activate (works via symlink)
+source venv/bin/activate
+
+# Verify
+which python  # Should show path in parent venv
+```
+
+**Why shared venv**:
+- **Consistency**: All projects use identical package versions (impossible to have conflicts)
+- **Disk efficiency**: 75% savings (500MB shared vs 2GB isolated)
+- **Simplicity**: One venv to manage, not four
+- **Development speed**: Updates immediately available across all projects
+
+**When parent venv missing** (fallback):
+```bash
+# If parent project not cloned or venv broken
+rm venv  # Remove broken symlink
+python -m venv venv  # Create isolated venv
+source venv/bin/activate
+pip install -r requirements.txt
+pip install -e .  # Install DR CLI
+```
+
+**Verification checklist**:
+- [ ] Symlink exists: `ls -la venv` shows `-> ../parent/venv`
+- [ ] Target exists: `ls -la ../dr-daily-report/venv/` shows venv structure
+- [ ] Activation works: `source venv/bin/activate` succeeds
+- [ ] Python path correct: `which python` points to parent venv
+- [ ] DR CLI available: `dr --help` works
+
+**Anti-patterns**:
+- ❌ Creating isolated venv without understanding symlink pattern
+- ❌ Installing to system Python (not activating venv)
+- ❌ Assuming venv exists without verification
+- ❌ Installing dependencies without activating venv first
+
+**Related**:
+- See [Principle #13: Secret Management Discipline](#13-secret-management-discipline) for Doppler config inheritance (similar "share instead of duplicate" philosophy)
+- See [Shared Virtual Environment Pattern](.claude/abstractions/architecture-2026-01-02-shared-venv-pattern.md) for complete technical details
+
 ---
 
 ## Extension Points
