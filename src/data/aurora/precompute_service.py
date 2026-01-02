@@ -1414,7 +1414,7 @@ class PrecomputeService:
         """
         try:
             from src.formatters.pdf_generator import generate_pdf
-            from src.data.s3_cache import upload_pdf_to_s3
+            from src.formatters.pdf_storage import PDFStorage
 
             # Generate PDF
             pdf_bytes = generate_pdf(
@@ -1424,11 +1424,22 @@ class PrecomputeService:
             )
 
             if not pdf_bytes:
+                logger.warning(f"PDF generation returned None for {symbol}")
                 return None
 
-            # Upload to S3 with the standard key format
-            pdf_s3_key = f"reports/{symbol}/{data_date.strftime('%Y-%m-%d')}.pdf"
-            upload_pdf_to_s3(pdf_bytes, pdf_s3_key)
+            # Upload to S3 using PDFStorage
+            pdf_storage = PDFStorage()
+            if not pdf_storage.is_available():
+                logger.warning("PDFStorage not available (S3 client not initialized)")
+                return None
+
+            # Upload PDF and get the S3 key
+            # PDFStorage.upload_pdf() returns key like: reports/{ticker}/{date}/{ticker}_report_{date}_{timestamp}.pdf
+            pdf_s3_key = pdf_storage.upload_pdf(
+                pdf_bytes=pdf_bytes,
+                ticker=symbol,
+                date_str=data_date.strftime('%Y-%m-%d')
+            )
 
             return pdf_s3_key
 
@@ -1436,7 +1447,7 @@ class PrecomputeService:
             logger.warning(f"PDF generation module not available: {e}")
             return None
         except Exception as e:
-            logger.error(f"Failed to generate/upload PDF: {e}")
+            logger.error(f"Failed to generate/upload PDF for {symbol}: {e}", exc_info=True)
             return None
 
     def update_pdf_presigned_url(
