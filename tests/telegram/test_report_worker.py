@@ -112,7 +112,7 @@ class TestReportWorkerHandler:
     def test_handler_invokes_agent_with_correct_ticker(
         self, sqs_event, mock_job_service, mock_agent, mock_transformer, mock_ticker_service
     ):
-        """Test that handler invokes agent with correct ticker (Yahoo symbol, not DR symbol)"""
+        """Test that handler invokes agent with DR symbol in state (workflow nodes expect DR symbols)"""
         from src.report_worker_handler import handler
 
         handler(sqs_event, None)
@@ -122,11 +122,12 @@ class TestReportWorkerHandler:
         agent_instance = mock_agent.return_value
         agent_instance.graph.invoke.assert_called_once()
 
-        # Check ticker in state - should use Yahoo symbol (NVDA) not DR symbol (NVDA19)
-        # Fix in commit 802ed60: Workers now resolve DR symbols to Yahoo symbols before querying Aurora
+        # Check ticker in state - should use DR symbol (NVDA19) not Yahoo symbol (NVDA)
+        # Workflow nodes expect DR symbols in state['ticker'] for their ticker_map lookups
+        # They internally convert DR → Yahoo for Aurora queries
         call_args = agent_instance.graph.invoke.call_args
         state = call_args[0][0]
-        assert state['ticker'] == 'NVDA'  # Yahoo symbol (from ticker_service.get_ticker_info())
+        assert state['ticker'] == 'NVDA19'  # DR symbol (workflow nodes expect this)
 
     def test_handler_calls_ticker_service_with_dr_symbol(
         self, sqs_event, mock_job_service, mock_agent, mock_transformer, mock_ticker_service
@@ -275,7 +276,7 @@ class TestSQSMessageParsing:
         mock_all_services['job'].start_job.assert_called_with('rpt_custom_id')
 
     def test_parses_ticker_from_message(self, mock_all_services):
-        """Test that ticker is correctly parsed from SQS message and resolved to Yahoo symbol"""
+        """Test that ticker is correctly parsed from SQS message and kept as DR symbol in state"""
         from src.report_worker_handler import handler
 
         # Need to update ticker_service mock to return D05.SI for DBS19
@@ -293,12 +294,12 @@ class TestSQSMessageParsing:
 
         handler(event, None)
 
-        # Check ticker was resolved to Yahoo symbol (D05.SI) not DR symbol (DBS19)
-        # Fix in commit 802ed60: Workers now resolve DR symbols to Yahoo symbols before querying Aurora
+        # Check ticker in state stays as DR symbol (DBS19) not Yahoo symbol (D05.SI)
+        # Workflow nodes expect DR symbols in state['ticker'] for their internal ticker_map lookups
         agent_instance = mock_all_services['agent'].return_value
         call_args = agent_instance.graph.invoke.call_args
         state = call_args[0][0]
-        assert state['ticker'] == 'D05.SI'  # Yahoo symbol (from ticker_service.get_ticker_info())
+        assert state['ticker'] == 'DBS19'  # DR symbol (workflow nodes expect this)
 
     def test_handles_malformed_message(self, mock_all_services):
         """Test that malformed messages are handled gracefully"""

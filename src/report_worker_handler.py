@@ -166,9 +166,10 @@ async def process_record(record: dict) -> None:
         agent = TickerAnalysisAgent()
 
         # Create initial state
+        # NOTE: state['ticker'] must be DR symbol (workflow nodes expect it for their ticker_map lookups)
         initial_state: AgentState = {
             "messages": [],
-            "ticker": ticker.upper(),
+            "ticker": dr_symbol.upper(),
             "ticker_data": {},
             "indicators": {},
             "percentiles": {},
