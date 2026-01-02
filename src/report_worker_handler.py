@@ -213,13 +213,6 @@ async def process_record(record: dict) -> None:
         job_service.complete_job(job_id, result)
         logger.info(f"Completed job {job_id} for ticker {ticker}")
 
-        # 🔍 DEBUG BREADCRUMB 1: Execution reached after job completion
-        logger.info(f"🔍 DEBUG_1: Reached line 215 after job completion for {ticker}")
-        logger.info(f"🔍 DEBUG_2: Message keys: {list(message.keys())}")
-        logger.info(f"🔍 DEBUG_3: Message source field: {message.get('source', 'MISSING')}")
-        logger.info(f"🔍 DEBUG_4: Message generate_pdf field: {message.get('generate_pdf', 'MISSING')}")
-        logger.info(f"🔍 DEBUG_5: Full message body: {message}")
-
         # ========================================
         # STEP 4.5: Generate PDF (for scheduled workflows)
         # ========================================
@@ -244,14 +237,7 @@ async def process_record(record: dict) -> None:
 
         should_generate_pdf = is_scheduled or explicitly_requested
 
-        # 🔍 DEBUG BREADCRUMB 2: PDF decision point
-        logger.info(f"🔍 DEBUG_6: is_scheduled={is_scheduled}, explicitly_requested={explicitly_requested}")
-        logger.info(f"🔍 DEBUG_7: should_generate_pdf={should_generate_pdf}")
-        logger.info(f"🔍 DEBUG_8: final_state has report={bool(final_state.get('report'))}")
-
         if should_generate_pdf and final_state.get('report'):
-            # 🔍 DEBUG BREADCRUMB 3: Entering PDF generation block
-            logger.info(f"🔍 DEBUG_9: ENTERING PDF GENERATION BLOCK for {ticker}")
             try:
                 logger.info(f"📄 Generating PDF for {ticker}...")
 
@@ -279,8 +265,6 @@ async def process_record(record: dict) -> None:
                 # Don't re-raise - graceful degradation
 
         else:
-            # 🔍 DEBUG BREADCRUMB 4: Skipping PDF generation
-            logger.info(f"🔍 DEBUG_10: SKIPPING PDF GENERATION for {ticker}")
             if not final_state.get('report'):
                 logger.info(f"ℹ️ Skipping PDF generation (no report text) for {ticker}")
             elif is_scheduled:
