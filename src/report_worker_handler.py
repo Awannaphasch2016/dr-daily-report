@@ -213,6 +213,81 @@ async def process_record(record: dict) -> None:
         job_service.complete_job(job_id, result)
         logger.info(f"Completed job {job_id} for ticker {ticker}")
 
+        # 🔍 DEBUG BREADCRUMB 1: Execution reached after job completion
+        logger.info(f"🔍 DEBUG_1: Reached line 215 after job completion for {ticker}")
+        logger.info(f"🔍 DEBUG_2: Message keys: {list(message.keys())}")
+        logger.info(f"🔍 DEBUG_3: Message source field: {message.get('source', 'MISSING')}")
+        logger.info(f"🔍 DEBUG_4: Message generate_pdf field: {message.get('generate_pdf', 'MISSING')}")
+        logger.info(f"🔍 DEBUG_5: Full message body: {message}")
+
+        # ========================================
+        # STEP 4.5: Generate PDF (for scheduled workflows)
+        # ========================================
+        # Context: Workers are triggered by:
+        #   1. Telegram API requests (user-initiated) - job_id exists, no PDF needed
+        #   2. Scheduled workflows (Step Functions) - no job_id, PDF needed
+        #
+        # Strategy: Generate PDF if:
+        #   - No job_id (scheduled workflow), OR
+        #   - Message explicitly requests PDF (generate_pdf flag)
+        #
+        # Graceful degradation: If PDF fails, continue without it (report is still valid)
+
+        pdf_s3_key = None
+        pdf_generated_at = None
+
+        # Determine if PDF should be generated:
+        # 1. Scheduled workflows (Step Functions) have source="step_functions_precompute"
+        # 2. API requests can explicitly request PDF with generate_pdf=true flag
+        is_scheduled = message.get('source') == 'step_functions_precompute'
+        explicitly_requested = message.get('generate_pdf', False)
+
+        should_generate_pdf = is_scheduled or explicitly_requested
+
+        # 🔍 DEBUG BREADCRUMB 2: PDF decision point
+        logger.info(f"🔍 DEBUG_6: is_scheduled={is_scheduled}, explicitly_requested={explicitly_requested}")
+        logger.info(f"🔍 DEBUG_7: should_generate_pdf={should_generate_pdf}")
+        logger.info(f"🔍 DEBUG_8: final_state has report={bool(final_state.get('report'))}")
+
+        if should_generate_pdf and final_state.get('report'):
+            # 🔍 DEBUG BREADCRUMB 3: Entering PDF generation block
+            logger.info(f"🔍 DEBUG_9: ENTERING PDF GENERATION BLOCK for {ticker}")
+            try:
+                logger.info(f"📄 Generating PDF for {ticker}...")
+
+                from datetime import datetime, date
+
+                ps = PrecomputeService()
+
+                # Generate and upload PDF using existing method
+                pdf_s3_key = ps._generate_and_upload_pdf(
+                    symbol=ticker,
+                    data_date=date.today(),
+                    report_text=final_state.get('report', ''),
+                    chart_base64=final_state.get('chart_base64', '')
+                )
+
+                if pdf_s3_key:
+                    pdf_generated_at = datetime.now()
+                    logger.info(f"✅ Generated PDF: {pdf_s3_key}")
+                else:
+                    logger.warning(f"⚠️ PDF generation returned None for {ticker}")
+
+            except Exception as e:
+                logger.warning(f"⚠️ PDF generation failed for {ticker}: {e}")
+                # Continue without PDF - report is still valid
+                # Don't re-raise - graceful degradation
+
+        else:
+            # 🔍 DEBUG BREADCRUMB 4: Skipping PDF generation
+            logger.info(f"🔍 DEBUG_10: SKIPPING PDF GENERATION for {ticker}")
+            if not final_state.get('report'):
+                logger.info(f"ℹ️ Skipping PDF generation (no report text) for {ticker}")
+            elif is_scheduled:
+                logger.warning(f"⚠️ PDF generation disabled despite scheduled workflow for {ticker}")
+            else:
+                logger.info(f"ℹ️ Skipping PDF generation (API request) for {ticker}")
+
         # Store to Aurora cache for future cache hits (enables cache-first behavior)
         try:
             logger.info(f"Attempting to cache report in Aurora for {ticker}")
@@ -223,6 +298,8 @@ async def process_record(record: dict) -> None:
                 report_text=result.get('narrative_report', ''),
                 report_json=result,
                 chart_base64=final_state.get('chart_base64', ''),
+                pdf_s3_key=pdf_s3_key,
+                pdf_generated_at=pdf_generated_at,
             )
             if cache_result:
                 logger.info(f"✅ Cached report in Aurora for {ticker}")
