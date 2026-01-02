@@ -159,8 +159,8 @@ async def process_record(record: dict) -> None:
         # Mark job as in_progress
         job_service.start_job(job_id)
 
-        # Get ticker info
-        ticker_info = ticker_service.get_ticker_info(ticker)
+        # Get ticker info (ticker_service expects DR symbol, not Yahoo symbol)
+        ticker_info = ticker_service.get_ticker_info(dr_symbol)
 
         # Initialize agent
         agent = TickerAnalysisAgent()

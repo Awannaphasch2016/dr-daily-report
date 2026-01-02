@@ -128,6 +128,18 @@ class TestReportWorkerHandler:
         state = call_args[0][0]
         assert state['ticker'] == 'NVDA'  # Yahoo symbol (from ticker_service.get_ticker_info())
 
+    def test_handler_calls_ticker_service_with_dr_symbol(
+        self, sqs_event, mock_job_service, mock_agent, mock_transformer, mock_ticker_service
+    ):
+        """Test that ticker_service.get_ticker_info() is called with DR symbol, not Yahoo symbol"""
+        from src.report_worker_handler import handler
+
+        handler(sqs_event, None)
+
+        # ticker_service.get_ticker_info should be called with DR symbol
+        # Even though Aurora queries use Yahoo symbols, ticker_service expects DR symbols
+        mock_ticker_service.get_ticker_info.assert_called_once_with('NVDA19')
+
     def test_handler_success_marks_completed(
         self, sqs_event, mock_job_service, mock_agent, mock_transformer, mock_ticker_service
     ):
