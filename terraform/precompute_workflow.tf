@@ -149,6 +149,10 @@ resource "aws_lambda_function" "precompute_controller" {
       ENVIRONMENT                    = var.environment
       LOG_LEVEL                      = "INFO"
       PRECOMPUTE_STATE_MACHINE_ARN  = aws_sfn_state_machine.precompute_workflow.arn
+
+      # Timezone (Principle #16: Timezone Discipline)
+      TZ                             = "Asia/Bangkok"
+
       # Note: AWS_REGION is automatically provided by Lambda, cannot be set manually
     }
   }
