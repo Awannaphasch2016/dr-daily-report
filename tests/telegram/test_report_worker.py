@@ -85,6 +85,15 @@ class TestReportWorkerHandler:
             yield service
 
     @pytest.fixture
+    def mock_precompute_service(self):
+        """Mock PrecomputeService for Aurora storage"""
+        with patch('src.report_worker_handler.PrecomputeService') as mock:
+            precompute = Mock()
+            precompute.store_report_from_api = Mock(return_value=True)
+            mock.return_value = precompute
+            yield precompute
+
+    @pytest.fixture
     def sqs_event(self):
         """Create mock SQS event"""
         return {
@@ -100,7 +109,7 @@ class TestReportWorkerHandler:
         }
 
     def test_handler_updates_job_to_in_progress(
-        self, sqs_event, mock_job_service, mock_agent, mock_transformer, mock_ticker_service
+        self, sqs_event, mock_job_service, mock_agent, mock_transformer, mock_ticker_service, mock_precompute_service
     ):
         """Test that handler marks job as in_progress at start"""
         from src.report_worker_handler import handler
@@ -110,7 +119,7 @@ class TestReportWorkerHandler:
         mock_job_service.start_job.assert_called_once_with('rpt_abc123')
 
     def test_handler_invokes_agent_with_correct_ticker(
-        self, sqs_event, mock_job_service, mock_agent, mock_transformer, mock_ticker_service
+        self, sqs_event, mock_job_service, mock_agent, mock_transformer, mock_ticker_service, mock_precompute_service
     ):
         """Test that handler invokes agent with DR symbol in state (workflow nodes expect DR symbols)"""
         from src.report_worker_handler import handler
@@ -130,7 +139,7 @@ class TestReportWorkerHandler:
         assert state['ticker'] == 'NVDA19'  # DR symbol (workflow nodes expect this)
 
     def test_handler_calls_ticker_service_with_dr_symbol(
-        self, sqs_event, mock_job_service, mock_agent, mock_transformer, mock_ticker_service
+        self, sqs_event, mock_job_service, mock_agent, mock_transformer, mock_ticker_service, mock_precompute_service
     ):
         """Test that ticker_service.get_ticker_info() is called with DR symbol, not Yahoo symbol"""
         from src.report_worker_handler import handler
@@ -142,7 +151,7 @@ class TestReportWorkerHandler:
         mock_ticker_service.get_ticker_info.assert_called_once_with('NVDA19')
 
     def test_handler_success_marks_completed(
-        self, sqs_event, mock_job_service, mock_agent, mock_transformer, mock_ticker_service
+        self, sqs_event, mock_job_service, mock_agent, mock_transformer, mock_ticker_service, mock_precompute_service
     ):
         """Test that successful processing marks job as completed"""
         from src.report_worker_handler import handler
@@ -155,7 +164,7 @@ class TestReportWorkerHandler:
         assert 'ticker' in call_args[0][1]  # result dict
 
     def test_handler_failure_marks_failed_before_raising(
-        self, sqs_event, mock_job_service, mock_agent, mock_transformer, mock_ticker_service
+        self, sqs_event, mock_job_service, mock_agent, mock_transformer, mock_ticker_service, mock_precompute_service
     ):
         """Test that failure marks job as failed before re-raising"""
         from src.report_worker_handler import handler
@@ -175,7 +184,7 @@ class TestReportWorkerHandler:
         assert 'LLM API timeout' in call_args[0][1]  # error message
 
     def test_handler_agent_error_marks_failed(
-        self, sqs_event, mock_job_service, mock_agent, mock_transformer, mock_ticker_service
+        self, sqs_event, mock_job_service, mock_agent, mock_transformer, mock_ticker_service, mock_precompute_service
     ):
         """Test that agent error in state marks job as failed"""
         from src.report_worker_handler import handler

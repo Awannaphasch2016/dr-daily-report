@@ -164,10 +164,11 @@ class TestReportWorkerCaching:
             assert call_kwargs["report_json"]["ticker"] == "D05.SI"
 
     @pytest.mark.asyncio
-    async def test_caching_failure_does_not_fail_job(self, mock_dependencies):
-        """Verify job completes even if Aurora caching fails.
+    async def test_caching_failure_does_fail_job(self, mock_dependencies):
+        """Verify job fails if Aurora storage fails.
 
-        Caching is fire-and-forget - DynamoDB is the primary store.
+        Aurora is now the primary storage (not optional) - reports MUST be stored
+        for downstream PDF generation workflow.
         """
         # Make caching throw an exception
         mock_dependencies["precompute"].store_report_from_api.side_effect = Exception(
@@ -187,18 +188,21 @@ class TestReportWorkerCaching:
                 "body": json.dumps({"job_id": "rpt_test789", "ticker": "DBS19"})
             }
 
-            # Should NOT raise exception
-            await process_record(record)
+            # SHOULD raise exception (Aurora storage is critical)
+            with pytest.raises(Exception) as exc_info:
+                await process_record(record)
 
-            # Job should still be marked complete (before caching attempted)
+            assert "Aurora connection refused" in str(exc_info.value)
+
+            # Job should still be marked complete BEFORE storage attempted
             mock_dependencies["job_service"].complete_job.assert_called_once()
 
-            # fail_job should NOT be called - caching failure is not a job failure
-            mock_dependencies["job_service"].fail_job.assert_not_called()
-
     @pytest.mark.asyncio
-    async def test_caching_returns_false_does_not_fail_job(self, mock_dependencies):
-        """Verify job completes even if store_report_from_api returns False."""
+    async def test_caching_returns_false_does_fail_job(self, mock_dependencies):
+        """Verify job fails if store_report_from_api returns False.
+
+        Aurora storage is critical - False indicates storage failed.
+        """
         mock_dependencies["precompute"].store_report_from_api.return_value = False
 
         with patch('src.report_worker_handler.TickerAnalysisAgent', mock_dependencies["agent_class"]), \
@@ -214,10 +218,13 @@ class TestReportWorkerCaching:
                 "body": json.dumps({"job_id": "rpt_warn", "ticker": "DBS19"})
             }
 
-            # Should NOT raise exception
-            await process_record(record)
+            # SHOULD raise exception (Aurora storage is critical)
+            with pytest.raises(ValueError) as exc_info:
+                await process_record(record)
 
-            # Job should still be marked complete
+            assert "Failed to store report for D05.SI" in str(exc_info.value)
+
+            # Job should still be marked complete BEFORE storage attempted
             mock_dependencies["job_service"].complete_job.assert_called_once()
 
     @pytest.mark.asyncio
