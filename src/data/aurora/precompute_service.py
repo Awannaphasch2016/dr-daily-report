@@ -1480,6 +1480,84 @@ class PrecomputeService:
             commit=True
         )
 
+    def update_pdf_metadata(
+        self,
+        report_id: int,
+        pdf_s3_key: str,
+        pdf_generated_at: datetime
+    ) -> int:
+        """Update PDF metadata for existing report (used by PDF worker).
+
+        Args:
+            report_id: Report ID to update
+            pdf_s3_key: S3 key where PDF is stored
+            pdf_generated_at: When PDF was generated
+
+        Returns:
+            Number of affected rows (should be 1)
+        """
+        query = f"""
+            UPDATE {PRECOMPUTED_REPORTS}
+            SET
+                pdf_s3_key = %s,
+                pdf_generated_at = %s
+            WHERE id = %s
+        """
+
+        affected = self.client.execute(
+            query,
+            (pdf_s3_key, pdf_generated_at, report_id),
+            commit=True
+        )
+
+        if affected == 0:
+            logger.warning(f"⚠️ No report found with id={report_id}")
+        else:
+            logger.info(f"✅ Updated PDF metadata for report {report_id}")
+
+        return affected
+
+    def get_reports_needing_pdfs(
+        self,
+        report_date: date,
+        limit: int = 50
+    ) -> List[Dict[str, Any]]:
+        """Get reports that need PDF generation (called by get_report_list Lambda).
+
+        Queries Aurora for reports where:
+        - report_date matches
+        - status = 'completed'
+        - report_text IS NOT NULL
+        - pdf_s3_key IS NULL (no PDF yet)
+
+        Args:
+            report_date: Business date to query (Bangkok timezone)
+            limit: Maximum number of reports to return
+
+        Returns:
+            List of dicts with: id, symbol, report_text, chart_base64, report_date
+        """
+        query = f"""
+            SELECT
+                id,
+                symbol,
+                report_text,
+                chart_base64,
+                report_date
+            FROM {PRECOMPUTED_REPORTS}
+            WHERE report_date = %s
+              AND status = 'completed'
+              AND report_text IS NOT NULL
+              AND pdf_s3_key IS NULL
+            ORDER BY computed_at ASC
+            LIMIT %s
+        """
+
+        results = self.client.execute_query(query, (report_date, limit))
+        logger.info(f"Found {len(results)} reports needing PDFs for {report_date}")
+
+        return results
+
     # =========================================================================
     # Ticker Data Cache (replaces S3 cache/ticker_data/)
     # =========================================================================

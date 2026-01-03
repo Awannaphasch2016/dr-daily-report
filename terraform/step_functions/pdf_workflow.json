@@ -1,0 +1,115 @@
+{
+  "Comment": "PDF Generation workflow - generates PDFs for completed reports",
+  "StartAt": "PrepareReportList",
+  "States": {
+    "PrepareReportList": {
+      "Type": "Task",
+      "Resource": "arn:aws:lambda:${region}:${account_id}:function:${get_report_list_function_name}",
+      "Comment": "Query Aurora for reports needing PDF generation (pdf_s3_key IS NULL)",
+      "ResultPath": "$.report_list",
+      "Retry": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Next": "CheckReportsExist"
+    },
+
+    "CheckReportsExist": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.report_list.reports[0]",
+          "IsPresent": true,
+          "Next": "FanOutToPDFWorkers"
+        }
+      ],
+      "Default": "NoReportsFound"
+    },
+
+    "NoReportsFound": {
+      "Type": "Pass",
+      "Comment": "No reports needing PDFs - workflow complete",
+      "Parameters": {
+        "status": "completed",
+        "execution_id.$": "$$.Execution.Name",
+        "total_pdfs": 0,
+        "message": "No reports found needing PDF generation"
+      },
+      "End": true
+    },
+
+    "FanOutToPDFWorkers": {
+      "Type": "Map",
+      "ItemsPath": "$.report_list.reports",
+      "MaxConcurrency": 46,
+      "Parameters": {
+        "report.$": "$$.Map.Item.Value",
+        "execution_id.$": "$$.Execution.Name"
+      },
+      "Iterator": {
+        "StartAt": "SubmitToSQS",
+        "States": {
+          "SubmitToSQS": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::sqs:sendMessage",
+            "Parameters": {
+              "QueueUrl": "${sqs_queue_url}",
+              "MessageBody": {
+                "id.$": "$.report.id",
+                "symbol.$": "$.report.symbol",
+                "report_text.$": "$.report.report_text",
+                "chart_base64.$": "$.report.chart_base64",
+                "report_date.$": "$.report.report_date",
+                "execution_id.$": "$.execution_id"
+              }
+            },
+            "ResultPath": "$.sqs_result",
+            "End": true,
+            "Retry": [
+              {
+                "ErrorEquals": ["States.ALL"],
+                "IntervalSeconds": 2,
+                "MaxAttempts": 3,
+                "BackoffRate": 2.0
+              }
+            ]
+          }
+        }
+      },
+      "ResultPath": "$.fanout_results",
+      "Next": "RecordStartTime"
+    },
+
+    "RecordStartTime": {
+      "Type": "Pass",
+      "Result": {
+        "started_at.$": "$$.State.EnteredTime"
+      },
+      "ResultPath": "$.timing",
+      "Next": "WaitForPDFWorkers"
+    },
+
+    "WaitForPDFWorkers": {
+      "Type": "Wait",
+      "Seconds": 180,
+      "Comment": "Wait 3 minutes for PDF workers to complete. PDF generation takes ~10-30s per ticker.",
+      "Next": "AggregateResults"
+    },
+
+    "AggregateResults": {
+      "Type": "Pass",
+      "Comment": "PDF workflow completed. Check CloudWatch logs for individual PDF worker status.",
+      "Parameters": {
+        "status": "completed",
+        "execution_id.$": "$$.Execution.Name",
+        "message": "PDF workflow completed. Check CloudWatch logs for individual PDF status.",
+        "next_steps": "Verify PDFs in S3 and Aurora pdf_s3_key column updated"
+      },
+      "End": true
+    }
+  }
+}

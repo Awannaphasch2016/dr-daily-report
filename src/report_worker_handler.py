@@ -214,84 +214,34 @@ async def process_record(record: dict) -> None:
         logger.info(f"Completed job {job_id} for ticker {ticker}")
 
         # ========================================
-        # STEP 4.5: Generate PDF (for scheduled workflows)
+        # STEP 4.5: Store Report (PDF generated separately)
         # ========================================
-        # Context: Workers are triggered by:
-        #   1. Telegram API requests (user-initiated) - job_id exists, no PDF needed
-        #   2. Scheduled workflows (Step Functions) - no job_id, PDF needed
-        #
-        # Strategy: Generate PDF if:
-        #   - No job_id (scheduled workflow), OR
-        #   - Message explicitly requests PDF (generate_pdf flag)
-        #
-        # Graceful degradation: If PDF fails, continue without it (report is still valid)
+        # Note: PDF generation moved to separate Step Function workflow
+        # This worker ONLY generates and stores the report
 
-        pdf_s3_key = None
-        pdf_generated_at = None
-
-        # Determine if PDF should be generated:
-        # 1. Scheduled workflows (Step Functions) have source="step_functions_precompute"
-        # 2. API requests can explicitly request PDF with generate_pdf=true flag
-        is_scheduled = message.get('source') == 'step_functions_precompute'
-        explicitly_requested = message.get('generate_pdf', False)
-
-        should_generate_pdf = is_scheduled or explicitly_requested
-
-        if should_generate_pdf and final_state.get('report'):
-            try:
-                logger.info(f"📄 Generating PDF for {ticker}...")
-
-                from datetime import datetime, date
-
-                ps = PrecomputeService()
-
-                # Generate and upload PDF using existing method
-                pdf_s3_key = ps._generate_and_upload_pdf(
-                    symbol=ticker,
-                    data_date=date.today(),
-                    report_text=final_state.get('report', ''),
-                    chart_base64=final_state.get('chart_base64', '')
-                )
-
-                if pdf_s3_key:
-                    pdf_generated_at = datetime.now()
-                    logger.info(f"✅ Generated PDF: {pdf_s3_key}")
-                else:
-                    logger.warning(f"⚠️ PDF generation returned None for {ticker}")
-
-            except Exception as e:
-                logger.warning(f"⚠️ PDF generation failed for {ticker}: {e}")
-                # Continue without PDF - report is still valid
-                # Don't re-raise - graceful degradation
-
-        else:
-            if not final_state.get('report'):
-                logger.info(f"ℹ️ Skipping PDF generation (no report text) for {ticker}")
-            elif is_scheduled:
-                logger.warning(f"⚠️ PDF generation disabled despite scheduled workflow for {ticker}")
-            else:
-                logger.info(f"ℹ️ Skipping PDF generation (API request) for {ticker}")
-
-        # Store to Aurora cache for future cache hits (enables cache-first behavior)
         try:
-            logger.info(f"Attempting to cache report in Aurora for {ticker}")
-            precompute_service = PrecomputeService()
-            # Store report (strategy field no longer needed - using Semantic Layer Architecture)
-            cache_result = precompute_service.store_report_from_api(
+            logger.info(f"====== Storing Report ======")
+            ps = PrecomputeService()
+
+            # Store report WITHOUT PDF (PDF workflow handles it)
+            success = ps.store_report_from_api(
                 symbol=ticker,
                 report_text=result.get('narrative_report', ''),
                 report_json=result,
                 chart_base64=final_state.get('chart_base64', ''),
-                pdf_s3_key=pdf_s3_key,
-                pdf_generated_at=pdf_generated_at,
+                pdf_s3_key=None,           # PDF generated in separate workflow
+                pdf_generated_at=None,
             )
-            if cache_result:
-                logger.info(f"✅ Cached report in Aurora for {ticker}")
-            else:
-                logger.warning(f"⚠️ store_report_from_api returned False for {ticker}")
-        except Exception as cache_error:
-            # Log but don't fail the job - DynamoDB result is the primary store
-            logger.error(f"❌ Failed to cache report in Aurora for {ticker}: {cache_error}", exc_info=True)
+
+            if not success:
+                logger.error(f"❌ Failed to store report for {ticker}")
+                raise ValueError(f"Failed to store report for {ticker}")
+
+            logger.info(f"✅ Stored report for {ticker}")
+
+        except Exception as e:
+            logger.error(f"❌ Failed to store report for {ticker}: {e}", exc_info=True)
+            raise  # Re-raise to fail job (SQS will retry or DLQ)
 
     except json.JSONDecodeError as e:
         error_msg = f"Invalid JSON in message body: {e}"

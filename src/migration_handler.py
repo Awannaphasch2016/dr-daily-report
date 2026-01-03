@@ -193,6 +193,103 @@ def run_make_ticker_id_required_migration():
         }
 
 
+def run_add_pdf_columns_migration():
+    """Add PDF metadata columns to precomputed_reports table (Migration 019)
+
+    Adds: pdf_s3_key, pdf_presigned_url, pdf_url_expires_at, pdf_generated_at
+    All operations are idempotent (IF NOT EXISTS) for safe retry.
+    """
+    from src.data.aurora.client import get_aurora_client
+
+    logger.info("=" * 80)
+    logger.info("Migration 019: Add PDF columns to precomputed_reports")
+    logger.info("=" * 80)
+
+    client = get_aurora_client()
+
+    try:
+        # Check current schema
+        schema_query = "DESCRIBE precomputed_reports"
+        existing_columns = client.fetch_all(schema_query)
+        column_names = {row['Field'] for row in existing_columns}
+
+        logger.info(f"Current columns: {sorted(column_names)}")
+
+        # Define PDF columns to add (idempotent)
+        pdf_columns = ['pdf_s3_key', 'pdf_presigned_url', 'pdf_url_expires_at', 'pdf_generated_at']
+        missing_columns = [col for col in pdf_columns if col not in column_names]
+
+        if not missing_columns:
+            logger.info("✅ All PDF columns already exist - migration not needed")
+            return {
+                'status': 'success',
+                'message': 'All PDF columns already exist',
+                'migration_applied': False
+            }
+
+        logger.info(f"Missing columns: {missing_columns}")
+
+        # Execute migration SQL (idempotent operations with IF NOT EXISTS)
+        logger.info("Executing migration 019...")
+
+        # Add PDF columns (IF NOT EXISTS for idempotency)
+        alter_table_sql = """
+            ALTER TABLE precomputed_reports
+                ADD COLUMN IF NOT EXISTS pdf_s3_key VARCHAR(500) DEFAULT NULL
+                    COMMENT 'S3 key for uploaded PDF',
+                ADD COLUMN IF NOT EXISTS pdf_presigned_url TEXT DEFAULT NULL
+                    COMMENT 'Cached presigned URL (24h TTL)',
+                ADD COLUMN IF NOT EXISTS pdf_url_expires_at DATETIME DEFAULT NULL
+                    COMMENT 'When presigned URL expires',
+                ADD COLUMN IF NOT EXISTS pdf_generated_at TIMESTAMP NULL DEFAULT NULL
+                    COMMENT 'When PDF was generated'
+        """
+
+        logger.info("Adding PDF columns...")
+        client.execute(alter_table_sql, commit=True)
+
+        # Add index for PDF lookups
+        index_sql = """
+            CREATE INDEX IF NOT EXISTS idx_pdf_generated
+                ON precomputed_reports(pdf_generated_at DESC)
+        """
+
+        logger.info("Creating index for PDF lookups...")
+        client.execute(index_sql, commit=True)
+
+        logger.info("✅ Successfully executed migration statements")
+
+        # Verify all columns were added
+        verify_schema = client.fetch_all(schema_query)
+        verify_columns = {row['Field'] for row in verify_schema}
+
+        still_missing = [col for col in pdf_columns if col not in verify_columns]
+
+        if not still_missing:
+            logger.info(f"✅ Verification passed - all 4 PDF columns exist")
+            return {
+                'status': 'success',
+                'message': 'Successfully added PDF columns',
+                'migration_applied': True,
+                'columns_added': missing_columns
+            }
+        else:
+            logger.error(f"❌ Verification failed - still missing: {still_missing}")
+            return {
+                'status': 'error',
+                'message': f'Verification failed - still missing: {still_missing}',
+                'migration_applied': False
+            }
+
+    except Exception as e:
+        logger.error(f"❌ Migration failed: {e}", exc_info=True)
+        return {
+            'status': 'error',
+            'message': f'Migration failed: {str(e)}',
+            'migration_applied': False
+        }
+
+
 def lambda_handler(event: dict, context: Any) -> dict:
     """Lambda handler for database migrations
 
@@ -207,6 +304,8 @@ def lambda_handler(event: dict, context: Any) -> dict:
         >>> lambda_handler({'migration': 'add_strategy_column'}, None)
         {'statusCode': 200, 'body': {...}}
         >>> lambda_handler({'migration': 'make_ticker_id_required'}, None)
+        {'statusCode': 200, 'body': {...}}
+        >>> lambda_handler({'migration': 'add_pdf_columns'}, None)
         {'statusCode': 200, 'body': {...}}
     """
     logger.info(f"Migration handler invoked with event: {json.dumps(event)}")
@@ -225,12 +324,18 @@ def lambda_handler(event: dict, context: Any) -> dict:
             'statusCode': 200 if result['status'] == 'success' else 500,
             'body': json.dumps(result)
         }
+    elif migration == 'add_pdf_columns':
+        result = run_add_pdf_columns_migration()
+        return {
+            'statusCode': 200 if result['status'] == 'success' else 500,
+            'body': json.dumps(result)
+        }
     else:
         return {
             'statusCode': 400,
             'body': json.dumps({
                 'status': 'error',
                 'message': f'Unknown migration: {migration}',
-                'available_migrations': ['add_strategy_column', 'make_ticker_id_required']
+                'available_migrations': ['add_strategy_column', 'make_ticker_id_required', 'add_pdf_columns']
             })
         }
