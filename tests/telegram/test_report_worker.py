@@ -240,7 +240,8 @@ class TestSQSMessageParsing:
         with patch('src.report_worker_handler.get_job_service') as mock_job, \
              patch('src.report_worker_handler.TickerAnalysisAgent') as mock_agent, \
              patch('src.report_worker_handler.get_transformer') as mock_transformer, \
-             patch('src.report_worker_handler.get_ticker_service') as mock_ticker:
+             patch('src.report_worker_handler.get_ticker_service') as mock_ticker, \
+             patch('src.report_worker_handler.PrecomputeService') as mock_precompute:
 
             job_service = Mock()
             job_service.start_job = Mock()
@@ -263,11 +264,16 @@ class TestSQSMessageParsing:
             ticker_service.get_ticker_info = Mock(return_value={'symbol': 'NVDA19', 'company_name': 'NVIDIA'})
             mock_ticker.return_value = ticker_service
 
+            precompute = Mock()
+            precompute.store_report_from_api = Mock(return_value=True)
+            mock_precompute.return_value = precompute
+
             yield {
                 'job': job_service,
                 'agent': mock_agent,
                 'transformer': transformer,
-                'ticker': ticker_service
+                'ticker': ticker_service,
+                'precompute': precompute
             }
 
     def test_parses_job_id_from_message(self, mock_all_services):
