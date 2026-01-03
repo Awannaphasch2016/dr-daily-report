@@ -619,3 +619,129 @@ class TestWorkerSymbolValidation:
             invoke_args = mocks["agent"].graph.invoke.call_args[0][0]
             assert invoke_args["ticker"] == "DBS19", \
                 f"Agent should receive DR symbol 'DBS19' in state, got '{invoke_args['ticker']}'"
+
+
+class TestDirectInvocationMode:
+    """Test direct Step Functions invocation mode
+
+    Related: Migration plan to replace SQS with direct Lambda invocation.
+    Tests handler routing and process_ticker_direct() function.
+    """
+
+    @pytest.fixture(autouse=True)
+    def mock_env_vars(self, monkeypatch):
+        """Set required environment variables for all tests."""
+        monkeypatch.setenv('OPENROUTER_API_KEY', 'test-key')
+        monkeypatch.setenv('AURORA_HOST', 'test-host')
+        monkeypatch.setenv('PDF_BUCKET_NAME', 'test-bucket')
+        monkeypatch.setenv('JOBS_TABLE_NAME', 'test-table')
+
+    def test_direct_mode_detected(self):
+        """Verify handler routes to direct invocation when ticker + source present."""
+        with patch('src.report_worker_handler.process_ticker_direct', new_callable=AsyncMock) as mock:
+            mock.return_value = {
+                'ticker': 'DBS19',
+                'status': 'success',
+                'pdf_s3_key': 'test.pdf',
+                'error': ''
+            }
+
+            from src.report_worker_handler import handler
+            event = {
+                'ticker': 'DBS19',
+                'execution_id': 'exec_123',
+                'source': 'step_functions_precompute'
+            }
+            result = handler(event, None)
+
+            mock.assert_called_once()
+            assert result['ticker'] == 'DBS19'
+            assert result['status'] == 'success'
+
+    def test_sqs_mode_backward_compatible(self):
+        """Verify SQS mode still works (backward compatibility)."""
+        with patch('src.report_worker_handler.process_record', new_callable=AsyncMock):
+            from src.report_worker_handler import handler
+            event = {
+                'Records': [{
+                    'messageId': 'msg_123',
+                    'body': '{"job_id": "rpt_123", "ticker": "DBS19"}'
+                }]
+            }
+            result = handler(event, None)
+
+            assert result['statusCode'] == 200
+            assert '1 records' in result['body']
+
+    @pytest.mark.asyncio
+    async def test_process_ticker_direct_success(self):
+        """Test successful direct processing returns success status."""
+        with patch('src.report_worker_handler.process_record', new_callable=AsyncMock), \
+             patch('src.report_worker_handler.get_job_service') as mock_svc:
+
+            mock_svc.return_value.get_job_status.return_value = {
+                'status': 'completed',
+                'result': {'pdf_s3_key': 'test.pdf'}
+            }
+
+            from src.report_worker_handler import process_ticker_direct
+            result = await process_ticker_direct({
+                'ticker': 'DBS19',
+                'execution_id': 'exec_123',
+                'source': 'step_functions_precompute'
+            })
+
+            assert result['status'] == 'success'
+            assert result['ticker'] == 'DBS19'
+            assert result['pdf_s3_key'] == 'test.pdf'
+            assert result['error'] == ''
+
+    @pytest.mark.asyncio
+    async def test_process_ticker_direct_failure(self):
+        """Test failed processing returns failed status."""
+        with patch('src.report_worker_handler.process_record', new_callable=AsyncMock), \
+             patch('src.report_worker_handler.get_job_service') as mock_svc:
+
+            mock_svc.return_value.get_job_status.return_value = {
+                'status': 'failed',
+                'error': 'Agent error: ticker not found'
+            }
+
+            from src.report_worker_handler import process_ticker_direct
+            result = await process_ticker_direct({
+                'ticker': 'INVALID',
+                'execution_id': 'exec_123',
+                'source': 'step_functions_precompute'
+            })
+
+            assert result['status'] == 'failed'
+            assert result['ticker'] == 'INVALID'
+            assert result['pdf_s3_key'] is None
+            assert 'Agent error' in result['error']
+
+    @pytest.mark.asyncio
+    async def test_process_ticker_direct_missing_ticker(self):
+        """Test validation fails fast on missing ticker (defensive programming)."""
+        from src.report_worker_handler import process_ticker_direct
+
+        with pytest.raises(ValueError) as exc:
+            await process_ticker_direct({'execution_id': 'exec_123'})
+
+        assert 'ticker' in str(exc.value).lower()
+
+    @pytest.mark.asyncio
+    async def test_process_ticker_direct_exception_handling(self):
+        """Test exception during processing returns failed status (not raise)."""
+        with patch('src.report_worker_handler.process_record', new_callable=AsyncMock) as mock_process:
+            mock_process.side_effect = Exception("Database connection error")
+
+            from src.report_worker_handler import process_ticker_direct
+            result = await process_ticker_direct({
+                'ticker': 'DBS19',
+                'execution_id': 'exec_123',
+                'source': 'step_functions_precompute'
+            })
+
+            assert result['status'] == 'failed'
+            assert result['ticker'] == 'DBS19'
+            assert 'Database connection error' in result['error']

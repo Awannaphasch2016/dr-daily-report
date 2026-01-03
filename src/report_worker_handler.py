@@ -74,18 +74,22 @@ def _validate_required_config() -> None:
 
 
 def handler(event: dict, context: Any) -> dict:
-    """Lambda handler for SQS report generation messages and migrations
+    """Lambda handler for SQS report generation messages, Step Functions, and migrations
 
-    Two modes:
+    Three modes:
     1. SQS Mode (default): Processes SQS records for async report generation
-    2. Migration Mode: Routes to migration_handler for database migrations
+    2. Direct Mode: Step Functions invocation for precompute workflow
+    3. Migration Mode: Routes to migration_handler for database migrations
 
     Args:
-        event: SQS event with Records array OR direct invocation with 'migration' key
+        event: SQS event with Records array OR
+               Step Functions event with ticker/source OR
+               direct invocation with 'migration' key
         context: Lambda context (unused)
 
     Returns:
-        Dict with processing status
+        Dict with processing status (SQS/migration) or
+        Dict with ticker result (Step Functions direct mode)
 
     Raises:
         ValueError: If required environment variables are missing
@@ -100,6 +104,12 @@ def handler(event: dict, context: Any) -> dict:
     # Validate configuration at startup - fail fast!
     # Defensive programming: catch missing env vars before wasting compute
     _validate_required_config()
+
+    # Direct Step Functions invocation mode
+    if 'ticker' in event and 'source' in event:
+        logger.info(f"Direct Step Functions invocation: {event.get('ticker')}")
+        result = asyncio.run(process_ticker_direct(event))
+        return result
 
     records = event.get('Records', [])
     logger.info(f"Processing {len(records)} SQS records")
@@ -271,3 +281,67 @@ async def process_record(record: dict) -> None:
 
         # Re-raise for SQS retry/DLQ
         raise
+
+
+async def process_ticker_direct(event: dict) -> dict:
+    """Process single ticker from direct Step Functions invocation.
+
+    Args:
+        event: {"ticker": "DBS19", "execution_id": "exec_123", "source": "step_functions_precompute"}
+
+    Returns:
+        {"ticker": "DBS19", "status": "success"|"failed", "pdf_s3_key": "...", "error": ""}
+
+    Raises:
+        ValueError: If 'ticker' field is missing
+    """
+    ticker_raw = event.get('ticker')
+    execution_id = event.get('execution_id', 'unknown')
+
+    if not ticker_raw:
+        raise ValueError("Missing 'ticker' field in direct invocation event")
+
+    try:
+        # Create synthetic SQS message to reuse process_record() logic
+        synthetic_body = json.dumps({
+            'job_id': f'sfn_{execution_id}_{ticker_raw}',
+            'ticker': ticker_raw,
+            'source': event.get('source'),
+            'generate_pdf': True
+        })
+
+        synthetic_record = {
+            'messageId': f'direct_{execution_id}',
+            'body': synthetic_body
+        }
+
+        # Reuse existing processing logic
+        await process_record(synthetic_record)
+
+        # Get result from DynamoDB
+        job_service = get_job_service()
+        job_status = job_service.get_job_status(f'sfn_{execution_id}_{ticker_raw}')
+
+        if job_status.get('status') == 'completed':
+            return {
+                'ticker': ticker_raw,
+                'status': 'success',
+                'pdf_s3_key': job_status.get('result', {}).get('pdf_s3_key'),
+                'error': ''
+            }
+        else:
+            return {
+                'ticker': ticker_raw,
+                'status': 'failed',
+                'pdf_s3_key': None,
+                'error': job_status.get('error', 'Unknown error')
+            }
+
+    except Exception as e:
+        logger.error(f"Failed to process {ticker_raw}: {e}")
+        return {
+            'ticker': ticker_raw,
+            'status': 'failed',
+            'pdf_s3_key': None,
+            'error': str(e)
+        }
