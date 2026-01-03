@@ -51,6 +51,20 @@ Migration files are immutable once committed—never edit them. Always create ne
 ### 6. Deployment Monitoring Discipline
 Use AWS CLI waiters (`aws lambda wait function-updated`), never `sleep X`. Use GitHub Actions `gh run watch --exit-status` for proper exit codes. Apply Progressive Evidence Strengthening (Principle #2): verify status code + payload + logs + actual behavior. Validate infrastructure-deployment contract before deploying (GitHub secrets match AWS reality). See [deployment skill](.claude/skills/deployment/).
 
+**Rollback triggers** (when to revert deployment):
+- Post-deployment smoke test fails (Lambda returns 500, import errors)
+- CloudWatch shows only START/END logs (no application logs = startup crash)
+- Error rate exceeds baseline (>5% errors in first 5 minutes)
+- Ground truth verification fails (database state doesn't match expectations)
+
+**Rollback execution**:
+- Use previous known-good artifact (commit SHA or image digest)
+- Apply same deployment process (waiters, verification, smoke tests)
+- Document rollback reason and create incident report
+- Don't delete failed deployment (preserve for investigation)
+
+**Anti-pattern**: Assuming deployment succeeded because process exit code = 0. Exit code is weakest evidence - verify through smoke tests and ground truth.
+
 ### 7. Loud Mock Pattern
 Mock/stub data in production code must be centralized, explicit, and loud. Register ALL mocks in centralized registry (`src/mocks/__init__.py`), log loudly at startup (WARNING level), gate behind environment variables (fail in production if unexpected mocks active), document why each mock exists (owner, date, reason). Valid: speeding local dev. Invalid: hiding implementation gaps, bypassing security.
 
@@ -62,6 +76,21 @@ When failures persist, use `/reflect` to identify which loop type you're using: 
 
 ### 10. Testing Anti-Patterns Awareness
 Test outcomes, not execution. Verify results, not just that functions were called. MagicMock defaults are truthy—explicitly mock failure states. Round-trip tests for persistence. Schema testing at boundaries. Database operations fail without exceptions—check rowcount. After writing test, break code to verify test catches it. See [testing-workflow skill](.claude/skills/testing-workflow/).
+
+**Deployment fidelity testing**:
+- Test deployment artifacts (ZIPs, Docker images), not just source code
+- Use runtime-matching environments (Docker with Lambda base image)
+- Validate filesystem layout (imports work in `/var/task`)
+- Test failure modes (missing env vars, schema mismatches, import errors)
+- Smoke test actual deployment packages before deploying
+
+**Anti-patterns**:
+- ❌ Testing imports but not invocations (import ≠ works)
+- ❌ Mocking all environment (hides missing configuration)
+- ❌ Only testing deployed systems (doesn't catch fresh deployment gaps)
+- ❌ Assuming tests pass = production works (test environment ≠ production)
+
+**Integration**: Extends Principle #19 (Cross-Boundary Contract Testing - phase boundaries) with deployment-specific testing patterns.
 
 ### 11. Artifact Promotion Principle
 Build once, promote same immutable Docker image through all environments (dev → staging → prod). What you test in staging is exactly what deploys to production. Use immutable image digests, not tags. Verify all environments use identical digest. See [deployment skill](.claude/skills/deployment/MULTI_ENV.md) and [docs/deployment/MULTI_ENV.md](docs/deployment/MULTI_ENV.md).
@@ -121,13 +150,24 @@ query = f"SELECT * FROM {DAILY_PRICES} WHERE symbol = %s"
 
 ### 15. Infrastructure-Application Contract
 
-When adding new principles requiring environment variables, update in this order:
-1. Add principle to CLAUDE.md
+When adding new features requiring infrastructure changes, update in this order:
+1. Add principle to CLAUDE.md (if applicable)
 2. Update application code to follow principle
-3. **Update Terraform env vars for ALL affected Lambdas**
-4. Update Doppler secrets (if sensitive)
-5. Run pre-deployment validation (`scripts/validate_deployment_ready.sh`)
-6. Deploy and verify env vars present
+3. **Update database schema for ALL affected tables (create migration)**
+4. **Update Terraform env vars for ALL affected Lambdas**
+5. Update Doppler secrets (if sensitive)
+6. Run pre-deployment validation (`scripts/validate_deployment_ready.sh`)
+7. Deploy schema migration FIRST, then code changes
+8. Verify infrastructure matches code expectations
+
+**Schema Migration Checklist**:
+- [ ] Created migration file (`db/migrations/0XX_*.sql`)
+- [ ] Tested migration locally (rollback tested)
+- [ ] Ran schema validation tests (`test_aurora_schema_comprehensive.py`)
+- [ ] Deployed migration to dev environment
+- [ ] Verified migration applied (`DESCRIBE table_name`)
+- [ ] THEN deploy code changes (handler updates)
+- [ ] Verify ground truth (actual Aurora state matches code expectations)
 
 Missing step 3 causes silent failures or data inconsistencies hours after deployment.
 
@@ -276,6 +316,137 @@ else:
 - ❌ Silent success (only logging failures hides what happened)
 
 See [Logging as Storytelling](.claude/abstractions/architecture-2026-01-03-logging-as-storytelling.md) for comprehensive templates and examples. Integrates with Principle #2 (Progressive Evidence Strengthening - logs as Layer 3) and Principle #1 (Defensive Programming - verification logging).
+
+### 19. Cross-Boundary Contract Testing
+
+Test transitions between execution phases, service components, data domains, and temporal states—not just behavior within a single boundary. Tests that verify logic in isolation (unit tests) or deployed systems (integration tests) miss contract violations that appear at **boundary crossings** where assumptions, configurations, or type systems change.
+
+**Boundary types**:
+- **Phase**: Build → Runtime, Development → Production, Container Startup → Running
+- **Service**: API Gateway → Lambda, Lambda → Aurora, Lambda → SQS
+- **Data**: Python types → JSON, NumPy → MySQL, User input → Database
+- **Time**: Date boundaries (23:59 → 00:00), Timezone transitions (UTC → Bangkok), Cache TTL expiration
+
+**Test pattern** (tests the transition itself):
+```python
+def test_<source>_to_<target>_boundary():
+    """<Boundary type>: <Source> → <Target>
+
+    Tests that <contract> is upheld when crossing boundary.
+    Simulates: <Real scenario exposing this boundary>
+    """
+    # 1. Set up boundary conditions (remove mocks, use real constraints)
+    # 2. Invoke the transition (call handler, serialize data, etc.)
+    # 3. Verify contract upheld (or exception raised if broken)
+    # 4. Clean up (restore environment)
+```
+
+**Primary example - Phase boundary** (Lambda Startup Validation):
+```python
+def test_handler_startup_without_environment():
+    """Phase boundary: Deployment → First Invocation
+
+    Tests Lambda fails fast when environment variables missing.
+    Simulates: Fresh deployment where Terraform forgot env vars.
+    """
+    original_tz = os.environ.pop('TZ', None)
+    try:
+        from src.scheduler.handler import lambda_handler
+        with pytest.raises(RuntimeError) as exc:
+            lambda_handler({}, MagicMock())
+        assert 'TZ' in str(exc.value)
+    finally:
+        if original_tz: os.environ['TZ'] = original_tz
+```
+
+**Other boundary examples**:
+- **Service**: Test Lambda with actual API Gateway event structure (not mocked dict)
+- **Data**: Test Python `float('nan')` → MySQL JSON (MySQL rejects NaN per RFC 8259)
+- **Time**: Test cache key consistency across date boundary (23:59 Bangkok → 00:01)
+
+**Boundary identification heuristic**:
+1. Map system components and their interactions (each arrow = service boundary)
+2. List lifecycle phases for each component (each transition = phase boundary)
+3. Trace data transformations through system (each conversion = data boundary)
+4. Identify time-sensitive operations (each state change = time boundary)
+5. For each boundary, ask: "What assumptions does each side make? Do tests verify this contract?"
+
+**Anti-patterns**:
+- ❌ Testing only within boundaries (mocked environment, isolated logic)
+- ❌ Testing deployed systems only (doesn't catch fresh deployment gaps)
+- ❌ Assuming mocks match reality (real API Gateway sends body as string, not dict)
+- ❌ No negative boundary tests (only testing success paths)
+
+**Rationale**: Integration tests against deployed systems pass because those systems already have correct configuration. Gap appears when crossing boundaries—deploying to NEW environment, integrating with DIFFERENT service, handling UNEXPECTED data, or crossing TIME-based state changes. Boundary tests explicitly verify these transitions.
+
+See [Cross-Boundary Contract Testing](.claude/abstractions/architecture-2026-01-03-cross-boundary-contract-testing.md) for comprehensive boundary taxonomy, testing templates, and real-world examples. Integrates with Principle #1 (Defensive Programming - validation at boundaries), Principle #2 (Progressive Evidence Strengthening - verify transitions), Principle #4 (Type System Integration - data boundaries), Principle #15 (Infrastructure-Application Contract - phase boundaries), and Principle #16 (Timezone Discipline - time boundaries).
+
+### 20. Execution Boundary Discipline
+
+**Reading code ≠ Verifying code works.** In distributed systems, code correctness depends on WHERE it executes and WHAT initial conditions hold. Before concluding "code is correct", systematically identify execution boundaries (code → runtime, code → database, service → service) and verify contracts at each boundary match reality.
+
+**Verification questions**:
+- WHERE does this code run? (Lambda, EC2, local?)
+- WHAT environment does it require? (env vars, network, permissions?)
+- WHAT external systems does it call? (Aurora schema, S3 bucket, API format?)
+- WHAT are entity properties? (Lambda timeout/memory, Aurora connection limits, intended usage)
+- HOW do I verify the contract? (Terraform config, SHOW COLUMNS, test access?)
+
+**Anti-patterns**:
+- ❌ Assuming code works because Python syntax is valid
+- ❌ Assuming environment variables exist (verify Terraform/Doppler)
+- ❌ Assuming database schema matches code (verify with SHOW COLUMNS)
+- ❌ Stopping at code inspection (verify through deployment config → actual runtime)
+
+**Common boundary failures**: Missing env var (Lambda vs local), schema mismatch (code INSERT vs Aurora columns), permission denied (IAM role vs resource policy), network blocked (VPC vs internet).
+
+**Progressive verification** (Principle #2): Code syntax (Layer 1) → Infrastructure config (Layer 2) → Runtime inspection (Layer 3) → Execution test (Layer 4). Never stop at Layer 1.
+
+**Rationale**: Code can be syntactically correct but fail in production because execution boundaries aren't verified. Missing environment variable causes runtime error. Schema mismatch causes silent data loss. Permission denied blocks service access. Network misconfiguration prevents connectivity. These failures are invisible from code inspection alone—must verify WHERE code runs and WHAT it needs.
+
+**Related**: Principle #1 (validate at startup), #2 (evidence strengthening), #4 (type boundaries), #15 (infra-app contract), #19 (boundary testing). See [execution boundary checklist](.claude/checklists/execution-boundaries.md) for systematic verification workflow.
+
+### 21. Deployment Blocker Resolution
+
+When deployment is blocked by validation failures or pipeline issues, apply systematic decision heuristic to choose resolution path. Not all blockers require fixing - some can be safely bypassed when evidence supports safety.
+
+**Decision heuristic**:
+
+**Choose LEAST RESISTANCE (bypass blocker) when**:
+1. **Change is isolated and validated independently**
+   - Handler tests passed, Docker image built successfully, Quality Gates green
+2. **Blocker is unrelated to current change**
+   - Schema validation tests different Lambda, pre-existing failure not caused by your changes
+3. **Change is backward compatible**
+   - New mode added, existing modes still work (SQS mode unaffected)
+4. **Manual bypass is safe and auditable**
+   - Use artifact built by CI/CD (promotion, not rebuild)
+   - Traceable to commit SHA, same image that passed Quality Gates
+5. **Alternative paths have high cost**
+   - Fixing blocker: Hours of investigation | Waiting: Blocks critical migration indefinitely
+
+**Choose FIX BLOCKER FIRST when**:
+1. Blocker is security-related (can't bypass safely)
+2. Change depends on blocker being fixed
+3. Blocker indicates systemic issue affecting your change
+4. Manual bypass introduces risk > cost of fixing
+5. Root cause is simple and quick to fix
+
+**Manual deployment discipline** (when bypassing pipeline):
+- Only use artifacts built by validated pipeline (artifact promotion, not rebuild)
+- Trace artifact to specific commit SHA or image digest
+- Document: Why blocked, why bypass safe, what artifact used, follow-up issue
+- Use same validation commands as CI/CD (waiters, smoke tests, verification)
+- Create issue to fix blocker separately (don't forget systemic improvement)
+
+**Anti-patterns**:
+- ❌ Treating all validation gates as equally important
+- ❌ Blocking all work until perfect pipeline
+- ❌ Ad-hoc rebuilds bypassing quality gates
+- ❌ Manual deployments without traceability
+- ❌ Ignoring blocker after bypass (creates technical debt)
+
+**Related**: Principle #2 (Progressive Evidence Strengthening - use highest available evidence when ground truth blocked), Principle #11 (Artifact Promotion - manual deployment is still promotion), Principle #19 (Cross-Boundary Contract Testing - validate independently before bypassing).
 
 ---
 
