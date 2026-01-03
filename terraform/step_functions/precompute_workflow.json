@@ -27,22 +27,23 @@
         "execution_id.$": "$$.Execution.Name"
       },
       "Iterator": {
-        "StartAt": "SubmitToSQS",
+        "StartAt": "InvokeReportWorker",
         "States": {
-          "SubmitToSQS": {
+          "InvokeReportWorker": {
             "Type": "Task",
-            "Resource": "arn:aws:states:::sqs:sendMessage",
+            "Resource": "arn:aws:states:::lambda:invoke",
             "Parameters": {
-              "QueueUrl": "${sqs_queue_url}",
-              "MessageBody": {
-                "job_id.$": "States.Format('rpt_{}_{}', $.ticker, $.execution_id)",
+              "FunctionName": "${report_worker_function_arn}",
+              "Payload": {
                 "ticker.$": "$.ticker",
                 "execution_id.$": "$.execution_id",
                 "source": "step_functions_precompute"
               }
             },
-            "ResultPath": "$.sqs_result",
-            "End": true,
+            "ResultPath": "$.worker_result",
+            "ResultSelector": {
+              "Payload.$": "$.Payload"
+            },
             "Retry": [
               {
                 "ErrorEquals": ["States.ALL"],
@@ -50,7 +51,51 @@
                 "MaxAttempts": 3,
                 "BackoffRate": 2.0
               }
-            ]
+            ],
+            "Catch": [
+              {
+                "ErrorEquals": ["States.ALL"],
+                "ResultPath": "$.error",
+                "Next": "HandleWorkerError"
+              }
+            ],
+            "Next": "CheckWorkerSuccess"
+          },
+          "CheckWorkerSuccess": {
+            "Type": "Choice",
+            "Choices": [
+              {
+                "Variable": "$.worker_result.Payload.status",
+                "StringEquals": "success",
+                "Next": "WorkerSucceeded"
+              }
+            ],
+            "Default": "WorkerFailed"
+          },
+          "WorkerSucceeded": {
+            "Type": "Pass",
+            "Comment": "Worker completed successfully",
+            "End": true
+          },
+          "WorkerFailed": {
+            "Type": "Pass",
+            "Comment": "Worker failed but allowing partial success",
+            "Parameters": {
+              "ticker.$": "$.ticker",
+              "status": "failed",
+              "error.$": "$.worker_result.Payload.error"
+            },
+            "End": true
+          },
+          "HandleWorkerError": {
+            "Type": "Pass",
+            "Comment": "Lambda invocation error - log error, allow partial success",
+            "Parameters": {
+              "ticker.$": "$.ticker",
+              "status": "failed",
+              "error.$": "$.error.Cause"
+            },
+            "End": true
           }
         }
       },
@@ -64,25 +109,18 @@
         "started_at.$": "$$.State.EnteredTime"
       },
       "ResultPath": "$.timing",
-      "Next": "WaitForWorkers"
-    },
-
-    "WaitForWorkers": {
-      "Type": "Wait",
-      "Seconds": 300,
-      "Comment": "Wait 5 minutes for all 46 workers to complete. Slowest ticker takes ~60-120s, this provides 2-3x buffer.",
       "Next": "AggregateResults"
     },
 
     "AggregateResults": {
       "Type": "Pass",
-      "Comment": "Workflow completed. Check DynamoDB jobs table or CloudWatch logs for individual worker status.",
+      "Comment": "Workflow completed. Step Functions Map waited for all Lambda invocations to finish.",
       "Parameters": {
         "status": "completed",
         "execution_id.$": "$$.Execution.Name",
         "total_tickers": 46,
-        "message": "Precompute workflow completed. Workers ran for ~15 minutes. Check DynamoDB jobs table for individual status.",
-        "next_steps": "Query DynamoDB jobs table or check CloudWatch logs for individual ticker results"
+        "message": "Precompute workflow completed. All workers invoked directly and tracked by Step Functions.",
+        "results.$": "$.fanout_results"
       },
       "End": true
     }

@@ -77,9 +77,22 @@ resource "aws_iam_role_policy" "precompute_workflow_policy" {
           "lambda:InvokeFunction"
         ]
         Resource = aws_lambda_function.get_ticker_list.arn
+      },
+      # Lambda - Invoke report_worker function
+      {
+        Effect = "Allow"
+        Action = [
+          "lambda:InvokeFunction"
+        ]
+        Resource = data.aws_lambda_function.report_worker.arn
       }
     ]
   })
+}
+
+# Data source for report_worker Lambda (defined in async_report.tf)
+data "aws_lambda_function" "report_worker" {
+  function_name = "${var.project_name}-report-worker-${var.environment}"
 }
 
 # Read state machine definition template and substitute variables
@@ -89,6 +102,7 @@ locals {
     region                        = var.aws_region
     account_id                    = data.aws_caller_identity.current.account_id
     get_ticker_list_function_name = aws_lambda_function.get_ticker_list.function_name
+    report_worker_function_arn    = data.aws_lambda_function.report_worker.arn
   })
 }
 
@@ -110,6 +124,15 @@ resource "aws_sfn_state_machine" "precompute_workflow" {
     App       = "telegram-api"
     Component = "step-functions-orchestration"
   })
+}
+
+# Lambda Permission for Step Functions to invoke report_worker
+resource "aws_lambda_permission" "report_worker_sfn_invoke" {
+  statement_id  = "AllowStepFunctionsInvoke"
+  action        = "lambda:InvokeFunction"
+  function_name = data.aws_lambda_function.report_worker.function_name
+  principal     = "states.amazonaws.com"
+  source_arn    = aws_sfn_state_machine.precompute_workflow.arn
 }
 
 # CloudWatch Log Group for Step Functions
