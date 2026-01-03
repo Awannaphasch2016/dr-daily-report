@@ -20,11 +20,17 @@ Use the deployment skill when:
 - ✓ Troubleshooting deployment failures
 - ✓ Validating infrastructure configuration
 - ✓ Setting up CI/CD pipelines
+- ✓ Pre-deployment validation (see [lambda-deployment checklist](../../checklists/lambda-deployment.md))
 
 **DO NOT use this skill for:**
 - ✗ Local development setup (use project README instead)
 - ✗ Running tests (use testing-workflow skill)
 - ✗ Code refactoring (use refactor skill)
+
+**Quick Links**:
+- **Pre-deployment checklist**: [lambda-deployment.md](../../checklists/lambda-deployment.md) - Systematic verification before deploying Lambda
+- **Error investigation**: [error-investigation skill](../error-investigation/) - AWS-specific troubleshooting
+- **Testing workflow**: [testing-workflow skill](../testing-workflow/) - Docker-based testing for deployment fidelity
 
 ---
 

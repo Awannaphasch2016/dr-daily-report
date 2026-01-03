@@ -255,6 +255,56 @@ See [INVESTIGATION-CHECKLIST.md](INVESTIGATION-CHECKLIST.md) for systematic debu
 
 ---
 
+## Boundary Verification
+
+**When**: Investigating distributed systems (Lambda, Aurora, S3, SQS, Step Functions)
+
+**Problem**: Code looks correct but fails in production due to unverified execution boundaries
+
+**Critical questions**:
+- WHERE does this code run? (Lambda, EC2, local?)
+- WHAT environment does it require? (env vars, network, permissions?)
+- WHAT external systems does it call? (Aurora schema, S3 bucket, API format?)
+- WHAT are entity properties? (Lambda timeout/memory, Aurora connection limits, intended usage)
+- HOW do I verify the contract? (Terraform config, SHOW COLUMNS, test access?)
+
+**Five layers of correctness**:
+1. **Syntactic**: Code compiles (Python syntax valid)
+2. **Semantic**: Code does what it claims (logic correct)
+3. **Boundary**: Code can reach what it needs (network, permissions)
+4. **Configuration**: Entity config matches code requirements (timeout, memory)
+5. **Intentional**: Usage matches designed purpose (sync Lambda not for async work)
+
+**When to apply**:
+- "Code looks correct but doesn't work" bugs
+- Multi-service workflows (Lambda → Aurora → S3)
+- After 2 failed deployment attempts (infrastructure issues)
+- Before concluding "code is correct" (verify execution context)
+
+**Verification workflow**:
+```
+1. Identify execution boundaries (code → runtime, code → database, service → service)
+2. Identify physical entities (WHICH Lambda, WHICH Aurora, WHICH S3 bucket)
+3. Verify configuration matches requirements (timeout, memory, concurrency)
+4. Verify intention matches usage (async Lambda not for sync API)
+5. Progress through evidence layers (code → config → runtime → ground truth)
+```
+
+**Integration with research workflow**:
+- **Phase 1 (Observe)**: Notice boundary-related failure (timeout, permission denied, schema mismatch)
+- **Phase 2 (Hypothesize)**: Identify which boundary might be violated
+- **Phase 3 (Research)**: Apply boundary verification checklist systematically
+- **Phase 4 (Validate)**: Verify contract through ground truth (test actual execution)
+
+**See**: [Execution Boundary Checklist](../../checklists/execution-boundaries.md) for comprehensive verification workflow
+
+**Related principles**:
+- Principle #20 (Execution Boundary Discipline) - CLAUDE.md
+- Principle #2 (Progressive Evidence Strengthening) - Verify through all layers
+- Principle #15 (Infrastructure-Application Contract) - Sync code and infrastructure
+
+---
+
 ## Architectural Investigations
 
 **When**: Choosing between technologies, patterns, or architectural approaches

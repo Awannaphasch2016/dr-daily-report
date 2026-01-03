@@ -73,7 +73,37 @@ At each step:
 
 ---
 
-### Phase 4: Generate Causal Diagram
+### Phase 4: Detect Principle Violations (NEW)
+
+**For each step in causal chain, check if CLAUDE.md principles were violated**:
+
+```
+Step: "Lambda timeout because no timeout config in code"
+
+Principle violations:
+- ❌ Principle #20 (Execution Boundaries): Didn't verify Lambda timeout matches code requirements
+- ❌ Principle #1 (Defensive Programming): No validation of external API call duration
+- ❌ Principle #2 (Progressive Evidence): Stopped at code inspection, didn't verify runtime config
+
+Violation enabled this step: YES
+How: Not verifying execution boundaries allowed mismatch between code needs (120s) and Lambda config (30s)
+```
+
+**Pattern**: Principle violation → Enabled failure → Appeared in causal chain
+
+**Why detect violations**:
+- Reveals which principles, if followed, would have prevented issue
+- Connects failures to specific CLAUDE.md guidance
+- Identifies systematic compliance gaps
+
+**Violation categories**:
+1. **Prevented failure**: Following principle would have blocked this step entirely
+2. **Early detection**: Following principle would have caught issue earlier
+3. **Better recovery**: Following principle would have reduced impact
+
+---
+
+### Phase 5: Generate Causal Diagram
 
 Visualize chain:
 ```
@@ -115,6 +145,11 @@ Visualize chain:
 **Contributing factors**:
 - {Factor 1}: {How it contributed}
 - {Factor 2}: {How it contributed}
+
+**Principle violations** (if any):
+- ❌ Principle #{X} ({Name}): {How violated}
+  - Impact: {How violation enabled this step}
+  - Prevention: {How following principle would have helped}
 
 **Confidence**: High | Medium | Low
 
@@ -171,6 +206,37 @@ Example (backward):
 **Uncertainty areas**:
 - {What we're not sure about}
 - {What we're not sure about}
+
+---
+
+## Principle Violations Summary
+
+**Total violations found**: {N}
+
+### Critical Violations (Prevented Failure)
+
+**Principle #{X} ({Name})**: {How violated}
+- **Where in chain**: {Which step(s)}
+- **Impact**: {How violation enabled failure}
+- **Prevention**: {What would have happened if principle followed}
+- **Fix**: {How to apply principle going forward}
+
+[Repeat for each critical violation]
+
+### Early Detection Violations
+
+**Principle #{Y} ({Name})**: {How violated}
+- **Where in chain**: {Which step(s)}
+- **Impact**: {Would have caught issue earlier}
+- **Fix**: {How to apply principle}
+
+[Repeat for each early detection violation]
+
+### Recovery Violations
+
+**Principle #{Z} ({Name})**: {How violated}
+- **Impact**: {Would have reduced impact}
+- **Fix**: {How to apply principle}
 
 ---
 
@@ -612,12 +678,16 @@ EnterPlanMode  # Implement solution
 - **Start from concrete event** (not vague "it's broken")
 - **Follow evidence** (code, logs, data, not speculation)
 - **Identify contributing factors** (not just primary cause)
+- **Detect principle violations** at each step in chain
+- **Connect failures to principles** (which principle would have prevented this?)
+- **Categorize violations** (prevented, early detection, recovery)
 - **Assess confidence** (mark uncertain links as such)
 
 ### Don't
 - **Don't skip steps** (trace every link in chain)
 - **Don't assume causation** (correlation ≠ causation, verify)
 - **Don't stop early** (backward: reach root cause, forward: reach final effect)
+- **Don't ignore principle violations** (systematic gaps reveal prevention opportunities)
 - **Don't ignore alternatives** (multiple causal paths may exist)
 
 ---
@@ -681,7 +751,34 @@ At each step:
 - Contributing factors (conditions that enabled/amplified)
 - Confidence level (high/medium/low)
 
-**Step 4: Generate Causal Diagram**
+**Step 4: Detect Principle Violations (NEW)**
+
+For each step in causal chain, check if CLAUDE.md principles were violated:
+
+1. **Review relevant principles**:
+   - Principle #1 (Defensive Programming): Were prerequisites validated?
+   - Principle #2 (Progressive Evidence): Was verification thorough?
+   - Principle #20 (Execution Boundaries): Were boundaries verified?
+   - [Select 3-5 most relevant based on failure type]
+
+2. **Identify violations**:
+   - Which principles were not followed?
+   - How did violation enable this step?
+   - What category: Prevented failure | Early detection | Better recovery
+
+3. **Connect to prevention**:
+   - If principle followed, what would have happened?
+   - How to apply principle going forward?
+
+**Violation pattern**:
+```
+Step: "Lambda timeout"
+Principle #20 violated: Didn't verify Lambda timeout (30s) vs code needs (120s)
+Impact: Mismatch allowed deployment of broken configuration
+Prevention: Following #20 would have caught mismatch before deployment
+```
+
+**Step 5: Generate Causal Diagram**
 
 Create ASCII diagram showing:
 - Primary causal path (horizontal)

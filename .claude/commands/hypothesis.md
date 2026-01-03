@@ -51,18 +51,52 @@ For each plausible explanation:
 
 ---
 
-### Phase 3: Rank Hypotheses
+### Phase 3: Surface Assumptions
+
+**For each hypothesis, identify underlying assumptions**:
+
+```
+Hypothesis: "Lambda times out because external API has 25s timeout"
+
+Explicit assumptions (stated):
+- External API is the bottleneck (not our code)
+- Timeout is consistent at 25s (not varying)
+- API has an internal timeout (not network issue)
+
+Implicit assumptions (unstated):
+- Lambda timeout is 30s (need to verify: aws lambda get-function-configuration)
+- API call happens in timeout window (need to verify: CloudWatch logs)
+- No retry logic adding delay (need to verify: code inspection)
+- VPC network doesn't impose timeout (need to verify: VPC config)
+
+Assumptions to verify FIRST:
+- [ ] Lambda timeout is actually 30s (basic fact check)
+- [ ] Timeout occurs during API call (not elsewhere)
+- [ ] No retry loops extending duration
+```
+
+**Why surface assumptions**:
+- Reveals hidden dependencies that might be wrong
+- Identifies what needs verification BEFORE testing hypothesis
+- Prevents building hypothesis on faulty foundation
+
+**Pattern**: "I assume X" → "How do I verify X?" → Verify assumption first
+
+---
+
+### Phase 4: Rank Hypotheses
 
 Rank by:
 1. **Likelihood** (based on available knowledge, past observations)
 2. **Testability** (how easy to validate/falsify)
 3. **Specificity** (precise vs vague)
+4. **Assumption count** (fewer unverified assumptions = more reliable)
 
-**Prioritize**: Hypotheses that are both likely AND testable
+**Prioritize**: Hypotheses that are likely, testable, AND have verified assumptions
 
 ---
 
-### Phase 4: Generate Validation Strategy
+### Phase 5: Generate Validation Strategy
 
 For top 2-3 hypotheses:
 - **How to test**: Specific actions to validate
@@ -93,6 +127,11 @@ For top 2-3 hypotheses:
 **Explanation**: {Why this might cause the observation}
 
 **Mechanism**: {How this would work}
+
+**Underlying assumptions**:
+- **Explicit**: {Stated assumptions}
+- **Implicit**: {Unstated assumptions that should be verified}
+- **To verify first**: {Basic fact-checks before testing hypothesis}
 
 **Testable predictions**:
 - If true: {Prediction 1}
@@ -422,13 +461,18 @@ ENV=ci /validate "hypothesis: CI database has only 3 tickers, not 5"
 ### Do
 - **Generate multiple hypotheses** (3-5 candidates)
 - **Make hypotheses testable** (specify evidence needed)
+- **Surface assumptions explicitly** (both stated and unstated)
+- **Verify assumptions first** (before testing hypothesis)
 - **Rank by likelihood AND testability** (best hypothesis is both)
+- **Consider assumption count** (fewer unverified assumptions = more reliable)
 - **Be specific** ("API timeout" not "it's slow")
 
 ### Don't
 - **Don't anchor on first hypothesis** (generate alternatives first, then evaluate)
 - **Don't make untestable hypotheses** ("gremlins" is not testable)
 - **Don't skip validation** (hypothesis ≠ fact until tested)
+- **Don't hide assumptions** (make implicit assumptions explicit)
+- **Don't test hypothesis on unverified assumptions** (verify foundation first)
 - **Don't forget context** (use `/observe` output as input)
 
 ---
@@ -471,15 +515,37 @@ For each hypothesis:
 
 **Generate diverse hypotheses** covering different causal mechanisms (external factors, internal bugs, configuration, timing, etc.)
 
-**Step 3: Rank Hypotheses**
+**Step 3: Surface Assumptions (NEW)**
+
+For each hypothesis, identify:
+1. **Explicit assumptions** (stated in hypothesis)
+2. **Implicit assumptions** (unstated but necessary for hypothesis to work)
+3. **Assumptions to verify first** (basic fact-checks before testing hypothesis)
+
+**Pattern**: "I assume X" → "How do I verify X?" → Verify assumption first
+
+**Example**:
+```
+Hypothesis: "Lambda times out because external API has 25s timeout"
+
+Implicit assumptions:
+- Lambda timeout is 30s (verify: aws lambda get-function-configuration)
+- API call happens during timeout window (verify: CloudWatch logs)
+- No retry logic (verify: code inspection)
+
+Verify BEFORE testing hypothesis
+```
+
+**Step 4: Rank Hypotheses**
 
 Rank by:
 1. Likelihood (based on evidence, past observations, domain knowledge)
 2. Testability (how easy to validate/falsify)
+3. Assumption count (fewer unverified assumptions = more reliable)
 
-Prioritize hypotheses that are both likely AND testable.
+Prioritize hypotheses that are likely, testable, AND have verified assumptions.
 
-**Step 4: Generate Validation Strategy**
+**Step 5: Generate Validation Strategy**
 
 For top 2-3 hypotheses:
 - How to test (specific `/validate` or research actions)

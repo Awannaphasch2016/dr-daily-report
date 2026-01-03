@@ -398,6 +398,148 @@ except botocore.exceptions.ClientError as e:
 
 ---
 
+## AWS Boundary Verification
+
+**When to apply**: Distributed system errors (Lambda, Aurora, S3, SQS, Step Functions)
+
+**Problem**: Code looks correct locally but fails in AWS due to unverified execution boundaries
+
+**Common boundary-related error patterns**:
+
+### Pattern 1: Missing Environment Variable
+```bash
+# Error: KeyError: 'AURORA_HOST'
+# Symptom: Lambda invocation fails immediately
+
+# Root cause: Boundary violation (code → runtime)
+# Code expects: os.environ['AURORA_HOST']
+# Runtime provides: No such variable
+
+# Verification:
+aws lambda get-function-configuration \
+  --function-name dr-daily-report-worker-dev \
+  --query 'Environment.Variables'
+
+# Compare with: Code's os.environ accesses
+grep "os.environ" src/lambda_handler.py
+```
+
+### Pattern 2: Aurora Schema Mismatch
+```bash
+# Error: Unknown column 'pdf_s3_key' in 'field list'
+# Symptom: INSERT query fails in production
+
+# Root cause: Boundary violation (code → database)
+# Code sends: INSERT INTO reports (symbol, pdf_s3_key)
+# Aurora has: No pdf_s3_key column
+
+# Verification:
+mysql> SHOW COLUMNS FROM precomputed_reports;
+
+# Compare with: Code's INSERT statements
+grep "INSERT INTO" src/data/aurora/precompute_service.py
+```
+
+### Pattern 3: Lambda Timeout
+```bash
+# Error: Task timed out after 30.00 seconds
+# Symptom: Lambda stops mid-execution
+
+# Root cause: Configuration mismatch (code requirements vs entity config)
+# Code requires: 60s API call + 45s processing = 105s total
+# Lambda configured: 30s timeout
+
+# Verification:
+aws lambda get-function-configuration \
+  --function-name dr-daily-report-worker-dev \
+  --query '{Timeout:Timeout, Memory:MemorySize}'
+
+# Analyze code execution time:
+grep "requests.get.*timeout" src/ -r  # External API timeouts
+# Sum: timeout values + processing overhead
+```
+
+### Pattern 4: Permission Denied
+```bash
+# Error: AccessDeniedException: User is not authorized to perform: s3:PutObject
+# Symptom: S3 upload fails
+
+# Root cause: Permission boundary violation (principal → resource)
+# Code tries: s3.put_object(Bucket='reports', Key='file.pdf')
+# IAM role allows: Only s3:GetObject (read-only)
+
+# Verification:
+aws iam get-role-policy \
+  --role-name dr-daily-report-worker-role-dev \
+  --policy-name S3Access
+
+# Compare with: Code's boto3 operations
+grep "s3.*put_object\|s3.*upload" src/ -r
+```
+
+### Pattern 5: Intention Violation
+```bash
+# Error: API Gateway timeout after 30 seconds
+# Symptom: Client sees timeout, Lambda still processing
+
+# Root cause: Usage doesn't match intention (sync Lambda used for async work)
+# Entity designed for: Synchronous API (< 30s response)
+# Code uses it for: Long-running report generation (60s)
+
+# Verification:
+# Check Terraform comments
+cat terraform/lambdas.tf | grep -B 5 -A 10 "api-handler"
+
+# Check Lambda invocation type
+aws lambda get-function-configuration \
+  --function-name api-handler \
+  --query 'Timeout'
+# Compare: API Gateway 30s limit vs Lambda timeout
+```
+
+**Boundary verification workflow for AWS errors**:
+
+```
+1. Identify error type → Map to boundary category
+   - Missing env var → Process boundary (code → runtime)
+   - Schema mismatch → Data boundary (code → database)
+   - Timeout → Configuration boundary (requirements → entity config)
+   - Permission denied → Permission boundary (principal → resource)
+   - API Gateway timeout → Intention boundary (usage → design)
+
+2. Identify physical entities involved
+   - WHICH Lambda (name, ARN)
+   - WHICH Aurora cluster (endpoint, database)
+   - WHICH S3 bucket (name, region)
+   - WHICH IAM role (name, policies)
+
+3. Verify contract at boundary
+   - Code expectations → Infrastructure reality
+   - Use aws cli to inspect actual configuration
+   - Compare code requirements vs entity properties
+
+4. Apply Progressive Evidence Strengthening
+   - Layer 1 (Surface): Error message
+   - Layer 2 (Content): CloudWatch logs
+   - Layer 3 (Observability): AWS resource configuration
+   - Layer 4 (Ground Truth): Test actual execution
+```
+
+**Integration with investigation workflow**:
+- **Step 1 (Identify Error Layer)**: Check if error is boundary-related
+- **Step 2 (Collect Context)**: Identify which boundary violated
+- **Step 3 (Check Changes)**: Did code or infrastructure change?
+- **Step 4 (Fix)**: Repair boundary contract (update code or infrastructure)
+
+**See**: [Execution Boundary Checklist](../../checklists/execution-boundaries.md) for systematic AWS boundary verification
+
+**Related**:
+- Principle #20 (Execution Boundary Discipline) - CLAUDE.md
+- Principle #2 (Progressive Evidence Strengthening) - Multi-layer verification
+- Principle #15 (Infrastructure-Application Contract) - Sync code and infra
+
+---
+
 ## Investigation Workflow
 
 ### Step 1: Identify Error Layer (5 minutes)

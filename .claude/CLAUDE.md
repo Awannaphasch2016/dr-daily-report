@@ -77,20 +77,51 @@ When failures persist, use `/reflect` to identify which loop type you're using: 
 ### 10. Testing Anti-Patterns Awareness
 Test outcomes, not execution. Verify results, not just that functions were called. MagicMock defaults are truthy—explicitly mock failure states. Round-trip tests for persistence. Schema testing at boundaries. Database operations fail without exceptions—check rowcount. After writing test, break code to verify test catches it. See [testing-workflow skill](.claude/skills/testing-workflow/).
 
-**Deployment fidelity testing**:
-- Test deployment artifacts (ZIPs, Docker images), not just source code
+**Deployment fidelity testing** (Docker container validation):
+- Test deployment artifacts (Docker images), not just source code
 - Use runtime-matching environments (Docker with Lambda base image)
 - Validate filesystem layout (imports work in `/var/task`)
 - Test failure modes (missing env vars, schema mismatches, import errors)
-- Smoke test actual deployment packages before deploying
+- Run before merge (PR workflow), not after deployment
+
+**Primary example** (Docker import validation):
+```python
+def test_handler_imports_in_docker():
+    """Phase boundary: Development → Lambda Runtime
+
+    Tests Lambda handler imports in actual container environment.
+    Simulates: Fresh deployment to Lambda.
+    """
+    import_script = "import src.scheduler.query_tool_handler"
+
+    # Run import test inside Lambda container
+    result = subprocess.run(
+        ["docker", "run", "--rm", "--entrypoint", "python3",
+         "dr-lambda-test", "-c", import_script],
+        capture_output=True
+    )
+
+    assert result.returncode == 0, (
+        f"Import failed in Lambda container: {result.stderr}\n"
+        f"This would cause production failure if deployed."
+    )
+```
+
+**When to use Docker tests**:
+- Before every PR merge (automated in workflow)
+- After Dockerfile changes
+- After adding new Lambda handlers
+- When import errors appear in deployment
+
+**Evidence**: Dec 2025 LINE bot 7-day outage (ImportError in production), Jan 2026 query_tool_handler import error (deployment blocker). Both caught by local tests but failed in Lambda container.
 
 **Anti-patterns**:
-- ❌ Testing imports but not invocations (import ≠ works)
+- ❌ Testing imports locally only (import ≠ works in Lambda)
 - ❌ Mocking all environment (hides missing configuration)
 - ❌ Only testing deployed systems (doesn't catch fresh deployment gaps)
-- ❌ Assuming tests pass = production works (test environment ≠ production)
+- ❌ Assuming local tests pass = Lambda works (environment ≠ runtime)
 
-**Integration**: Extends Principle #19 (Cross-Boundary Contract Testing - phase boundaries) with deployment-specific testing patterns.
+**Integration**: Extends Principle #19 (Cross-Boundary Contract Testing - phase boundaries) with deployment-specific testing patterns. See [lambda-deployment checklist](.claude/checklists/lambda-deployment.md) for complete verification workflow.
 
 ### 11. Artifact Promotion Principle
 Build once, promote same immutable Docker image through all environments (dev → staging → prod). What you test in staging is exactly what deploys to production. Use immutable image digests, not tags. Verify all environments use identical digest. See [deployment skill](.claude/skills/deployment/MULTI_ENV.md) and [docs/deployment/MULTI_ENV.md](docs/deployment/MULTI_ENV.md).
@@ -341,7 +372,31 @@ def test_<source>_to_<target>_boundary():
     # 4. Clean up (restore environment)
 ```
 
-**Primary example - Phase boundary** (Lambda Startup Validation):
+**Primary example - Phase boundary** (Docker Container Import Validation):
+```python
+def test_handler_imports_in_docker():
+    """Phase boundary: Development → Lambda Runtime
+
+    Tests Lambda handler imports in actual Lambda container environment.
+    Simulates: Fresh Lambda deployment with new code.
+    """
+    import_script = "import src.scheduler.query_tool_handler"
+
+    # Run import test inside Lambda Python 3.11 container
+    result = subprocess.run(
+        ["docker", "run", "--rm", "--entrypoint", "python3",
+         "dr-lambda-test", "-c", import_script],
+        capture_output=True
+    )
+
+    assert result.returncode == 0, (
+        f"Import failed in Lambda container: {result.stderr}\n"
+        f"Local import passed but Lambda import failed.\n"
+        f"This is a phase boundary violation."
+    )
+```
+
+**Secondary example - Phase boundary** (Lambda Startup Validation):
 ```python
 def test_handler_startup_without_environment():
     """Phase boundary: Deployment → First Invocation
@@ -392,11 +447,51 @@ See [Cross-Boundary Contract Testing](.claude/abstractions/architecture-2026-01-
 - WHAT are entity properties? (Lambda timeout/memory, Aurora connection limits, intended usage)
 - HOW do I verify the contract? (Terraform config, SHOW COLUMNS, test access?)
 
+**Concrete verification methods**:
+
+**1. Docker container testing** (Development → Lambda Runtime):
+```bash
+# Build Lambda container
+docker build -t dr-lambda-test -f Dockerfile .
+
+# Test imports in container
+docker run --rm --entrypoint python3 dr-lambda-test \
+  -c "import src.scheduler.query_tool_handler"
+
+# Interactive debugging
+docker run -it --entrypoint bash dr-lambda-test
+```
+
+**2. Terraform environment verification** (Code → Infrastructure):
+```bash
+# Extract required vars from code
+grep "required_vars\|REQUIRED_VARS" src/handler.py
+
+# Check Terraform has all vars
+grep -A 20 "environment" terraform/lambda_config.tf
+
+# Verify deployed Lambda has vars
+aws lambda get-function-configuration \
+  --function-name LAMBDA_NAME \
+  --query 'Environment.Variables'
+```
+
+**3. Aurora schema verification** (Code → Database):
+```bash
+# Run schema validation tests
+pytest tests/infrastructure/test_aurora_schema_comprehensive.py -v
+
+# Manual verification
+mysql -h $AURORA_HOST -u $AURORA_USER -p$AURORA_PASSWORD \
+  -e "DESCRIBE table_name"
+```
+
 **Anti-patterns**:
 - ❌ Assuming code works because Python syntax is valid
 - ❌ Assuming environment variables exist (verify Terraform/Doppler)
 - ❌ Assuming database schema matches code (verify with SHOW COLUMNS)
 - ❌ Stopping at code inspection (verify through deployment config → actual runtime)
+- ❌ Testing locally only (local ≠ Lambda container environment)
 
 **Common boundary failures**: Missing env var (Lambda vs local), schema mismatch (code INSERT vs Aurora columns), permission denied (IAM role vs resource policy), network blocked (VPC vs internet).
 

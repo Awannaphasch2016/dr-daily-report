@@ -37,6 +37,9 @@ What type of change?
 ├─ Performance-critical? (Lambda, DB queries, API calls)
 │  └─ Review PERFORMANCE.md checklist
 │
+├─ Distributed system? (Lambda, Aurora, S3, SQS, Step Functions)
+│  └─ Review Boundary Verification section + execution-boundaries.md
+│
 ├─ Error handling? (try/catch, validation, failures)
 │  └─ Review DEFENSIVE.md checklist
 │
@@ -172,6 +175,43 @@ See [DEFENSIVE.md](DEFENSIVE.md) for:
 - Validation gates
 - Boundary type checking
 - Silent failure detection
+
+### Boundary Verification Review
+
+**When**: Code changes affect distributed systems (Lambda, Aurora, S3, SQS, Step Functions)
+
+**Checklist**:
+- [ ] **WHERE**: Execution environment identified (Lambda, EC2, local)?
+- [ ] **WHAT env**: Environment variables verified (Terraform/Doppler)?
+- [ ] **WHAT services**: External systems identified (Aurora schema, S3 bucket)?
+- [ ] **WHAT properties**: Entity configuration verified (timeout, memory, concurrency)?
+- [ ] **WHAT intention**: Usage matches designed purpose (sync vs async)?
+- [ ] **Contract verification**: Boundaries verified through ground truth (not just code inspection)
+
+**Common boundary failures to catch**:
+- ❌ Missing env var (code expects, Terraform doesn't provide)
+- ❌ Schema mismatch (code INSERT vs Aurora columns)
+- ❌ Permission denied (IAM role vs resource policy)
+- ❌ Timeout mismatch (code needs 120s, Lambda configured 30s)
+- ❌ Intention violation (sync Lambda for async workload)
+
+**Quick checks**:
+```bash
+# Verify Lambda configuration matches code requirements
+aws lambda get-function-configuration \
+  --function-name <name> \
+  --query '{Timeout:Timeout, Memory:MemorySize}'
+
+# Verify Aurora schema matches code
+mysql> SHOW COLUMNS FROM table_name;
+
+# Verify IAM permissions
+aws iam get-role-policy --role-name <role> --policy-name <policy>
+```
+
+**See**: [Execution Boundary Checklist](../../checklists/execution-boundaries.md) for comprehensive verification
+
+**Related**: Principle #20 (CLAUDE.md) - Execution Boundary Discipline
 
 ---
 
@@ -386,6 +426,43 @@ See [PERFORMANCE.md](PERFORMANCE.md) for detailed checklist.
 - [ ] Caching appropriate?
 - [ ] Lambda timeout reasonable?
 
+### Step 6: Boundary Verification (If distributed system changes)
+
+**When to apply**: PR modifies Lambda, Aurora, S3, SQS, Step Functions, or cross-service integrations
+
+**Quick assessment**:
+```bash
+# Check if PR touches distributed system boundaries
+git diff main...PR-branch | grep -E "lambda|aurora|s3|sqs|stepfunctions"
+```
+
+**If YES, verify boundaries**:
+- [ ] **Execution environment**: WHERE does modified code run?
+- [ ] **Environment variables**: Code expectations vs Terraform reality?
+- [ ] **External services**: Schema/format contracts verified?
+- [ ] **Entity configuration**: Timeout/memory match code requirements?
+- [ ] **Usage intention**: Sync/async pattern matches entity design?
+
+**Example checks**:
+```bash
+# Lambda timeout matches code execution time?
+aws lambda get-function-configuration --function-name <name> \
+  --query 'Timeout'
+# Compare with code's longest execution path
+
+# Aurora schema matches INSERT queries?
+mysql> SHOW COLUMNS FROM table_name;
+# Compare with code's INSERT/UPDATE queries
+
+# IAM permissions allow code's operations?
+aws iam get-role-policy --role-name <role> --policy-name <policy>
+# Compare with code's aws sdk calls
+```
+
+**See**: [Execution Boundary Checklist](../../checklists/execution-boundaries.md) for comprehensive verification
+
+**Skip if**: PR only touches frontend, documentation, or single-process logic
+
 ---
 
 ## Approval Checklist
@@ -424,6 +501,14 @@ Before approving PR, verify ALL of these:
 - [ ] Docstrings present
 - [ ] Complex logic commented
 - [ ] README updated if needed
+
+### Boundary Verification (Distributed Systems)
+- [ ] Execution boundaries identified (WHERE code runs)
+- [ ] Environment variables verified (Terraform/Doppler match code)
+- [ ] External service contracts verified (Aurora schema, S3 format, API payload)
+- [ ] Entity configuration verified (timeout, memory, concurrency)
+- [ ] Usage intention verified (sync/async pattern matches design)
+- [ ] Progressive evidence applied (verified through ground truth, not just code)
 
 ---
 

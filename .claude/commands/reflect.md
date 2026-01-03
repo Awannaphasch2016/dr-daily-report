@@ -162,6 +162,146 @@ If stuck pattern detected:
 
 ---
 
+### Step 7: Blindspot Detection
+
+**Purpose**: Detect blindspots, check principle compliance, and escape local optima
+
+#### Principle Compliance Check
+
+**Task-based principle selection**:
+```
+Select 3-5 most relevant principles based on task type:
+
+Debugging task:
+- Principle #1 (Defensive Programming): Did I validate initial conditions?
+- Principle #2 (Progressive Evidence): Did I verify beyond Layer 1?
+- Principle #20 (Execution Boundaries): Did I verify WHERE code runs?
+
+Deployment task:
+- Principle #6 (Deployment Monitoring): Did I use waiters?
+- Principle #11 (Artifact Promotion): Same image across environments?
+- Principle #15 (Infra-App Contract): Terraform updated before deploy?
+
+Code review task:
+- Principle #1 (Defensive Programming): Error handling present?
+- Principle #4 (Type System): Type compatibility verified?
+- Principle #20 (Execution Boundaries): Boundary contracts checked?
+
+Database task:
+- Principle #3 (Aurora-First): Using Aurora as source of truth?
+- Principle #5 (Migration Immutability): New migration, not editing?
+- Principle #20 (Execution Boundaries): Schema matches code?
+```
+
+**For each selected principle**:
+```
+- [ ] Principle #X: [Specific compliance question]
+  Gap identified: [What was missed or violated]
+  Impact: [How this blindspot affected outcome]
+```
+
+#### Assumption Inventory
+
+**Explicit assumptions** (stated during work):
+```
+Assumptions you consciously made:
+- "I assumed the Lambda timeout was 60s"
+- "I assumed the schema had pdf_s3_key column"
+- "I assumed the deployment would take 8 minutes"
+
+Verification status:
+- ✅ Verified: [Which assumptions were checked]
+- ❌ Unverified: [Which assumptions were NOT checked]
+```
+
+**Implicit assumptions** (unstated):
+```
+Hidden assumptions you didn't realize:
+- "I assumed environment variables were already configured"
+- "I assumed the code runs in Lambda (not local)"
+- "I assumed the database connection uses correct timezone"
+
+Discovery method:
+- Failed deployment revealed missing env var
+- Error message revealed execution environment mismatch
+- Bug appeared at date boundary (timezone assumption)
+```
+
+**Question to ask**: "What did I take for granted that might be wrong?"
+
+#### Alternative Path Check
+
+**Paths explored**:
+```
+Approaches tried:
+1. [Path 1]: [What you tried] → [Outcome]
+2. [Path 2]: [What you tried] → [Outcome]
+3. [Path 3]: [What you tried] → [Outcome]
+
+Total: [N] paths explored
+```
+
+**Paths NOT explored**:
+```
+Alternatives you didn't try:
+- [Alternative 1]: [Why you didn't try it]
+- [Alternative 2]: [Why you skipped it]
+- [Alternative 3]: [Didn't think of it]
+
+Potential blindspot: [Which untried path might work?]
+```
+
+**Branching completeness**:
+```
+Coverage assessment:
+- Did you explore different CATEGORIES? (code fix vs config fix vs design fix)
+- Did you question the PROBLEM itself? (solving right problem?)
+- Did you consider CONSTRAINTS? (can we change requirements?)
+```
+
+#### Local Optimum Detection
+
+**Iteration pattern analysis**:
+```
+Count iterations by type:
+- Optimizing code: [N] iterations (fixing execution)
+- Questioning constraints: [M] iterations (changing assumptions)
+- Exploring alternatives: [K] iterations (trying different paths)
+
+Ratio analysis:
+- High N, low M → Stuck in retrying loop (local optimum)
+- High M, low K → Stuck in initial-sensitive (need branching)
+- High K, low N+M → Exploring without understanding (need /trace)
+```
+
+**Stuck signal threshold**:
+```
+If same approach repeated 3+ times:
+→ Likely stuck in local optimum
+→ Meta-loop escalation needed
+→ Switch to different feedback loop type
+
+Example:
+- 5 code fixes, same error → Local optimum (stop fixing, question baseline)
+- 4 hypotheses all fail → Local optimum (stop hypothesizing, try different path)
+```
+
+**Baseline assumption check**:
+```
+Question the foundation:
+- "What if the CONSTRAINT itself is wrong?"
+- "What if the PROBLEM framing is incorrect?"
+- "What if the GOAL should be different?"
+
+Example:
+- Instead of "fix Lambda timeout", ask "should this be Lambda at all?"
+- Instead of "make query faster", ask "do we need this query?"
+```
+
+**Focus**: DETECT blindspots and local optima (meta-awareness)
+
+---
+
 ## Output Format
 
 ```markdown
@@ -215,6 +355,68 @@ If stuck pattern detected:
 → To: [Suggested loop]
 → Reason: [Why escalate]
 → Next action: [Concrete tool to use]
+
+---
+
+## Blindspot Detection
+
+### Principle Compliance Check
+
+**Selected principles** (3-5 relevant to task):
+- [ ] Principle #X: [Compliance question]
+  - Gap: [What was missed]
+  - Impact: [How it affected outcome]
+
+- [ ] Principle #Y: [Compliance question]
+  - Gap: [What was missed]
+  - Impact: [How it affected outcome]
+
+- [ ] Principle #Z: [Compliance question]
+  - Gap: [What was missed]
+  - Impact: [How it affected outcome]
+
+### Assumption Inventory
+
+**Explicit assumptions** (stated):
+- [Assumption 1]: Verified? [✅ Yes | ❌ No]
+- [Assumption 2]: Verified? [✅ Yes | ❌ No]
+
+**Implicit assumptions** (unstated):
+- [Hidden assumption 1]: [How discovered]
+- [Hidden assumption 2]: [How discovered]
+
+**Unverified assumptions**:
+[List assumptions taken for granted that should be checked]
+
+### Alternative Path Check
+
+**Paths explored**:
+1. [Path 1]: [Outcome]
+2. [Path 2]: [Outcome]
+3. [Path 3]: [Outcome]
+
+**Paths NOT explored**:
+- [Alternative 1]: [Reason not tried]
+- [Alternative 2]: [Reason not tried]
+
+**Coverage assessment**:
+- Different categories? [Code fix | Config fix | Design fix]
+- Questioned problem framing? [Yes | No]
+- Considered constraint changes? [Yes | No]
+
+### Local Optimum Detection
+
+**Iteration count**:
+- Optimizing code: [N] iterations
+- Questioning constraints: [M] iterations
+- Exploring alternatives: [K] iterations
+
+**Stuck signal**: [If 3+ iterations same approach: YES | NO]
+
+**Baseline assumption check**:
+[What foundational assumption should be questioned?]
+
+**Recommendation**: [Continue | Escalate | Question baseline]
 
 ---
 
@@ -398,12 +600,19 @@ If stuck pattern detected:
 - **Analyze tool outputs** for repetition patterns
 - **Assess gradient** (zero vs positive)
 - **Trigger meta-loop** when current loop ineffective
+- **Check principle compliance** (select 3-5 relevant principles)
+- **Surface assumptions** (both explicit and implicit)
+- **Evaluate alternative paths** (what didn't you try?)
+- **Detect local optima** (count iteration types)
 - **Extract learnings** for future reference
 
 ### Don't
 - **Don't reflect after every action** (too granular)
 - **Don't ignore stuck signals** (zero gradient = escalate)
 - **Don't stay in same loop** when /reflect shows ineffective
+- **Don't skip blindspot detection** when stuck 3+ times
+- **Don't assume all principles were followed** (verify compliance)
+- **Don't forget untested assumptions** (make implicit explicit)
 - **Don't forget to document** learnings (/journal after /reflect)
 
 ---
@@ -435,5 +644,11 @@ When you invoke `/reflect`, analyze:
 **Insights**: What did you learn? (future improvements)
 
 **Meta-Loop**: Need to escalate? (if stuck pattern detected)
+
+**Blindspots**:
+- Which principles did you violate? (principle compliance)
+- What did you assume without verifying? (assumption inventory)
+- What paths didn't you explore? (alternative check)
+- Are you stuck in local optimum? (iteration pattern analysis)
 
 **Output**: Structured reflection following the format above.
