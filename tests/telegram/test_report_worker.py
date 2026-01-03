@@ -204,7 +204,7 @@ class TestReportWorkerHandler:
         assert 'Data fetch failed' in call_args[0][1]
 
     def test_handler_processes_multiple_records(
-        self, mock_job_service, mock_agent, mock_transformer, mock_ticker_service
+        self, mock_job_service, mock_agent, mock_transformer, mock_ticker_service, mock_precompute_service
     ):
         """Test that handler processes all SQS records"""
         from src.report_worker_handler import handler
