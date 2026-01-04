@@ -33,7 +33,8 @@ class TestTickerFetcherHandler:
             'AURORA_PORT': '3306',
             'AURORA_DATABASE': 'ticker_data',
             'AURORA_USER': 'admin',
-            'AURORA_PASSWORD': 'test-password'
+            'AURORA_PASSWORD': 'test-password',
+            'TZ': 'Asia/Bangkok'  # Required for timezone-aware date handling (Principle #16)
         }
 
         self.mock_fetch_results = {

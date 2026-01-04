@@ -469,7 +469,8 @@ def mock_env_vars():
         # NOTE: DYNAMODB_CACHE_TABLE removed - cache moved to Aurora ticker_data_cache
         'JOBS_TABLE_NAME': 'test-jobs-table',
         'REPORT_JOBS_QUEUE_URL': 'https://sqs.test.amazonaws.com/test-queue',
-        'ENVIRONMENT': 'test'
+        'ENVIRONMENT': 'test',
+        'TZ': 'Asia/Bangkok'  # Required for timezone-aware date handling
     }
     with patch.dict(os.environ, env_vars):
         yield env_vars
