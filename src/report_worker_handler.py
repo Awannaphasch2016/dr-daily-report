@@ -166,6 +166,23 @@ async def process_record(record: dict) -> None:
         ticker_service = get_ticker_service()
         transformer = get_transformer()
 
+        # For Step Functions jobs, create job record first (SQS jobs are created by API before queuing)
+        # Use DynamoDB put_item to create job with specific job_id and ticker field
+        from datetime import datetime, timedelta
+        created_at = datetime.now()
+        ttl = int((created_at + timedelta(hours=24)).timestamp())
+
+        job_service.table.put_item(
+            Item={
+                'job_id': job_id,
+                'ticker': dr_symbol.upper(),
+                'status': 'pending',
+                'created_at': created_at.isoformat(),
+                'ttl': ttl
+            }
+        )
+        logger.info(f"Created job {job_id} for ticker {dr_symbol.upper()}")
+
         # Mark job as in_progress
         job_service.start_job(job_id)
 
