@@ -146,11 +146,12 @@ resource "aws_iam_role_policy" "report_worker_policy" {
         ]
         Resource = aws_sqs_queue.report_jobs.arn
       },
-      # DynamoDB - Update job status
+      # DynamoDB - Create and update job status
       {
         Effect = "Allow"
         Action = [
           "dynamodb:GetItem",
+          "dynamodb:PutItem",
           "dynamodb:UpdateItem"
         ]
         Resource = aws_dynamodb_table.report_jobs.arn
