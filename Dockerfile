@@ -20,8 +20,14 @@ RUN pip install --no-cache-dir -r ${LAMBDA_TASK_ROOT}/requirements.txt
 
 # Copy application code
 COPY src/ ${LAMBDA_TASK_ROOT}/src/
-COPY data/tickers.csv ${LAMBDA_TASK_ROOT}/
+COPY data/ ${LAMBDA_TASK_ROOT}/data/
+COPY db/ ${LAMBDA_TASK_ROOT}/db/
+
+# Copy all handler files to root for Lambda function entry points
 COPY src/lambda_handler.py ${LAMBDA_TASK_ROOT}/
+COPY src/report_worker_handler.py ${LAMBDA_TASK_ROOT}/
+COPY src/telegram_lambda_handler.py ${LAMBDA_TASK_ROOT}/
+COPY src/migration_handler.py ${LAMBDA_TASK_ROOT}/
 
 # Set the CMD to your handler
 CMD [ "lambda_handler.lambda_handler" ]
