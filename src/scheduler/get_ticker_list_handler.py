@@ -54,7 +54,7 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         # Connect to Aurora
         conn = pymysql.connect(
             host=os.environ['AURORA_HOST'],
-            user=os.environ['AURORA_USERNAME'],
+            user=os.environ['AURORA_USER'],
             password=os.environ['AURORA_PASSWORD'],
             database=os.environ['AURORA_DATABASE'],
             port=int(os.environ.get('AURORA_PORT', 3306))
@@ -92,7 +92,7 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
 
     except KeyError as e:
         logger.error(f"Missing environment variable: {e}")
-        logger.error("Required: AURORA_HOST, AURORA_USERNAME, AURORA_PASSWORD, AURORA_DATABASE")
+        logger.error("Required: AURORA_HOST, AURORA_USER, AURORA_PASSWORD, AURORA_DATABASE")
         raise
 
     except pymysql.Error as e:
@@ -112,7 +112,7 @@ if __name__ == '__main__':
     test_context = None
 
     # NOTE: Requires environment variables:
-    #   AURORA_HOST, AURORA_USERNAME, AURORA_PASSWORD, AURORA_DATABASE
+    #   AURORA_HOST, AURORA_USER, AURORA_PASSWORD, AURORA_DATABASE
     # Set these via: ENV=dev doppler run -- python src/scheduler/get_ticker_list_handler.py
 
     result = lambda_handler(test_event, test_context)

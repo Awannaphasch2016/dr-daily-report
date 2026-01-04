@@ -17,7 +17,7 @@ class TestGetTickerListHandler:
         """Setup test fixtures"""
         self.mock_env = {
             'AURORA_HOST': 'test-aurora.cluster.rds.amazonaws.com',
-            'AURORA_USERNAME': 'test_user',
+            'AURORA_USER': 'test_user',
             'AURORA_PASSWORD': 'test_password',
             'AURORA_DATABASE': 'ticker_data',
             'AURORA_PORT': '3306'
@@ -26,7 +26,7 @@ class TestGetTickerListHandler:
     @patch('src.scheduler.get_ticker_list_handler.pymysql.connect')
     @patch.dict('os.environ', {
         'AURORA_HOST': 'test-host',
-        'AURORA_USERNAME': 'test-user',
+        'AURORA_USER': 'test-user',
         'AURORA_PASSWORD': 'test-pass',
         'AURORA_DATABASE': 'test-db'
     })
@@ -81,7 +81,7 @@ class TestGetTickerListHandler:
     @patch('src.scheduler.get_ticker_list_handler.pymysql.connect')
     @patch.dict('os.environ', {
         'AURORA_HOST': 'test-host',
-        'AURORA_USERNAME': 'test-user',
+        'AURORA_USER': 'test-user',
         'AURORA_PASSWORD': 'test-pass',
         'AURORA_DATABASE': 'test-db'
     })
@@ -116,7 +116,7 @@ class TestGetTickerListHandler:
     @patch('src.scheduler.get_ticker_list_handler.pymysql.connect')
     @patch.dict('os.environ', {
         'AURORA_HOST': 'test-host',
-        'AURORA_USERNAME': 'test-user',
+        'AURORA_USER': 'test-user',
         'AURORA_PASSWORD': 'test-pass',
         'AURORA_DATABASE': 'test-db'
     })
@@ -135,7 +135,7 @@ class TestGetTickerListHandler:
     @patch('src.scheduler.get_ticker_list_handler.pymysql.connect')
     @patch.dict('os.environ', {
         'AURORA_HOST': 'test-host',
-        'AURORA_USERNAME': 'test-user',
+        'AURORA_USER': 'test-user',
         'AURORA_PASSWORD': 'test-pass',
         'AURORA_DATABASE': 'test-db'
     })
@@ -159,7 +159,7 @@ class TestGetTickerListHandler:
     @patch('src.scheduler.get_ticker_list_handler.pymysql.connect')
     @patch.dict('os.environ', {
         'AURORA_HOST': 'test-host',
-        'AURORA_USERNAME': 'test-user',
+        'AURORA_USER': 'test-user',
         'AURORA_PASSWORD': 'test-pass',
         'AURORA_DATABASE': 'test-db',
         'AURORA_PORT': '3307'  # Custom port
@@ -186,7 +186,7 @@ class TestGetTickerListHandler:
     @patch('src.scheduler.get_ticker_list_handler.pymysql.connect')
     @patch.dict('os.environ', {
         'AURORA_HOST': 'test-host',
-        'AURORA_USERNAME': 'test-user',
+        'AURORA_USER': 'test-user',
         'AURORA_PASSWORD': 'test-pass',
         'AURORA_DATABASE': 'test-db'
     })
