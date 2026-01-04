@@ -320,13 +320,13 @@ async def process_ticker_direct(event: dict) -> dict:
 
         # Get result from DynamoDB
         job_service = get_job_service()
-        job_status = job_service.get_job_status(f'sfn_{execution_id}_{ticker_raw}')
+        job = job_service.get_job(f'sfn_{execution_id}_{ticker_raw}')
 
-        if job_status.get('status') == 'completed':
+        if job.status == 'completed':
             return {
                 'ticker': ticker_raw,
                 'status': 'success',
-                'pdf_s3_key': job_status.get('result', {}).get('pdf_s3_key'),
+                'pdf_s3_key': job.result.get('pdf_s3_key') if job.result else None,
                 'error': ''
             }
         else:
@@ -334,7 +334,7 @@ async def process_ticker_direct(event: dict) -> dict:
                 'ticker': ticker_raw,
                 'status': 'failed',
                 'pdf_s3_key': None,
-                'error': job_status.get('error', 'Unknown error')
+                'error': job.error or 'Unknown error'
             }
 
     except Exception as e:
