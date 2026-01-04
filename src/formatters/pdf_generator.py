@@ -709,8 +709,10 @@ def generate_pdf(report_text: str, ticker: str, chart_base64: str) -> Optional[b
     This is a lightweight wrapper for scheduled workflows that only have
     the final report text and chart, without intermediate structured data.
 
+    Supports Thai characters via Sarabun font (falls back to Helvetica if fonts not found).
+
     Args:
-        report_text: Complete narrative report text
+        report_text: Complete narrative report text (supports Thai characters)
         ticker: Ticker symbol
         chart_base64: Base64-encoded chart image
 
@@ -718,6 +720,42 @@ def generate_pdf(report_text: str, ticker: str, chart_base64: str) -> Optional[b
         PDF bytes or None if generation fails
     """
     try:
+        import logging
+        import os
+        logger = logging.getLogger(__name__)
+
+        # Register Thai font BEFORE creating document
+        thai_font = 'Helvetica'  # Default fallback
+        thai_font_bold = 'Helvetica-Bold'
+
+        try:
+            # Environment-aware font path (Principle #20: Execution Boundary Discipline)
+            if os.path.exists('/var/task'):  # Lambda container
+                font_dir = '/var/task/fonts'
+            else:  # Local development
+                project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+                font_dir = os.path.join(project_root, 'fonts')
+
+            sarabun_regular = os.path.join(font_dir, 'Sarabun-Regular.ttf')
+            sarabun_bold = os.path.join(font_dir, 'Sarabun-Bold.ttf')
+
+            # Register fonts if available
+            if os.path.exists(sarabun_regular):
+                pdfmetrics.registerFont(TTFont('Sarabun', sarabun_regular))
+                thai_font = 'Sarabun'
+                logger.info(f"✅ Thai font (Sarabun) registered from {font_dir}")
+
+                if os.path.exists(sarabun_bold):
+                    pdfmetrics.registerFont(TTFont('Sarabun-Bold', sarabun_bold))
+                    thai_font_bold = 'Sarabun-Bold'
+                    logger.info(f"✅ Thai bold font (Sarabun-Bold) registered")
+            else:
+                logger.warning(f"⚠️  Thai fonts not found at {font_dir}, using Helvetica (Thai characters may not display)")
+
+        except Exception as e:
+            logger.warning(f"⚠️  Failed to register Thai fonts: {e}")
+            logger.warning("   Thai characters may display as black boxes")
+
         # Create PDF buffer
         buffer = BytesIO()
 
@@ -735,26 +773,28 @@ def generate_pdf(report_text: str, ticker: str, chart_base64: str) -> Optional[b
         story = []
         styles = getSampleStyleSheet()
 
-        # Title
+        # Title (use Thai font)
         title_style = ParagraphStyle(
             name='CustomTitle',
             parent=styles['Title'],
             fontSize=20,
             textColor=HexColor('#1f77b4'),
             spaceAfter=20,
-            alignment=TA_CENTER
+            alignment=TA_CENTER,
+            fontName=thai_font_bold  # Support Thai characters in title
         )
         story.append(Paragraph(f"Daily Report: {ticker}", title_style))
         story.append(Spacer(1, 12))
 
-        # Date
+        # Date (use Thai font)
         subtitle_style = ParagraphStyle(
             name='Subtitle',
             parent=styles['Normal'],
             fontSize=12,
             textColor=HexColor('#555555'),
             spaceAfter=20,
-            alignment=TA_CENTER
+            alignment=TA_CENTER,
+            fontName=thai_font  # Support Thai characters in subtitle
         )
         story.append(Paragraph(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}", subtitle_style))
         story.append(Spacer(1, 20))
@@ -781,7 +821,8 @@ def generate_pdf(report_text: str, ticker: str, chart_base64: str) -> Optional[b
             fontSize=11,
             leading=16,
             alignment=TA_JUSTIFY,
-            spaceAfter=10
+            spaceAfter=10,
+            fontName=thai_font  # Support Thai characters in body text
         )
 
         # Split report into paragraphs and add each

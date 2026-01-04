@@ -23,6 +23,9 @@ COPY src/ ${LAMBDA_TASK_ROOT}/src/
 COPY data/ ${LAMBDA_TASK_ROOT}/data/
 COPY db/ ${LAMBDA_TASK_ROOT}/db/
 
+# Copy Thai fonts for PDF generation (supports Thai characters in ReportLab)
+COPY fonts/ ${LAMBDA_TASK_ROOT}/fonts/
+
 # Copy all handler files to root for Lambda function entry points
 COPY src/lambda_handler.py ${LAMBDA_TASK_ROOT}/
 COPY src/report_worker_handler.py ${LAMBDA_TASK_ROOT}/

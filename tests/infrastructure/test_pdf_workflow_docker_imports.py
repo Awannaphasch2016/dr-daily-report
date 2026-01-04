@@ -197,6 +197,118 @@ print("✅ All handler dependencies import successfully")
             f"This indicates missing dependencies or import path issues."
         )
 
+    def test_thai_fonts_available_in_container(self):
+        """Resource boundary: Local filesystem → Lambda container
+
+        Tests that Thai font files are copied to Lambda container.
+
+        Simulates: PDF generation that requires Thai font support.
+
+        Catches:
+        - Missing fonts/ directory in container
+        - Dockerfile not copying fonts
+        - Incorrect font file paths
+
+        Related: Principle #20 (Execution Boundary Discipline)
+        Evidence: Jan 2026 - Thai characters rendered as black boxes because
+                  fonts were not included in Docker image.
+        """
+        check_fonts = """
+import os
+
+# Check Lambda container font path
+font_dir = '/var/task/fonts'
+expected_fonts = ['Sarabun-Regular.ttf', 'Sarabun-Bold.ttf']
+
+# Verify font directory exists
+assert os.path.exists(font_dir), \
+    f"Font directory {font_dir} not found in container"
+
+# Verify font files exist
+for font_file in expected_fonts:
+    font_path = os.path.join(font_dir, font_file)
+    assert os.path.exists(font_path), \
+        f"Font file {font_file} not found at {font_path}"
+
+    # Verify file is readable
+    assert os.access(font_path, os.R_OK), \
+        f"Font file {font_path} is not readable"
+
+print(f"✅ Thai fonts available at {font_dir}")
+print(f"   Found: {', '.join(expected_fonts)}")
+"""
+
+        result = subprocess.run(
+            ["docker", "run", "--rm", "--entrypoint", "python3",
+             "dr-lambda-test", "-c", check_fonts],
+            capture_output=True,
+            text=True
+        )
+
+        assert result.returncode == 0, (
+            f"Thai fonts not available in Lambda container.\n"
+            f"This would cause Thai characters to render as black boxes.\n"
+            f"\n"
+            f"Error:\n{result.stderr}\n"
+            f"\n"
+            f"Common causes:\n"
+            f"- Dockerfile missing 'COPY fonts/ ${{LAMBDA_TASK_ROOT}}/fonts/'\n"
+            f"- fonts/ directory not present in build context\n"
+            f"- Font files have wrong permissions"
+        )
+
+    def test_pdf_generator_can_register_thai_fonts(self):
+        """Functional boundary: Font files → ReportLab registration
+
+        Tests that generate_pdf() can successfully register Thai fonts.
+
+        Simulates: First PDF generation call in Lambda.
+
+        Catches:
+        - Font registration errors
+        - Invalid font file format
+        - Missing ReportLab dependencies
+        """
+        test_font_registration = """
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+import os
+
+# Register Thai fonts (same logic as generate_pdf())
+font_dir = '/var/task/fonts'
+sarabun_regular = os.path.join(font_dir, 'Sarabun-Regular.ttf')
+sarabun_bold = os.path.join(font_dir, 'Sarabun-Bold.ttf')
+
+# Register fonts
+pdfmetrics.registerFont(TTFont('Sarabun', sarabun_regular))
+pdfmetrics.registerFont(TTFont('Sarabun-Bold', sarabun_bold))
+
+# Verify registration
+registered_fonts = pdfmetrics.getRegisteredFontNames()
+assert 'Sarabun' in registered_fonts, "Sarabun font not registered"
+assert 'Sarabun-Bold' in registered_fonts, "Sarabun-Bold font not registered"
+
+print("✅ Thai fonts registered successfully")
+print(f"   Registered: Sarabun, Sarabun-Bold")
+"""
+
+        result = subprocess.run(
+            ["docker", "run", "--rm", "--entrypoint", "python3",
+             "dr-lambda-test", "-c", test_font_registration],
+            capture_output=True,
+            text=True
+        )
+
+        assert result.returncode == 0, (
+            f"Thai font registration failed in Lambda container.\n"
+            f"Error:\n{result.stderr}\n"
+            f"\n"
+            f"This indicates:\n"
+            f"- Font files may be corrupted\n"
+            f"- Font format incompatible with ReportLab\n"
+            f"- Missing ReportLab TTFont dependencies"
+        )
+
 
 class TestDockerImageAvailability:
     """Verify Docker test image exists before running import tests."""
