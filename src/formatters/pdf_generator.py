@@ -802,16 +802,20 @@ def generate_pdf(report_text: str, ticker: str, chart_base64: str) -> Optional[b
         # Chart (if available)
         if chart_base64:
             try:
+                logger.info(f"Processing chart image (size: {len(chart_base64)} bytes base64)...")
                 # Decode base64 to bytes
                 chart_data = base64.b64decode(chart_base64)
                 chart_buffer = BytesIO(chart_data)
+                logger.info(f"✅ Chart decoded ({len(chart_data)} bytes binary)")
 
                 # Add chart image (fit to page width with margin)
                 img = Image(chart_buffer, width=6*inch, height=4*inch)
                 story.append(img)
                 story.append(Spacer(1, 20))
+                logger.info("✅ Chart added to PDF story")
             except Exception as e:
                 # Chart failed - continue without it
+                logger.warning(f"⚠️ Chart processing failed: {e}")
                 pass
 
         # Report text
@@ -826,20 +830,28 @@ def generate_pdf(report_text: str, ticker: str, chart_base64: str) -> Optional[b
         )
 
         # Split report into paragraphs and add each
-        for paragraph in report_text.split('\n\n'):
+        paragraphs = report_text.split('\n\n')
+        logger.info(f"Processing {len(paragraphs)} paragraphs (total text: {len(report_text)} chars)...")
+
+        for idx, paragraph in enumerate(paragraphs):
             if paragraph.strip():
                 # Clean and format paragraph (preserve line breaks as <br/>)
                 cleaned = paragraph.strip().replace('\n', '<br/>')
                 story.append(Paragraph(cleaned, body_style))
                 story.append(Spacer(1, 10))
 
-        # Build PDF
+        logger.info(f"✅ Built story with {len(story)} elements")
+
+        # Build PDF (CRITICAL: This is where hang likely occurs)
+        logger.info(f"Building PDF document (this may take time for complex content)...")
         doc.build(story)
+        logger.info(f"✅ PDF document build completed")
 
         # Get PDF bytes
         pdf_bytes = buffer.getvalue()
         buffer.close()
 
+        logger.info(f"✅ PDF generation complete ({len(pdf_bytes)} bytes)")
         return pdf_bytes
 
     except Exception as e:
