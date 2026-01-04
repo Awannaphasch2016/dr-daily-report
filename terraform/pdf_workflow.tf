@@ -448,6 +448,19 @@ resource "aws_cloudwatch_event_target" "start_pdf_workflow" {
   target_id = "StartPDFWorkflow"
   arn       = aws_sfn_state_machine.pdf_workflow.arn
   role_arn  = aws_iam_role.eventbridge_sfn_role.arn
+
+  # Input transformer: Extract timestamp and pass as report_date
+  # EventBridge provides UTC timestamp, Lambda will convert to Bangkok timezone
+  input_transformer {
+    input_paths = {
+      event_time = "$.time"
+    }
+    input_template = <<EOF
+{
+  "report_date": "<event_time>"
+}
+EOF
+  }
 }
 
 # IAM Role for EventBridge to start Step Functions
