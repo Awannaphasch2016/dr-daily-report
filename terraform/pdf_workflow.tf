@@ -276,7 +276,7 @@ resource "aws_lambda_function" "pdf_worker" {
     command = ["src.pdf_worker_handler.handler"]
   }
 
-  timeout     = 120 # 2 minutes (PDF generation can be slow)
+  timeout     = 600 # 10 minutes (handles large PDFs with complex charts and S3 upload time)
   memory_size = 512 # PDF generation needs more memory (ReportLab)
 
   environment {
