@@ -38,7 +38,8 @@ resource "aws_iam_role" "pdf_workflow_role" {
   })
 }
 
-# IAM Policy for Step Functions to send SQS messages and invoke Lambda
+# IAM Policy for Step Functions to invoke Lambdas directly
+# MIGRATED: Removed SQS permissions (no longer using SQS queue pattern)
 resource "aws_iam_role_policy" "pdf_workflow_policy" {
   name = "${var.project_name}-pdf-workflow-policy-${var.environment}"
   role = aws_iam_role.pdf_workflow_role.id
@@ -61,33 +62,30 @@ resource "aws_iam_role_policy" "pdf_workflow_policy" {
         ]
         Resource = "*"
       },
-      # SQS - Send messages to PDF jobs queue
-      {
-        Effect = "Allow"
-        Action = [
-          "sqs:SendMessage"
-        ]
-        Resource = aws_sqs_queue.pdf_jobs.arn
-      },
-      # Lambda - Invoke get_report_list function
+      # Lambda - Invoke get_report_list and pdf_worker functions
       {
         Effect = "Allow"
         Action = [
           "lambda:InvokeFunction"
         ]
-        Resource = aws_lambda_function.get_report_list.arn
+        Resource = [
+          aws_lambda_function.get_report_list.arn,
+          aws_lambda_function.pdf_worker.arn
+        ]
       }
     ]
   })
 }
 
 # Read state machine definition template and substitute variables
+# MIGRATED: Using direct Lambda invocation pattern (no SQS)
+# Migration date: 2026-01-04
+# Previous: pdf_workflow.json (SQS-based with 3-minute blind wait)
+# Current: pdf_workflow_direct.json (direct invocation with real-time completion)
 locals {
-  pdf_workflow_definition = templatefile("${path.module}/step_functions/pdf_workflow.json", {
-    sqs_queue_url                 = aws_sqs_queue.pdf_jobs.url
-    region                        = var.aws_region
-    account_id                    = data.aws_caller_identity.current.account_id
-    get_report_list_function_name = aws_lambda_function.get_report_list.function_name
+  pdf_workflow_definition = templatefile("${path.module}/step_functions/pdf_workflow_direct.json", {
+    get_report_list_function_arn = aws_lambda_function.get_report_list.arn
+    pdf_worker_function_arn      = aws_lambda_function.pdf_worker.arn
   })
 }
 
@@ -125,7 +123,15 @@ resource "aws_cloudwatch_log_group" "pdf_workflow_logs" {
 }
 
 ###############################################################################
-# SQS Queue for PDF Jobs
+# SQS Queue for PDF Jobs (DEPRECATED - replaced by direct Lambda invocation)
+###############################################################################
+# DEPRECATION NOTICE: Migration completed 2026-01-04
+# Previous pattern: Step Functions → SQS → Lambda (async processing)
+# Current pattern: Step Functions → Lambda (direct invocation)
+#
+# Monitoring period: 7 days after migration
+# Removal: After confirming NumberOfMessagesSent = 0 for 7 consecutive days
+# Command: aws cloudwatch get-metric-statistics --metric-name NumberOfMessagesSent ...
 ###############################################################################
 
 resource "aws_sqs_queue" "pdf_jobs" {
@@ -388,7 +394,9 @@ resource "aws_cloudwatch_log_group" "pdf_worker_logs" {
   })
 }
 
-# Event Source Mapping - SQS → PDF Worker Lambda
+# Event Source Mapping - SQS → PDF Worker Lambda (DEPRECATED)
+# DEPRECATION: No longer needed with direct Lambda invocation pattern
+# Keep enabled during 7-day monitoring period, then disable and remove
 resource "aws_lambda_event_source_mapping" "pdf_jobs_to_worker" {
   event_source_arn = aws_sqs_queue.pdf_jobs.arn
   function_name    = aws_lambda_function.pdf_worker.arn

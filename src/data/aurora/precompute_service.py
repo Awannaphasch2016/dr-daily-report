@@ -1535,14 +1535,12 @@ class PrecomputeService:
             limit: Maximum number of reports to return
 
         Returns:
-            List of dicts with: id, symbol, report_text, chart_base64, report_date
+            List of dicts with: id, symbol, report_date (minimal fields for Step Functions payload limit)
         """
         query = f"""
             SELECT
                 id,
                 symbol,
-                report_text,
-                chart_base64,
                 report_date
             FROM {PRECOMPUTED_REPORTS}
             WHERE report_date = %s
@@ -1553,10 +1551,40 @@ class PrecomputeService:
             LIMIT %s
         """
 
-        results = self.client.execute_query(query, (report_date, limit))
+        results = self.client.fetch_all(query, (report_date, limit))
         logger.info(f"Found {len(results)} reports needing PDFs for {report_date}")
 
         return results
+
+    def get_report_by_id(self, report_id: int) -> dict | None:
+        """Fetch full report data by ID for PDF generation.
+
+        Args:
+            report_id: Primary key of precomputed_reports table
+
+        Returns:
+            Dict with report data including report_text and chart_base64,
+            or None if report not found
+        """
+        query = f"""
+            SELECT
+                id,
+                symbol,
+                report_date,
+                report_text,
+                chart_base64,
+                report_json
+            FROM {PRECOMPUTED_REPORTS}
+            WHERE id = %s
+        """
+
+        result = self.client.fetch_one(query, (report_id,))
+        if not result:
+            logger.warning(f"Report not found: {report_id}")
+            return None
+
+        logger.info(f"Fetched report {report_id} for {result['symbol']}")
+        return result
 
     # =========================================================================
     # Ticker Data Cache (replaces S3 cache/ticker_data/)

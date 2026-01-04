@@ -1,0 +1,142 @@
+{
+  "Comment": "PDF Generation Workflow - Direct Lambda Invocation (migrated from SQS pattern)",
+  "StartAt": "GetReportList",
+  "States": {
+    "GetReportList": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Comment": "Query Aurora for reports needing PDF generation (pdf_s3_key IS NULL)",
+      "Parameters": {
+        "FunctionName": "${get_report_list_function_arn}",
+        "Payload": {}
+      },
+      "ResultPath": "$.report_list_result",
+      "Retry": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Next": "CheckReportsExist"
+    },
+
+    "CheckReportsExist": {
+      "Type": "Choice",
+      "Comment": "Check if any reports need PDF generation",
+      "Choices": [
+        {
+          "Variable": "$.report_list_result.Payload.reports[0]",
+          "IsPresent": true,
+          "Next": "GeneratePDFs"
+        }
+      ],
+      "Default": "NoReportsFound"
+    },
+
+    "NoReportsFound": {
+      "Type": "Pass",
+      "Comment": "No reports needing PDFs - workflow complete",
+      "Parameters": {
+        "status": "completed",
+        "execution_id.$": "$$.Execution.Name",
+        "total_pdfs": 0,
+        "message": "No reports found needing PDF generation"
+      },
+      "End": true
+    },
+
+    "GeneratePDFs": {
+      "Type": "Map",
+      "Comment": "Fan out to PDF worker Lambdas (direct invocation, not SQS)",
+      "ItemsPath": "$.report_list_result.Payload.reports",
+      "MaxConcurrency": 46,
+      "Parameters": {
+        "report.$": "$$.Map.Item.Value",
+        "execution_id.$": "$$.Execution.Name"
+      },
+      "Iterator": {
+        "StartAt": "InvokePDFWorker",
+        "States": {
+          "InvokePDFWorker": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::lambda:invoke",
+            "Comment": "Direct Lambda invocation - Step Functions waits for actual completion",
+            "Parameters": {
+              "FunctionName": "${pdf_worker_function_arn}",
+              "Payload": {
+                "Records": [
+                  {
+                    "messageId.$": "$$.Execution.Name",
+                    "body.$": "States.JsonToString($.report)"
+                  }
+                ]
+              }
+            },
+            "ResultPath": "$.pdf_result",
+            "Retry": [
+              {
+                "ErrorEquals": [
+                  "Lambda.ServiceException",
+                  "Lambda.AWSLambdaException",
+                  "Lambda.SdkClientException"
+                ],
+                "IntervalSeconds": 2,
+                "MaxAttempts": 2,
+                "BackoffRate": 2.0
+              }
+            ],
+            "Catch": [
+              {
+                "ErrorEquals": ["States.ALL"],
+                "ResultPath": "$.error",
+                "Next": "PDFGenerationFailed"
+              }
+            ],
+            "Next": "PDFGenerationSucceeded"
+          },
+
+          "PDFGenerationSucceeded": {
+            "Type": "Pass",
+            "Comment": "PDF generated successfully",
+            "Parameters": {
+              "report_id.$": "$.report.id",
+              "symbol.$": "$.report.symbol",
+              "status": "success",
+              "pdf_result.$": "$.pdf_result.Payload"
+            },
+            "End": true
+          },
+
+          "PDFGenerationFailed": {
+            "Type": "Pass",
+            "Comment": "PDF generation failed - capture error for troubleshooting",
+            "Parameters": {
+              "report_id.$": "$.report.id",
+              "symbol.$": "$.report.symbol",
+              "status": "failed",
+              "error.$": "$.error"
+            },
+            "End": true
+          }
+        }
+      },
+      "ResultPath": "$.pdf_results",
+      "Next": "AggregateResults"
+    },
+
+    "AggregateResults": {
+      "Type": "Pass",
+      "Comment": "Count successes and failures",
+      "Parameters": {
+        "status": "completed",
+        "execution_id.$": "$$.Execution.Name",
+        "total_reports.$": "States.ArrayLength($.pdf_results)",
+        "message": "PDF generation completed. Check individual results for success/failure status.",
+        "results.$": "$.pdf_results"
+      },
+      "End": true
+    }
+  }
+}

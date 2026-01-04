@@ -80,8 +80,6 @@ def process_record(record: dict) -> None:
         message = json.loads(body)
         report_id = message['id']
         symbol = message['symbol']
-        report_text = message['report_text']
-        chart_base64 = message.get('chart_base64', '')
         data_date_str = message['report_date']
 
         # Explicit date deserialization (Principle #4: Type System Integration)
@@ -93,8 +91,22 @@ def process_record(record: dict) -> None:
         logger.info(f"Symbol: {symbol}")
         logger.info(f"Date: {data_date}")
 
-        # Generate and upload PDF
+        # Fetch full report data from Aurora (only ID sent via SQS to avoid 256KB limit)
         ps = PrecomputeService()
+
+        logger.info(f"Fetching report data from Aurora for report_id={report_id}...")
+        report = ps.get_report_by_id(report_id)
+
+        if not report:
+            logger.error(f"❌ Report not found: {report_id}")
+            raise ValueError(f"Report not found with id={report_id}")
+
+        report_text = report.get('report_text', '')
+        chart_base64 = report.get('chart_base64', '')
+
+        if not report_text:
+            logger.error(f"❌ Report has no text content: {report_id}")
+            raise ValueError(f"Report {report_id} has no text content")
 
         logger.info(f"📄 Generating PDF for {symbol}...")
         pdf_s3_key = ps._generate_and_upload_pdf(
