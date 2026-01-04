@@ -123,47 +123,50 @@ resource "aws_cloudwatch_log_group" "pdf_workflow_logs" {
 }
 
 ###############################################################################
-# SQS Queue for PDF Jobs (DEPRECATED - replaced by direct Lambda invocation)
+# SQS Queue for PDF Jobs (REMOVED - replaced by direct Lambda invocation)
 ###############################################################################
-# DEPRECATION NOTICE: Migration completed 2026-01-04
+# REMOVAL DATE: 2026-01-04
+# Migration completed: 2026-01-04
 # Previous pattern: Step Functions → SQS → Lambda (async processing)
 # Current pattern: Step Functions → Lambda (direct invocation)
 #
-# Monitoring period: 7 days after migration
-# Removal: After confirming NumberOfMessagesSent = 0 for 7 consecutive days
-# Command: aws cloudwatch get-metric-statistics --metric-name NumberOfMessagesSent ...
+# Validation: Zero SQS messages for 2 days (2026-01-02 to 2026-01-04)
+# Lambda event source mapping: DELETED 2026-01-04T15:35:29
+# Terraform resources: REMOVED 2026-01-04
+#
+# Related: .claude/validations/2026-01-04-sqs-usage-pdf-workflow.md
 ###############################################################################
 
-resource "aws_sqs_queue" "pdf_jobs" {
-  name                       = "${var.project_name}-pdf-jobs-${var.environment}"
-  visibility_timeout_seconds = 300 # 5 minutes (PDF generation timeout)
-  message_retention_seconds  = 1209600 # 14 days
-  receive_wait_time_seconds  = 20 # Long polling
-
-  # Dead Letter Queue configuration
-  redrive_policy = jsonencode({
-    deadLetterTargetArn = aws_sqs_queue.pdf_jobs_dlq.arn
-    maxReceiveCount     = 3
-  })
-
-  tags = merge(local.common_tags, {
-    Name      = "${var.project_name}-pdf-jobs-${var.environment}"
-    App       = "telegram-api"
-    Component = "pdf-job-queue"
-  })
-}
-
-# Dead Letter Queue for failed PDF jobs
-resource "aws_sqs_queue" "pdf_jobs_dlq" {
-  name                      = "${var.project_name}-pdf-jobs-dlq-${var.environment}"
-  message_retention_seconds = 1209600 # 14 days
-
-  tags = merge(local.common_tags, {
-    Name      = "${var.project_name}-pdf-jobs-dlq-${var.environment}"
-    App       = "telegram-api"
-    Component = "pdf-job-dlq"
-  })
-}
+# resource "aws_sqs_queue" "pdf_jobs" {
+#   name                       = "${var.project_name}-pdf-jobs-${var.environment}"
+#   visibility_timeout_seconds = 300 # 5 minutes (PDF generation timeout)
+#   message_retention_seconds  = 1209600 # 14 days
+#   receive_wait_time_seconds  = 20 # Long polling
+#
+#   # Dead Letter Queue configuration
+#   redrive_policy = jsonencode({
+#     deadLetterTargetArn = aws_sqs_queue.pdf_jobs_dlq.arn
+#     maxReceiveCount     = 3
+#   })
+#
+#   tags = merge(local.common_tags, {
+#     Name      = "${var.project_name}-pdf-jobs-${var.environment}"
+#     App       = "telegram-api"
+#     Component = "pdf-job-queue"
+#   })
+# }
+#
+# # Dead Letter Queue for failed PDF jobs
+# resource "aws_sqs_queue" "pdf_jobs_dlq" {
+#   name                      = "${var.project_name}-pdf-jobs-dlq-${var.environment}"
+#   message_retention_seconds = 1209600 # 14 days
+#
+#   tags = merge(local.common_tags, {
+#     Name      = "${var.project_name}-pdf-jobs-dlq-${var.environment}"
+#     App       = "telegram-api"
+#     Component = "pdf-job-dlq"
+#   })
+# }
 
 ###############################################################################
 # Get Report List Lambda (for Step Functions)
@@ -361,26 +364,29 @@ resource "aws_iam_role_policy" "pdf_worker_s3_policy" {
   })
 }
 
-# SQS permissions for PDF worker
-resource "aws_iam_role_policy" "pdf_worker_sqs_policy" {
-  name = "${var.project_name}-pdf-worker-sqs-${var.environment}"
-  role = aws_iam_role.pdf_worker_role.id
+# SQS permissions for PDF worker (REMOVED - no longer uses SQS)
+# REMOVAL DATE: 2026-01-04
+# PDF worker now invoked directly by Step Functions, not via SQS queue
 
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Action = [
-          "sqs:ReceiveMessage",
-          "sqs:DeleteMessage",
-          "sqs:GetQueueAttributes"
-        ]
-        Resource = aws_sqs_queue.pdf_jobs.arn
-      }
-    ]
-  })
-}
+# resource "aws_iam_role_policy" "pdf_worker_sqs_policy" {
+#   name = "${var.project_name}-pdf-worker-sqs-${var.environment}"
+#   role = aws_iam_role.pdf_worker_role.id
+#
+#   policy = jsonencode({
+#     Version = "2012-10-17"
+#     Statement = [
+#       {
+#         Effect = "Allow"
+#         Action = [
+#           "sqs:ReceiveMessage",
+#           "sqs:DeleteMessage",
+#           "sqs:GetQueueAttributes"
+#         ]
+#         Resource = aws_sqs_queue.pdf_jobs.arn
+#       }
+#     ]
+#   })
+# }
 
 # CloudWatch Log Group
 resource "aws_cloudwatch_log_group" "pdf_worker_logs" {
@@ -394,20 +400,23 @@ resource "aws_cloudwatch_log_group" "pdf_worker_logs" {
   })
 }
 
-# Event Source Mapping - SQS → PDF Worker Lambda (DEPRECATED)
-# DEPRECATION: No longer needed with direct Lambda invocation pattern
-# Keep enabled during 7-day monitoring period, then disable and remove
-resource "aws_lambda_event_source_mapping" "pdf_jobs_to_worker" {
-  event_source_arn = aws_sqs_queue.pdf_jobs.arn
-  function_name    = aws_lambda_function.pdf_worker.arn
-  batch_size       = 1 # Process one PDF at a time (memory-intensive)
-  enabled          = true
+# Event Source Mapping - SQS → PDF Worker Lambda (REMOVED)
+# REMOVAL DATE: 2026-01-04T15:35:29
+# Replaced by: Direct Lambda invocation via Step Functions
+# No longer needed with direct Lambda invocation pattern
+# Deleted via AWS CLI: aws lambda delete-event-source-mapping --uuid 3b9f810d-ae93-4657-8cfb-e41dd63fa23b
 
-  # Scaling configuration
-  scaling_config {
-    maximum_concurrency = 10 # Max 10 PDFs in parallel
-  }
-}
+# resource "aws_lambda_event_source_mapping" "pdf_jobs_to_worker" {
+#   event_source_arn = aws_sqs_queue.pdf_jobs.arn
+#   function_name    = aws_lambda_function.pdf_worker.arn
+#   batch_size       = 1 # Process one PDF at a time (memory-intensive)
+#   enabled          = true
+#
+#   # Scaling configuration
+#   scaling_config {
+#     maximum_concurrency = 10 # Max 10 PDFs in parallel
+#   }
+# }
 
 ###############################################################################
 # EventBridge Rule - Trigger PDF workflow when precompute workflow completes
@@ -496,10 +505,10 @@ output "pdf_workflow_console_url" {
   description = "AWS Console URL for PDF workflow"
 }
 
-output "pdf_jobs_queue_url" {
-  value       = aws_sqs_queue.pdf_jobs.url
-  description = "URL of the PDF jobs SQS queue"
-}
+# output "pdf_jobs_queue_url" {
+#   value       = aws_sqs_queue.pdf_jobs.url
+#   description = "URL of the PDF jobs SQS queue (REMOVED 2026-01-04)"
+# }
 
 output "pdf_worker_function_name" {
   value       = aws_lambda_function.pdf_worker.function_name
