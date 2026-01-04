@@ -125,6 +125,10 @@ def get_user_id_from_header(
 def send_to_sqs(job_id: str, ticker: str) -> None:
     """Send job to SQS queue for async processing
 
+    DEPRECATED: This function is deprecated and will be removed after
+    migration to direct Lambda invocation is complete across all environments.
+    Use invoke_report_worker() instead.
+
     Args:
         job_id: Unique job identifier
         ticker: Ticker symbol to analyze
@@ -150,6 +154,59 @@ def send_to_sqs(job_id: str, ticker: str) -> None:
 
     except Exception as e:
         logger.error(f"Failed to send job {job_id} to SQS: {e}")
+        raise
+
+
+def invoke_report_worker(job_id: str, ticker: str) -> None:
+    """Invoke report worker Lambda directly for async processing
+
+    Replaces SQS-based async pattern with direct Lambda invocation.
+    Uses Event invocation type (async) to maintain request-response decoupling.
+
+    Migration context: Part of SQS-to-direct-Lambda migration (2026-01-04)
+    This function replaces send_to_sqs() to eliminate SQS infrastructure dependency
+    while maintaining the same async behavior.
+
+    Args:
+        job_id: Unique job identifier
+        ticker: Ticker symbol to analyze
+
+    Raises:
+        ValueError: If REPORT_WORKER_FUNCTION_NAME environment variable not set
+        ClientError: If Lambda invocation fails (permission denied, function not found, etc.)
+
+    Example:
+        >>> invoke_report_worker('job-123', 'NVDA19')
+        # Logs: "✅ Invoked report worker for job job-123 (ticker: NVDA19)"
+    """
+    import boto3
+    import json
+
+    lambda_client = boto3.client('lambda')
+
+    function_name = os.getenv('REPORT_WORKER_FUNCTION_NAME')
+    if not function_name:
+        raise ValueError(
+            "REPORT_WORKER_FUNCTION_NAME environment variable not set. "
+            "Cannot invoke report worker Lambda. "
+            "Check Terraform configuration."
+        )
+
+    try:
+        lambda_client.invoke(
+            FunctionName=function_name,
+            InvocationType='Event',  # Async invocation (fire-and-forget)
+            Payload=json.dumps({
+                'job_id': job_id,
+                'ticker': ticker,
+                'source': 'telegram_api'  # For tracing in CloudWatch logs
+            })
+        )
+
+        logger.info(f"✅ Invoked report worker for job {job_id} (ticker: {ticker})")
+
+    except Exception as e:
+        logger.error(f"❌ Failed to invoke report worker: {e}")
         raise
 
 
@@ -406,8 +463,9 @@ async def submit_report_async(
         job_service = get_job_service()
         job = job_service.create_job(ticker=ticker_upper)
 
-        # Send to SQS queue for async processing
-        send_to_sqs(job.job_id, ticker_upper)
+        # Invoke report worker Lambda directly for async processing
+        # Migration: Replaced send_to_sqs() with invoke_report_worker() (2026-01-04)
+        invoke_report_worker(job.job_id, ticker_upper)
 
         logger.info(f"Submitted async report job {job.job_id} for {ticker_upper}")
 

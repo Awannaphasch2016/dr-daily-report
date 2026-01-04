@@ -169,6 +169,25 @@ resource "aws_iam_role_policy" "report_worker_policy" {
   })
 }
 
+# IAM permission for telegram_api Lambda to invoke report_worker
+# Migration: Added for direct Lambda invocation (replaces SQS pattern)
+# Date: 2026-01-04
+resource "aws_iam_role_policy" "telegram_api_invoke_worker" {
+  name = "${var.project_name}-telegram-api-invoke-worker-${var.environment}"
+  role = aws_iam_role.telegram_api_role.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = "lambda:InvokeFunction"
+        Resource = aws_lambda_function.report_worker.arn
+      }
+    ]
+  })
+}
+
 ###############################################################################
 # Report Worker Lambda Function
 ###############################################################################

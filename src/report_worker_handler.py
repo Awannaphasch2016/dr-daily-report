@@ -74,28 +74,33 @@ def _validate_required_config() -> None:
 
 
 def handler(event: dict, context: Any) -> dict:
-    """Lambda handler for SQS report generation messages, Step Functions, and migrations
+    """Lambda handler for report generation - supports SQS, direct invocation, and migrations
 
-    Three modes:
-    1. SQS Mode (default): Processes SQS records for async report generation
-    2. Direct Mode: Step Functions invocation for precompute workflow
-    3. Migration Mode: Routes to migration_handler for database migrations
+    Four modes:
+    1. Migration Mode: Database migration requests
+    2. Direct Invocation Mode (NEW): Direct Lambda.invoke() with job_id/ticker
+    3. SQS Mode (DEPRECATED): Processes SQS records for async report generation
+    4. Step Functions Mode: Step Functions invocation for precompute workflow
+
+    Migration context (2026-01-04): Added direct invocation support to replace SQS pattern.
+    SQS mode maintained for backward compatibility during staged rollout.
 
     Args:
-        event: SQS event with Records array OR
-               Step Functions event with ticker/source OR
-               direct invocation with 'migration' key
+        event: One of:
+               - Migration: {'migration': 'migration_name'}
+               - Direct: {'job_id': 'xxx', 'ticker': 'YYY', 'source': 'telegram_api'}
+               - SQS: {'Records': [{'body': '{"job_id": "xxx", "ticker": "YYY"}'}]}
+               - Step Functions: {'ticker': 'YYY', 'source': 'precompute'}
         context: Lambda context (unused)
 
     Returns:
-        Dict with processing status (SQS/migration) or
-        Dict with ticker result (Step Functions direct mode)
+        Dict with processing status or ticker result
 
     Raises:
-        ValueError: If required environment variables are missing
+        ValueError: If required environment variables missing or event format unknown
         Exception: Re-raised after marking job as failed (for DLQ)
     """
-    # Check if this is a migration request (direct invocation)
+    # Migration mode (priority: check first)
     if 'migration' in event:
         logger.info(f"Detected migration request: {event.get('migration')}")
         from src.migration_handler import lambda_handler as migration_lambda_handler
@@ -105,20 +110,83 @@ def handler(event: dict, context: Any) -> dict:
     # Defensive programming: catch missing env vars before wasting compute
     _validate_required_config()
 
-    # Direct Step Functions invocation mode
+    # Direct invocation mode (NEW - replaces SQS pattern)
+    # Event structure: {'job_id': 'xxx', 'ticker': 'YYY', 'source': 'telegram_api'}
+    if 'job_id' in event and 'ticker' in event:
+        logger.info(
+            f"📋 Direct invocation mode detected\n"
+            f"  Job ID: {event['job_id']}\n"
+            f"  Ticker: {event['ticker']}\n"
+            f"  Source: {event.get('source', 'unknown')}"
+        )
+        return _process_single_job(event['job_id'], event['ticker'])
+
+    # Step Functions invocation mode (for precompute workflow)
+    # Event structure: {'ticker': 'YYY', 'source': 'precompute'}
+    # NOTE: No job_id field (distinguishes from direct invocation)
     if 'ticker' in event and 'source' in event:
-        logger.info(f"Direct Step Functions invocation: {event.get('ticker')}")
+        logger.info(f"Step Functions invocation: {event.get('ticker')}")
         result = asyncio.run(process_ticker_direct(event))
         return result
 
-    records = event.get('Records', [])
-    logger.info(f"Processing {len(records)} SQS records")
+    # SQS mode (DEPRECATED - backward compatible during migration)
+    # Event structure: {'Records': [{'body': '{"job_id": "xxx", "ticker": "YYY"}'}]}
+    if 'Records' in event:
+        records = event['Records']
+        logger.info(f"📨 SQS mode detected: processing {len(records)} records")
 
-    for record in records:
-        # Use asyncio.run() for async transformer.transform_report()
-        asyncio.run(process_record(record))
+        for record in records:
+            # Use asyncio.run() for async transformer.transform_report()
+            asyncio.run(process_record(record))
 
-    return {'statusCode': 200, 'body': f'Processed {len(records)} records'}
+        return {'statusCode': 200, 'processed': len(records)}
+
+    # Unknown event format - fail fast (Principle #1: Defensive Programming)
+    logger.error(f"❌ Unknown event format: {json.dumps(event)}")
+    raise ValueError(
+        f"Unknown event format. Expected one of:\n"
+        f"  - Migration: {{'migration': '...'}}\n"
+        f"  - Direct: {{'job_id': '...', 'ticker': '...'}}\n"
+        f"  - Step Functions: {{'ticker': '...', 'source': 'precompute'}}\n"
+        f"  - SQS: {{'Records': [...]}}\n"
+        f"Received: {json.dumps(event)}"
+    )
+
+
+def _process_single_job(job_id: str, ticker: str) -> dict:
+    """Process a single job from direct Lambda invocation
+
+    Helper function for direct invocation mode. Creates a synthetic SQS record
+    structure and delegates to the existing process_record() logic.
+
+    Args:
+        job_id: Unique job identifier (already created in DynamoDB by API)
+        ticker: Ticker symbol to analyze (DR format like NVDA19 or DBS19)
+
+    Returns:
+        Dict with processing status and ticker
+
+    Raises:
+        Exception: Re-raised from process_record after marking job as failed
+    """
+    # Create synthetic SQS record structure for backward compatibility
+    # This allows reusing existing process_record() logic without duplication
+    synthetic_record = {
+        'messageId': f'direct-invoke-{job_id}',
+        'body': json.dumps({
+            'job_id': job_id,
+            'ticker': ticker
+        })
+    }
+
+    # Process using existing SQS handler logic
+    asyncio.run(process_record(synthetic_record))
+
+    return {
+        'statusCode': 200,
+        'ticker': ticker,
+        'job_id': job_id
+    }
 
 
 async def process_record(record: dict) -> None:
