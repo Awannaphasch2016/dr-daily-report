@@ -174,7 +174,7 @@ resource "aws_iam_role_policy" "report_worker_policy" {
 # Date: 2026-01-04
 resource "aws_iam_role_policy" "telegram_api_invoke_worker" {
   name = "${var.project_name}-telegram-api-invoke-worker-${var.environment}"
-  role = aws_iam_role.telegram_api_role.id
+  role = aws_iam_role.telegram_lambda_role.id
 
   policy = jsonencode({
     Version = "2012-10-17"
