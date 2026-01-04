@@ -63,36 +63,40 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     logger.info("====== Get Report List Lambda Started ======")
 
     try:
-        # Get report date from event or use today (Bangkok timezone)
+        # Get report date from event (REQUIRED - no fallback)
         from zoneinfo import ZoneInfo
         from datetime import datetime
 
         report_date_str = event.get('report_date')
+
+        if not report_date_str:
+            # Fail fast if report_date missing (Principle #1: Defensive Programming)
+            # EventBridge input_transformer should always provide this
+            raise ValueError(
+                "Missing required 'report_date' in event. "
+                "EventBridge input_transformer should provide this automatically. "
+                "For manual execution, provide explicit date: "
+                "{\"report_date\": \"2026-01-04\"}"
+            )
+
         bangkok_tz = ZoneInfo("Asia/Bangkok")
 
-        if report_date_str:
-            if 'T' in report_date_str:
-                # ISO8601 timestamp from EventBridge (UTC)
-                # Convert to Bangkok timezone before extracting date
-                # Example: "2026-01-04T16:15:06Z" (UTC) → 2026-01-04 23:15 Bangkok
-                dt_utc = datetime.fromisoformat(report_date_str.replace('Z', '+00:00'))
-                dt_bangkok = dt_utc.astimezone(bangkok_tz)
-                report_date = dt_bangkok.date()
-                logger.info(
-                    f"✅ Using report_date from EventBridge: {report_date} "
-                    f"(UTC: {report_date_str}, Bangkok: {dt_bangkok.strftime('%Y-%m-%d %H:%M:%S %Z')})"
-                )
-            else:
-                # Date-only string from manual execution
-                # Example: "2026-01-04"
-                report_date = date.fromisoformat(report_date_str)
-                logger.info(f"✅ Using report_date from manual input: {report_date}")
-        else:
-            # Fallback: Use today's date in Bangkok timezone (Principle #16)
-            report_date = datetime.now(bangkok_tz).date()
-            logger.warning(
-                f"⚠️ No report_date in event, using today's Bangkok date: {report_date}"
+        if 'T' in report_date_str:
+            # ISO8601 timestamp from EventBridge (UTC)
+            # Convert to Bangkok timezone before extracting date
+            # Example: "2026-01-04T16:15:06Z" (UTC) → 2026-01-04 23:15 Bangkok
+            dt_utc = datetime.fromisoformat(report_date_str.replace('Z', '+00:00'))
+            dt_bangkok = dt_utc.astimezone(bangkok_tz)
+            report_date = dt_bangkok.date()
+            logger.info(
+                f"✅ Using report_date from EventBridge: {report_date} "
+                f"(UTC: {report_date_str}, Bangkok: {dt_bangkok.strftime('%Y-%m-%d %H:%M:%S %Z')})"
             )
+        else:
+            # Date-only string from manual execution
+            # Example: "2026-01-04"
+            report_date = date.fromisoformat(report_date_str)
+            logger.info(f"✅ Using report_date from manual input: {report_date}")
 
         logger.info(f"Querying reports needing PDFs for date: {report_date}")
 
