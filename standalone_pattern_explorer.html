@@ -1,0 +1,579 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pattern Explorer - Ticker-Pattern Combinations</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-financial@0.2.1/dist/chartjs-chart-financial.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/luxon@3.4.4/build/global/luxon.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1.3.1/dist/chartjs-adapter-luxon.umd.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 20px;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 32px;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            font-size: 16px;
+            opacity: 0.9;
+        }
+
+        .stats {
+            padding: 20px 30px;
+            background: #f8f9fa;
+            border-bottom: 2px solid #e9ecef;
+            display: flex;
+            gap: 30px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .stat-item {
+            text-align: center;
+        }
+
+        .stat-item .value {
+            font-size: 32px;
+            font-weight: bold;
+            color: #667eea;
+        }
+
+        .stat-item .label {
+            font-size: 12px;
+            color: #6c757d;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .pattern-buttons {
+            padding: 30px;
+            background: white;
+        }
+
+        .pattern-buttons h3 {
+            font-size: 18px;
+            margin-bottom: 15px;
+            color: #212529;
+        }
+
+        .button-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 12px;
+        }
+
+        .pattern-button {
+            background: white;
+            border: 2px solid #e9ecef;
+            border-radius: 8px;
+            padding: 12px 16px;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-align: left;
+        }
+
+        .pattern-button:hover {
+            border-color: #667eea;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.2);
+        }
+
+        .pattern-button.active {
+            border-color: #667eea;
+            background: #f0f4ff;
+        }
+
+        .pattern-button .ticker {
+            font-weight: bold;
+            font-size: 16px;
+            color: #212529;
+            margin-bottom: 4px;
+        }
+
+        .pattern-button .pattern-name {
+            font-size: 13px;
+            color: #495057;
+            margin-bottom: 4px;
+        }
+
+        .pattern-button .meta {
+            font-size: 11px;
+            color: #6c757d;
+        }
+
+        .pattern-button.bullish {
+            border-left: 4px solid #26A69A;
+        }
+
+        .pattern-button.bearish {
+            border-left: 4px solid #EF5350;
+        }
+
+        .pattern-button.neutral {
+            border-left: 4px solid #667eea;
+        }
+
+        .chart-container {
+            padding: 30px;
+            position: relative;
+            height: 600px;
+            background: white;
+            border-top: 2px solid #e9ecef;
+        }
+
+        .chart-title {
+            padding: 20px 30px 0;
+            background: white;
+            border-top: 2px solid #e9ecef;
+        }
+
+        .chart-title h2 {
+            font-size: 20px;
+            color: #212529;
+            margin-bottom: 5px;
+        }
+
+        .chart-title p {
+            font-size: 14px;
+            color: #6c757d;
+        }
+
+        .legend {
+            display: flex;
+            gap: 20px;
+            padding: 15px 30px;
+            background: #f8f9fa;
+            border-top: 1px solid #e9ecef;
+            flex-wrap: wrap;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+            color: #495057;
+        }
+
+        .legend-item::before {
+            content: '';
+            display: block;
+            width: 20px;
+            height: 3px;
+            border-radius: 2px;
+        }
+
+        .legend-item.resistance::before {
+            background: #FF6B6B;
+        }
+
+        .legend-item.support::before {
+            background: #4ECDC4;
+        }
+
+        .legend-item.candle-up::before {
+            background: #26A69A;
+            height: 12px;
+        }
+
+        .legend-item.candle-down::before {
+            background: #EF5350;
+            height: 12px;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 60px;
+            color: #6c757d;
+        }
+
+        .loading::after {
+            content: '...';
+            animation: dots 1.5s steps(4, end) infinite;
+        }
+
+        @keyframes dots {
+            0%, 20% { content: ''; }
+            40% { content: '.'; }
+            60% { content: '..'; }
+            80%, 100% { content: '...'; }
+        }
+
+        .pattern-info {
+            padding: 20px 30px;
+            background: #fff3cd;
+            border-top: 2px solid #ffc107;
+            display: none;
+        }
+
+        .pattern-info.show {
+            display: block;
+        }
+
+        .pattern-info h4 {
+            font-size: 14px;
+            margin-bottom: 8px;
+            color: #856404;
+        }
+
+        .pattern-info p {
+            font-size: 13px;
+            color: #856404;
+            margin: 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📊 Pattern Explorer</h1>
+            <p>Click any ticker-pattern combination to see chart with pattern overlay</p>
+        </div>
+
+        <div class="stats">
+            <div class="stat-item">
+                <div class="value" id="stat-tickers">-</div>
+                <div class="label">Tickers</div>
+            </div>
+            <div class="stat-item">
+                <div class="value" id="stat-patterns">-</div>
+                <div class="label">Total Patterns</div>
+            </div>
+            <div class="stat-item">
+                <div class="value" id="stat-combinations">-</div>
+                <div class="label">Combinations</div>
+            </div>
+            <div class="stat-item">
+                <div class="value" id="stat-types">-</div>
+                <div class="label">Pattern Types</div>
+            </div>
+        </div>
+
+        <div class="pattern-buttons">
+            <h3>🎯 Ticker-Pattern Combinations</h3>
+            <div id="button-grid" class="button-grid">
+                <div class="loading">Loading pattern combinations</div>
+            </div>
+        </div>
+
+        <div class="pattern-info" id="pattern-info">
+            <h4>📈 Pattern Detection Active</h4>
+            <p id="pattern-description"></p>
+        </div>
+
+        <div class="chart-title">
+            <h2 id="chart-title">Select a pattern to view chart</h2>
+            <p id="chart-subtitle"></p>
+        </div>
+
+        <div class="chart-container">
+            <canvas id="chart"></canvas>
+        </div>
+
+        <div class="legend">
+            <div class="legend-item candle-up">Bullish Candle</div>
+            <div class="legend-item candle-down">Bearish Candle</div>
+            <div class="legend-item resistance">Resistance Trendline</div>
+            <div class="legend-item support">Support Trendline</div>
+        </div>
+    </div>
+
+    <script>
+        let chartInstance = null;
+        let patternData = null;
+        let activeButton = null;
+
+        // Pattern descriptions
+        const PATTERN_DESCRIPTIONS = {
+            'wedge_rising': 'Rising Wedge: Bearish reversal pattern with converging upward trendlines',
+            'wedge_falling': 'Falling Wedge: Bullish reversal pattern with converging downward trendlines',
+            'head_and_shoulders': 'Head & Shoulders: Classic bearish reversal with three peaks',
+            'triangle': 'Triangle: Continuation or reversal pattern with converging trendlines',
+            'double_top': 'Double Top: Bearish reversal with two resistance tests',
+            'double_bottom': 'Double Bottom: Bullish reversal with two support tests',
+            'flag_pennant': 'Flag/Pennant: Short-term continuation pattern after strong move'
+        };
+
+        // Pattern name formatting
+        function formatPatternName(pattern) {
+            return pattern.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+        }
+
+        // Sentiment class
+        function getSentimentClass(sentiment) {
+            if (sentiment === 'bullish') return 'bullish';
+            if (sentiment === 'bearish') return 'bearish';
+            return 'neutral';
+        }
+
+        // Fetch pattern analysis
+        async function loadPatternAnalysis() {
+            try {
+                const response = await fetch('/api/pattern-analysis');
+                if (!response.ok) throw new Error('Failed to load pattern analysis');
+
+                patternData = await response.json();
+
+                // Update stats
+                document.getElementById('stat-tickers').textContent = patternData.summary.total_tickers;
+                document.getElementById('stat-patterns').textContent = patternData.summary.total_patterns;
+                document.getElementById('stat-combinations').textContent = patternData.summary.ticker_pattern_combinations;
+                document.getElementById('stat-types').textContent = patternData.summary.unique_pattern_types;
+
+                // Render buttons
+                renderPatternButtons();
+
+            } catch (error) {
+                console.error('Error loading pattern analysis:', error);
+                document.getElementById('button-grid').innerHTML = `
+                    <div style="grid-column: 1/-1; text-align: center; padding: 40px; color: #dc3545;">
+                        ❌ Error loading pattern data: ${error.message}
+                    </div>
+                `;
+            }
+        }
+
+        // Render pattern buttons
+        function renderPatternButtons() {
+            const container = document.getElementById('button-grid');
+            container.innerHTML = '';
+
+            patternData.ticker_patterns.forEach((item, index) => {
+                const button = document.createElement('div');
+                button.className = `pattern-button ${getSentimentClass(item.sentiment)}`;
+                button.dataset.index = index;
+
+                button.innerHTML = `
+                    <div class="ticker">${item.symbol}</div>
+                    <div class="pattern-name">${formatPatternName(item.pattern)}</div>
+                    <div class="meta">${item.count} instance${item.count > 1 ? 's' : ''} • ${item.sentiment}</div>
+                `;
+
+                button.addEventListener('click', () => loadPatternChart(item, button));
+                container.appendChild(button);
+            });
+        }
+
+        // Load chart for specific pattern
+        async function loadPatternChart(item, buttonElement) {
+            // Update active button
+            if (activeButton) activeButton.classList.remove('active');
+            buttonElement.classList.add('active');
+            activeButton = buttonElement;
+
+            // Update title
+            document.getElementById('chart-title').textContent =
+                `${item.symbol} - ${item.name}`;
+            document.getElementById('chart-subtitle').textContent =
+                `${formatPatternName(item.pattern)} (${item.sentiment})`;
+
+            // Show pattern info
+            const infoBox = document.getElementById('pattern-info');
+            const description = PATTERN_DESCRIPTIONS[item.pattern] || 'Pattern detected in chart';
+            document.getElementById('pattern-description').textContent = description;
+            infoBox.classList.add('show');
+
+            try {
+                const response = await fetch(`/api/chart-data/${item.symbol}?period=60d`);
+                if (!response.ok) throw new Error('Failed to fetch chart data');
+
+                const data = await response.json();
+
+                // Destroy existing chart
+                if (chartInstance) {
+                    chartInstance.destroy();
+                }
+
+                // Create datasets
+                const datasets = [{
+                    type: 'candlestick',
+                    label: item.symbol,
+                    data: data.ohlc,
+                    color: {
+                        up: '#26A69A',
+                        down: '#EF5350',
+                        unchanged: '#999'
+                    },
+                    borderColor: {
+                        up: '#1B5E20',
+                        down: '#B71C1C',
+                        unchanged: '#666'
+                    }
+                }];
+
+                // Add support/resistance lines
+                if (data.patterns.support_resistance) {
+                    const sr = data.patterns.support_resistance;
+
+                    sr.support.forEach((level, i) => {
+                        datasets.push({
+                            type: 'line',
+                            label: `Support ${i + 1}`,
+                            data: data.ohlc.map(d => ({ x: d.x, y: level })),
+                            borderColor: '#4ECDC4',
+                            borderWidth: 2,
+                            borderDash: [5, 5],
+                            pointRadius: 0,
+                            fill: false
+                        });
+                    });
+
+                    sr.resistance.forEach((level, i) => {
+                        datasets.push({
+                            type: 'line',
+                            label: `Resistance ${i + 1}`,
+                            data: data.ohlc.map(d => ({ x: d.x, y: level })),
+                            borderColor: '#FF6B6B',
+                            borderWidth: 2,
+                            borderDash: [5, 5],
+                            pointRadius: 0,
+                            fill: false
+                        });
+                    });
+                }
+
+                // Add pattern-specific overlays
+                data.patterns.chart_patterns.forEach(pattern => {
+                    // Only show the selected pattern type
+                    if (pattern.pattern !== item.pattern) return;
+
+                    if (pattern.pattern === 'wedge_rising' || pattern.pattern === 'wedge_falling') {
+                        const wedge = createWedgeAnnotation(pattern, data.ohlc);
+                        if (wedge) {
+                            datasets.push({
+                                type: 'line',
+                                label: 'Resistance Trendline',
+                                data: wedge.resistanceLine,
+                                borderColor: '#FF6B6B',
+                                borderWidth: 3,
+                                pointRadius: 0,
+                                fill: false
+                            });
+
+                            datasets.push({
+                                type: 'line',
+                                label: 'Support Trendline',
+                                data: wedge.supportLine,
+                                borderColor: '#4ECDC4',
+                                borderWidth: 3,
+                                pointRadius: 0,
+                                fill: false
+                            });
+                        }
+                    }
+                });
+
+                const ctx = document.getElementById('chart').getContext('2d');
+                chartInstance = new Chart(ctx, {
+                    type: 'candlestick',
+                    data: { datasets },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: {
+                                display: false
+                            },
+                            title: {
+                                display: false
+                            },
+                            tooltip: {
+                                mode: 'index',
+                                intersect: false
+                            }
+                        },
+                        scales: {
+                            x: {
+                                type: 'time',
+                                time: {
+                                    unit: 'day'
+                                },
+                                grid: {
+                                    display: false
+                                }
+                            },
+                            y: {
+                                beginAtZero: false,
+                                grid: {
+                                    color: '#e9ecef'
+                                }
+                            }
+                        },
+                        interaction: {
+                            mode: 'nearest',
+                            axis: 'x',
+                            intersect: false
+                        }
+                    }
+                });
+
+            } catch (error) {
+                console.error('Error loading chart:', error);
+                document.getElementById('chart-subtitle').textContent =
+                    `Error: ${error.message}`;
+            }
+        }
+
+        // Draw wedge pattern overlay
+        function createWedgeAnnotation(pattern, ohlcData) {
+            const startDate = new Date(pattern.start_date).getTime();
+            const endDate = new Date(pattern.end_date).getTime();
+
+            const startIdx = ohlcData.findIndex(d => d.x >= startDate);
+            const endIdx = ohlcData.findIndex(d => d.x >= endDate);
+
+            if (startIdx === -1 || endIdx === -1) return null;
+
+            const segment = ohlcData.slice(startIdx, endIdx);
+            const resistanceLine = [];
+            const supportLine = [];
+
+            segment.forEach((point, i) => {
+                const x = point.x;
+                const resistanceY = segment[0].h + (pattern.resistance_slope * i);
+                const supportY = segment[0].l + (pattern.support_slope * i);
+
+                resistanceLine.push({ x, y: resistanceY });
+                supportLine.push({ x, y: supportY });
+            });
+
+            return { resistanceLine, supportLine };
+        }
+
+        // Load on page load
+        window.addEventListener('load', () => {
+            loadPatternAnalysis();
+        });
+    </script>
+</body>
+</html>

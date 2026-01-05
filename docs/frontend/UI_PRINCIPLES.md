@@ -31,6 +31,12 @@ This document captures principles and patterns discovered through building the T
   - [TypeScript Prop Interfaces](#typescript-prop-interfaces)
   - [Zustand State Management](#zustand-state-management)
   - [Component Composition](#component-composition)
+- [Data Visualization Principles](#data-visualization-principles)
+  - [Visual Prominence Through Layering](#visual-prominence-through-layering)
+  - [Domain Compatibility for Mathematical Correctness](#domain-compatibility-for-mathematical-correctness)
+  - [Framework-Native Over Custom Solutions](#framework-native-over-custom-solutions)
+  - [Edge Cases Reveal Mathematical Bugs](#edge-cases-reveal-mathematical-bugs)
+  - [Progressive Evidence for UI Validation](#progressive-evidence-for-ui-validation)
 - [Anti-Patterns to Avoid](#anti-patterns-to-avoid)
 - [Real-World Case Study](#real-world-case-study)
 - [References](#references)
@@ -1032,6 +1038,601 @@ const user = useStore(state => state.user);
 
 ---
 
+## Data Visualization Principles
+
+### Visual Prominence Through Layering
+
+**Principle:** Use shaded regions (fills) + bold trendlines + layer ordering for visual hierarchy in data visualizations.
+
+**Why It Matters:**
+- Simple lines blend into busy charts (low contrast)
+- Shaded areas create immediate pattern recognition
+- Layer ordering ensures important elements always visible
+- Matches user expectations from professional tools
+
+**Context:** Time-series charts, technical analysis, pattern overlays
+
+**Example Problem:**
+
+```javascript
+// ❌ BAD: Simple thin lines blend into chart
+datasets.push({
+    type: 'line',
+    data: trendlinePoints,
+    borderColor: '#FF6B6B',
+    borderWidth: 2,  // Too thin
+});
+// Pattern hard to see against candlesticks
+```
+
+**Solution:**
+
+```javascript
+// ✅ GOOD: Shaded region + bold trendline with layering
+// 1. Fill layer (rendered behind)
+datasets.push({
+    type: 'line',
+    label: 'Pattern Area',
+    data: polygonPoints,
+    backgroundColor: 'rgba(38, 166, 154, 0.25)',  // 25% opacity
+    fill: true,
+    borderColor: 'transparent',
+    order: 3,  // Behind trendlines
+    pointRadius: 0
+});
+
+// 2. Trendline layer (rendered in front of fill)
+datasets.push({
+    type: 'line',
+    label: 'Trendline',
+    data: trendlinePoints,
+    borderColor: '#26A69A',
+    borderWidth: 3,  // Bold (3px)
+    fill: false,
+    order: 2,  // In front of fill
+    pointRadius: 0
+});
+
+// 3. Data layer (highest priority - always visible)
+datasets.push({
+    type: 'candlestick',
+    data: ohlcData,
+    order: 1  // Front-most layer
+});
+```
+
+**Visual Hierarchy:**
+
+```
+Layer 1 (order: 1) - Data (candlesticks) - Always visible
+Layer 2 (order: 2) - Overlays (trendlines) - Clear boundaries
+Layer 3 (order: 3) - Fills (shaded areas) - Context/emphasis
+Layer 4 (order: 4) - Background (support/resistance) - Context
+```
+
+**Opacity Guidelines:**
+
+- **Web displays**: 25-30% opacity for visibility
+- **Print/paper**: 10-15% opacity sufficient (different medium)
+- **Test on actual medium** (screenshots on screen, not code)
+
+**Benefits:**
+- ✅ Patterns 3-5x more visually prominent
+- ✅ Immediate pattern recognition
+- ✅ Matches industry standards (TradingView, mplfinance)
+- ✅ Candlesticks remain fully visible
+
+**When to Use:**
+- ✓ Overlaying patterns on time-series charts
+- ✓ Highlighting regions of interest
+- ✓ Showing confidence bands
+- ✓ Any visualization where context matters
+
+**Anti-pattern:**
+```javascript
+// ❌ All layers same order (unpredictable z-index)
+datasets.push({ order: 1 });  // Fill
+datasets.push({ order: 1 });  // Line
+datasets.push({ order: 1 });  // Data
+// Random rendering order!
+```
+
+**See Also:** `.claude/implementations/2026-01-05-shaded-pattern-visualization.md`
+
+---
+
+### Domain Compatibility for Mathematical Correctness
+
+**Principle:** Mathematical operations (regression, interpolation) must use the same domain as the visualization axis.
+
+**Why It Matters:**
+- Domain mismatch creates visual artifacts
+- Regression with wrong domain produces wavy lines
+- Breaks at irregular data spacing (weekend gaps, holidays)
+- Mathematical correctness ≠ visual correctness without domain match
+
+**Context:** Any chart with mathematical overlays (trendlines, moving averages, regressions)
+
+**Example Problem:**
+
+```javascript
+// ❌ BAD: Index-based regression on continuous time axis
+function fitLinearTrendline(points) {
+    const n = points.length;
+
+    // BUG: Using array indices (0,1,2,3) for X
+    const sumX = points.reduce((sum, p, i) => sum + i, 0);
+    const sumXY = points.reduce((sum, p, i) => sum + i * p.y, 0);
+    const sumX2 = points.reduce((sum, p, i) => sum + i * i, 0);
+
+    const slope = (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX);
+    const intercept = (sumY - slope * sumX) / n;
+
+    // Returns Y calculated from indices, but X uses timestamps
+    return points.map((p, i) => ({
+        x: p.x,                    // Real timestamp (milliseconds)
+        y: slope * i + intercept   // Index-based Y - DOMAIN MISMATCH!
+    }));
+}
+
+// Chart configuration
+scales: {
+    x: {
+        type: 'time',  // Continuous calendar time (includes weekends)
+    }
+}
+
+// Result: Lines appear wavy at weekend gaps
+// Why: Y assumes uniform spacing (indices), but X has variable spacing (time)
+```
+
+**Visual Impact:**
+
+```
+Price Chart (continuous time axis):
+Mon  Tue  Wed  [weekend gap]  Mon  Tue
+ •    •    •                    •    •
+  \    \    \                  /  /    ← Line "bends" at gap
+   Index: 0→1→2              →3→4
+
+Spacing in indices: 1 day, 1 day, 1 day, 1 day
+Spacing on X-axis:  1 day, 1 day, 3 days, 1 day (gap!)
+Result: Line slope changes at gap (looks wavy)
+```
+
+**Solution:**
+
+```javascript
+// ✅ GOOD: Timestamp-based regression matches time axis
+function fitLinearTrendline(points) {
+    const n = points.length;
+
+    // Use actual timestamps (p.x) for X domain
+    const sumX = points.reduce((sum, p) => sum + p.x, 0);
+    const sumXY = points.reduce((sum, p) => sum + p.x * p.y, 0);
+    const sumX2 = points.reduce((sum, p) => sum + p.x * p.x, 0);
+
+    const slope = (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX);
+    const intercept = (sumY - slope * sumX) / n;
+
+    // Y calculated from timestamps - DOMAIN MATCH!
+    return points.map((p) => ({
+        x: p.x,                      // Real timestamp
+        y: slope * p.x + intercept   // Timestamp-based Y
+    }));
+}
+
+// Result: Lines stay straight across weekend gaps
+```
+
+**Domain Compatibility Rule:**
+
+```
+Regression domain MUST match visualization axis domain
+
+Continuous time axis → Use timestamps in regression
+Discrete index axis  → Use indices in regression
+Mixed domains        → Convert to common domain first
+```
+
+**Testing Strategy:**
+
+```javascript
+// Test with irregular spacing (weekend gaps)
+const testData = [
+    { x: Date.parse('2024-01-01'), y: 100 },  // Mon
+    { x: Date.parse('2024-01-02'), y: 102 },  // Tue
+    { x: Date.parse('2024-01-03'), y: 104 },  // Wed
+    // Weekend gap (Thu, Fri, Sat, Sun missing)
+    { x: Date.parse('2024-01-08'), y: 106 },  // Mon (5 days later!)
+    { x: Date.parse('2024-01-09'), y: 108 },  // Tue
+];
+
+const trendline = fitLinearTrendline(testData);
+
+// Visual inspection: Line should stay straight across gap
+// If wavy → domain mismatch bug
+```
+
+**Common Domain Mismatches:**
+
+| Axis Type | Correct Domain | Wrong Domain | Symptom |
+|-----------|---------------|--------------|---------|
+| Continuous time | Timestamps (ms) | Array indices | Wavy at gaps |
+| Discrete categories | Category indices | Alphabetical | Wrong ordering |
+| Log scale | Log-transformed values | Raw values | Curved line |
+| Polar coordinates | Angles (radians) | Linear spacing | Spiral artifacts |
+
+**Benefits:**
+- ✅ Mathematically correct trendlines
+- ✅ Straight lines across irregular spacing
+- ✅ Matches professional tools
+- ✅ No visual artifacts
+
+**Anti-pattern:**
+```javascript
+// ❌ Assuming domains are equivalent
+// "Indices and timestamps are basically the same, right?"
+// NO! Domain mismatch causes subtle but critical bugs
+```
+
+**See Also:** `.claude/implementations/2026-01-05-proper-pattern-trendlines-all-types.md`
+
+---
+
+### Framework-Native Over Custom Solutions
+
+**Principle:** Use charting framework's built-in features instead of custom implementations.
+
+**Why It Matters:**
+- Native features are optimized and tested
+- Documentation available
+- Less code to maintain
+- Fewer edge case bugs
+- Framework updates benefit you
+
+**Context:** Chart.js, D3.js, Recharts, any visualization library
+
+**Example Problem:**
+
+```javascript
+// ❌ BAD: Custom polygon fill implementation
+function createPolygonFill(upperLine, lowerLine) {
+    // Concatenate upper + reversed lower to create closed polygon
+    const polygonData = [
+        ...upperLine,
+        ...lowerLine.slice().reverse()
+    ];
+
+    return {
+        type: 'line',
+        data: polygonData,
+        fill: true,  // Expects polygon to auto-close
+        borderColor: 'transparent'
+    };
+}
+
+// Result: Doesn't render correctly in Chart.js
+// Why: Chart.js doesn't handle concatenated polygon arrays this way
+```
+
+**Solution:**
+
+```javascript
+// ✅ GOOD: Chart.js dataset-to-dataset fill (native feature)
+const datasets = [];
+
+// 1. Draw lower boundary first
+const lowerIndex = datasets.length;
+datasets.push({
+    type: 'line',
+    label: 'Lower Boundary',
+    data: lowerLine,
+    borderColor: '#26A69A',
+    borderWidth: 3,
+    fill: false,  // No fill on this dataset
+    order: 2
+});
+
+// 2. Draw upper boundary with fill TO lower boundary
+datasets.push({
+    type: 'line',
+    label: 'Upper Boundary',
+    data: upperLine,
+    borderColor: '#26A69A',
+    borderWidth: 3,
+    backgroundColor: 'rgba(38, 166, 154, 0.25)',
+    fill: lowerIndex,  // Fill to dataset at index (Chart.js native)
+    order: 2
+});
+
+// Chart.js handles the fill rendering automatically
+```
+
+**Research Pattern:**
+
+Before implementing custom solution:
+
+1. **Read framework docs** - "How to fill between lines in Chart.js?"
+2. **Check examples** - Official examples often show the pattern
+3. **Search issues** - GitHub issues reveal common patterns
+4. **Prefer configuration over code** - Declarative > imperative
+
+**Benefits:**
+- ✅ Works reliably (framework-tested)
+- ✅ Future-proof (framework updates maintain compatibility)
+- ✅ Less code (50 lines custom → 2 config properties)
+- ✅ Better performance (framework optimized)
+
+**Pattern Recognition:**
+
+```
+If you're writing complex code → Framework probably has built-in feature
+If you're fighting the framework → You're probably doing it wrong
+If documentation seems lacking → You're looking in wrong section
+```
+
+**When Custom Is Acceptable:**
+- ✓ Framework doesn't support use case (verify first!)
+- ✓ Performance critical and framework too slow (profile first!)
+- ✓ Very domain-specific calculation (not visualization itself)
+
+**Anti-pattern:**
+```javascript
+// ❌ Reimplementing what framework provides
+// "I'll just build my own zoom/pan/tooltip/legend system"
+// Framework has this! Use it!
+```
+
+**See Also:** Chart.js `fill` documentation, D3.js `area` generators
+
+---
+
+### Edge Cases Reveal Mathematical Bugs
+
+**Principle:** Test visualizations with irregular data (gaps, holidays, missing values) to verify mathematical correctness.
+
+**Why It Matters:**
+- Regular spacing hides domain mismatches
+- Irregular spacing reveals bugs immediately
+- Visual inspection alone insufficient
+- "Looks okay" ≠ mathematically correct
+
+**Context:** Any time-series visualization with mathematical operations
+
+**Example Edge Cases:**
+
+```javascript
+// 1. Weekend gaps (financial data)
+const weekendGapData = [
+    { date: '2024-01-01', value: 100 },  // Monday
+    { date: '2024-01-02', value: 102 },  // Tuesday
+    { date: '2024-01-03', value: 104 },  // Wednesday
+    // Weekend: Thu, Fri, Sat, Sun missing
+    { date: '2024-01-08', value: 106 },  // Monday (5 days later!)
+];
+
+// 2. Holidays (irregular gaps)
+const holidayData = [
+    { date: '2024-12-23', value: 100 },
+    { date: '2024-12-24', value: 102 },
+    // Christmas break: 4 days missing
+    { date: '2024-12-30', value: 106 },
+];
+
+// 3. Missing data points
+const missingData = [
+    { date: '2024-01-01', value: 100 },
+    { date: '2024-01-02', value: null },  // Missing!
+    { date: '2024-01-03', value: 104 },
+];
+
+// 4. Variable sampling rates
+const variableSampling = [
+    { date: '2024-01-01', value: 100 },  // Daily
+    { date: '2024-01-02', value: 102 },  // Daily
+    { date: '2024-01-10', value: 110 },  // Weekly
+    { date: '2024-02-01', value: 120 },  // Monthly
+];
+```
+
+**Testing Strategy:**
+
+```javascript
+// ✅ GOOD: Test with edge case data DURING development
+describe('Trendline rendering', () => {
+    it('stays straight across weekend gaps', () => {
+        const testData = createWeekendGapData();
+        const trendline = fitLinearTrendline(testData);
+
+        // Visual test: Render to canvas, check for curvature
+        const chart = renderChart({ data: testData, trendline });
+        const screenshot = captureScreenshot(chart);
+
+        // Pixel-based test: Line should be straight
+        expect(screenshot).toMatchSnapshot();
+    });
+
+    it('handles missing data gracefully', () => {
+        const testData = createMissingData();
+        const trendline = fitLinearTrendline(testData);
+
+        // Should not crash, should skip null values
+        expect(trendline).toBeDefined();
+        expect(trendline.every(p => p.y !== null)).toBe(true);
+    });
+});
+```
+
+**Validation Checklist:**
+
+- [ ] Test with weekend gaps (financial data)
+- [ ] Test with holidays (irregular gaps)
+- [ ] Test with missing values (nulls)
+- [ ] Test with variable sampling (daily → weekly → monthly)
+- [ ] Test with single data point (edge case)
+- [ ] Test with two data points (minimum for trend)
+- [ ] Test with empty array (boundary case)
+
+**Visual Inspection Pattern:**
+
+```
+1. Render chart with edge case data
+2. Zoom into gap area
+3. Check: Is line straight or wavy?
+4. If wavy → Domain mismatch bug
+5. If straight → Mathematical correctness verified
+```
+
+**Benefits:**
+- ✅ Catch bugs before production
+- ✅ Verify mathematical correctness
+- ✅ Document expected behavior
+- ✅ Prevent regressions
+
+**Anti-pattern:**
+```javascript
+// ❌ Testing only with perfect data
+const testData = [
+    { date: '2024-01-01', value: 100 },
+    { date: '2024-01-02', value: 102 },
+    { date: '2024-01-03', value: 104 },
+    { date: '2024-01-04', value: 106 },
+];
+// All perfectly spaced - hides bugs!
+```
+
+**Real-World Impact:**
+
+- Bug found: Index-based regression created wavy lines at weekends
+- Discovery method: User noticed "lines not straight"
+- Prevention: Test with weekend data during development
+- Fix: Timestamp-based regression
+
+**See Also:** Property-based testing (generate random gaps), visual regression testing
+
+---
+
+### Progressive Evidence for UI Validation
+
+**Principle:** Verify UI correctness through multiple evidence layers: visual → code → edge cases → mathematical verification.
+
+**Why It Matters:**
+- Visual appearance alone doesn't prove correctness
+- Screenshots show "looks good" but hide mathematical bugs
+- Need multiple validation levels for confidence
+- Each layer catches different bug types
+
+**Context:** Data visualizations, charts, mathematical overlays
+
+**Evidence Hierarchy:**
+
+```
+Layer 1 (Surface): Visual Inspection
+  → Does it LOOK right? (screenshots, manual testing)
+  → Catches: Layout issues, color problems, obvious rendering bugs
+  → Misses: Mathematical correctness, edge cases
+
+Layer 2 (Content): Code Review
+  → Does code use framework correctly? (code patterns, API usage)
+  → Catches: Anti-patterns, wrong framework usage
+  → Misses: Domain mismatches, algorithm bugs
+
+Layer 3 (Observability): Edge Case Testing
+  → Does it work with irregular data? (weekends, gaps, nulls)
+  → Catches: Domain bugs, regression errors, brittleness
+  → Misses: Subtle mathematical errors
+
+Layer 4 (Ground Truth): Mathematical Verification
+  → Is the formula correct? (algorithm analysis, property tests)
+  → Catches: Algorithm bugs, numerical errors, domain mismatches
+  → Highest confidence level
+```
+
+**Example Validation:**
+
+```javascript
+// Layer 1: Visual Inspection
+console.log('📸 Taking screenshot...');
+const screenshot = await captureChart();
+// ✅ Pattern visible? ✅ Colors correct? ✅ Layout good?
+
+// Layer 2: Code Review
+console.log('🔍 Reviewing code...');
+const usesNativeFeatures = checkDatasetToDatasetFill();
+// ✅ Using Chart.js fill? ✅ Proper layering? ✅ No mutations?
+
+// Layer 3: Edge Case Testing
+console.log('🧪 Testing edge cases...');
+const weekendData = createWeekendGapData();
+const renderedOk = renderChart(weekendData);
+// ✅ No crashes? ✅ Handles nulls? ✅ Lines straight?
+
+// Layer 4: Mathematical Verification
+console.log('🔬 Verifying algorithm...');
+const regression = fitLinearTrendline(weekendData);
+const usesCorrectDomain = verifyTimestampBased(regression);
+// ✅ Domain matches axis? ✅ Formula correct? ✅ Numerically stable?
+
+// All layers passed → HIGH CONFIDENCE
+```
+
+**Validation Matrix:**
+
+| Layer | Tool | What It Catches | What It Misses | Time Cost |
+|-------|------|-----------------|----------------|-----------|
+| **L1: Visual** | Screenshots, Manual | Layout, colors | Math bugs | Low (1 min) |
+| **L2: Code** | Code review, Linter | Patterns, API misuse | Algorithm errors | Medium (5 min) |
+| **L3: Edge** | Unit tests, Edge data | Brittle code | Subtle math errors | Medium (10 min) |
+| **L4: Math** | Formula analysis, Property tests | Algorithm bugs | None | High (30 min) |
+
+**Progressive Strategy:**
+
+```
+New feature implementation:
+1. Start Layer 1 (visual) → Quick feedback loop
+2. Progress to Layer 2 (code) → Ensure correct patterns
+3. Add Layer 3 (edge) → Verify robustness
+4. Finish Layer 4 (math) → Guarantee correctness
+
+Bug investigation (reverse order):
+1. Start Layer 4 (math) → Is algorithm wrong?
+2. Fallback Layer 3 (edge) → Does it handle gaps?
+3. Check Layer 2 (code) → Framework used correctly?
+4. Finally Layer 1 (visual) → What does user see?
+```
+
+**Benefits:**
+- ✅ Multi-layer confidence
+- ✅ Different layers catch different bugs
+- ✅ Progressive approach (fast → slow, cheap → expensive)
+- ✅ Each layer documents expectations
+
+**Anti-pattern:**
+```javascript
+// ❌ Stopping at Layer 1 (visual only)
+console.log('Screenshot looks good! ✅ Ship it!');
+// Missing: Code review, edge cases, math verification
+// Result: Mathematical bugs in production
+```
+
+**Real-World Application:**
+
+```
+Trendline Implementation:
+L1: ✅ Screenshot shows shaded region (looks good)
+L2: ✅ Using Chart.js dataset-to-dataset fill (correct API)
+L3: ⚠️  Lines wavy at weekends (edge case revealed bug!)
+L4: ❌ Index-based regression on time axis (domain mismatch)
+
+Fix: Update Layer 4 → Timestamp-based regression
+Revalidate: L1 ✅ L2 ✅ L3 ✅ L4 ✅ (all layers pass)
+```
+
+**See Also:** Progressive Evidence Strengthening (CLAUDE.md Principle #2)
+
+---
+
 ## Anti-Patterns to Avoid
 
 ### ❌ Stale Object Copies
@@ -1177,8 +1778,19 @@ setMarket({ ...market, price: 100 });
 - [Property-Based Testing with fast-check](https://fast-check.dev/docs/introduction/) - Generative testing
 - [Hillel Wayne: Practical TLA+](https://learntla.com/) - Formal specification
 
+**Data Visualization:**
+- [Chart.js Documentation](https://www.chartjs.org/docs/latest/) - Chart.js API and patterns
+- [mplfinance](https://github.com/matplotlib/mplfinance) - Financial charting (Python, visual reference)
+- [BennyThadikaran/stock-pattern](https://github.com/BennyThadikaran/stock-pattern) - Pattern visualization reference
+- [D3.js](https://d3js.org/) - Low-level visualization primitives
+- [Recharts](https://recharts.org/) - React charting library
+
 ---
 
-**Last Updated:** December 2025
-**Version:** 1.0.0
+**Last Updated:** January 2026
+**Version:** 1.1.0
 **Maintainer:** @claude (distilled from real implementation)
+
+**Changelog:**
+- **v1.1.0 (2026-01-05)**: Added Data Visualization Principles section (5 principles from candlestick chart pattern work)
+- **v1.0.0 (2025-12)**: Initial version with state management, testing, and React/TypeScript patterns

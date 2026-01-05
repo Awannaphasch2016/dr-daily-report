@@ -8,7 +8,7 @@
       "Comment": "Query Aurora for reports needing PDF generation (pdf_s3_key IS NULL)",
       "Parameters": {
         "FunctionName": "${get_report_list_function_arn}",
-        "Payload": {}
+        "Payload.$": "$"
       },
       "ResultPath": "$.report_list_result",
       "Retry": [

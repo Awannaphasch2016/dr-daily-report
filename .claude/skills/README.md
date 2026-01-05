@@ -2,7 +2,7 @@
 
 **Auto-discovered capabilities for specialized assistance.**
 
-This directory contains 9 Claude Code skills that provide focused expertise for common development tasks in the dr-daily-report project. Skills are automatically discovered and invoked by Claude when relevant to the user's request.
+This directory contains 10 Claude Code skills that provide focused expertise for common development tasks in the dr-daily-report project. Skills are automatically discovered and invoked by Claude when relevant to the user's request.
 
 ---
 
@@ -201,6 +201,26 @@ Claude: [Detects "review" + "performance" keywords]
 
 ---
 
+### 10. data-visualization
+**Focus**: Mathematically correct, visually prominent data visualizations for time-series charts
+
+**When Claude uses this**:
+- Building charts with mathematical overlays (trendlines, patterns, indicators)
+- Fixing visual artifacts (wavy lines, domain mismatches)
+- Validating chart correctness
+- Working with Chart.js, D3.js, Recharts
+
+**Files**:
+- `SKILL.md` - Decision tree, patterns, validation workflow
+- `VISUAL-HIERARCHY.md` - Layering, opacity, colors, prominence
+- `MATHEMATICAL-CORRECTNESS.md` - Domain compatibility, regression formulas
+- `FRAMEWORK-PATTERNS.md` - Chart.js native features, research workflow
+- `VALIDATION.md` - 4-layer progressive validation (visual → code → edge → math)
+
+**Example trigger**: "Why are my chart trendlines wavy at weekend gaps?"
+
+---
+
 ## How Skills Work
 
 ### Auto-Discovery Process
@@ -259,6 +279,8 @@ Skills use **progressive disclosure** to balance detail and navigability:
 | "Fix LINE bot bug" | line-uiux | Legacy LINE Bot maintenance |
 | "Build UI feature" | telegram-uiux | Telegram Mini App patterns |
 | "Investigate root cause" | research | Investigation methodology |
+| "Chart trendlines wavy" | data-visualization | Mathematical correctness |
+| "Add pattern overlay" | data-visualization | Visual hierarchy, layering |
 
 ---
 
@@ -434,6 +456,7 @@ CLAUDE.md says "fail fast and visibly." The code-review skill shows you 5 specif
 7. **line-uiux** (legacy) - LINE Bot maintenance
 8. **code-review** - Security, performance, defensive programming
 9. **database-migration** - Schema migrations, reconciliation, MySQL
+10. **data-visualization** - Mathematically correct charts, trendlines, overlays
 
 ### Commands
 

@@ -1,8 +1,14 @@
 # -*- coding: utf-8 -*-
 """
-Financial Markets MCP Server Lambda Handler
+Financial Markets MCP Server Lambda Handler - THIN ADAPTER
 
 Implements Model Context Protocol (MCP) server for advanced technical analysis.
+Delegates pattern detection to core analysis modules (Principle #20: Execution Boundary Discipline).
+
+Architecture:
+- MCP Server (this file): Protocol adapter for JSON-RPC 2.0
+- Core Analysis: src/analysis/pattern_detectors/ (reusable across reports/API/ETL)
+
 Exposes tools for chart pattern detection, candlestick patterns, support/resistance levels,
 and advanced technical indicators (ADX, Stochastic, Williams %R, CCI, OBV, MFI).
 
@@ -22,16 +28,38 @@ import pandas as pd
 import numpy as np
 import yfinance as yf
 
+# Import core analysis modules (refactored from inline implementation)
+from src.analysis.pattern_detectors import (
+    ChartPatternDetector,
+    CandlestickPatternDetector,
+    SupportResistanceDetector,
+)
+
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 
 class FinancialMarketsAnalyzer:
-    """Analyzer for chart patterns, candlestick patterns, and technical indicators."""
-    
+    """
+    MCP Server Analyzer - Thin Adapter Pattern.
+
+    Delegates pattern detection to core analysis modules:
+    - ChartPatternDetector: Head & shoulders, triangles, double tops/bottoms, flags/pennants
+    - CandlestickPatternDetector: Doji, hammer, shooting star, engulfing, three line strike
+    - SupportResistanceDetector: Support/resistance level calculation
+
+    This class focuses on:
+    - Data fetching (yfinance)
+    - Technical indicators (ADX, Stochastic, etc.)
+    - MCP protocol adaptation (JSON-RPC)
+    """
+
     def __init__(self):
-        """Initialize Financial Markets Analyzer."""
-        pass
+        """Initialize Financial Markets Analyzer with pattern detectors."""
+        # Initialize core analysis modules (Principle #20: Execution Boundary Discipline)
+        self.chart_detector = ChartPatternDetector()
+        self.candlestick_detector = CandlestickPatternDetector()
+        self.sr_detector = SupportResistanceDetector()
     
     def fetch_price_data(self, ticker: str, period: str = "1y") -> Optional[pd.DataFrame]:
         """
@@ -57,373 +85,88 @@ class FinancialMarketsAnalyzer:
     
     def detect_head_and_shoulders(self, data: pd.DataFrame) -> List[Dict[str, Any]]:
         """
-        Detect Head & Shoulders patterns.
-        
-        Pattern: Three peaks with middle peak (head) highest, two shoulders similar height.
-        
+        Detect Head & Shoulders patterns (DELEGATED TO CORE MODULE).
+
+        Delegates to ChartPatternDetector for reusable pattern detection.
+
         Args:
-            data: DataFrame with High prices
-            
+            data: DataFrame with OHLC columns
+
         Returns:
-            List of detected patterns with details
+            List of detected head & shoulders patterns
         """
-        patterns = []
-        if len(data) < 20:
-            return patterns
-        
-        highs = data['High'].values
-        window = 5
-        
-        for i in range(window, len(highs) - window * 2):
-            # Find local peaks
-            left_shoulder_idx = i
-            head_idx = i + window
-            right_shoulder_idx = i + window * 2
-            
-            if (head_idx >= len(highs) or right_shoulder_idx >= len(highs)):
-                continue
-            
-            left_shoulder = highs[left_shoulder_idx]
-            head = highs[head_idx]
-            right_shoulder = highs[right_shoulder_idx]
-            
-            # Check if head is highest and shoulders are similar
-            if (head > left_shoulder * 1.05 and head > right_shoulder * 1.05 and
-                abs(left_shoulder - right_shoulder) / max(left_shoulder, right_shoulder) < 0.1):
-                
-                patterns.append({
-                    'pattern': 'head_and_shoulders',
-                    'type': 'bearish',
-                    'left_shoulder_price': float(left_shoulder),
-                    'head_price': float(head),
-                    'right_shoulder_price': float(right_shoulder),
-                    'neckline': float((left_shoulder + right_shoulder) / 2),
-                    'date': data.index[right_shoulder_idx].strftime('%Y-%m-%d') if hasattr(data.index[right_shoulder_idx], 'strftime') else str(data.index[right_shoulder_idx]),
-                    'confidence': 'medium'
-                })
-        
-        return patterns[:5]  # Return top 5
+        return self.chart_detector.detect_head_and_shoulders(data)
     
     def detect_triangles(self, data: pd.DataFrame) -> List[Dict[str, Any]]:
         """
-        Detect triangle patterns (ascending, descending, symmetrical).
-        
+        Detect triangle patterns (DELEGATED TO CORE MODULE).
+
+        Delegates to ChartPatternDetector for reusable pattern detection.
+
         Args:
-            data: DataFrame with High and Low prices
-            
+            data: DataFrame with OHLC columns
+
         Returns:
-            List of detected triangle patterns
+            List of detected triangle patterns (ascending, descending, symmetrical)
         """
-        patterns = []
-        if len(data) < 20:
-            return patterns
-        
-        # Use rolling windows to detect converging trendlines
-        window = 20
-        for i in range(window, len(data)):
-            segment = data.iloc[i-window:i]
-            
-            highs = segment['High'].values
-            lows = segment['Low'].values
-            
-            # Calculate trendline slopes
-            high_slope = np.polyfit(range(len(highs)), highs, 1)[0]
-            low_slope = np.polyfit(range(len(lows)), lows, 1)[0]
-            
-            # Detect triangle type
-            if abs(high_slope) < 0.01 and low_slope > 0.01:
-                pattern_type = 'ascending_triangle'
-            elif high_slope < -0.01 and abs(low_slope) < 0.01:
-                pattern_type = 'descending_triangle'
-            elif abs(high_slope) < 0.01 and abs(low_slope) < 0.01:
-                pattern_type = 'symmetrical_triangle'
-            else:
-                continue
-            
-            # Check if lines are converging
-            high_range = highs.max() - highs.min()
-            low_range = lows.max() - lows.min()
-            
-            if high_range > 0 and low_range > 0:
-                patterns.append({
-                    'pattern': 'triangle',
-                    'type': pattern_type,
-                    'start_date': segment.index[0].strftime('%Y-%m-%d') if hasattr(segment.index[0], 'strftime') else str(segment.index[0]),
-                    'end_date': segment.index[-1].strftime('%Y-%m-%d') if hasattr(segment.index[-1], 'strftime') else str(segment.index[-1]),
-                    'resistance_level': float(highs.max()),
-                    'support_level': float(lows.min()),
-                    'confidence': 'medium'
-                })
-        
-        return patterns[:5]
+        return self.chart_detector.detect_triangles(data)
     
     def detect_double_tops_bottoms(self, data: pd.DataFrame) -> List[Dict[str, Any]]:
         """
-        Detect double tops and double bottoms.
-        
+        Detect double tops and double bottoms (DELEGATED TO CORE MODULE).
+
+        Delegates to ChartPatternDetector for reusable pattern detection.
+
         Args:
-            data: DataFrame with High and Low prices
-            
+            data: DataFrame with OHLC columns
+
         Returns:
             List of detected double top/bottom patterns
         """
-        patterns = []
-        if len(data) < 20:
-            return patterns
-        
-        # Detect double tops
-        highs = data['High'].values
-        for i in range(10, len(highs) - 10):
-            peak1 = highs[i]
-            peak2_idx = i + 5
-            if peak2_idx >= len(highs):
-                continue
-            peak2 = highs[peak2_idx]
-            
-            # Check if peaks are similar (within 2%)
-            if abs(peak1 - peak2) / max(peak1, peak2) < 0.02:
-                # Check if there's a valley between peaks
-                valley = highs[i:i+peak2_idx-i].min()
-                if valley < peak1 * 0.95:  # At least 5% drop
-                    patterns.append({
-                        'pattern': 'double_top',
-                        'type': 'bearish',
-                        'peak1_price': float(peak1),
-                        'peak2_price': float(peak2),
-                        'valley_price': float(valley),
-                        'date': data.index[peak2_idx].strftime('%Y-%m-%d') if hasattr(data.index[peak2_idx], 'strftime') else str(data.index[peak2_idx]),
-                        'confidence': 'medium'
-                    })
-        
-        # Detect double bottoms
-        lows = data['Low'].values
-        for i in range(10, len(lows) - 10):
-            bottom1 = lows[i]
-            bottom2_idx = i + 5
-            if bottom2_idx >= len(lows):
-                continue
-            bottom2 = lows[bottom2_idx]
-            
-            # Check if bottoms are similar
-            if abs(bottom1 - bottom2) / max(bottom1, bottom2) < 0.02:
-                # Check if there's a peak between bottoms
-                peak = lows[i:i+bottom2_idx-i].max()
-                if peak > bottom1 * 1.05:  # At least 5% rise
-                    patterns.append({
-                        'pattern': 'double_bottom',
-                        'type': 'bullish',
-                        'bottom1_price': float(bottom1),
-                        'bottom2_price': float(bottom2),
-                        'peak_price': float(peak),
-                        'date': data.index[bottom2_idx].strftime('%Y-%m-%d') if hasattr(data.index[bottom2_idx], 'strftime') else str(data.index[bottom2_idx]),
-                        'confidence': 'medium'
-                    })
-        
-        return patterns[:5]
+        return self.chart_detector.detect_double_tops_bottoms(data)
     
     def detect_flags_pennants(self, data: pd.DataFrame) -> List[Dict[str, Any]]:
         """
-        Detect flag and pennant patterns (consolidation after trend).
-        
+        Detect flag and pennant patterns (DELEGATED TO CORE MODULE).
+
+        Delegates to ChartPatternDetector for reusable pattern detection.
+
         Args:
-            data: DataFrame with price data
-            
+            data: DataFrame with OHLC columns
+
         Returns:
             List of detected flag/pennant patterns
         """
-        patterns = []
-        if len(data) < 15:
-            return patterns
-        
-        closes = data['Close'].values
-        volumes = data['Volume'].values
-        
-        # Look for strong trend followed by consolidation
-        for i in range(10, len(data) - 5):
-            # Check for uptrend before consolidation
-            trend_segment = closes[i-10:i]
-            consolidation_segment = closes[i:i+5]
-            
-            trend_slope = np.polyfit(range(len(trend_segment)), trend_segment, 1)[0]
-            consolidation_std = np.std(consolidation_segment)
-            
-            if trend_slope > 0.01 and consolidation_std < np.std(trend_segment) * 0.5:
-                # Bullish flag/pennant
-                patterns.append({
-                    'pattern': 'flag_pennant',
-                    'type': 'bullish',
-                    'start_date': data.index[i].strftime('%Y-%m-%d') if hasattr(data.index[i], 'strftime') else str(data.index[i]),
-                    'end_date': data.index[i+5].strftime('%Y-%m-%d') if hasattr(data.index[i+5], 'strftime') else str(data.index[i+5]),
-                    'trend_direction': 'up',
-                    'confidence': 'low'
-                })
-            elif trend_slope < -0.01 and consolidation_std < np.std(trend_segment) * 0.5:
-                # Bearish flag/pennant
-                patterns.append({
-                    'pattern': 'flag_pennant',
-                    'type': 'bearish',
-                    'start_date': data.index[i].strftime('%Y-%m-%d') if hasattr(data.index[i], 'strftime') else str(data.index[i]),
-                    'end_date': data.index[i+5].strftime('%Y-%m-%d') if hasattr(data.index[i+5], 'strftime') else str(data.index[i+5]),
-                    'trend_direction': 'down',
-                    'confidence': 'low'
-                })
-        
-        return patterns[:5]
+        return self.chart_detector.detect_flags_pennants(data)
     
     def detect_candlestick_patterns(self, data: pd.DataFrame) -> List[Dict[str, Any]]:
         """
-        Detect candlestick patterns: doji, hammer, shooting star, engulfing, three line strike.
-        
+        Detect candlestick patterns (DELEGATED TO CORE MODULE).
+
+        Delegates to CandlestickPatternDetector for reusable pattern detection.
+
         Args:
-            data: DataFrame with OHLC data
-            
+            data: DataFrame with OHLC columns
+
         Returns:
-            List of detected candlestick patterns
+            List of detected candlestick patterns (doji, hammer, shooting star, engulfing, three line strike)
         """
-        patterns = []
-        if len(data) < 2:
-            return patterns
-        
-        for i in range(1, len(data)):
-            open_price = data.iloc[i]['Open']
-            high = data.iloc[i]['High']
-            low = data.iloc[i]['Low']
-            close = data.iloc[i]['Close']
-            
-            body = abs(close - open_price)
-            upper_shadow = high - max(open_price, close)
-            lower_shadow = min(open_price, close) - low
-            total_range = high - low
-            
-            if total_range == 0:
-                continue
-            
-            # Doji: Very small body relative to range
-            if body / total_range < 0.1:
-                patterns.append({
-                    'pattern': 'doji',
-                    'type': 'neutral',
-                    'date': data.index[i].strftime('%Y-%m-%d') if hasattr(data.index[i], 'strftime') else str(data.index[i]),
-                    'open': float(open_price),
-                    'close': float(close),
-                    'confidence': 'medium'
-                })
-            
-            # Hammer: Small body at top, long lower shadow
-            if body / total_range < 0.3 and lower_shadow > body * 2 and upper_shadow < body * 0.5:
-                patterns.append({
-                    'pattern': 'hammer',
-                    'type': 'bullish',
-                    'date': data.index[i].strftime('%Y-%m-%d') if hasattr(data.index[i], 'strftime') else str(data.index[i]),
-                    'open': float(open_price),
-                    'close': float(close),
-                    'confidence': 'medium'
-                })
-            
-            # Shooting Star: Small body at bottom, long upper shadow
-            if body / total_range < 0.3 and upper_shadow > body * 2 and lower_shadow < body * 0.5:
-                patterns.append({
-                    'pattern': 'shooting_star',
-                    'type': 'bearish',
-                    'date': data.index[i].strftime('%Y-%m-%d') if hasattr(data.index[i], 'strftime') else str(data.index[i]),
-                    'open': float(open_price),
-                    'close': float(close),
-                    'confidence': 'medium'
-                })
-            
-            # Engulfing pattern
-            prev_open = data.iloc[i-1]['Open']
-            prev_close = data.iloc[i-1]['Close']
-            
-            # Bullish engulfing: current candle completely engulfs previous
-            if (close > open_price and prev_close < prev_open and
-                open_price < prev_close and close > prev_open):
-                patterns.append({
-                    'pattern': 'engulfing',
-                    'type': 'bullish',
-                    'date': data.index[i].strftime('%Y-%m-%d') if hasattr(data.index[i], 'strftime') else str(data.index[i]),
-                    'open': float(open_price),
-                    'close': float(close),
-                    'confidence': 'high'
-                })
-            
-            # Bearish engulfing
-            if (close < open_price and prev_close > prev_open and
-                open_price > prev_close and close < prev_open):
-                patterns.append({
-                    'pattern': 'engulfing',
-                    'type': 'bearish',
-                    'date': data.index[i].strftime('%Y-%m-%d') if hasattr(data.index[i], 'strftime') else str(data.index[i]),
-                    'open': float(open_price),
-                    'close': float(close),
-                    'confidence': 'high'
-                })
-            
-            # Three Line Strike (simplified - check last 3 candles)
-            if i >= 3:
-                candles = data.iloc[i-2:i+1]
-                if len(candles) == 3:
-                    # Bullish: three consecutive up candles
-                    if all(candles['Close'] > candles['Open']):
-                        patterns.append({
-                            'pattern': 'three_line_strike',
-                            'type': 'bullish',
-                            'date': data.index[i].strftime('%Y-%m-%d') if hasattr(data.index[i], 'strftime') else str(data.index[i]),
-                            'confidence': 'medium'
-                        })
-                    # Bearish: three consecutive down candles
-                    elif all(candles['Close'] < candles['Open']):
-                        patterns.append({
-                            'pattern': 'three_line_strike',
-                            'type': 'bearish',
-                            'date': data.index[i].strftime('%Y-%m-%d') if hasattr(data.index[i], 'strftime') else str(data.index[i]),
-                            'confidence': 'medium'
-                        })
-        
-        return patterns[:10]  # Return top 10
+        return self.candlestick_detector.detect(data)
     
     def calculate_support_resistance(self, data: pd.DataFrame, num_levels: int = 5) -> Dict[str, Any]:
         """
-        Calculate support and resistance levels.
-        
-        Finds local minima (support) and maxima (resistance) using rolling windows.
-        
+        Calculate support and resistance levels (DELEGATED TO CORE MODULE).
+
+        Delegates to SupportResistanceDetector for reusable level calculation.
+
         Args:
-            data: DataFrame with High and Low prices
-            num_levels: Number of levels to return
-            
+            data: DataFrame with OHLC columns
+            num_levels: Number of levels to return for each type
+
         Returns:
             Dictionary with support and resistance levels
         """
-        if len(data) < 20:
-            return {'support': [], 'resistance': []}
-        
-        # Use rolling window to find local extrema
-        window = 10
-        highs = data['High'].values
-        lows = data['Low'].values
-        
-        # Find local maxima (resistance)
-        resistance_levels = []
-        for i in range(window, len(highs) - window):
-            if highs[i] == max(highs[i-window:i+window+1]):
-                resistance_levels.append(float(highs[i]))
-        
-        # Find local minima (support)
-        support_levels = []
-        for i in range(window, len(lows) - window):
-            if lows[i] == min(lows[i-window:i+window+1]):
-                support_levels.append(float(lows[i]))
-        
-        # Remove duplicates and sort
-        resistance_levels = sorted(set(resistance_levels), reverse=True)[:num_levels]
-        support_levels = sorted(set(support_levels))[:num_levels]
-        
-        return {
-            'support': support_levels,
-            'resistance': resistance_levels,
-            'current_price': float(data['Close'].iloc[-1])
-        }
+        return self.sr_detector.calculate_levels(data, num_levels=num_levels)
     
     def calculate_adx(self, data: pd.DataFrame, period: int = 14) -> float:
         """

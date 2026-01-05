@@ -91,7 +91,7 @@ class SimpleReportGenerator:
                 - mini_reports: Mini-reports (if multi-stage)
         """
         start_time = time.perf_counter()
-        logger.info(f"Generating {strategy} report for {ticker} from cached data")
+        logger.info(f"Generating report for {ticker} from cached data")
 
         # Extract data from raw_data
         ticker_data = raw_data.get('ticker_data', {})

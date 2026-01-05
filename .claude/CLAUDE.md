@@ -36,6 +36,12 @@ Execution completion ≠ Operational success. Trust but verify through increasin
 - **Database ops**: Rowcount → Query result → DB logs → Table inspection
 - **Deployments**: Process exit → Service health → CloudWatch logs → Traffic metrics
 - **Testing**: Test passed → Output correct → No errors logged → Side effects verified
+- **Network/Infrastructure**: Execution time → Error message → Stack trace → Network path analysis
+  - Layer 1 (Surface): Lambda timeout (600s execution time)
+  - Layer 2 (Content): Error message ("ConnectTimeoutError")
+  - Layer 3 (Observability): Stack trace (botocore.exceptions at line 84)
+  - Layer 4 (Ground truth): Network analysis (NAT Gateway saturation, no VPC endpoint)
+  - **Critical insight**: Execution time shows WHAT system waits for (10min S3 timeout), not WHERE code hangs (ReportLab)
 
 See [error-investigation skill](.claude/skills/error-investigation/) for AWS-specific application.
 
@@ -150,6 +156,20 @@ Maintain contract between application code (`src/`), infrastructure (`terraform/
 
 **Common failures**: Missing env var, schema not migrated before code, timezone date boundary bug (no TZ env var), copy-paste inheritance (old config missing new requirements).
 
+**Infrastructure Dependency Validation**: Before deploying code that depends on AWS infrastructure (S3, VPC endpoints, NAT Gateway), verify infrastructure exists and is correctly configured. Network path issues cause deterministic failure patterns (first N succeed, last M fail = bottleneck; random failures = performance issue).
+
+**VPC Endpoint Verification**:
+- Check endpoint exists: `aws ec2 describe-vpc-endpoints --filters "Name=vpc-id,Values=<vpc-id>" "Name=service-name,Values=com.amazonaws.<region>.s3"`
+- Verify state: "available"
+- Verify route table attachment: endpoint must be attached to Lambda subnet route tables
+- Test network path: Run Lambda → S3 operation → Check logs for direct connection (no NAT traversal)
+
+**NAT Gateway Saturation Patterns**:
+- **Symptom**: First N concurrent operations succeed, last M timeout
+- **Root Cause**: NAT Gateway connection establishment rate limit
+- **Evidence**: Timeline analysis shows deterministic split (not random)
+- **Solution**: Add VPC Gateway Endpoint (S3, DynamoDB) to bypass NAT
+
 See [Infrastructure-Application Contract Guide](docs/guides/infrastructure-application-contract.md) for deployment order, schema migration checklist, startup validation patterns, pre-deployment validation script, and 4 real failure instances. Integrates with Principle #1 (Defensive Programming), #2 (Progressive Evidence Strengthening), #5 (Database Migrations), #20 (Execution Boundary Discipline).
 
 ### 16. Timezone Discipline
@@ -217,10 +237,35 @@ else:
     logger.info(f"✅ Affected {result.rowcount} rows")     # Verified
 ```
 
+**Boundary Logging Strategy** (Lambda failure resilience):
+
+WHERE you log determines WHAT survives failures. Logs at layer boundaries survive execution failures; logs deep in call stack are lost when Lambda fails before log buffer flushes.
+
+**Pattern for network operations**:
+```python
+# LAYER BOUNDARY (Handler) - Always survives
+logger.info(f"Starting S3 upload: {key}")
+
+try:
+    # LAYER BOUNDARY (Service call) - Survives if exception raised
+    result = s3_client.upload_file(file_path, bucket, key)
+
+    # LAYER BOUNDARY (Success verification) - Survives on success
+    logger.info(f"✅ S3 upload completed: {key}")
+except Exception as e:
+    # LAYER BOUNDARY (Error handler) - Always survives
+    logger.error(f"❌ S3 upload failed: {key}", exc_info=True)
+    raise
+```
+
+**Critical insight**: "Execution Time ≠ Hang Location". Lambda execution time of 600s doesn't mean code hangs at 600s—it means ENTIRE execution (including network timeouts) took 600s. To find actual hang point, use stack traces (Layer 3 evidence), not execution time (Layer 1 evidence).
+
 **Anti-patterns**:
 - ❌ Logging errors at WARNING level (invisible to monitoring)
 - ❌ Missing narrative phases (can't reconstruct execution from logs)
 - ❌ Silent success (only logging failures hides what happened)
+- ❌ Logging only at depth (lost when Lambda fails before buffer flush)
+- ❌ Assuming long execution time = code hang at that line (confuses WHAT with WHERE)
 
 See [Logging as Storytelling](.claude/abstractions/architecture-2026-01-03-logging-as-storytelling.md) for comprehensive templates and examples. Integrates with Principle #2 (Progressive Evidence Strengthening - logs as Layer 3) and Principle #1 (Defensive Programming - verification logging).
 

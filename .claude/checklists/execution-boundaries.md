@@ -276,6 +276,184 @@ aws lambda get-function-configuration \
   # API returns: {"data": {"report": {...}}} ← MISMATCH
   ```
 
+#### Service Integration Boundaries (NEW)
+
+**Purpose**: Verify AWS service-to-service payload contracts (Step Functions → Lambda, EventBridge → Step Functions, etc.)
+
+**When to check**:
+- ✅ Adding new service integration
+- ✅ Debugging "works in isolation but fails end-to-end"
+- ✅ After infrastructure changes
+- ✅ Zero-gradient debugging pattern (2+ attempts, same outcome)
+
+**Step Functions → Lambda**:
+
+- [ ] Payload passthrough configured correctly:
+  ```json
+  // ❌ WRONG: Hardcoded empty payload
+  "Parameters": {
+    "FunctionName": "arn:...:function:my-lambda",
+    "Payload": {}
+  }
+
+  // ✅ CORRECT: JsonPath reference passes input
+  "Parameters": {
+    "FunctionName": "arn:...:function:my-lambda",
+    "Payload.$": "$"  // Pass entire input
+  }
+  ```
+
+- [ ] Lambda receives expected event structure:
+  ```python
+  # Lambda expects
+  def lambda_handler(event, context):
+      report_date = event['report_date']  # Must exist in event
+
+  # Verify Step Functions passes it
+  # Check execution history:
+  aws stepfunctions get-execution-history --execution-arn "$ARN" > history.json
+  jq '.events[2].taskScheduledEventDetails.parameters' history.json
+  # Look for: "Payload": {"report_date": "2026-01-04"} ✅
+  ```
+
+- [ ] Payload format matches Lambda expectations:
+  ```bash
+  # Direct Lambda test (isolate service boundary)
+  aws lambda invoke \
+    --function-name my-lambda \
+    --cli-binary-format raw-in-base64-out \
+    --payload '{"report_date":"2026-01-04"}' \
+    response.json
+
+  # If direct invocation works but Step Functions doesn't:
+  # → Payload passthrough bug in Step Functions definition
+  ```
+
+**EventBridge → Step Functions**:
+
+- [ ] Event pattern matches source events:
+  ```json
+  // EventBridge rule
+  {
+    "source": ["aws.states"],
+    "detail-type": ["Step Functions Execution Status Change"],
+    "detail": {
+      "status": ["SUCCEEDED"],
+      "stateMachineArn": ["arn:...:stateMachine:precompute-workflow-dev"]
+    }
+  }
+
+  // Verify pattern matches actual events
+  aws events test-event-pattern \
+    --event-pattern file://pattern.json \
+    --event file://sample-event.json
+  ```
+
+- [ ] Input transformer configured (if used):
+  ```json
+  // Transform EventBridge event → Step Functions input
+  "InputTransformer": {
+    "InputPathsMap": {
+      "executionId": "$.detail.name"
+    },
+    "InputTemplate": "{\"execution_id\": \"<executionId>\"}"
+  }
+  ```
+
+**SQS → Lambda (Event Source Mapping)**:
+
+- [ ] Message body format matches Lambda expectations:
+  ```python
+  # Lambda expects
+  def lambda_handler(event, context):
+      for record in event['Records']:
+          body = json.loads(record['body'])  # SQS wraps in Records
+
+  # Verify SQS sender matches
+  # Sender must: json.dumps(message) before sqs.send_message()
+  ```
+
+- [ ] Batch size appropriate:
+  ```bash
+  # Check event source mapping
+  aws lambda get-event-source-mapping --uuid $UUID \
+    --query 'BatchSize'
+
+  # Ensure: BatchSize * processing_time < Lambda timeout
+  ```
+
+**API Gateway → Lambda**:
+
+- [ ] Integration type matches Lambda expectations:
+  ```json
+  // Lambda integration (raw event)
+  "IntegrationType": "AWS"  // Lambda gets API Gateway event structure
+
+  // Lambda proxy integration (simplified)
+  "IntegrationType": "AWS_PROXY"  // Lambda gets HTTP request structure
+  ```
+
+- [ ] Request/response transformation configured:
+  ```bash
+  # Check API Gateway integration
+  aws apigatewayv2 get-integration --api-id $API_ID --integration-id $INT_ID \
+    --query '{Type:IntegrationType,PayloadFormat:PayloadFormatVersion}'
+  ```
+
+**Debugging Protocol** (4-Layer Evidence):
+
+When service integration fails:
+
+1. **Layer 1 (Surface)**: Check final status
+   ```bash
+   aws stepfunctions describe-execution --execution-arn "$ARN" --query 'status'
+   ```
+
+2. **Layer 3 (Observability)**: Check execution history FIRST (not logs)
+   ```bash
+   # What payload was actually sent?
+   aws stepfunctions get-execution-history --execution-arn "$ARN" > history.json
+   jq '.events[] | select(.type=="TaskScheduled")' history.json
+   ```
+
+3. **Layer 4 (Ground Truth)**: Invoke target service directly
+   ```bash
+   # Does Lambda work when invoked directly?
+   aws lambda invoke --function-name my-lambda --payload '{"test":"data"}' out.json
+   ```
+
+4. **Layer 2 (Content)**: Check logs for confirmation
+   ```bash
+   # What event did Lambda receive?
+   aws logs tail /aws/lambda/my-lambda --since 5m
+   ```
+
+**Optimal debugging order**: 1 → 3 → 4 → 2 (execution history reveals integration bugs fastest)
+
+**Integration test checklist**:
+
+- [ ] Test written for service boundary:
+  ```python
+  def test_step_functions_passes_payload_to_lambda():
+      """Verify Step Functions → Lambda payload passthrough"""
+      # Prevents configuration regressions
+  ```
+
+- [ ] Test runs in CI/CD:
+  ```yaml
+  # .github/workflows/test.yml
+  - name: Test service integrations
+    run: pytest tests/integration/test_step_functions_integration.py
+  ```
+
+- [ ] Terraform changes trigger integration tests:
+  ```bash
+  # Before deploying Step Functions changes
+  terraform plan && pytest tests/integration/
+  ```
+
+**See**: [Service Integration Verification Pattern](.claude/patterns/service-integration-verification.md) for complete debugging protocol
+
 ---
 
 ### Phase 4: Validate Cross-Boundary Contracts

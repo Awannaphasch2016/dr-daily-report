@@ -1,0 +1,1013 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pattern Chart Viewer - Client-Side Rendering</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-financial@0.2.1/dist/chartjs-chart-financial.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/luxon@3.4.4/build/global/luxon.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1.3.1/dist/chartjs-adapter-luxon.umd.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 20px;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 32px;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            font-size: 16px;
+            opacity: 0.9;
+        }
+
+        .controls {
+            padding: 20px 30px;
+            background: #f8f9fa;
+            border-bottom: 1px solid #e9ecef;
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        .control-group label {
+            font-size: 12px;
+            font-weight: 600;
+            color: #495057;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .control-group input,
+        .control-group select {
+            padding: 8px 12px;
+            border: 1px solid #ced4da;
+            border-radius: 6px;
+            font-size: 14px;
+            min-width: 150px;
+        }
+
+        button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 10px 24px;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            margin-top: 20px;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        .chart-container {
+            padding: 30px;
+            position: relative;
+            height: 600px;
+        }
+
+        .patterns-summary {
+            padding: 30px;
+            background: #f8f9fa;
+            border-top: 1px solid #e9ecef;
+        }
+
+        .patterns-summary h3 {
+            font-size: 18px;
+            margin-bottom: 15px;
+            color: #212529;
+        }
+
+        .pattern-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 15px;
+        }
+
+        .pattern-card {
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+        }
+
+        .pattern-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+        }
+
+        .pattern-card.selected {
+            background: linear-gradient(135deg, #f8f9ff 0%, #f0f2ff 100%);
+            box-shadow: 0 4px 16px rgba(102, 126, 234, 0.3);
+        }
+
+        .pattern-card.bullish {
+            border-left-color: #26A69A;
+        }
+
+        .pattern-card.bearish {
+            border-left-color: #EF5350;
+        }
+
+        .pattern-card h4 {
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #212529;
+        }
+
+        .pattern-card .meta {
+            font-size: 12px;
+            color: #6c757d;
+            margin-top: 5px;
+        }
+
+        .pattern-card .details {
+            font-size: 11px;
+            color: #868e96;
+            margin-top: 8px;
+            font-family: 'Courier New', monospace;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 60px;
+            color: #6c757d;
+        }
+
+        .loading::after {
+            content: '...';
+            animation: dots 1.5s steps(4, end) infinite;
+        }
+
+        @keyframes dots {
+            0%, 20% { content: ''; }
+            40% { content: '.'; }
+            60% { content: '..'; }
+            80%, 100% { content: '...'; }
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            margin-left: 8px;
+        }
+
+        .badge.high {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .badge.medium {
+            background: #fff3cd;
+            color: #856404;
+        }
+
+        .badge.low {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .legend {
+            display: flex;
+            gap: 20px;
+            padding: 15px 30px;
+            background: #f8f9fa;
+            border-top: 1px solid #e9ecef;
+            flex-wrap: wrap;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+            color: #495057;
+        }
+
+        .legend-item::before {
+            content: '';
+            display: block;
+            width: 20px;
+            height: 3px;
+            border-radius: 2px;
+        }
+
+        .legend-item.resistance::before {
+            background: #FF6B6B;
+        }
+
+        .legend-item.support::before {
+            background: #4ECDC4;
+        }
+
+        .legend-item.candle-up::before {
+            background: #26A69A;
+            height: 12px;
+        }
+
+        .legend-item.candle-down::before {
+            background: #EF5350;
+            height: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📊 Pattern Chart Viewer</h1>
+            <p>Client-Side Candlestick Chart with Pattern Detection (Telegram Approach)</p>
+        </div>
+
+        <div class="controls">
+            <div class="control-group">
+                <label>Ticker Symbol</label>
+                <input type="text" id="ticker" value="AAPL" placeholder="e.g., AAPL, MSFT">
+            </div>
+
+            <div class="control-group">
+                <label>Period</label>
+                <select id="period">
+                    <option value="30d">30 Days</option>
+                    <option value="60d" selected>60 Days</option>
+                    <option value="90d">90 Days</option>
+                    <option value="6mo">6 Months</option>
+                </select>
+            </div>
+
+            <button onclick="loadChart()">Load Chart</button>
+        </div>
+
+        <div class="chart-container">
+            <canvas id="chart"></canvas>
+        </div>
+
+        <div class="legend">
+            <div class="legend-item candle-up">Bullish Candle</div>
+            <div class="legend-item candle-down">Bearish Candle</div>
+            <div class="legend-item resistance">Resistance Trendline</div>
+            <div class="legend-item support">Support Trendline</div>
+        </div>
+
+        <div class="patterns-summary">
+            <h3>📈 Detected Patterns</h3>
+            <div id="pattern-list" class="pattern-list">
+                <div class="loading">Loading patterns</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let chartInstance = null;
+        let currentChartData = null; // Store current chart data for pattern filtering
+        let selectedPatternIndex = null; // Track which pattern is selected (null = all patterns)
+
+        // Fetch data from Python backend (yfinance) with retry logic
+        async function fetchOHLCData(symbol, period, retries = 3) {
+            for (let attempt = 1; attempt <= retries; attempt++) {
+                try {
+                    // Show retry attempt in UI
+                    if (attempt > 1) {
+                        document.getElementById('pattern-list').innerHTML =
+                            `<div class="loading">Retrying... (attempt ${attempt}/${retries})</div>`;
+                    }
+
+                    const response = await fetch(`/api/chart-data/${symbol}?period=${period}`);
+
+                    if (!response.ok) {
+                        const error = await response.json();
+                        throw new Error(error.error || 'Failed to fetch chart data');
+                    }
+
+                    return await response.json();
+                } catch (error) {
+                    console.warn(`Fetch attempt ${attempt}/${retries} failed:`, error.message);
+
+                    // If this was the last attempt, throw the error
+                    if (attempt === retries) {
+                        throw error;
+                    }
+
+                    // Wait before retrying (exponential backoff: 500ms, 1s, 2s)
+                    const delay = 500 * Math.pow(2, attempt - 1);
+                    console.log(`Retrying in ${delay}ms...`);
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                }
+            }
+        }
+
+        // Linear regression to fit trendline through points
+        function fitLinearTrendline(points) {
+            const n = points.length;
+            if (n < 2) return null;
+
+            // Calculate linear regression: y = mx + b
+            // Use actual timestamps (p.x) instead of array indices for correct slope across weekend gaps
+            const sumX = points.reduce((sum, p) => sum + p.x, 0);
+            const sumY = points.reduce((sum, p) => sum + p.y, 0);
+            const sumXY = points.reduce((sum, p) => sum + p.x * p.y, 0);
+            const sumX2 = points.reduce((sum, p) => sum + p.x * p.x, 0);
+
+            const slope = (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX);
+            const intercept = (sumY - slope * sumX) / n;
+
+            // Generate trendline points using timestamp-based regression
+            return points.map((p) => ({
+                x: p.x,
+                y: slope * p.x + intercept
+            }));
+        }
+
+        // Create flag/pennant pattern overlay with fitted trendlines
+        function createFlagAnnotation(pattern, ohlcData) {
+            const startDate = new Date(pattern.start_date).getTime();
+            const endDate = new Date(pattern.end_date).getTime();
+
+            // Find data points in range
+            const rangeData = ohlcData.filter(d => d.x >= startDate && d.x <= endDate);
+
+            if (rangeData.length < 3) return null;
+
+            // Extract highs and lows with x coordinates
+            const highs = rangeData.map(d => ({ x: d.x, y: d.h }));
+            const lows = rangeData.map(d => ({ x: d.x, y: d.l }));
+
+            // Fit trendlines using linear regression
+            const resistanceLine = fitLinearTrendline(highs);
+            const supportLine = fitLinearTrendline(lows);
+
+            return { resistanceLine, supportLine };
+        }
+
+        // Create triangle pattern overlay with converging trendlines
+        function createTriangleAnnotation(pattern, ohlcData) {
+            const startDate = new Date(pattern.start_date).getTime();
+            const endDate = new Date(pattern.end_date).getTime();
+
+            // Find data points in range
+            const rangeData = ohlcData.filter(d => d.x >= startDate && d.x <= endDate);
+
+            if (rangeData.length < 3) return null;
+
+            // Extract highs and lows with x coordinates
+            const highs = rangeData.map(d => ({ x: d.x, y: d.h }));
+            const lows = rangeData.map(d => ({ x: d.x, y: d.l }));
+
+            // Fit trendlines using linear regression
+            const resistanceLine = fitLinearTrendline(highs);
+            const supportLine = fitLinearTrendline(lows);
+
+            if (!resistanceLine || !supportLine) return null;
+
+            // Calculate slopes to determine triangle type
+            const resistanceSlope = (resistanceLine[resistanceLine.length - 1].y - resistanceLine[0].y) / resistanceLine.length;
+            const supportSlope = (supportLine[supportLine.length - 1].y - supportLine[0].y) / supportLine.length;
+
+            // Determine triangle type based on slopes
+            let triangleType = 'symmetrical';
+            if (Math.abs(resistanceSlope) < 0.1 && supportSlope > 0.1) {
+                triangleType = 'ascending'; // Flat resistance, rising support
+            } else if (resistanceSlope < -0.1 && Math.abs(supportSlope) < 0.1) {
+                triangleType = 'descending'; // Falling resistance, flat support
+            }
+
+            return { resistanceLine, supportLine, triangleType };
+        }
+
+        // Create head & shoulders pattern overlay
+        function createHeadShouldersAnnotation(pattern, ohlcData) {
+            const startDate = new Date(pattern.start_date).getTime();
+            const endDate = new Date(pattern.end_date).getTime();
+
+            const rangeData = ohlcData.filter(d => d.x >= startDate && d.x <= endDate);
+
+            if (rangeData.length < 5) return null;
+
+            // For head & shoulders, draw neckline (support/resistance line connecting the troughs)
+            // Find local minima for troughs (inverse for inverse H&S)
+            const isInverse = pattern.type === 'bullish';
+            const lows = rangeData.map(d => ({ x: d.x, y: d.l }));
+            const highs = rangeData.map(d => ({ x: d.x, y: d.h }));
+
+            // Use lows for regular H&S (bearish), highs for inverse H&S (bullish)
+            const necklinePoints = isInverse ? highs : lows;
+            const neckline = fitLinearTrendline(necklinePoints);
+
+            return { neckline, isInverse };
+        }
+
+        // Create double top/bottom pattern overlay
+        function createDoubleTopBottomAnnotation(pattern, ohlcData) {
+            const startDate = new Date(pattern.start_date).getTime();
+            const endDate = new Date(pattern.end_date).getTime();
+
+            const rangeData = ohlcData.filter(d => d.x >= startDate && d.x <= endDate);
+
+            if (rangeData.length < 3) return null;
+
+            const isDoubleBottom = pattern.type === 'bullish' || pattern.pattern === 'double_bottom';
+
+            // For double tops/bottoms, draw horizontal resistance/support at the peaks/troughs
+            const extremePrice = isDoubleBottom
+                ? Math.min(...rangeData.map(d => d.l))  // Lowest low for double bottom
+                : Math.max(...rangeData.map(d => d.h)); // Highest high for double top
+
+            // Create horizontal line at the extreme price
+            const extremeLine = [
+                { x: startDate, y: extremePrice },
+                { x: endDate, y: extremePrice }
+            ];
+
+            return { extremeLine, isDoubleBottom };
+        }
+
+        // Draw wedge pattern overlay
+        function createWedgeAnnotation(pattern, ohlcData) {
+            const startDate = new Date(pattern.start_date).getTime();
+            const endDate = new Date(pattern.end_date).getTime();
+
+            // Find data points in range
+            const startIdx = ohlcData.findIndex(d => d.x >= startDate);
+            const endIdx = ohlcData.findIndex(d => d.x >= endDate);
+
+            if (startIdx === -1 || endIdx === -1) return null;
+
+            const segment = ohlcData.slice(startIdx, endIdx);
+            const resistanceLine = [];
+            const supportLine = [];
+
+            segment.forEach((point, i) => {
+                const x = point.x;
+                const resistanceY = segment[0].h + (pattern.resistance_slope * i);
+                const supportY = segment[0].l + (pattern.support_slope * i);
+
+                resistanceLine.push({ x, y: resistanceY });
+                supportLine.push({ x, y: supportY });
+            });
+
+            return { resistanceLine, supportLine };
+        }
+
+        // Draw or redraw chart with optional pattern filtering
+        function drawChart(data, ticker, filterPatternIndex = null) {
+            // Destroy existing chart
+            if (chartInstance) {
+                chartInstance.destroy();
+            }
+
+            const period = document.getElementById('period').value;
+
+                // Create wedge overlays
+                const datasets = [{
+                    type: 'candlestick',
+                    label: ticker,
+                    data: data.ohlc,
+                    color: {
+                        up: '#26A69A',
+                        down: '#EF5350',
+                        unchanged: '#999'
+                    },
+                    borderColor: {
+                        up: '#1B5E20',
+                        down: '#B71C1C',
+                        unchanged: '#666'
+                    }
+                }];
+
+                // Add support/resistance lines
+                if (data.patterns.support_resistance) {
+                    const sr = data.patterns.support_resistance;
+
+                    sr.support.forEach((level, i) => {
+                        datasets.push({
+                            type: 'line',
+                            label: `Support ${i + 1}`,
+                            data: data.ohlc.map(d => ({ x: d.x, y: level })),
+                            borderColor: '#4ECDC4',
+                            borderWidth: 2,
+                            borderDash: [5, 5],
+                            pointRadius: 0,
+                            fill: false
+                        });
+                    });
+
+                    sr.resistance.forEach((level, i) => {
+                        datasets.push({
+                            type: 'line',
+                            label: `Resistance ${i + 1}`,
+                            data: data.ohlc.map(d => ({ x: d.x, y: level })),
+                            borderColor: '#FF6B6B',
+                            borderWidth: 2,
+                            borderDash: [5, 5],
+                            pointRadius: 0,
+                            fill: false
+                        });
+                    });
+                }
+
+                // Add pattern overlays (filter by pattern index if specified)
+                data.patterns.chart_patterns.forEach((pattern, index) => {
+                    // Skip if filtering and this isn't the selected pattern
+                    if (filterPatternIndex !== null && index !== filterPatternIndex) {
+                        return;
+                    }
+
+                    if (pattern.pattern === 'wedge_rising' || pattern.pattern === 'wedge_falling') {
+                        // Wedge patterns: show trendlines with shaded area
+                        const wedge = createWedgeAnnotation(pattern, data.ohlc);
+                        if (wedge) {
+                            const color = pattern.pattern === 'wedge_rising' ? '#26A69A' : '#EF5350';
+                            const fillColor = pattern.pattern === 'wedge_rising' ? 'rgba(38, 166, 154, 0.25)' : 'rgba(239, 83, 80, 0.25)';
+
+                            // Draw support trendline first (will be filled TO this)
+                            const supportIndex = datasets.length;
+                            datasets.push({
+                                type: 'line',
+                                label: 'Support Trendline',
+                                data: wedge.supportLine,
+                                borderColor: color,
+                                borderWidth: 3,
+                                pointRadius: 0,
+                                fill: false,
+                                order: 2
+                            });
+
+                            // Draw resistance trendline with fill TO support line
+                            datasets.push({
+                                type: 'line',
+                                label: 'Resistance Trendline',
+                                data: wedge.resistanceLine,
+                                borderColor: color,
+                                borderWidth: 3,
+                                backgroundColor: fillColor,
+                                fill: supportIndex,  // Fill to the support line dataset
+                                pointRadius: 0,
+                                order: 2
+                            });
+                        }
+                    } else if (pattern.pattern === 'flag_pennant') {
+                        // Flag/pennant patterns: fitted trendlines through highs and lows
+                        const flag = createFlagAnnotation(pattern, data.ohlc);
+
+                        if (flag) {
+                            // Color based on pattern type
+                            const color = pattern.type === 'bullish' ? '#26A69A' : '#EF5350';
+                            const fillColor = pattern.type === 'bullish' ? 'rgba(38, 166, 154, 0.25)' : 'rgba(239, 83, 80, 0.25)';
+
+                            // Draw support trendline first (will be filled TO this)
+                            const supportIndex = datasets.length;
+                            datasets.push({
+                                type: 'line',
+                                label: 'Flag Support',
+                                data: flag.supportLine,
+                                borderColor: color,
+                                borderWidth: 2.5,
+                                pointRadius: 0,
+                                fill: false,
+                                order: 2
+                            });
+
+                            // Draw resistance trendline with fill TO support line
+                            datasets.push({
+                                type: 'line',
+                                label: 'Flag Resistance',
+                                data: flag.resistanceLine,
+                                borderColor: color,
+                                borderWidth: 2.5,
+                                backgroundColor: fillColor,
+                                fill: supportIndex,  // Fill to the support line dataset
+                                pointRadius: 0,
+                                order: 2
+                            });
+                        }
+                    } else if (pattern.pattern === 'triangle') {
+                        // Triangle patterns: converging trendlines (ascending, descending, or symmetrical)
+                        const triangle = createTriangleAnnotation(pattern, data.ohlc);
+
+                        if (triangle) {
+                            const color = pattern.type === 'bullish' ? '#26A69A' :
+                                         pattern.type === 'bearish' ? '#EF5350' : '#9C27B0';
+                            const fillColor = pattern.type === 'bullish' ? 'rgba(38, 166, 154, 0.3)' :
+                                             pattern.type === 'bearish' ? 'rgba(239, 83, 80, 0.3)' : 'rgba(156, 39, 176, 0.3)';
+
+                            // Draw support trendline first (will be filled TO this)
+                            const supportIndex = datasets.length;
+                            datasets.push({
+                                type: 'line',
+                                label: `Triangle Support (${triangle.triangleType})`,
+                                data: triangle.supportLine,
+                                borderColor: color,
+                                borderWidth: 3,
+                                pointRadius: 0,
+                                fill: false,
+                                order: 2
+                            });
+
+                            // Draw resistance trendline with fill TO support line
+                            datasets.push({
+                                type: 'line',
+                                label: 'Triangle Resistance',
+                                data: triangle.resistanceLine,
+                                borderColor: color,
+                                borderWidth: 3,
+                                backgroundColor: fillColor,
+                                fill: supportIndex,  // Fill to the support line dataset
+                                pointRadius: 0,
+                                order: 2
+                            });
+                        }
+                    } else if (pattern.pattern === 'head_and_shoulders' || pattern.pattern === 'inverse_head_and_shoulders') {
+                        // Head & shoulders: neckline showing support/resistance
+                        const hs = createHeadShouldersAnnotation(pattern, data.ohlc);
+
+                        if (hs) {
+                            const color = pattern.type === 'bullish' ? '#26A69A' : '#EF5350';
+                            const fillColor = pattern.type === 'bullish' ? 'rgba(38, 166, 154, 0.2)' : 'rgba(239, 83, 80, 0.2)';
+
+                            // Draw pattern highlight area (shaded band around neckline)
+                            const startDate = new Date(pattern.start_date).getTime();
+                            const endDate = new Date(pattern.end_date).getTime();
+                            const rangeData = data.ohlc.filter(d => d.x >= startDate && d.x <= endDate);
+
+                            if (rangeData.length > 0) {
+                                const avgNecklineY = hs.neckline.reduce((sum, p) => sum + p.y, 0) / hs.neckline.length;
+                                const bandwidth = Math.abs(Math.max(...rangeData.map(d => d.h)) - Math.min(...rangeData.map(d => d.l))) * 0.05;
+
+                                // Create shaded band above/below neckline
+                                const upperBand = hs.neckline.map(p => ({ x: p.x, y: p.y + bandwidth }));
+                                const lowerBand = hs.neckline.map(p => ({ x: p.x, y: p.y - bandwidth }));
+
+                                datasets.push({
+                                    type: 'line',
+                                    label: 'H&S Pattern Area',
+                                    data: [...upperBand, ...lowerBand.slice().reverse()],
+                                    borderColor: 'transparent',
+                                    backgroundColor: fillColor,
+                                    fill: true,
+                                    pointRadius: 0,
+                                    order: 3
+                                });
+                            }
+
+                            // Draw neckline (thicker, prominent)
+                            datasets.push({
+                                type: 'line',
+                                label: hs.isInverse ? 'Inverse H&S Neckline' : 'H&S Neckline',
+                                data: hs.neckline,
+                                borderColor: color,
+                                borderWidth: 3,
+                                borderDash: [10, 5],
+                                pointRadius: 0,
+                                fill: false,
+                                order: 2
+                            });
+                        }
+                    } else if (pattern.pattern === 'double_top' || pattern.pattern === 'double_bottom') {
+                        // Double top/bottom: horizontal resistance/support at the peaks/troughs
+                        const double = createDoubleTopBottomAnnotation(pattern, data.ohlc);
+
+                        if (double) {
+                            const color = pattern.type === 'bullish' ? '#26A69A' : '#EF5350';
+                            const fillColor = pattern.type === 'bullish' ? 'rgba(38, 166, 154, 0.25)' : 'rgba(239, 83, 80, 0.25)';
+
+                            // Calculate bandwidth for shaded zone (5% of price range)
+                            const startDate = new Date(pattern.start_date).getTime();
+                            const endDate = new Date(pattern.end_date).getTime();
+                            const rangeData = data.ohlc.filter(d => d.x >= startDate && d.x <= endDate);
+
+                            if (rangeData.length > 0) {
+                                const priceRange = Math.max(...rangeData.map(d => d.h)) - Math.min(...rangeData.map(d => d.l));
+                                const bandwidth = priceRange * 0.03;
+                                const extremeY = double.extremeLine[0].y;
+
+                                // Create shaded horizontal band around extreme level
+                                const upperBand = [
+                                    { x: startDate, y: extremeY + bandwidth },
+                                    { x: endDate, y: extremeY + bandwidth }
+                                ];
+                                const lowerBand = [
+                                    { x: endDate, y: extremeY - bandwidth },
+                                    { x: startDate, y: extremeY - bandwidth }
+                                ];
+
+                                datasets.push({
+                                    type: 'line',
+                                    label: double.isDoubleBottom ? 'Double Bottom Zone' : 'Double Top Zone',
+                                    data: [...upperBand, ...lowerBand],
+                                    borderColor: 'transparent',
+                                    backgroundColor: fillColor,
+                                    fill: true,
+                                    pointRadius: 0,
+                                    order: 3
+                                });
+                            }
+
+                            // Draw extreme price line (resistance for double top, support for double bottom - thicker)
+                            datasets.push({
+                                type: 'line',
+                                label: double.isDoubleBottom ? 'Double Bottom Support' : 'Double Top Resistance',
+                                data: double.extremeLine,
+                                borderColor: color,
+                                borderWidth: 3,
+                                pointRadius: 0,
+                                fill: false,
+                                order: 2
+                            });
+                        }
+                    } else {
+                        // Generic fallback for unknown pattern types
+                        const startDate = new Date(pattern.start_date || pattern.date).getTime();
+                        const endDate = new Date(pattern.end_date || pattern.date).getTime();
+
+                        // Get price range for vertical lines
+                        const priceRange = {
+                            min: Math.min(...data.ohlc.map(d => d.l)),
+                            max: Math.max(...data.ohlc.map(d => d.h))
+                        };
+
+                        const color = pattern.type === 'bullish' ? '#26A69A' :
+                                     pattern.type === 'bearish' ? '#EF5350' : '#667eea';
+
+                        // Vertical line at pattern start
+                        datasets.push({
+                            type: 'line',
+                            label: 'Pattern Start',
+                            data: [
+                                { x: startDate, y: priceRange.min },
+                                { x: startDate, y: priceRange.max }
+                            ],
+                            borderColor: color,
+                            borderWidth: 2,
+                            borderDash: [5, 5],
+                            pointRadius: 0,
+                            fill: false
+                        });
+
+                        // Vertical line at pattern end
+                        datasets.push({
+                            type: 'line',
+                            label: 'Pattern End',
+                            data: [
+                                { x: endDate, y: priceRange.min },
+                                { x: endDate, y: priceRange.max }
+                            ],
+                            borderColor: color,
+                            borderWidth: 2,
+                            borderDash: [5, 5],
+                            pointRadius: 0,
+                            fill: false
+                        });
+                    }
+                });
+
+                const ctx = document.getElementById('chart').getContext('2d');
+                chartInstance = new Chart(ctx, {
+                    type: 'candlestick',
+                    data: { datasets },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: {
+                                display: false
+                            },
+                            title: {
+                                display: true,
+                                text: filterPatternIndex !== null
+                                    ? `${ticker} - ${period} | Showing Pattern ${filterPatternIndex + 1} of ${data.patterns.chart_patterns.length}`
+                                    : `${ticker} - ${period} Candlestick Chart with Pattern Detection`,
+                                font: {
+                                    size: 16,
+                                    weight: 'bold'
+                                }
+                            },
+                            tooltip: {
+                                mode: 'index',
+                                intersect: false
+                            }
+                        },
+                        scales: {
+                            x: {
+                                type: 'time',
+                                time: {
+                                    unit: 'day'
+                                },
+                                grid: {
+                                    display: false
+                                }
+                            },
+                            y: {
+                                beginAtZero: false,
+                                grid: {
+                                    color: '#e9ecef'
+                                }
+                            }
+                        },
+                        interaction: {
+                            mode: 'nearest',
+                            axis: 'x',
+                            intersect: false
+                        }
+                    }
+                });
+        }
+
+        // Select a specific pattern to show on chart
+        function selectPattern(patternIndex) {
+            if (!currentChartData) return;
+
+            const ticker = document.getElementById('ticker').value.toUpperCase();
+
+            if (patternIndex === null) {
+                // Show all patterns
+                selectedPatternIndex = null;
+                drawChart(currentChartData, ticker);
+            } else {
+                // Show only selected pattern
+                selectedPatternIndex = patternIndex;
+                drawChart(currentChartData, ticker, patternIndex);
+            }
+
+            // Re-render pattern summary to update visual selection
+            renderPatternsSummary(currentChartData.patterns);
+        }
+
+        // Load chart data and render
+        async function loadChart() {
+            const ticker = document.getElementById('ticker').value.toUpperCase();
+            const period = document.getElementById('period').value;
+
+            document.getElementById('pattern-list').innerHTML = '<div class="loading">Loading patterns</div>';
+
+            try {
+                const data = await fetchOHLCData(ticker, period);
+
+                // Store data globally for pattern filtering
+                currentChartData = data;
+                selectedPatternIndex = null; // Reset selection when loading new chart
+
+                // Draw chart with all patterns
+                drawChart(data, ticker);
+
+                // Render patterns summary
+                renderPatternsSummary(data.patterns);
+
+            } catch (error) {
+                console.error('Error loading chart:', error);
+
+                // Determine specific error message
+                let errorTitle = "❌ Error Loading Data";
+                let errorDetails = error.message;
+                let suggestion = "";
+
+                if (error.message.includes('No data available')) {
+                    errorTitle = "❌ No Data Available";
+                    errorDetails = `Unable to fetch data for ${ticker}`;
+                    suggestion = "Try a different ticker symbol (e.g., AAPL, MSFT, GOOGL)";
+                } else if (error.message.includes('Failed to fetch')) {
+                    errorTitle = "❌ Network Error";
+                    errorDetails = "Unable to connect to server";
+                    suggestion = "Check that the server is running on http://localhost:8080";
+                } else if (error.message.includes('timeout')) {
+                    errorTitle = "❌ Request Timeout";
+                    errorDetails = "The request took too long to complete";
+                    suggestion = "Try again or select a shorter time period";
+                }
+
+                document.getElementById('pattern-list').innerHTML = `
+                    <div class="pattern-card">
+                        <h4>${errorTitle}</h4>
+                        <div class="meta">${errorDetails}</div>
+                        ${suggestion ? `<div class="meta" style="margin-top: 8px; color: #6c757d; font-style: italic;">${suggestion}</div>` : ''}
+                        <button onclick="loadChart()" style="margin-top: 12px; padding: 8px 16px; border-radius: 6px; border: none; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; cursor: pointer; font-weight: 600; font-size: 14px; transition: transform 0.2s;" onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='translateY(0)'">
+                            🔄 Retry
+                        </button>
+                    </div>
+                `;
+            }
+        }
+
+        function renderPatternsSummary(patterns) {
+            const container = document.getElementById('pattern-list');
+
+            if (!patterns.chart_patterns || patterns.chart_patterns.length === 0) {
+                container.innerHTML = `
+                    <div class="pattern-card">
+                        <h4>No patterns detected</h4>
+                        <div class="meta">Try a different time period or ticker</div>
+                    </div>
+                `;
+                return;
+            }
+
+            // Add "All Patterns" button if multiple patterns exist
+            const allPatternsButton = patterns.chart_patterns.length > 1 ? `
+                <div class="pattern-card ${selectedPatternIndex === null ? 'selected' : ''}"
+                     onclick="selectPattern(null)"
+                     style="cursor: pointer; transition: all 0.2s; border: 2px solid ${selectedPatternIndex === null ? '#667eea' : 'transparent'};">
+                    <h4>📊 All Patterns</h4>
+                    <div class="meta">Click to show all ${patterns.chart_patterns.length} patterns</div>
+                </div>
+            ` : '';
+
+            const patternCards = patterns.chart_patterns.map((pattern, index) => {
+                const patternName = pattern.pattern.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+                const sentimentClass = pattern.type === 'bullish' ? 'bullish' : pattern.type === 'bearish' ? 'bearish' : '';
+                const confidenceClass = pattern.confidence === 'high' ? 'high' : pattern.confidence === 'medium' ? 'medium' : 'low';
+                const isSelected = selectedPatternIndex === index;
+
+                return `
+                    <div class="pattern-card ${sentimentClass} ${isSelected ? 'selected' : ''}"
+                         onclick="selectPattern(${index})"
+                         style="cursor: pointer; transition: all 0.2s; border: 2px solid ${isSelected ? '#667eea' : 'transparent'};">
+                        <h4>
+                            ${isSelected ? '👉 ' : ''}${patternName}
+                            <span class="badge ${confidenceClass}">${pattern.confidence}</span>
+                        </h4>
+                        <div class="meta">
+                            Type: <strong>${pattern.type}</strong> |
+                            Period: ${new Date(pattern.start_date || pattern.date).toLocaleDateString()} - ${new Date(pattern.end_date || pattern.date).toLocaleDateString()}
+                        </div>
+                        ${pattern.resistance_slope != null && pattern.support_slope != null && pattern.convergence_ratio != null ? `
+                            <div class="details">
+                                Resistance slope: ${pattern.resistance_slope.toFixed(4)}<br>
+                                Support slope: ${pattern.support_slope.toFixed(4)}<br>
+                                Convergence: ${(pattern.convergence_ratio * 100).toFixed(1)}%
+                            </div>
+                        ` : ''}
+                        <div class="meta" style="margin-top: 8px; font-size: 12px; color: #6c757d;">
+                            ${isSelected ? 'Currently showing on chart' : 'Click to view this pattern'}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            container.innerHTML = allPatternsButton + patternCards;
+        }
+
+        // Load default chart on page load with delay to ensure server is ready
+        window.addEventListener('load', async () => {
+            // Small delay to ensure server is fully ready
+            await new Promise(resolve => setTimeout(resolve, 500));
+
+            // Show loading state
+            document.getElementById('pattern-list').innerHTML = '<div class="loading">Loading default chart (AAPL)</div>';
+
+            try {
+                await loadChart();
+            } catch (error) {
+                console.error('Failed to load default chart:', error);
+                // Error already displayed by loadChart()
+            }
+        });
+    </script>
+</body>
+</html>

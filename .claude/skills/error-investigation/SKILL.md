@@ -346,7 +346,132 @@ def lambda_handler(event, context):
 
 See [LAMBDA-LOGGING.md#troubleshooting](LAMBDA-LOGGING.md#troubleshooting) for complete debugging guide.
 
-### Scenario 3: DynamoDB PutItem Succeeds But No Data
+### Scenario 3: Lambda Timeout with Network Operations
+
+**Symptom:** Lambda times out after long execution (600s+), logs show "PDF generation..." but no completion message.
+
+**Investigation Steps:**
+
+```bash
+# 1. Check execution duration pattern
+aws logs filter-log-events \
+  --log-group-name /aws/lambda/pdf-worker \
+  --filter-pattern "Duration:" \
+  --query 'events[*].message' \
+  | grep -o "Duration: [0-9]*" \
+  | sort -n
+
+# Look for pattern:
+# - First 5 requests: Duration: 2-3s
+# - Last 5 requests: Duration: 600s+ (timeout)
+
+# 2. Check for connection timeout errors
+aws logs filter-log-events \
+  --log-group-name /aws/lambda/pdf-worker \
+  --filter-pattern "ConnectTimeoutError" \
+  --query 'events[*].message'
+
+# Output:
+# botocore.exceptions.ConnectTimeoutError: Connect timeout on endpoint URL:
+# "https://bucket.s3.region.amazonaws.com/..."
+
+# 3. Analyze timeline (deterministic vs random)
+aws logs tail /aws/lambda/pdf-worker --since 30m | \
+  grep -E "START RequestId|✅ PDF job completed|ConnectTimeoutError" | \
+  awk '{print $1, $2, $NF}' | sort
+
+# Deterministic pattern (first N succeed, last M fail) = infrastructure bottleneck
+# Random pattern (scattered failures) = performance issue
+```
+
+**Root Cause Analysis:**
+
+```bash
+# 4. Check VPC configuration
+aws ec2 describe-vpc-endpoints \
+  --filters "Name=vpc-id,Values=vpc-xxx" \
+            "Name=service-name,Values=com.amazonaws.region.s3"
+
+# If empty → No S3 VPC Endpoint (traffic goes through NAT Gateway)
+
+# 5. Verify NAT Gateway routing
+aws ec2 describe-route-tables \
+  --filters "Name=vpc-id,Values=vpc-xxx" \
+  --query 'RouteTables[*].Routes[?GatewayId!=`local`]'
+
+# If route 0.0.0.0/0 → nat-xxx → NAT Gateway saturated with concurrent connections
+```
+
+**Root Cause:** NAT Gateway connection saturation. When N concurrent Lambdas upload to S3:
+- NAT Gateway has limited connection establishment rate
+- First N connections succeed (2-3s upload time)
+- Remaining connections queue and timeout (600s = boto3 default timeout + retries)
+- Pattern is deterministic (always first N succeed, last M fail)
+
+**Fix:**
+
+```hcl
+# terraform/s3_vpc_endpoint.tf
+resource "aws_vpc_endpoint" "s3" {
+  vpc_id            = data.aws_vpc.default.id
+  service_name      = "com.amazonaws.${var.aws_region}.s3"
+  vpc_endpoint_type = "Gateway"
+
+  route_table_ids = data.aws_route_tables.vpc_route_tables.ids
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = "*"
+      Action    = "s3:*"
+      Resource  = "*"
+    }]
+  })
+}
+```
+
+**Why This Works:**
+- S3 Gateway Endpoint adds routes to VPC route tables
+- S3 traffic bypasses NAT Gateway (direct AWS network path)
+- No connection establishment limits
+- FREE (Gateway endpoints have no hourly charge)
+- 200x faster (2-3s vs 600s timeout)
+
+**Verification:**
+
+```bash
+# 1. Deploy VPC endpoint
+cd terraform && terraform apply
+
+# 2. Verify endpoint created
+terraform output s3_vpc_endpoint_state  # Should be "available"
+
+# 3. Test full workflow
+aws stepfunctions start-execution \
+  --state-machine-arn <pdf-workflow-arn> \
+  --input '{"report_date":"2026-01-05"}'
+
+# 4. Monitor for 100% success rate
+aws logs tail /aws/lambda/pdf-worker --follow
+
+# Expected: All PDFs complete in 2-3s, no timeouts
+```
+
+**Critical Insight:** **Execution Time ≠ Hang Location**
+- 600s execution time doesn't mean code hangs for 600s
+- It means ENTIRE execution (including network timeout) took 600s
+- Check stack traces (Layer 3) to find WHERE timeout occurs
+- Don't assume "logs stop at line X" = "code hangs at line X" (logs lost when Lambda fails)
+
+**Pattern Recognition:**
+- **Deterministic failure** (first N succeed, last M fail) → Infrastructure bottleneck (NAT, VPC endpoint)
+- **Random failure** (scattered across all attempts) → Performance issue (slow API, memory pressure)
+- **All fail** → Configuration issue (missing permissions, wrong endpoint)
+
+See [Bug Hunt Report](../../bug-hunts/2026-01-05-pdf-s3-upload-timeout.md) for complete investigation.
+
+### Scenario 4: DynamoDB PutItem Succeeds But No Data
 
 **Symptom:** `put_item()` returns 200, but item not in table.
 

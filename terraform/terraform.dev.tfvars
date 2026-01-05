@@ -45,4 +45,4 @@ aurora_min_acu = 0.5  # ~$43/month
 aurora_max_acu = 2
 aurora_database_name = "ticker_data"
 aurora_master_username = "admin"
-lambda_image_tag = "fix-permissions-20260104-151110"
+lambda_image_tag = "pdf-timeout-fix-20260105-061221"
