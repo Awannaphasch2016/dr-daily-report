@@ -469,29 +469,23 @@
             return { extremeLine, isDoubleBottom };
         }
 
-        // Draw wedge pattern overlay
+        // Draw wedge pattern overlay - uses linear regression on highs/lows
         function createWedgeAnnotation(pattern, ohlcData) {
             const startDate = new Date(pattern.start_date).getTime();
             const endDate = new Date(pattern.end_date).getTime();
 
             // Find data points in range
-            const startIdx = ohlcData.findIndex(d => d.x >= startDate);
-            const endIdx = ohlcData.findIndex(d => d.x >= endDate);
+            const rangeData = ohlcData.filter(d => d.x >= startDate && d.x <= endDate);
 
-            if (startIdx === -1 || endIdx === -1) return null;
+            if (rangeData.length < 3) return null;
 
-            const segment = ohlcData.slice(startIdx, endIdx);
-            const resistanceLine = [];
-            const supportLine = [];
+            // Extract highs and lows with x coordinates
+            const highs = rangeData.map(d => ({ x: d.x, y: d.h }));
+            const lows = rangeData.map(d => ({ x: d.x, y: d.l }));
 
-            segment.forEach((point, i) => {
-                const x = point.x;
-                const resistanceY = segment[0].h + (pattern.resistance_slope * i);
-                const supportY = segment[0].l + (pattern.support_slope * i);
-
-                resistanceLine.push({ x, y: resistanceY });
-                supportLine.push({ x, y: supportY });
-            });
+            // Fit trendlines using linear regression (same approach as flag/triangle)
+            const resistanceLine = fitLinearTrendline(highs);
+            const supportLine = fitLinearTrendline(lows);
 
             return { resistanceLine, supportLine };
         }

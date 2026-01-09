@@ -23,11 +23,13 @@ sys.path.insert(0, '/tmp/stock-pattern/src')
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from typing import Optional, List, Dict, Any
 import pandas as pd
 import logging
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
+from pathlib import Path
 
 # Import stock-pattern utilities
 import utils as stock_pattern_utils
@@ -54,30 +56,77 @@ bangkok_tz = ZoneInfo("Asia/Bangkok")
 
 def fetch_ohlc_data(ticker: str, days: int = 90) -> pd.DataFrame:
     """
-    Fetch OHLC data from Aurora database
+    Fetch OHLC data from Aurora database, with yfinance fallback for local dev
 
     Returns DataFrame with DatetimeIndex and columns: Open, High, Low, Close, Volume
     """
-    repo = TickerRepository()
+    # Check if Aurora is available by checking for AURORA_HOST env var
+    aurora_host = os.environ.get('AURORA_HOST') or os.environ.get('AURORA_SECRET_ARN')
 
-    # Calculate date range
-    end_date = datetime.now(bangkok_tz).date()
-    start_date = end_date - timedelta(days=days)
+    if aurora_host and aurora_host != 'localhost':
+        # Try Aurora if configured
+        try:
+            repo = TickerRepository()
 
-    # Fetch data as DataFrame
-    df = repo.get_prices_as_dataframe(
-        symbol=ticker,
-        start_date=start_date,
-        end_date=end_date,
-        limit=days + 10  # Add buffer for weekends/holidays
-    )
+            # Calculate date range
+            end_date = datetime.now(bangkok_tz).date()
+            start_date = end_date - timedelta(days=days)
 
-    if df.empty:
-        raise HTTPException(status_code=404, detail=f"No data found for {ticker}")
+            # Fetch data as DataFrame
+            df = repo.get_prices_as_dataframe(
+                symbol=ticker,
+                start_date=start_date,
+                end_date=end_date,
+                limit=days + 10  # Add buffer for weekends/holidays
+            )
 
-    logger.info(f"Fetched {len(df)} bars for {ticker} from {start_date} to {end_date}")
+            if df.empty:
+                raise HTTPException(status_code=404, detail=f"No data found for {ticker}")
 
-    return df
+            logger.info(f"Fetched {len(df)} bars for {ticker} from Aurora")
+
+            return df
+
+        except Exception as aurora_error:
+            logger.warning(f"Aurora fetch failed: {aurora_error}")
+            # Fall through to yfinance
+
+    # Use yfinance (either as fallback or primary for local dev)
+    try:
+        import yfinance as yf
+
+        # Calculate period string for yfinance
+        if days <= 30:
+            period = "1mo"
+        elif days <= 90:
+            period = "3mo"
+        elif days <= 180:
+            period = "6mo"
+        else:
+            period = "1y"
+
+        logger.info(f"Fetching {ticker} from yfinance (period={period})")
+
+        # Fetch from yfinance
+        df = yf.download(ticker, period=period, progress=False)
+
+        if df.empty:
+            raise HTTPException(status_code=404, detail=f"No data found for {ticker}")
+
+        # Flatten multi-index columns if needed
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = [col[0] if isinstance(col, tuple) else col for col in df.columns]
+
+        # Keep only OHLCV columns
+        df = df[['Open', 'High', 'Low', 'Close', 'Volume']]
+
+        logger.info(f"Fetched {len(df)} bars for {ticker} from yfinance")
+
+        return df
+
+    except Exception as yf_error:
+        logger.error(f"yfinance fetch failed: {yf_error}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch data: {str(yf_error)}")
 
 
 def find_pivot_points(df: pd.DataFrame, window: int = 5) -> pd.DataFrame:
@@ -202,6 +251,54 @@ def detect_all_patterns(ticker: str, df: pd.DataFrame) -> List[Dict[str, Any]]:
     except Exception as e:
         logger.error(f"Error detecting double top: {e}")
 
+    # 6. Head & Shoulders
+    try:
+        hns_result = stock_pattern_utils.find_hns(ticker, df, pivots, config)
+        if hns_result:
+            patterns.append({
+                'type': 'head_and_shoulders',
+                'data': stock_pattern_utils.make_serializable(hns_result)
+            })
+            logger.info("✅ Head & Shoulders detected")
+    except Exception as e:
+        logger.error(f"Error detecting H&S: {e}")
+
+    # 7. Reverse Head & Shoulders
+    try:
+        rhns_result = stock_pattern_utils.find_reverse_hns(ticker, df, pivots, config)
+        if rhns_result:
+            patterns.append({
+                'type': 'reverse_head_and_shoulders',
+                'data': stock_pattern_utils.make_serializable(rhns_result)
+            })
+            logger.info("✅ Reverse Head & Shoulders detected")
+    except Exception as e:
+        logger.error(f"Error detecting reverse H&S: {e}")
+
+    # 8. Bullish VCP (Volatility Contraction Pattern)
+    try:
+        vcp_result = stock_pattern_utils.find_bullish_vcp(ticker, df, pivots, config)
+        if vcp_result:
+            patterns.append({
+                'type': 'bullish_vcp',
+                'data': stock_pattern_utils.make_serializable(vcp_result)
+            })
+            logger.info("✅ Bullish VCP detected")
+    except Exception as e:
+        logger.error(f"Error detecting bullish VCP: {e}")
+
+    # 9. Bearish VCP
+    try:
+        vcp_result = stock_pattern_utils.find_bearish_vcp(ticker, df, pivots, config)
+        if vcp_result:
+            patterns.append({
+                'type': 'bearish_vcp',
+                'data': stock_pattern_utils.make_serializable(vcp_result)
+            })
+            logger.info("✅ Bearish VCP detected")
+    except Exception as e:
+        logger.error(f"Error detecting bearish VCP: {e}")
+
     logger.info(f"Detected {len(patterns)} pattern(s)")
 
     return patterns
@@ -209,15 +306,28 @@ def detect_all_patterns(ticker: str, df: pd.DataFrame) -> List[Dict[str, Any]]:
 
 @app.get("/")
 def root():
-    """API info"""
+    """Serve the chart viewer HTML"""
+    html_path = Path(project_root) / "standalone_chart_viewer.html"
+    if html_path.exists():
+        return FileResponse(html_path)
     return {
         "name": "Pattern Detection API",
         "description": "Uses stock-pattern library for pattern detection",
         "endpoints": {
             "/detect-patterns": "Detect patterns for a ticker",
+            "/api/chart-data/{symbol}": "Get chart data for visualization",
             "/health": "Health check"
         }
     }
+
+
+@app.get("/test_chart.html")
+def test_chart():
+    """Serve test chart page"""
+    html_path = Path(project_root) / "test_chart.html"
+    if html_path.exists():
+        return FileResponse(html_path)
+    raise HTTPException(status_code=404, detail="test_chart.html not found")
 
 
 @app.get("/health")
@@ -288,6 +398,113 @@ def detect_patterns(
     except Exception as e:
         logger.error(f"Error detecting patterns: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Pattern detection failed: {str(e)}")
+
+
+@app.get("/api/chart-data/{symbol}")
+def get_chart_data(
+    symbol: str,
+    period: str = Query("90d", description="Time period (e.g., 30d, 90d, 180d, 1y)")
+):
+    """
+    Get chart data with patterns for standalone_chart_viewer.html
+
+    Returns data in format expected by Chart.js:
+    {
+        "ohlc": [{"x": timestamp_ms, "o": open, "h": high, "l": low, "c": close}],
+        "patterns": {...}
+    }
+    """
+    try:
+        # Parse period (e.g., "90d" -> 90 days, "6mo" -> 180 days)
+        period_lower = period.lower()
+
+        if period_lower.endswith('mo'):
+            # Handle "6mo" format
+            days = int(period_lower[:-2]) * 30
+        elif period_lower.endswith('d'):
+            days = int(period_lower[:-1])
+        elif period_lower.endswith('m'):
+            days = int(period_lower[:-1]) * 30
+        elif period_lower.endswith('y'):
+            days = int(period_lower[:-1]) * 365
+        else:
+            # Assume days if no suffix
+            days = int(period_lower)
+
+        # Fetch OHLC data
+        df = fetch_ohlc_data(symbol, days)
+
+        # Detect patterns
+        raw_patterns = detect_all_patterns(symbol, df)
+
+        # Convert OHLC to Chart.js format (timestamps in milliseconds)
+        ohlc = [
+            {
+                "x": int(date.timestamp() * 1000),  # milliseconds
+                "o": float(row['Open']),
+                "h": float(row['High']),
+                "l": float(row['Low']),
+                "c": float(row['Close'])
+            }
+            for date, row in df.iterrows()
+        ]
+
+        # Transform patterns to format expected by HTML viewer
+        # Viewer expects: pattern, type, start_date, end_date, confidence
+        transformed_patterns = []
+        for p in raw_patterns:
+            pattern_type = p.get('type', '')
+            data = p.get('data', {})
+
+            # Map API pattern types to viewer pattern types
+            pattern_map = {
+                'bullish_flag': 'flag_pennant',
+                'bearish_flag': 'flag_pennant',
+                'triangle': 'triangle',
+                'head_and_shoulders': 'head_and_shoulders',
+                'reverse_head_and_shoulders': 'inverse_head_and_shoulders',
+                'double_bottom': 'double_bottom',
+                'double_top': 'double_top',
+                'bullish_vcp': 'wedge_rising',  # VCP is similar to a wedge/flag
+                'bearish_vcp': 'wedge_falling',
+            }
+
+            # Determine bullish/bearish
+            sentiment = 'bullish' if 'bullish' in pattern_type or pattern_type in ['reverse_head_and_shoulders', 'double_bottom'] else 'bearish'
+
+            transformed_patterns.append({
+                'pattern': pattern_map.get(pattern_type, pattern_type),
+                'type': sentiment,
+                'start_date': data.get('start', data.get('df_start', '')),
+                'end_date': data.get('end', data.get('df_end', '')),
+                'confidence': 'medium',  # stock-pattern doesn't provide confidence
+                'raw_pattern': data.get('pattern', ''),  # Original pattern code (e.g., VCPU, HNSD)
+                'points': data.get('points', {}),
+            })
+
+        logger.info(f"Transformed {len(transformed_patterns)} pattern(s) for viewer")
+
+        # Format patterns for visualization (match expected structure)
+        patterns = {
+            "chart_patterns": transformed_patterns,
+            "support_resistance": {
+                "support": [],
+                "resistance": []
+            }
+        }
+
+        return {
+            "ohlc": ohlc,
+            "patterns": patterns,
+            "symbol": symbol,
+            "period": period
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching chart data: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to fetch chart data: {str(e)}")
 
 
 if __name__ == "__main__":

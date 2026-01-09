@@ -18,12 +18,14 @@ from .models import (
     UncertaintyScore,
     Risk,
     Peer,
+    ChartPattern,
     GenerationMetadata,
     PriceDataPoint,
     ProjectionBand,
     ScoringMetric
 )
 from .peer_selector import get_peer_selector_service
+from src.services.pattern_detection_service import get_pattern_service
 
 logger = logging.getLogger(__name__)
 
@@ -191,6 +193,9 @@ class ResponseTransformer:
         key_scores = scores.get('key_scores', [])
         all_scores = scores.get('all_scores', [])
 
+        # Detect chart patterns
+        chart_patterns = self._detect_chart_patterns(ticker)
+
         return ReportResponse(
             ticker=ticker,
             company_name=company_name,
@@ -205,6 +210,7 @@ class ResponseTransformer:
             narrative_report=report_text,
             summary_sections=summary_sections,
             technical_metrics=technical_metrics,
+            chart_patterns=chart_patterns,
             fundamentals=fundamentals,
             news_items=news_items,
             overall_sentiment=overall_sentiment,
@@ -856,6 +862,37 @@ class ResponseTransformer:
             'all_scores': all_scores
         }
 
+    def _detect_chart_patterns(self, ticker: str) -> list[ChartPattern]:
+        """Detect chart patterns using stock-pattern library
+
+        Args:
+            ticker: Stock ticker symbol
+
+        Returns:
+            List of ChartPattern objects
+        """
+        try:
+            pattern_service = get_pattern_service()
+            result = pattern_service.detect_patterns(ticker, days=180)
+
+            patterns = []
+            for p in result.get('patterns', []):
+                patterns.append(ChartPattern(
+                    type=p['type'],
+                    pattern=p['pattern'],
+                    confidence=p['confidence'],
+                    start=p.get('start'),
+                    end=p.get('end'),
+                    points=p.get('points', {})
+                ))
+
+            logger.info(f"✅ Detected {len(patterns)} chart pattern(s) for {ticker}")
+            return patterns
+
+        except Exception as e:
+            logger.error(f"❌ Pattern detection failed for {ticker}: {e}")
+            return []  # Return empty list on failure (defensive)
+
     async def transform_cached_report(
         self,
         cached_report: dict,
@@ -1022,6 +1059,9 @@ class ResponseTransformer:
 
         logger.debug(f"Extracted {len(price_history)} price_history points and {len(projections)} projections")
 
+        # Detect chart patterns
+        chart_patterns = self._detect_chart_patterns(ticker)
+
         return ReportResponse(
             ticker=ticker,
             company_name=company_name,
@@ -1036,6 +1076,7 @@ class ResponseTransformer:
             narrative_report=report_text,
             summary_sections=summary_sections,
             technical_metrics=technical_metrics,
+            chart_patterns=chart_patterns,
             fundamentals=fundamentals,
             news_items=news_items,
             overall_sentiment=overall_sentiment,

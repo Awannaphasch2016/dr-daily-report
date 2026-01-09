@@ -131,6 +131,16 @@ class Peer(BaseModel):
     valuation_label: Literal["cheap", "fair", "expensive"] = Field(..., description="Valuation assessment")
 
 
+class ChartPattern(BaseModel):
+    """Detected chart pattern"""
+    type: str = Field(..., description="Pattern type (e.g. bullish_flag, triangle)")
+    pattern: str = Field(..., description="Pattern code (e.g. FLAGU, TRNG)")
+    confidence: Literal["high", "medium", "low"] = Field(..., description="Detection confidence")
+    start: Optional[str] = Field(None, description="Pattern start date (ISO format)")
+    end: Optional[str] = Field(None, description="Pattern end date (ISO format)")
+    points: dict = Field(default_factory=dict, description="Key pattern points (A, B, C, etc)")
+
+
 class GenerationMetadata(BaseModel):
     """Report generation metadata"""
     agent_version: str = Field(default="v1.0.0", description="Agent version")
@@ -164,6 +174,7 @@ class ReportResponse(BaseModel):
     # Report sections
     summary_sections: SummarySections = Field(..., description="Summary bullets")
     technical_metrics: list[TechnicalMetric] = Field(..., description="Technical indicators")
+    chart_patterns: list[ChartPattern] = Field(default_factory=list, description="Detected chart patterns")
     fundamentals: Fundamentals = Field(..., description="Fundamental metrics")
     news_items: list[NewsItem] = Field(..., description="Related news")
     overall_sentiment: OverallSentiment = Field(..., description="Aggregated sentiment")
