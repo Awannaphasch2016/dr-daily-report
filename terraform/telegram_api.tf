@@ -169,7 +169,7 @@ resource "aws_lambda_function" "telegram_api" {
       REPORT_WORKER_FUNCTION_NAME  = aws_lambda_function.report_worker.function_name
 
       # Telegram Configuration
-      TELEGRAM_BOT_TOKEN  = var.telegram_bot_token
+      TELEGRAM_BOT_TOKEN  = var.TELEGRAM_BOT_TOKEN
       TELEGRAM_APP_ID     = var.telegram_app_id
       TELEGRAM_APP_HASH   = var.telegram_app_hash
       TELEGRAM_WEBAPP_URL = var.telegram_webapp_url

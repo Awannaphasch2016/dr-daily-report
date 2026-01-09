@@ -123,7 +123,7 @@ variable "LINE_CHANNEL_SECRET" {
 # Telegram Mini App Variables
 ###############################################################################
 
-variable "telegram_bot_token" {
+variable "TELEGRAM_BOT_TOKEN" {
   description = "Telegram Bot Token for Mini App"
   type        = string
   sensitive   = true
