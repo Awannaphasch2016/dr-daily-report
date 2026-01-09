@@ -80,6 +80,11 @@ variable "OPENROUTER_API_KEY" {
     condition     = !can(regex("placeholder", var.OPENROUTER_API_KEY))
     error_message = "OPENROUTER_API_KEY contains 'placeholder' - Doppler value not injected. Run with: doppler run -- terraform plan"
   }
+
+  validation {
+    condition     = length(var.OPENROUTER_API_KEY) > 0
+    error_message = "OPENROUTER_API_KEY must not be empty. Ensure TF_VAR_OPENROUTER_API_KEY is set in Doppler."
+  }
 }
 
 variable "LINE_CHANNEL_ACCESS_TOKEN" {
@@ -91,6 +96,11 @@ variable "LINE_CHANNEL_ACCESS_TOKEN" {
     condition     = !can(regex("placeholder", var.LINE_CHANNEL_ACCESS_TOKEN))
     error_message = "LINE_CHANNEL_ACCESS_TOKEN contains 'placeholder' - Doppler value not injected. Run with: doppler run -- terraform plan"
   }
+
+  validation {
+    condition     = length(var.LINE_CHANNEL_ACCESS_TOKEN) > 0
+    error_message = "LINE_CHANNEL_ACCESS_TOKEN must not be empty. Ensure TF_VAR_LINE_CHANNEL_ACCESS_TOKEN is set in Doppler."
+  }
 }
 
 variable "LINE_CHANNEL_SECRET" {
@@ -101,6 +111,11 @@ variable "LINE_CHANNEL_SECRET" {
   validation {
     condition     = !can(regex("placeholder", var.LINE_CHANNEL_SECRET))
     error_message = "LINE_CHANNEL_SECRET contains 'placeholder' - Doppler value not injected. Run with: doppler run -- terraform plan"
+  }
+
+  validation {
+    condition     = length(var.LINE_CHANNEL_SECRET) > 0
+    error_message = "LINE_CHANNEL_SECRET must not be empty. Ensure TF_VAR_LINE_CHANNEL_SECRET is set in Doppler."
   }
 }
 

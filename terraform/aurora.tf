@@ -42,6 +42,11 @@ variable "AURORA_MASTER_PASSWORD" {
   type        = string
   sensitive   = true
   default     = ""  # Will be set via Doppler TF_VAR_AURORA_MASTER_PASSWORD
+
+  validation {
+    condition     = length(var.AURORA_MASTER_PASSWORD) > 0
+    error_message = "AURORA_MASTER_PASSWORD must not be empty. Ensure TF_VAR_AURORA_MASTER_PASSWORD is set in Doppler."
+  }
 }
 
 variable "aurora_database_name" {
