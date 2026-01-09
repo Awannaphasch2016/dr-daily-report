@@ -1,5 +1,5 @@
 # Terraform configuration for Async Report Generation
-# Architecture: API Gateway -> API Lambda -> SQS -> Worker Lambda -> DynamoDB
+# Architecture: API Gateway -> API Lambda -> Direct Lambda Invocation -> Worker Lambda -> DynamoDB
 
 ###############################################################################
 # DynamoDB Table for Report Jobs
@@ -27,47 +27,6 @@ resource "aws_dynamodb_table" "report_jobs" {
     App       = "telegram-api"
     Component = "job-storage"
     DataType  = "async-jobs"
-  })
-}
-
-###############################################################################
-# SQS Dead Letter Queue (DLQ)
-###############################################################################
-
-resource "aws_sqs_queue" "report_jobs_dlq" {
-  name                       = "${var.project_name}-report-jobs-dlq-${var.environment}"
-  message_retention_seconds  = 1209600 # 14 days (for debugging failed jobs)
-  visibility_timeout_seconds = 900     # 15 min - matches main queue
-  receive_wait_time_seconds  = 20      # Long polling (cost optimization)
-
-  tags = merge(local.common_tags, {
-    Name      = "${var.project_name}-report-jobs-dlq-${var.environment}"
-    App       = "telegram-api"
-    Component = "dead-letter-queue"
-  })
-}
-
-###############################################################################
-# SQS Queue for Report Jobs
-###############################################################################
-
-resource "aws_sqs_queue" "report_jobs" {
-  name                       = "${var.project_name}-telegram-queue-${var.environment}"
-  visibility_timeout_seconds = 900      # 15 min - matches Lambda max timeout (prevents duplicate processing)
-  message_retention_seconds  = 1209600  # 14 days (for debugging failed jobs)
-  receive_wait_time_seconds  = 20       # Long polling (cost optimization)
-
-  # Dead Letter Queue configuration
-  # maxReceiveCount = 1: fail once → move to DLQ immediately (no retries)
-  redrive_policy = jsonencode({
-    deadLetterTargetArn = aws_sqs_queue.report_jobs_dlq.arn
-    maxReceiveCount     = 1
-  })
-
-  tags = merge(local.common_tags, {
-    Name      = "${var.project_name}-report-jobs-${var.environment}"
-    App       = "telegram-api"
-    Component = "job-queue"
   })
 }
 
@@ -135,16 +94,6 @@ resource "aws_iam_role_policy" "report_worker_policy" {
           "logs:PutLogEvents"
         ]
         Resource = "arn:aws:logs:*:*:*"
-      },
-      # SQS - Receive messages
-      {
-        Effect = "Allow"
-        Action = [
-          "sqs:ReceiveMessage",
-          "sqs:DeleteMessage",
-          "sqs:GetQueueAttributes"
-        ]
-        Resource = aws_sqs_queue.report_jobs.arn
       },
       # DynamoDB - Create and update job status
       {
@@ -273,44 +222,10 @@ resource "aws_lambda_alias" "report_worker_live" {
 }
 
 ###############################################################################
-# Lambda Permission for SQS to invoke Report Worker
+# Telegram API Lambda IAM Policy for Jobs Table
 ###############################################################################
 
-resource "aws_lambda_permission" "report_worker_sqs" {
-  statement_id  = "AllowSQSInvoke"
-  action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.report_worker.function_name
-  qualifier     = aws_lambda_alias.report_worker_live.name
-  principal     = "sqs.amazonaws.com"
-  source_arn    = aws_sqs_queue.report_jobs.arn
-}
-
-###############################################################################
-# SQS Lambda Event Source Mapping
-###############################################################################
-
-resource "aws_lambda_event_source_mapping" "report_jobs_trigger" {
-  event_source_arn = aws_sqs_queue.report_jobs.arn
-  # Point to "live" alias for safe deployments
-  function_name    = aws_lambda_alias.report_worker_live.arn
-
-  batch_size                         = 1 # Process one message at a time for max parallelism
-  maximum_batching_window_in_seconds = 0 # No batching delay for immediate processing
-
-  # Don't report failures back to SQS - let DLQ handle it
-  function_response_types = []
-
-  depends_on = [
-    aws_lambda_alias.report_worker_live,
-    aws_iam_role_policy.report_worker_policy
-  ]
-}
-
-###############################################################################
-# Update Telegram API Lambda IAM Policy for SQS and Jobs Table
-###############################################################################
-
-# Policy for Telegram API Lambda to send messages to SQS and create jobs
+# Policy for Telegram API Lambda to create and read jobs
 resource "aws_iam_role_policy" "telegram_api_async_policy" {
   name = "${var.project_name}-telegram-api-async-policy-${var.environment}"
   role = aws_iam_role.telegram_lambda_role.id
@@ -318,15 +233,6 @@ resource "aws_iam_role_policy" "telegram_api_async_policy" {
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
-      # SQS - Send messages
-      {
-        Effect = "Allow"
-        Action = [
-          "sqs:SendMessage",
-          "sqs:GetQueueUrl"
-        ]
-        Resource = aws_sqs_queue.report_jobs.arn
-      },
       # DynamoDB - Create and read jobs
       {
         Effect = "Allow"
@@ -344,21 +250,6 @@ resource "aws_iam_role_policy" "telegram_api_async_policy" {
 ###############################################################################
 # Outputs
 ###############################################################################
-
-output "report_jobs_queue_url" {
-  value       = aws_sqs_queue.report_jobs.url
-  description = "URL of the SQS queue for report jobs"
-}
-
-output "report_jobs_queue_arn" {
-  value       = aws_sqs_queue.report_jobs.arn
-  description = "ARN of the SQS queue for report jobs"
-}
-
-output "report_jobs_dlq_url" {
-  value       = aws_sqs_queue.report_jobs_dlq.url
-  description = "URL of the Dead Letter Queue for failed jobs"
-}
 
 output "report_jobs_table_name" {
   value       = aws_dynamodb_table.report_jobs.name

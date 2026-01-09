@@ -62,14 +62,6 @@ resource "aws_iam_role_policy" "precompute_workflow_policy" {
         ]
         Resource = "*"
       },
-      # SQS - Send messages to report jobs queue
-      {
-        Effect = "Allow"
-        Action = [
-          "sqs:SendMessage"
-        ]
-        Resource = aws_sqs_queue.report_jobs.arn
-      },
       # Lambda - Invoke get_ticker_list function
       {
         Effect = "Allow"
@@ -98,7 +90,6 @@ data "aws_lambda_function" "report_worker" {
 # Read state machine definition template and substitute variables
 locals {
   precompute_workflow_definition = templatefile("${path.module}/step_functions/precompute_workflow.json", {
-    sqs_queue_url                 = aws_sqs_queue.report_jobs.url
     region                        = var.aws_region
     account_id                    = data.aws_caller_identity.current.account_id
     get_ticker_list_function_name = aws_lambda_function.get_ticker_list.function_name

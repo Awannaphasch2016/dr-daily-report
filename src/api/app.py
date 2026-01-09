@@ -122,50 +122,11 @@ def get_user_id_from_header(
     )
 
 
-def send_to_sqs(job_id: str, ticker: str) -> None:
-    """Send job to SQS queue for async processing
-
-    DEPRECATED: This function is deprecated and will be removed after
-    migration to direct Lambda invocation is complete across all environments.
-    Use invoke_report_worker() instead.
-
-    Args:
-        job_id: Unique job identifier
-        ticker: Ticker symbol to analyze
-    """
-    queue_url = os.getenv(
-        "REPORT_JOBS_QUEUE_URL",
-        "https://sqs.ap-southeast-1.amazonaws.com/123456789/dr-report-jobs-dev"
-    )
-
-    try:
-        sqs = boto3.client('sqs')
-        message_body = json.dumps({
-            'job_id': job_id,
-            'ticker': ticker
-        })
-
-        sqs.send_message(
-            QueueUrl=queue_url,
-            MessageBody=message_body
-        )
-
-        logger.info(f"Sent job {job_id} to SQS queue for ticker {ticker}")
-
-    except Exception as e:
-        logger.error(f"Failed to send job {job_id} to SQS: {e}")
-        raise
-
-
 def invoke_report_worker(job_id: str, ticker: str) -> None:
     """Invoke report worker Lambda directly for async processing
 
-    Replaces SQS-based async pattern with direct Lambda invocation.
-    Uses Event invocation type (async) to maintain request-response decoupling.
-
-    Migration context: Part of SQS-to-direct-Lambda migration (2026-01-04)
-    This function replaces send_to_sqs() to eliminate SQS infrastructure dependency
-    while maintaining the same async behavior.
+    Uses direct Lambda invocation with Event invocation type (async)
+    to maintain request-response decoupling for long-running report generation.
 
     Args:
         job_id: Unique job identifier
@@ -464,7 +425,6 @@ async def submit_report_async(
         job = job_service.create_job(ticker=ticker_upper)
 
         # Invoke report worker Lambda directly for async processing
-        # Migration: Replaced send_to_sqs() with invoke_report_worker() (2026-01-04)
         invoke_report_worker(job.job_id, ticker_upper)
 
         logger.info(f"Submitted async report job {job.job_id} for {ticker_upper}")

@@ -40,9 +40,6 @@ resource "aws_lambda_function" "ticker_scheduler" {
       # LLM API Key (required for report generation)
       OPENROUTER_API_KEY = var.OPENROUTER_API_KEY
 
-      # SQS Queue for parallel precompute fan-out
-      REPORT_JOBS_QUEUE_URL = aws_sqs_queue.report_jobs.url
-
       # DynamoDB for job tracking
       JOBS_TABLE_NAME = aws_dynamodb_table.report_jobs.name
 

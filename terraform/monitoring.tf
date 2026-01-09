@@ -76,36 +76,6 @@ resource "aws_cloudwatch_metric_alarm" "report_worker_errors" {
 }
 
 ###############################################################################
-# DLQ Messages Alarm (Failed Report Jobs)
-###############################################################################
-
-resource "aws_cloudwatch_metric_alarm" "dlq_messages" {
-  alarm_name          = "${var.project_name}-dlq-messages-${var.environment}"
-  comparison_operator = "GreaterThanThreshold"
-  evaluation_periods  = 1
-  metric_name         = "ApproximateNumberOfMessagesVisible"
-  namespace           = "AWS/SQS"
-  period              = 300
-  statistic           = "Sum"
-  threshold           = 1
-  alarm_description   = "Messages in DLQ - report jobs are failing"
-  treat_missing_data  = "notBreaching"
-
-  dimensions = {
-    QueueName = aws_sqs_queue.report_jobs_dlq.name
-  }
-
-  alarm_actions = [aws_sns_topic.telegram_alerts.arn]
-  ok_actions    = [aws_sns_topic.telegram_alerts.arn]
-
-  tags = merge(local.common_tags, {
-    Name      = "${var.project_name}-dlq-messages-alarm-${var.environment}"
-    App       = "telegram-api"
-    Component = "monitoring"
-  })
-}
-
-###############################################################################
 # API Gateway 5xx Errors Alarm
 ###############################################################################
 

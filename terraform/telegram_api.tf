@@ -166,9 +166,7 @@ resource "aws_lambda_function" "telegram_api" {
       JOBS_TABLE_NAME          = aws_dynamodb_table.report_jobs.name
 
       # Async Report Processing
-      # Migration (2026-01-04): Transitioning from SQS to direct Lambda invocation
-      REPORT_JOBS_QUEUE_URL        = aws_sqs_queue.report_jobs.url  # DEPRECATED - will be removed after migration verified
-      REPORT_WORKER_FUNCTION_NAME  = aws_lambda_function.report_worker.function_name  # NEW - direct Lambda invocation
+      REPORT_WORKER_FUNCTION_NAME  = aws_lambda_function.report_worker.function_name
 
       # Telegram Configuration
       TELEGRAM_BOT_TOKEN  = var.telegram_bot_token
