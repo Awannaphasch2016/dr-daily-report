@@ -6,9 +6,22 @@
 
 /**
  * Base URL for API requests
- * Loaded from environment variable via Vite
+ *
+ * Priority:
+ * 1. Runtime injection via window.TELEGRAM_API_URL (CI/CD workflow)
+ * 2. Build-time VITE_API_BASE_URL from .env files
+ * 3. Empty string (relative URLs for same-origin)
  */
-export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
+const getApiBaseUrl = (): string => {
+  // Runtime injection from CI/CD workflow (sed into index.html)
+  if (typeof window !== 'undefined' && (window as any).TELEGRAM_API_URL) {
+    return (window as any).TELEGRAM_API_URL;
+  }
+  // Build-time environment variable
+  return import.meta.env.VITE_API_BASE_URL || '';
+};
+
+export const API_BASE_URL = getApiBaseUrl();
 
 /**
  * Request timeout in milliseconds
