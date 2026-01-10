@@ -18,9 +18,17 @@ from typing import Optional, List, Dict, Any
 from datetime import datetime, timedelta
 import pandas as pd
 
-# Add stock-pattern library to path
-sys.path.insert(0, '/tmp/stock-pattern/src')
-import utils as stock_pattern_lib
+# Try to load stock-pattern library (optional dependency for local dev)
+# In Lambda, this feature is disabled - patterns detected via external API
+stock_pattern_lib = None
+STOCK_PATTERN_AVAILABLE = False
+
+try:
+    sys.path.insert(0, '/tmp/stock-pattern/src')
+    import utils as stock_pattern_lib
+    STOCK_PATTERN_AVAILABLE = True
+except ImportError:
+    pass  # Feature disabled in Lambda environment
 
 from src.data.aurora.repository import TickerRepository
 
@@ -65,6 +73,11 @@ class PatternDetectionService:
                 ]
             }
         """
+        # Check if stock-pattern library is available
+        if not STOCK_PATTERN_AVAILABLE:
+            logger.debug(f"Pattern detection disabled - stock-pattern library not available")
+            return self._empty_result(ticker, error="Pattern detection library not available")
+
         logger.info(f"Detecting patterns for {ticker} (last {days} days)")
 
         try:
