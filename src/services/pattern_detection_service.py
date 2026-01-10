@@ -1,49 +1,91 @@
 """
 Chart Pattern Detection Service
 
-Uses stock-pattern library (https://github.com/BennyThadikaran/stock-pattern)
-to detect technical chart patterns in OHLC data.
+Uses registry pattern to support multiple pattern detection implementations:
+- stock-pattern library (https://github.com/BennyThadikaran/stock-pattern)
+- Custom internal detectors (src/analysis/pattern_detectors/)
+
+The registry enables:
+- Runtime selection between implementations
+- Priority-based fallback (stock-pattern preferred, custom as fallback)
+- Easy addition of new implementations (TA-Lib, custom ML models, etc.)
 
 Patterns detected:
 - Bullish/Bearish Flags
 - Triangles (Ascending, Descending, Symmetric)
 - Double Tops/Bottoms
 - Head & Shoulders
-- Harmonic patterns (Bat, Gartley, Butterfly, Crab)
+- VCP (Volatility Contraction Pattern)
+- Wedges (Rising, Falling)
 """
 
-import sys
 import logging
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timedelta
 import pandas as pd
 
-# Try to load stock-pattern library (optional dependency for local dev)
-# In Lambda, this feature is disabled - patterns detected via external API
-stock_pattern_lib = None
-STOCK_PATTERN_AVAILABLE = False
-
-try:
-    sys.path.insert(0, '/tmp/stock-pattern/src')
-    import utils as stock_pattern_lib
-    STOCK_PATTERN_AVAILABLE = True
-except ImportError:
-    pass  # Feature disabled in Lambda environment
-
 from src.data.aurora.repository import TickerRepository
+from src.analysis.pattern_detectors import (
+    get_pattern_registry,
+    StockPatternAdapter,
+    CustomPatternAdapter,
+)
 
 logger = logging.getLogger(__name__)
 
 
 class PatternDetectionService:
-    """Service for detecting chart patterns using stock-pattern library"""
+    """
+    Service for detecting chart patterns using pluggable implementations.
 
-    def __init__(self):
+    Uses registry pattern to support multiple detection backends:
+    - StockPatternAdapter: External stock-pattern library (priority=10)
+    - CustomPatternAdapter: Internal detectors (priority=5, fallback)
+
+    The registry automatically falls back to custom implementation when
+    stock-pattern library is unavailable (e.g., in Lambda environment).
+    """
+
+    def __init__(self, impl_name: Optional[str] = None):
+        """
+        Initialize pattern detection service.
+
+        Args:
+            impl_name: Force specific implementation ('stock_pattern' or 'custom').
+                       If None, uses priority-based selection with fallback.
+        """
         self.repo = TickerRepository()
         self.config = {
             'FLAG_MAX_BARS': 7,
             'VCP_MAX_BARS': 10,
         }
+        self.impl_name = impl_name
+
+        # Initialize registry with adapters
+        self._registry = get_pattern_registry()
+        self._init_registry()
+
+    def _init_registry(self) -> None:
+        """Initialize registry with available pattern detector adapters."""
+        # Register stock-pattern adapter (preferred, priority=10)
+        stock_adapter = StockPatternAdapter()
+        if stock_adapter.is_available():
+            self._registry.register_detector(stock_adapter, priority=10)
+            logger.info("Registered stock-pattern adapter (priority=10)")
+        else:
+            logger.debug("stock-pattern library not available, skipping registration")
+
+        # Register custom adapter (fallback, priority=5)
+        custom_adapter = CustomPatternAdapter()
+        self._registry.register_detector(custom_adapter, priority=5)
+        logger.info("Registered custom pattern adapter (priority=5)")
+
+        # Log registry stats
+        stats = self._registry.get_stats()
+        logger.info(
+            f"Pattern registry initialized: {stats['pattern_types']} pattern types, "
+            f"{stats['available_implementations']} available implementations"
+        )
 
     def detect_patterns(
         self,
@@ -52,7 +94,9 @@ class PatternDetectionService:
         pattern_types: Optional[List[str]] = None
     ) -> Dict[str, Any]:
         """
-        Detect chart patterns for a ticker
+        Detect chart patterns for a ticker.
+
+        Uses registry to select between implementations with automatic fallback.
 
         Args:
             ticker: Stock ticker symbol
@@ -68,16 +112,12 @@ class PatternDetectionService:
                         'type': str,
                         'pattern': str,
                         'points': {...},
-                        'confidence': str
+                        'confidence': str,
+                        'implementation': str  # Which detector found it
                     }
                 ]
             }
         """
-        # Check if stock-pattern library is available
-        if not STOCK_PATTERN_AVAILABLE:
-            logger.debug(f"Pattern detection disabled - stock-pattern library not available")
-            return self._empty_result(ticker, error="Pattern detection library not available")
-
         logger.info(f"Detecting patterns for {ticker} (last {days} days)")
 
         try:
@@ -95,7 +135,7 @@ class PatternDetectionService:
                 logger.warning(f"Insufficient pivots for {ticker}: {len(pivots)} pivots")
                 return self._empty_result(ticker)
 
-            # Detect patterns
+            # Detect patterns using registry
             patterns = self._detect_all_patterns(ticker, df, pivots, pattern_types)
 
             logger.info(f"✅ {ticker}: {len(patterns)} pattern(s) detected")
@@ -176,7 +216,12 @@ class PatternDetectionService:
         pattern_types: Optional[List[str]] = None
     ) -> List[Dict[str, Any]]:
         """
-        Run all pattern detection functions
+        Run pattern detection using registry with fallback.
+
+        Uses registry to select implementations automatically:
+        - Tries highest priority implementation first (stock-pattern if available)
+        - Falls back to lower priority implementations on failure
+        - Each pattern type is detected independently
 
         Args:
             ticker: Ticker symbol
@@ -185,70 +230,60 @@ class PatternDetectionService:
             pattern_types: List of pattern types to detect (None = all)
 
         Returns:
-            List of detected patterns
+            List of detected patterns with 'implementation' field
         """
         patterns = []
 
-        # Define available detectors
-        all_detectors = {
-            'bullish_flag': stock_pattern_lib.find_bullish_flag,
-            'bearish_flag': stock_pattern_lib.find_bearish_flag,
-            'triangle': stock_pattern_lib.find_triangles,
-            'double_bottom': stock_pattern_lib.find_double_bottom,
-            'double_top': stock_pattern_lib.find_double_top,
-            'bullish_vcp': stock_pattern_lib.find_bullish_vcp,
-            'bearish_vcp': stock_pattern_lib.find_bearish_vcp,
-            'head_shoulders': stock_pattern_lib.find_hns,
-            'reverse_head_shoulders': stock_pattern_lib.find_reverse_hns,
-        }
+        # Default pattern types to detect
+        all_pattern_types = [
+            'bullish_flag', 'bearish_flag',
+            'triangle',
+            'double_bottom', 'double_top',
+            'bullish_vcp', 'bearish_vcp',
+            'head_shoulders', 'reverse_head_shoulders',
+        ]
 
-        # Filter detectors if pattern_types specified
-        if pattern_types:
-            detectors = {k: v for k, v in all_detectors.items() if k in pattern_types}
-        else:
-            detectors = all_detectors
+        # Filter if specific types requested
+        types_to_detect = pattern_types or all_pattern_types
 
-        # Run each detector
-        for pattern_name, detect_fn in detectors.items():
+        # Run each pattern type through registry
+        for pattern_type in types_to_detect:
             try:
-                result = detect_fn(ticker, df, pivots, self.config)
+                # Use registry with automatic fallback
+                result = self._registry.detect_with_fallback(
+                    pattern_type=pattern_type,
+                    ticker=ticker,
+                    df=df,
+                    pivots=pivots,
+                    config=self.config
+                )
 
                 if result:
-                    # Serialize result (convert Timestamps to strings)
-                    serialized = stock_pattern_lib.make_serializable(result)
-
-                    pattern_data = {
-                        'type': pattern_name,
-                        'pattern': serialized.get('pattern', pattern_name.upper()),
-                        'points': serialized.get('points', {}),
-                        'start': serialized.get('start'),
-                        'end': serialized.get('end'),
-                        'confidence': self._assess_confidence(serialized)
-                    }
-
-                    patterns.append(pattern_data)
-                    logger.info(f"  ✅ {pattern_name.replace('_', ' ').title()}")
+                    patterns.append(result)
+                    impl = result.get('implementation', 'unknown')
+                    logger.info(f"  ✅ {pattern_type.replace('_', ' ').title()} [{impl}]")
 
             except Exception as e:
-                logger.debug(f"  ⏭️  {pattern_name}: {str(e)[:50]}")
+                logger.debug(f"  ⏭️  {pattern_type}: {str(e)[:50]}")
                 continue
 
         return patterns
 
-    def _assess_confidence(self, pattern_data: Dict) -> str:
+    def get_available_implementations(self, pattern_type: str) -> List[tuple]:
         """
-        Assess pattern confidence based on detection criteria
+        Get available implementations for a pattern type.
 
-        The stock-pattern library already applies strict validation,
-        so any detected pattern is at least "medium" confidence.
+        Args:
+            pattern_type: Pattern type to query
 
         Returns:
-            'high' | 'medium' | 'low'
+            List of (impl_name, priority, is_available) tuples
         """
-        # For now, all detected patterns are medium confidence
-        # (since the library's validation is already strict)
-        # TODO: Add additional scoring logic if needed
-        return 'medium'
+        return self._registry.list_implementations(pattern_type)
+
+    def get_registry_stats(self) -> Dict[str, Any]:
+        """Get statistics about the pattern detector registry."""
+        return self._registry.get_stats()
 
     def _empty_result(self, ticker: str, error: Optional[str] = None) -> Dict[str, Any]:
         """Return empty result structure"""
