@@ -303,6 +303,32 @@ When deployment blocked by validation failures or pipeline issues, apply systema
 
 See [Deployment Blocker Resolution Guide](docs/guides/deployment-blocker-resolution.md) for decision heuristic, step-by-step template, manual Lambda deployment workflow, circular dependency patterns, and real-world examples. Integrates with Principle #2 (Progressive Evidence Strengthening), #11 (Artifact Promotion), #19 (Cross-Boundary Contract Testing).
 
+### 22. LLM Observability Discipline
+
+Use Langfuse for LLM tracing, scoring, and prompt management. Every user-facing LLM operation must be traced. Quality scores attached to traces enable trend analysis and regression detection. Langfuse provides Layer 3 evidence (observability signals) for LLM operations per Principle #2.
+
+**Tracing pattern**:
+- Entry point decorated with `@observe(name="descriptive_name")`
+- Lambda handlers call `flush()` before returning (critical for serverless)
+- Trace names should be descriptive (not generic "process")
+
+**Scoring pattern**:
+- Score high-value outputs (final reports, user responses)
+- Don't score infrastructure (cache hits, data fetches)
+- 5 quality scores per report: faithfulness, completeness, reasoning_quality, compliance, consistency
+
+**Langfuse unavailability**:
+- All Langfuse operations are non-blocking and fail gracefully
+- Missing traces/scores are acceptable (observability is best-effort)
+- Core functionality must work without Langfuse
+
+**Anti-patterns**:
+- ❌ Forgetting `flush()` in Lambda (traces lost)
+- ❌ Scoring everything (noise drowns signal)
+- ❌ Blocking on heavy evaluation (use async for expensive scores)
+
+See [Langfuse Integration Guide](docs/guides/langfuse-integration.md) and [langfuse-observability skill](.claude/skills/langfuse-observability/).
+
 ---
 
 ## Extension Points

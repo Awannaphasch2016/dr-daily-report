@@ -139,6 +139,8 @@ See `.claude/commands/journal.md` for complete documentation.
 <!-- Auto-updated by /journal command -->
 <!-- Format: - [{date}] [{category}] [{title}](category/{filename}.md) -->
 
+- [2026-01-10] [architecture] [Telegram Mini App serves Twinbar with shared DR-Report data](architecture/2026-01-10-telegram-twinbar-shared-data-architecture.md)
+- [2026-01-10] [architecture] [Shared OpenRouter API key across environments](architecture/2026-01-10-shared-openrouter-api-key-across-environments.md)
 - [2025-12-24] [architecture] [Connascence as unified coupling framework - boundary principles and cohesion-coupling resolution](architecture/2025-12-24-connascence-as-unified-coupling-framework-boundary-principles-and-cohesion-coupling-resolution.md)
 
 <!-- Example entries: -->

@@ -233,6 +233,45 @@ EnterPlanMode
 
 ---
 
+### `/adapt` - Integrate External Techniques
+**Purpose**: Adapt techniques and patterns from external sources into the codebase while following local conventions and preserving knowledge
+
+**Usage**:
+```bash
+# From external repository
+/adapt "https://github.com/user/repo" "authentication flow"
+
+# From a library (not on PyPI)
+/adapt "stock-pattern library" "chart pattern detection in frontend"
+
+# From experiment branch
+/adapt "experiment-branch" "PDF generation improvements"
+
+# From documentation
+/adapt "AWS SQS best practices" "message queue reliability"
+```
+
+**Six-Phase Workflow**:
+1. **Study** - Understand what the source provides
+2. **Map** - Map concepts to local equivalents
+3. **Design** - Design local implementation using source techniques
+4. **Implement** - Build using local patterns
+5. **Verify** - Test functionality matches source intent
+6. **Document** - Record decisions and learnings
+
+**Output**: Adaptation document at `.claude/adaptations/{date}-{slug}.md`
+
+**Core Philosophy**: Focus on techniques, not code transplant. Understand before implementing. Create truly native code that applies external techniques.
+
+**vs Other Commands**:
+- `/explore` - Find sources to adapt from (precedes `/adapt`)
+- `/adapt` - Adapt external sources to codebase
+- `/abstract` - Extract patterns after adaptation (follows `/adapt`)
+
+**Core Principle**: "Understand before implementing" - prevents unmaintainable foreign code
+
+---
+
 ## Meta-Operations (Observational Learning Loop)
 
 The following commands form a **meta-cognitive learning loop** that captures experience, analyzes patterns, and evolves principles:
@@ -960,7 +999,10 @@ Claude Code will show available commands. Check `.claude/commands/` directory fo
 │   │   ├── failure-143205-lambda-timeout.md
 │   │   └── behavior-143420-iteration-over-research.md
 │   └── archive/           # Old observations (>90 days)
-├── decompositions/        # NEW: Goal/failure analysis outputs
+├── adaptations/           # External source adaptation documents
+│   ├── README.md          # Adaptation process overview
+│   └── {date}-{slug}.md   # Individual adaptation documents
+├── decompositions/        # Goal/failure analysis outputs
 │   ├── goal-2025-12-23-add-caching.md
 │   ├── failure-2025-12-23-lambda-timeout.md
 │   └── ...
@@ -1041,6 +1083,7 @@ For detailed command documentation, see individual command files in `.claude/com
 - [/explore](explore.md) - Divergent solution exploration (explore ALL options)
 - [/what-if](what-if.md) - Counterfactual reasoning
 - [/specify](specify.md) - Lightweight design sketches (converge on chosen approach)
+- [/adapt](adapt.md) - Integrate external techniques into codebase
 
 ### Meta-Operations
 - [/observe](observe.md) - Capture execution traces
