@@ -140,12 +140,23 @@ class PatternDetectionService:
 
             logger.info(f"✅ {ticker}: {len(patterns)} pattern(s) detected")
 
-            return {
-                'ticker': ticker,
-                'data_range': {
+            # Handle data_range for both date-indexed and numeric-indexed DataFrames
+            # DatetimeIndex has strftime, RangeIndex (from precomputed fallback) does not
+            if hasattr(df.index[0], 'strftime'):
+                data_range = {
                     'start': df.index[0].strftime('%Y-%m-%d'),
                     'end': df.index[-1].strftime('%Y-%m-%d')
-                },
+                }
+            else:
+                # Numeric index from precomputed_reports fallback
+                data_range = {
+                    'start': f"bar_{df.index[0]}",
+                    'end': f"bar_{df.index[-1]}"
+                }
+
+            return {
+                'ticker': ticker,
+                'data_range': data_range,
                 'bars': len(df),
                 'pivots': len(pivots),
                 'patterns': patterns
@@ -156,10 +167,22 @@ class PatternDetectionService:
             return self._empty_result(ticker, error=str(e))
 
     def _fetch_ohlc_data(self, ticker: str, days: int) -> pd.DataFrame:
-        """Fetch OHLC data from Aurora"""
+        """Fetch OHLC data from Aurora.
+
+        Tries daily_prices table first, then falls back to precomputed_reports
+        which contains price_history embedded in report_json.
+
+        Args:
+            ticker: Ticker symbol (DR format like 'NVDA19' or Yahoo like 'NVDA')
+            days: Number of days of historical data to fetch
+
+        Returns:
+            DataFrame with DatetimeIndex and OHLCV columns
+        """
         end_date = datetime.now().date()
         start_date = end_date - timedelta(days=days)
 
+        # Try daily_prices table first (primary source)
         df = self.repo.get_prices_as_dataframe(
             symbol=ticker,
             start_date=start_date,
@@ -167,7 +190,88 @@ class PatternDetectionService:
             limit=days + 30  # Buffer for weekends/holidays
         )
 
+        if not df.empty:
+            return df
+
+        # Fallback: Extract price_history from precomputed_reports
+        # This supports dev environment where daily_prices table may be empty
+        logger.debug(f"daily_prices empty for {ticker}, trying precomputed_reports fallback")
+        df = self._fetch_ohlc_from_precomputed(ticker)
+
         return df
+
+    def _fetch_ohlc_from_precomputed(self, ticker: str) -> pd.DataFrame:
+        """Extract OHLC data from precomputed_reports.report_json.price_history.
+
+        The price_history in precomputed reports contains OHLCV data with
+        indexed dates (0, 1, 2, ...). We convert this to a DataFrame suitable
+        for pattern detection.
+
+        Args:
+            ticker: Ticker symbol
+
+        Returns:
+            DataFrame with numeric index and OHLCV columns, or empty DataFrame
+        """
+        try:
+            from src.data.aurora.precompute_service import PrecomputeService
+
+            precompute = PrecomputeService()
+            cached = precompute.get_cached_report(ticker)
+
+            if not cached:
+                logger.debug(f"No cached report for {ticker}")
+                return pd.DataFrame()
+
+            report_json = cached.get('report_json')
+            if not report_json:
+                logger.debug(f"No report_json in cached report for {ticker}")
+                return pd.DataFrame()
+
+            # Parse JSON if string
+            if isinstance(report_json, str):
+                import json
+                report_json = json.loads(report_json)
+
+            price_history = report_json.get('price_history', [])
+            if not price_history:
+                logger.debug(f"No price_history in report for {ticker}")
+                return pd.DataFrame()
+
+            # Filter to actual price data (exclude projections)
+            actual_prices = [p for p in price_history if not p.get('is_projection', False)]
+
+            if len(actual_prices) < 50:
+                logger.debug(f"Insufficient price_history for {ticker}: {len(actual_prices)} bars")
+                return pd.DataFrame()
+
+            # Convert to DataFrame
+            df = pd.DataFrame(actual_prices)
+
+            # Rename columns to match expected format
+            df.rename(columns={
+                'open': 'Open',
+                'high': 'High',
+                'low': 'Low',
+                'close': 'Close',
+                'volume': 'Volume'
+            }, inplace=True)
+
+            # Create a date-like index based on position
+            # Pattern detection uses index position, not actual dates
+            df.index = pd.RangeIndex(len(df))
+
+            # Ensure numeric types
+            for col in ['Open', 'High', 'Low', 'Close', 'Volume']:
+                if col in df.columns:
+                    df[col] = pd.to_numeric(df[col], errors='coerce')
+
+            logger.info(f"✅ Loaded {len(df)} bars from precomputed_reports for {ticker}")
+            return df
+
+        except Exception as e:
+            logger.error(f"Error fetching from precomputed_reports: {e}")
+            return pd.DataFrame()
 
     def _find_pivots(self, df: pd.DataFrame, window: int = 5) -> pd.DataFrame:
         """
