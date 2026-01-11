@@ -31,9 +31,11 @@ When adding observability to a new LLM feature:
 - [ ] Tested error path (trace should still be created)
 
 ### Deployment
-- [ ] Environment has `LANGFUSE_PUBLIC_KEY` configured
-- [ ] Environment has `LANGFUSE_SECRET_KEY` configured
-- [ ] Environment has `LANGFUSE_HOST` configured (if not cloud)
+- [ ] Environment has `LANGFUSE_PUBLIC_KEY` configured (Doppler)
+- [ ] Environment has `LANGFUSE_SECRET_KEY` configured (Doppler)
+- [ ] Environment has `LANGFUSE_HOST` configured (Doppler)
+- [ ] Environment has `LANGFUSE_RELEASE` configured (e.g., `dev`, `stg`, `prd`)
+- [ ] Environment has `LANGFUSE_TRACING_ENVIRONMENT` configured (e.g., `dev`, `stg`, `prd`)
 
 ---
 
@@ -173,3 +175,36 @@ Regular monitoring tasks:
 - [ ] Verified not calling `flush()` too frequently
 - [ ] Checked network connectivity to Langfuse
 - [ ] Considered if too many spans/scores per trace
+
+### Missing Trace Metadata
+
+- [ ] Verified `LANGFUSE_RELEASE` is set in Doppler
+- [ ] Verified `LANGFUSE_TRACING_ENVIRONMENT` is set in Doppler
+- [ ] Checked that `trace_context()` is used for user_id, session_id, tags
+- [ ] Verified metadata is JSON-serializable
+
+---
+
+## Configuration Verification
+
+Per [Principle #23: Configuration Variation Axis](../../CLAUDE.md):
+
+### Env Vars (Must be in Doppler)
+- [ ] `LANGFUSE_PUBLIC_KEY` - API key (secret)
+- [ ] `LANGFUSE_SECRET_KEY` - API secret (secret)
+- [ ] `LANGFUSE_HOST` - API endpoint (environment-specific)
+- [ ] `LANGFUSE_RELEASE` - Version identifier (environment-specific)
+- [ ] `LANGFUSE_TRACING_ENVIRONMENT` - Environment tag (environment-specific)
+
+### Constants (Must be in src/config.py)
+- [ ] Trace names use `TRACE_NAMES` class
+- [ ] Observation names use `OBSERVATION_NAMES` class
+- [ ] Score names use `SCORE_NAMES` class
+- [ ] Tag values use `TRACE_TAGS` class
+- [ ] Default user uses `DEFAULT_USER_ID`
+
+### Anti-Pattern Detection
+- [ ] No hardcoded trace/score names (use constants)
+- [ ] No env vars for static values (should be constants)
+- [ ] No constants for secrets (should be Doppler)
+- [ ] No reading env vars on every request (should be singleton)

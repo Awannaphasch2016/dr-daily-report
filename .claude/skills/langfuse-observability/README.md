@@ -8,6 +8,10 @@
 - Setting up evaluation pipelines
 - Managing prompt versions
 
+**Quick Links**:
+- [SCHEMA.md](./SCHEMA.md) - Complete column reference and hierarchy
+- [CHECKLIST.md](./CHECKLIST.md) - Verification checklists
+
 ---
 
 ## Quick Reference
@@ -317,9 +321,101 @@ def generate(data):
 
 ---
 
+## Configuration
+
+Per [Principle #23: Configuration Variation Axis](../../CLAUDE.md), Langfuse configuration follows clear separation between env vars (vary by environment/secret) and constants (never vary).
+
+### Environment Variables (Doppler)
+
+Set via Doppler, read once at startup:
+
+| Variable | Type | Purpose |
+|----------|------|---------|
+| `LANGFUSE_PUBLIC_KEY` | Secret | API authentication |
+| `LANGFUSE_SECRET_KEY` | Secret | API authentication |
+| `LANGFUSE_HOST` | Environment | API endpoint URL |
+| `LANGFUSE_RELEASE` | Environment | Version identifier (`dev-local`, `dev`, `stg`, `prd`) |
+| `LANGFUSE_TRACING_ENVIRONMENT` | Environment | Environment tag (`local`, `dev`, `stg`, `prd`) |
+
+### Python Constants
+
+Values that NEVER vary are Python constants in `src/config.py`:
+
+```python
+from src.config import TRACE_NAMES, OBSERVATION_NAMES, SCORE_NAMES, TRACE_TAGS
+
+# Use in @observe decorators
+@observe(name=TRACE_NAMES.ANALYZE_TICKER)
+def analyze_ticker():
+    ...
+
+# Use for scoring
+score_current_trace(SCORE_NAMES.FAITHFULNESS, 85)
+
+# Use for tagging
+trace_context(tags=[TRACE_TAGS.REPORT_GENERATION])
+```
+
+| Constant Class | Purpose | Examples |
+|----------------|---------|----------|
+| `TRACE_NAMES` | Root-level trace names | `ANALYZE_TICKER`, `TEST_SCORING` |
+| `OBSERVATION_NAMES` | Span/observation names | `FETCH_DATA`, `GENERATE_REPORT` |
+| `SCORE_NAMES` | Quality score names | `FAITHFULNESS`, `COMPLETENESS` |
+| `TRACE_TAGS` | Standard tag values | `REPORT_GENERATION`, `TEST`, `CLI` |
+| `DEFAULT_USER_ID` | Default user ID | `"anak"` |
+
+### Trace Context (Runtime)
+
+Set dynamically per trace via `trace_context()`:
+
+```python
+from src.evaluation import observe, trace_context
+
+@observe(name="analyze_ticker")
+def analyze_ticker(ticker: str, user_id: str = None):
+    with trace_context(
+        user_id=user_id or DEFAULT_USER_ID,
+        session_id=f"daily_{date.today().isoformat()}",
+        tags=[TRACE_TAGS.REPORT_GENERATION],
+        metadata={"ticker": ticker, "model": "gpt-4o-mini"}
+    ):
+        ...
+```
+
+### Dynamic Levels
+
+Set observation/trace levels for error filtering:
+
+```python
+from src.evaluation import set_observation_level, set_trace_level
+
+@observe(name="fetch_data")
+def fetch_data(ticker: str):
+    data = get_aurora_data(ticker)
+    if data is None:
+        set_observation_level("ERROR")  # Mark observation as error
+        return None
+    return data
+
+# At trace level (in agent.py)
+final_state = self.graph.invoke(initial_state)
+if final_state.get("error"):
+    set_trace_level("ERROR")  # Mark entire trace as error
+```
+
+**Level meanings**:
+- `DEFAULT`: Normal successful execution
+- `WARNING`: Degraded path (optional step failed)
+- `ERROR`: Critical failure (required step failed)
+
+---
+
 ## Related
 
+- [SCHEMA.md](./SCHEMA.md) - Complete trace hierarchy and column reference
 - [Langfuse Integration Guide](../../../docs/guides/langfuse-integration.md)
 - [Scoring Service](../../../src/scoring/scoring_service.py)
 - [Quality Scorers](../../../src/scoring/)
 - [Langfuse Official Docs](https://langfuse.com/docs)
+- [Principle #22: LLM Observability Discipline](../../CLAUDE.md)
+- [Principle #23: Configuration Variation Axis](../../CLAUDE.md)
