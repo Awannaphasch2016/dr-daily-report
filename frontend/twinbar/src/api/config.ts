@@ -5,23 +5,32 @@
  */
 
 /**
- * Base URL for API requests
+ * API version prefix
+ */
+export const API_VERSION = '/api/v1';
+
+/**
+ * Get full API base path for requests
  *
  * Priority:
  * 1. Runtime injection via window.TELEGRAM_API_URL (CI/CD workflow)
+ *    - Already includes /api/v1, use as-is
  * 2. Build-time VITE_API_BASE_URL from .env files
- * 3. Empty string (relative URLs for same-origin)
+ *    - Append API_VERSION
+ * 3. Empty string with API_VERSION (relative URLs for same-origin)
  */
-const getApiBaseUrl = (): string => {
+const getApiBasePath = (): string => {
   // Runtime injection from CI/CD workflow (sed into index.html)
+  // NOTE: TELEGRAM_API_URL already includes /api/v1, don't append again
   if (typeof window !== 'undefined' && (window as any).TELEGRAM_API_URL) {
     return (window as any).TELEGRAM_API_URL;
   }
-  // Build-time environment variable
-  return import.meta.env.VITE_API_BASE_URL || '';
+  // Build-time environment variable - append API_VERSION
+  const baseUrl = import.meta.env.VITE_API_BASE_URL || '';
+  return `${baseUrl}${API_VERSION}`;
 };
 
-export const API_BASE_URL = getApiBaseUrl();
+export const API_BASE_PATH = getApiBasePath();
 
 /**
  * Request timeout in milliseconds
@@ -39,13 +48,3 @@ export const POLL_INTERVAL = 5000; // 5s
  * Total time: POLL_INTERVAL * MAX_POLL_ATTEMPTS = 5s * 60 = 5 minutes
  */
 export const MAX_POLL_ATTEMPTS = 60;
-
-/**
- * API version prefix
- */
-export const API_VERSION = '/api/v1';
-
-/**
- * Full API base path (URL + version)
- */
-export const API_BASE_PATH = `${API_BASE_URL}${API_VERSION}`;
