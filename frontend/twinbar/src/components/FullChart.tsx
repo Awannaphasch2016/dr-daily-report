@@ -1,13 +1,13 @@
 /**
  * FullChart Component
  *
- * Displays a comprehensive candlestick chart with technical indicators.
- * Used in modal Technical tab for detailed price analysis.
+ * Displays a comprehensive candlestick chart with technical indicators
+ * and chart pattern overlays.
  *
  * Features:
  * - Candlestick OHLC visualization
  * - SMA indicator lines
- * - Volume bars (optional)
+ * - Chart pattern overlays (flags, triangles, wedges, double top/bottom, etc.)
  * - Responsive design
  */
 
@@ -21,15 +21,49 @@ import {
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
+  ReferenceArea,
 } from 'recharts';
-import type { PriceDataPoint } from '../types/report';
+import type { PriceDataPoint, ChartPattern } from '../types/report';
 
 interface FullChartProps {
   data: PriceDataPoint[];
+  chartPatterns?: ChartPattern[];
   indicators?: {
     sma20?: boolean;
     sma50?: boolean;
   };
+}
+
+/**
+ * Get color for pattern based on sentiment
+ */
+function getPatternColor(type: string): { fill: string; stroke: string } {
+  const bullishPatterns = [
+    'bullish_flag', 'bullish_vcp', 'reverse_head_shoulders',
+    'double_bottom', 'falling_wedge', 'ascending_triangle'
+  ];
+  const bearishPatterns = [
+    'bearish_flag', 'bearish_vcp', 'head_shoulders',
+    'double_top', 'rising_wedge', 'descending_triangle'
+  ];
+
+  if (bullishPatterns.some(p => type.toLowerCase().includes(p.replace('_', '')))) {
+    return { fill: 'rgba(34, 197, 94, 0.15)', stroke: '#22c55e' }; // Green
+  }
+  if (bearishPatterns.some(p => type.toLowerCase().includes(p.replace('_', '')))) {
+    return { fill: 'rgba(239, 68, 68, 0.15)', stroke: '#ef4444' }; // Red
+  }
+  return { fill: 'rgba(59, 130, 246, 0.15)', stroke: '#3b82f6' }; // Blue (neutral)
+}
+
+/**
+ * Parse bar index from start/end string
+ * Handles formats: "12", "bar_12"
+ */
+function parseBarIndex(value?: string): number | null {
+  if (!value) return null;
+  const match = value.match(/^(?:bar_)?(\d+)$/);
+  return match ? parseInt(match[1], 10) : null;
 }
 
 /**
@@ -75,7 +109,11 @@ function calculateSMA(data: PriceDataPoint[], period: number): number[] {
 }
 
 
-export function FullChart({ data, indicators = { sma20: true, sma50: true } }: FullChartProps) {
+export function FullChart({
+  data,
+  chartPatterns = [],
+  indicators = { sma20: true, sma50: true }
+}: FullChartProps) {
   // ALWAYS render component - show empty state if no data
   // Principle: Observability > conditional rendering (CLAUDE.md:342-346)
   const isEmpty = !data || data.length === 0;
@@ -125,10 +163,55 @@ export function FullChart({ data, indicators = { sma20: true, sma50: true } }: F
   const padding = (maxPrice - minPrice) * 0.05;
   const yDomain = [minPrice - padding, maxPrice + padding];
 
+  // Process chart patterns for overlay rendering
+  const patternOverlays = useMemo(() => {
+    if (!chartPatterns || chartPatterns.length === 0) return [];
+
+    return chartPatterns.map((pattern, idx) => {
+      const startIdx = parseBarIndex(pattern.start);
+      const endIdx = parseBarIndex(pattern.end);
+
+      // Skip patterns without valid indices
+      if (startIdx === null || endIdx === null) return null;
+      if (startIdx >= data.length || endIdx >= data.length) return null;
+
+      const colors = getPatternColor(pattern.type);
+      const startDate = data[startIdx]?.date;
+      const endDate = data[endIdx]?.date;
+
+      if (!startDate || !endDate) return null;
+
+      // Get price range for the pattern area
+      const patternData = data.slice(
+        Math.min(startIdx, endIdx),
+        Math.max(startIdx, endIdx) + 1
+      );
+      const patternHigh = Math.max(...patternData.map(d => d.high));
+      const patternLow = Math.min(...patternData.map(d => d.low));
+
+      // Extract key points from pattern data
+      const points = pattern.points || {};
+
+      return {
+        key: `pattern-${idx}`,
+        type: pattern.type,
+        startDate,
+        endDate,
+        startIdx,
+        endIdx,
+        patternHigh,
+        patternLow,
+        colors,
+        points,
+        confidence: pattern.confidence,
+      };
+    }).filter(Boolean);
+  }, [chartPatterns, data]);
+
   return (
     <div data-testid="full-chart" className="full-chart w-full h-96">
-      {/* Indicator Legend */}
-      <div data-testid="chart-indicators" className="flex gap-4 mb-2 text-xs">
+      {/* Indicator & Pattern Legend */}
+      <div data-testid="chart-indicators" className="flex flex-wrap gap-4 mb-2 text-xs">
         <span className="text-gray-600 dark:text-gray-400">Indicators:</span>
         {indicators.sma20 && (
           <span className="flex items-center gap-1">
@@ -141,6 +224,28 @@ export function FullChart({ data, indicators = { sma20: true, sma50: true } }: F
             <div className="w-3 h-0.5 bg-purple-500" />
             <span>SMA 50</span>
           </span>
+        )}
+        {patternOverlays.length > 0 && (
+          <>
+            <span className="text-gray-600 dark:text-gray-400 ml-2">Patterns:</span>
+            {patternOverlays.slice(0, 3).map((overlay: any) => (
+              <span key={overlay.key} className="flex items-center gap-1">
+                <div
+                  className="w-3 h-3 rounded-sm border"
+                  style={{
+                    backgroundColor: overlay.colors.fill,
+                    borderColor: overlay.colors.stroke
+                  }}
+                />
+                <span className="capitalize">
+                  {overlay.type.replace(/_/g, ' ').replace('bullish ', '').replace('bearish ', '')}
+                </span>
+              </span>
+            ))}
+            {patternOverlays.length > 3 && (
+              <span className="text-gray-500">+{patternOverlays.length - 3} more</span>
+            )}
+          </>
         )}
       </div>
 
@@ -178,6 +283,29 @@ export function FullChart({ data, indicators = { sma20: true, sma50: true } }: F
             }}
             labelFormatter={(label) => `Date: ${label}`}
           />
+
+          {/* Chart Pattern Overlays - render behind candlesticks */}
+          {patternOverlays.map((overlay: any) => (
+            <ReferenceArea
+              key={overlay.key}
+              x1={overlay.startDate}
+              x2={overlay.endDate}
+              y1={overlay.patternLow}
+              y2={overlay.patternHigh}
+              fill={overlay.colors.fill}
+              stroke={overlay.colors.stroke}
+              strokeWidth={2}
+              strokeDasharray="4 2"
+              fillOpacity={0.3}
+              label={{
+                value: overlay.type.replace(/_/g, ' ').split(' ').map((w: string) => w[0]?.toUpperCase()).join(''),
+                position: 'insideTopRight',
+                fill: overlay.colors.stroke,
+                fontSize: 10,
+                fontWeight: 'bold',
+              }}
+            />
+          ))}
 
           {/* Candlesticks - render from low to high for full range */}
           <Bar

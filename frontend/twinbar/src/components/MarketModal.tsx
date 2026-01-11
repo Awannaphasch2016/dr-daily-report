@@ -60,6 +60,7 @@ export function MarketModal({ market, isOpen, onClose, onBuy, onAgree }: MarketM
                 <div data-testid="full-chart-section">
                   <FullChart
                     data={market.report?.price_history || []}
+                    chartPatterns={market.report?.chart_patterns || []}
                     indicators={{ sma20: true, sma50: true }}
                   />
                 </div>
