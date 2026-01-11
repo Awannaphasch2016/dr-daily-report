@@ -7,6 +7,7 @@ import { ScoringPanel } from './ScoringPanel';
 import { NarrativePanel } from './NarrativePanel';
 import { SocialProofPanel } from './SocialProofPanel';
 import { AgreeButton } from './AgreeButton';
+import { ChartPatternsPanel } from './ChartPatternsPanel';
 
 interface MarketModalProps {
   market: Market | null;
@@ -62,6 +63,11 @@ export function MarketModal({ market, isOpen, onClose, onBuy, onAgree }: MarketM
                     indicators={{ sma20: true, sma50: true }}
                   />
                 </div>
+              </section>
+
+              {/* SECTION 1.5: Chart Patterns - VCP, flags, triangles, etc. */}
+              <section>
+                <ChartPatternsPanel patterns={market.report?.chart_patterns || []} />
               </section>
 
               {/* SECTION 2: 2-Column Layout - Scoring (LEFT) + Peers (RIGHT) */}

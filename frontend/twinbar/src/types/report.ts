@@ -93,6 +93,19 @@ export interface Peer {
 }
 
 /**
+ * Detected chart pattern (VCP, Head & Shoulders, flags, triangles, etc.)
+ */
+export interface ChartPattern {
+  type: string; // Pattern type (e.g. 'bullish_flag', 'head_shoulders', 'bullish_vcp')
+  pattern: string; // Pattern code (e.g. 'FLAGU', 'VCPU', 'HNSD')
+  confidence: 'high' | 'medium' | 'low';
+  start?: string; // Pattern start date (ISO format)
+  end?: string; // Pattern end date (ISO format)
+  points: Record<string, unknown>; // Key pattern points (A, B, C, etc.)
+  implementation?: string; // Which detector found it ('stock_pattern' or 'custom')
+}
+
+/**
  * Price data point for charting
  * Extended to support portfolio return tracking and projections
  */
@@ -163,6 +176,9 @@ export interface ReportData {
 
   // Related trades/peers
   peers: Peer[];
+
+  // Chart patterns (VCP, flags, triangles, etc.)
+  chart_patterns: ChartPattern[];
 
   // Metadata
   generated_at: string; // ISO timestamp

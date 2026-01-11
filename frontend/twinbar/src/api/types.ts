@@ -88,6 +88,16 @@ export interface Peer {
   valuation_label: 'cheap' | 'fair' | 'expensive';
 }
 
+export interface ChartPattern {
+  type: string; // Pattern type (e.g. 'bullish_flag', 'head_shoulders')
+  pattern: string; // Pattern code (e.g. 'FLAGU', 'VCPU')
+  confidence: 'high' | 'medium' | 'low';
+  start?: string; // Pattern start date (ISO format)
+  end?: string; // Pattern end date (ISO format)
+  points: Record<string, unknown>; // Key pattern points
+  implementation?: string; // Which detector found it
+}
+
 export interface GenerationMetadata {
   agent_version: string;
   strategy: string;
@@ -116,6 +126,7 @@ export interface ReportResponse {
   // Report sections
   summary_sections: SummarySections;
   technical_metrics: TechnicalMetric[];
+  chart_patterns: ChartPattern[]; // Detected chart patterns (VCP, H&S, flags, etc.)
   fundamentals: Fundamentals;
   news_items: NewsItem[];
   overall_sentiment: OverallSentiment;

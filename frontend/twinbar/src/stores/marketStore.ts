@@ -185,6 +185,9 @@ function _transformReportResponse(response: ReportResponse): ReportData {
     // Peers
     peers: response.peers || [],
 
+    // Chart patterns (VCP, flags, triangles, etc.)
+    chart_patterns: response.chart_patterns || [],
+
     // Metadata
     generated_at: response.as_of || new Date().toISOString(),
     report_version: response.generation_metadata?.agent_version,
@@ -308,6 +311,7 @@ export const useMarketStore = create<MarketState>((set, get) => ({
         risk: reportData.risk,
         news_items: reportData.news_items,
         peers: reportData.peers,
+        chart_patterns: reportData.chart_patterns,
         generated_at: reportData.generated_at,
         report_version: reportData.report_version,
       };

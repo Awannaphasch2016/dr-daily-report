@@ -274,6 +274,8 @@ Technical Setup:
     { ticker: 'QCOM', company_name: 'Qualcomm Inc', correlation: 0.62, sector: 'Semiconductors' },
   ],
 
+  chart_patterns: [], // No mock patterns for now
+
   generated_at: new Date().toISOString(),
   report_version: 'v1.0-mock',
 };
@@ -430,6 +432,8 @@ export const mockAAPLReport: ReportData = {
     { ticker: 'MSFT', company_name: 'Microsoft Corporation', correlation: 0.65 },
     { ticker: 'GOOGL', company_name: 'Alphabet Inc', correlation: 0.62 },
   ],
+
+  chart_patterns: [], // No mock patterns for now
 
   generated_at: new Date().toISOString(),
   report_version: 'v1.0-mock',
