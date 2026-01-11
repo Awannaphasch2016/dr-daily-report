@@ -643,6 +643,216 @@ class TestScoreNormalization:
             f"Expected 0.85 (already normalized), got {call_kwargs.get('value')}"
 
 
+class TestScoreEdgeCases:
+    """Verify score handling for edge cases and invalid values.
+
+    Per Principle #4 (Type System Integration): Verify type conversions
+    at boundaries handle edge cases correctly.
+    """
+
+    @patch.dict(os.environ, {
+        'LANGFUSE_PUBLIC_KEY': 'pk-test-123',
+        'LANGFUSE_SECRET_KEY': 'sk-test-456',
+    })
+    @patch('langfuse.Langfuse')
+    def test_score_handles_negative_value(self, mock_langfuse_class):
+        """GIVEN score_current_trace called with negative value
+        WHEN function executes
+        THEN value is passed through (negative < 1, treated as already normalized)
+
+        Note: Langfuse SDK may reject negative values, but our code
+        should not crash. We pass through and let SDK validate.
+
+        Normalization logic: value > 1 → divide by 100, else pass through
+        Since -10 < 1, it's treated as already normalized and passed through.
+        """
+        from src.integrations.langfuse_client import get_langfuse_client, score_current_trace
+
+        mock_client = Mock()
+        mock_langfuse_class.return_value = mock_client
+
+        get_langfuse_client()
+
+        # Negative value - passed through since -10 < 1
+        result = score_current_trace("test_score", -10)
+
+        # Should still call SDK (let SDK validate)
+        assert result is True
+        mock_client.score_current_trace.assert_called_once()
+        call_kwargs = mock_client.score_current_trace.call_args.kwargs
+
+        # -10 is NOT > 1, so NOT normalized - passed through as-is
+        assert call_kwargs.get('value') == -10
+
+    @patch.dict(os.environ, {
+        'LANGFUSE_PUBLIC_KEY': 'pk-test-123',
+        'LANGFUSE_SECRET_KEY': 'sk-test-456',
+    })
+    @patch('langfuse.Langfuse')
+    def test_score_handles_value_over_100(self, mock_langfuse_class):
+        """GIVEN score_current_trace called with value > 100
+        WHEN function executes
+        THEN value is normalized (value / 100)
+
+        Example: 150 → 1.5 (Langfuse may reject, but we pass through)
+        """
+        from src.integrations.langfuse_client import get_langfuse_client, score_current_trace
+
+        mock_client = Mock()
+        mock_langfuse_class.return_value = mock_client
+
+        get_langfuse_client()
+
+        result = score_current_trace("test_score", 150)
+
+        assert result is True
+        call_kwargs = mock_client.score_current_trace.call_args.kwargs
+
+        # 150 / 100 = 1.5
+        assert call_kwargs.get('value') == 1.5
+
+    @patch.dict(os.environ, {
+        'LANGFUSE_PUBLIC_KEY': 'pk-test-123',
+        'LANGFUSE_SECRET_KEY': 'sk-test-456',
+    })
+    @patch('langfuse.Langfuse')
+    def test_score_handles_float_nan(self, mock_langfuse_class):
+        """GIVEN score_current_trace called with NaN value
+        WHEN function executes
+        THEN function handles gracefully (returns True, SDK may reject)
+
+        NaN is a valid Python float but invalid for Langfuse.
+        Our code should not crash.
+        """
+        import math
+        from src.integrations.langfuse_client import get_langfuse_client, score_current_trace
+
+        mock_client = Mock()
+        mock_langfuse_class.return_value = mock_client
+
+        get_langfuse_client()
+
+        # NaN is a float, so normalization applies
+        nan_value = float('nan')
+        result = score_current_trace("test_score", nan_value)
+
+        # Should still attempt to call SDK
+        assert result is True
+        mock_client.score_current_trace.assert_called_once()
+
+        # NaN normalized is still NaN
+        call_kwargs = mock_client.score_current_trace.call_args.kwargs
+        assert math.isnan(call_kwargs.get('value'))
+
+    @patch.dict(os.environ, {
+        'LANGFUSE_PUBLIC_KEY': 'pk-test-123',
+        'LANGFUSE_SECRET_KEY': 'sk-test-456',
+    })
+    @patch('langfuse.Langfuse')
+    def test_score_handles_float_infinity(self, mock_langfuse_class):
+        """GIVEN score_current_trace called with infinity value
+        WHEN function executes
+        THEN function handles gracefully (returns True, SDK may reject)
+
+        Infinity is a valid Python float but invalid for Langfuse.
+        Our code should not crash.
+        """
+        import math
+        from src.integrations.langfuse_client import get_langfuse_client, score_current_trace
+
+        mock_client = Mock()
+        mock_langfuse_class.return_value = mock_client
+
+        get_langfuse_client()
+
+        result = score_current_trace("test_score", float('inf'))
+
+        # Should still attempt to call SDK
+        assert result is True
+        mock_client.score_current_trace.assert_called_once()
+
+        # Infinity normalized is still infinity
+        call_kwargs = mock_client.score_current_trace.call_args.kwargs
+        assert math.isinf(call_kwargs.get('value'))
+
+    @patch.dict(os.environ, {
+        'LANGFUSE_PUBLIC_KEY': 'pk-test-123',
+        'LANGFUSE_SECRET_KEY': 'sk-test-456',
+    })
+    @patch('langfuse.Langfuse')
+    def test_score_sdk_exception_returns_false(self, mock_langfuse_class):
+        """GIVEN Langfuse SDK raises exception during scoring
+        WHEN score_current_trace called
+        THEN returns False (graceful degradation)
+
+        Per Principle #22: All Langfuse operations fail gracefully.
+        """
+        from src.integrations.langfuse_client import get_langfuse_client, score_current_trace
+
+        mock_client = Mock()
+        mock_client.score_current_trace.side_effect = Exception("SDK error")
+        mock_langfuse_class.return_value = mock_client
+
+        get_langfuse_client()
+
+        result = score_current_trace("test_score", 85)
+
+        # Should return False on SDK exception, not crash
+        assert result is False
+
+    @patch.dict(os.environ, {
+        'LANGFUSE_PUBLIC_KEY': 'pk-test-123',
+        'LANGFUSE_SECRET_KEY': 'sk-test-456',
+    })
+    @patch('langfuse.Langfuse')
+    def test_score_with_empty_name(self, mock_langfuse_class):
+        """GIVEN score_current_trace called with empty name
+        WHEN function executes
+        THEN passes to SDK (let SDK validate)
+
+        Our code passes through, SDK decides if empty name is valid.
+        """
+        from src.integrations.langfuse_client import get_langfuse_client, score_current_trace
+
+        mock_client = Mock()
+        mock_langfuse_class.return_value = mock_client
+
+        get_langfuse_client()
+
+        result = score_current_trace("", 85)
+
+        assert result is True
+        call_kwargs = mock_client.score_current_trace.call_args.kwargs
+        assert call_kwargs.get('name') == ''
+
+    @patch.dict(os.environ, {
+        'LANGFUSE_PUBLIC_KEY': 'pk-test-123',
+        'LANGFUSE_SECRET_KEY': 'sk-test-456',
+    })
+    @patch('langfuse.Langfuse')
+    def test_score_with_very_long_comment(self, mock_langfuse_class):
+        """GIVEN score_current_trace called with very long comment
+        WHEN function executes
+        THEN passes to SDK (comment not truncated by our code)
+
+        Unlike user_id (200 char limit), comments are passed through.
+        """
+        from src.integrations.langfuse_client import get_langfuse_client, score_current_trace
+
+        mock_client = Mock()
+        mock_langfuse_class.return_value = mock_client
+
+        get_langfuse_client()
+
+        long_comment = "x" * 5000  # 5000 chars
+
+        result = score_current_trace("test_score", 85, comment=long_comment)
+
+        assert result is True
+        call_kwargs = mock_client.score_current_trace.call_args.kwargs
+        assert len(call_kwargs.get('comment')) == 5000
+
+
 class TestScoreBatch:
     """Verify score_trace_batch passes multiple scores correctly."""
 
