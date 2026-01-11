@@ -301,7 +301,7 @@ class TestReportWorkerLambdaHandler:
         result = handler(event, None)
 
         assert result["statusCode"] == 200
-        assert "2 records" in result["body"]
+        assert result["processed"] == 2
         assert mock_process_record.call_count == 2
 
     def test_handler_returns_processed_count(self, mock_process_record):
@@ -313,7 +313,7 @@ class TestReportWorkerLambdaHandler:
         result = handler(event, None)
 
         assert result["statusCode"] == 200
-        assert "0 records" in result["body"]
+        assert result["processed"] == 0
 
 
 class TestCachingArgumentSources:
@@ -671,7 +671,7 @@ class TestDirectInvocationMode:
             result = handler(event, None)
 
             assert result['statusCode'] == 200
-            assert '1 records' in result['body']
+            assert result['processed'] == 1
 
     @pytest.mark.asyncio
     async def test_process_ticker_direct_success(self):
@@ -679,10 +679,11 @@ class TestDirectInvocationMode:
         with patch('src.report_worker_handler.process_record', new_callable=AsyncMock), \
              patch('src.report_worker_handler.get_job_service') as mock_svc:
 
-            mock_svc.return_value.get_job_status.return_value = {
-                'status': 'completed',
-                'result': {'pdf_s3_key': 'test.pdf'}
-            }
+            # Mock get_job to return a Job-like object with status and result attributes
+            mock_job = Mock()
+            mock_job.status = 'completed'
+            mock_job.result = {'pdf_s3_key': 'test.pdf'}
+            mock_svc.return_value.get_job.return_value = mock_job
 
             from src.report_worker_handler import process_ticker_direct
             result = await process_ticker_direct({
@@ -702,10 +703,11 @@ class TestDirectInvocationMode:
         with patch('src.report_worker_handler.process_record', new_callable=AsyncMock), \
              patch('src.report_worker_handler.get_job_service') as mock_svc:
 
-            mock_svc.return_value.get_job_status.return_value = {
-                'status': 'failed',
-                'error': 'Agent error: ticker not found'
-            }
+            # Mock get_job to return a Job-like object with failed status
+            mock_job = Mock()
+            mock_job.status = 'failed'
+            mock_job.error = 'Agent error: ticker not found'
+            mock_svc.return_value.get_job.return_value = mock_job
 
             from src.report_worker_handler import process_ticker_direct
             result = await process_ticker_direct({

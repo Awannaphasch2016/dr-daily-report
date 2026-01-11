@@ -27,7 +27,7 @@ class TestSubmitReportEndpoint:
         """Mock job and ticker services"""
         with patch('src.api.app.get_job_service') as mock_job, \
              patch('src.api.app.get_ticker_service') as mock_ticker, \
-             patch('src.api.app.send_to_sqs') as mock_sqs:
+             patch('src.api.app.invoke_report_worker') as mock_worker:
 
             job_service = Mock()
             job_service.create_job = Mock(return_value=Job(
@@ -42,12 +42,12 @@ class TestSubmitReportEndpoint:
             ticker_service.is_supported = Mock(return_value=True)
             mock_ticker.return_value = ticker_service
 
-            mock_sqs.return_value = None  # Fire and forget
+            mock_worker.return_value = None  # Fire and forget (async Lambda invoke)
 
             yield {
                 'job': job_service,
                 'ticker': ticker_service,
-                'sqs': mock_sqs
+                'worker': mock_worker
             }
 
     def test_post_report_returns_job_id(self, client, mock_services):
@@ -66,12 +66,12 @@ class TestSubmitReportEndpoint:
 
         mock_services['job'].create_job.assert_called_once_with(ticker='NVDA19')
 
-    def test_post_report_sends_to_sqs(self, client, mock_services):
-        """Test that POST sends message to SQS queue"""
+    def test_post_report_invokes_worker(self, client, mock_services):
+        """Test that POST invokes report worker Lambda"""
         client.post("/api/v1/report/NVDA19")
 
-        mock_services['sqs'].assert_called_once()
-        call_args = mock_services['sqs'].call_args
+        mock_services['worker'].assert_called_once()
+        call_args = mock_services['worker'].call_args
         # Should include job_id and ticker
         assert 'rpt_abc123' in str(call_args) or call_args[0][0] == 'rpt_abc123'
 
@@ -217,7 +217,7 @@ class TestCacheFirstBehavior:
         """Mock all services including PrecomputeService for cache testing"""
         with patch('src.api.app.get_job_service') as mock_job, \
              patch('src.api.app.get_ticker_service') as mock_ticker, \
-             patch('src.api.app.send_to_sqs') as mock_sqs:
+             patch('src.api.app.invoke_report_worker') as mock_worker:
 
             job_service = Mock()
             job_service.create_job = Mock(return_value=Job(
@@ -237,12 +237,12 @@ class TestCacheFirstBehavior:
             })
             mock_ticker.return_value = ticker_service
 
-            mock_sqs.return_value = None
+            mock_worker.return_value = None  # Fire and forget (async Lambda invoke)
 
             yield {
                 'job': job_service,
                 'ticker': ticker_service,
-                'sqs': mock_sqs
+                'worker': mock_worker
             }
 
     def test_cache_hit_returns_completed_immediately(self, client, mock_services_with_cache):
@@ -267,7 +267,7 @@ class TestCacheFirstBehavior:
             assert data['status'] == 'completed', f"Expected 'completed', got {data['status']}"
             # Should NOT create async job
             mock_services_with_cache['job'].create_job.assert_not_called()
-            mock_services_with_cache['sqs'].assert_not_called()
+            mock_services_with_cache['worker'].assert_not_called()
 
     def test_cache_hit_uses_yahoo_ticker_for_lookup(self, client, mock_services_with_cache):
         """Cache lookup should use yahoo_ticker (D05.SI), not DR symbol (DBS19)"""
@@ -306,7 +306,7 @@ class TestCacheFirstBehavior:
             assert data['status'] == 'pending'
             # Should create async job
             mock_services_with_cache['job'].create_job.assert_called_once()
-            mock_services_with_cache['sqs'].assert_called_once()
+            mock_services_with_cache['worker'].assert_called_once()
 
     def test_cache_miss_when_report_text_empty(self, client, mock_services_with_cache):
         """Cache with empty report_text should be treated as MISS"""
