@@ -133,6 +133,18 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
+      - name: Generate release version
+        id: release-version
+        run: |
+          # Format: {env}-{tag}-{short_sha}
+          # See CLAUDE.md Principle #22 and PROJECT_CONVENTIONS.md Versioning Standards
+          SHORT_SHA="${GITHUB_SHA::7}"
+          # For prod, use the git tag (e.g., v-telegram-1.2.3)
+          TAG="${GITHUB_REF_NAME:-manual}"
+          RELEASE="prd-${TAG}-${SHORT_SHA}"
+          echo "📋 Release version: ${RELEASE}"
+          echo "release=${RELEASE}" >> $GITHUB_OUTPUT
+
       - name: Check if prod Lambda exists
         id: check-lambda
         run: |
@@ -202,6 +214,62 @@ jobs:
             --image-uri ${{ needs.get-staging-artifact.outputs.image_uri }}
           aws lambda wait function-updated --function-name ${{ env.SCHEDULER_FUNCTION }}
           echo "✅ Scheduler code uploaded to \$LATEST"
+
+      # ========================================================================
+      # Step 1b: Update LANGFUSE_RELEASE env var (trace versioning)
+      # See CLAUDE.md Principle #22 and PROJECT_CONVENTIONS.md Versioning Standards
+      # ========================================================================
+      - name: Update Telegram API LANGFUSE_RELEASE
+        if: steps.check-lambda.outputs.exists == 'true'
+        run: |
+          echo "🏷️ Setting LANGFUSE_RELEASE=${{ steps.release-version.outputs.release }}"
+          CURRENT_VARS=$(aws lambda get-function-configuration \
+            --function-name ${{ env.TELEGRAM_FUNCTION }} \
+            --query 'Environment.Variables' \
+            --output json 2>/dev/null || echo '{}')
+
+          UPDATED_VARS=$(echo "$CURRENT_VARS" | jq --arg release "${{ steps.release-version.outputs.release }}" \
+            '. + {LANGFUSE_RELEASE: $release}')
+
+          aws lambda update-function-configuration \
+            --function-name ${{ env.TELEGRAM_FUNCTION }} \
+            --environment "Variables=${UPDATED_VARS}"
+          aws lambda wait function-updated --function-name ${{ env.TELEGRAM_FUNCTION }}
+          echo "✅ Telegram API LANGFUSE_RELEASE updated"
+
+      - name: Update Worker LANGFUSE_RELEASE
+        if: steps.check-lambda.outputs.exists == 'true'
+        run: |
+          CURRENT_VARS=$(aws lambda get-function-configuration \
+            --function-name ${{ env.WORKER_FUNCTION }} \
+            --query 'Environment.Variables' \
+            --output json 2>/dev/null || echo '{}')
+
+          UPDATED_VARS=$(echo "$CURRENT_VARS" | jq --arg release "${{ steps.release-version.outputs.release }}" \
+            '. + {LANGFUSE_RELEASE: $release}')
+
+          aws lambda update-function-configuration \
+            --function-name ${{ env.WORKER_FUNCTION }} \
+            --environment "Variables=${UPDATED_VARS}"
+          aws lambda wait function-updated --function-name ${{ env.WORKER_FUNCTION }}
+          echo "✅ Worker LANGFUSE_RELEASE updated"
+
+      - name: Update Scheduler LANGFUSE_RELEASE
+        if: steps.check-lambda.outputs.exists == 'true' && steps.check-scheduler.outputs.exists == 'true'
+        run: |
+          CURRENT_VARS=$(aws lambda get-function-configuration \
+            --function-name ${{ env.SCHEDULER_FUNCTION }} \
+            --query 'Environment.Variables' \
+            --output json 2>/dev/null || echo '{}')
+
+          UPDATED_VARS=$(echo "$CURRENT_VARS" | jq --arg release "${{ steps.release-version.outputs.release }}" \
+            '. + {LANGFUSE_RELEASE: $release}')
+
+          aws lambda update-function-configuration \
+            --function-name ${{ env.SCHEDULER_FUNCTION }} \
+            --environment "Variables=${UPDATED_VARS}"
+          aws lambda wait function-updated --function-name ${{ env.SCHEDULER_FUNCTION }}
+          echo "✅ Scheduler LANGFUSE_RELEASE updated"
 
       # ========================================================================
       # Step 2: Smoke test $LATEST directly (before any user sees it)

@@ -218,6 +218,16 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
+      - name: Generate release version
+        id: release-version
+        run: |
+          # Format: {env}-{branch}-{short_sha}
+          # See CLAUDE.md Principle #22 and PROJECT_CONVENTIONS.md Versioning Standards
+          SHORT_SHA="${GITHUB_SHA::7}"
+          RELEASE="dev-dev-${SHORT_SHA}"
+          echo "📋 Release version: ${RELEASE}"
+          echo "release=${RELEASE}" >> $GITHUB_OUTPUT
+
       - name: Update Lambda function code ($LATEST)
         run: |
           echo "🚀 Updating LINE bot Lambda function..."
@@ -230,6 +240,23 @@ jobs:
             --function-name ${{ env.FUNCTION_NAME }}
 
           echo "✅ LINE bot Lambda updated to ${{ needs.get-or-build-image.outputs.image_uri }}"
+
+      - name: Update LANGFUSE_RELEASE
+        run: |
+          echo "🏷️ Setting LANGFUSE_RELEASE=${{ steps.release-version.outputs.release }}"
+          CURRENT_VARS=$(aws lambda get-function-configuration \
+            --function-name ${{ env.FUNCTION_NAME }} \
+            --query 'Environment.Variables' \
+            --output json 2>/dev/null || echo '{}')
+
+          UPDATED_VARS=$(echo "$CURRENT_VARS" | jq --arg release "${{ steps.release-version.outputs.release }}" \
+            '. + {LANGFUSE_RELEASE: $release}')
+
+          aws lambda update-function-configuration \
+            --function-name ${{ env.FUNCTION_NAME }} \
+            --environment "Variables=${UPDATED_VARS}"
+          aws lambda wait function-updated --function-name ${{ env.FUNCTION_NAME }}
+          echo "✅ LANGFUSE_RELEASE updated"
 
       - name: Smoke test $LATEST
         run: |

@@ -337,6 +337,16 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
+      - name: Generate release version
+        id: release-version
+        run: |
+          # Format: {env}-{branch}-{short_sha}
+          # See CLAUDE.md Principle #22 and PROJECT_CONVENTIONS.md Versioning Standards
+          SHORT_SHA="${GITHUB_SHA::7}"
+          RELEASE="dev-dev-${SHORT_SHA}"
+          echo "📋 Release version: ${RELEASE}"
+          echo "release=${RELEASE}" >> $GITHUB_OUTPUT
+
       - name: Get current versions (for rollback reference)
         id: get-current
         run: |
@@ -375,6 +385,46 @@ jobs:
           echo "✅ Worker code uploaded to \$LATEST"
 
       # Scheduler deployment removed - now has dedicated workflow (deploy-scheduler-*.yml)
+
+      # ========================================================================
+      # Step 1b: Update LANGFUSE_RELEASE env var (trace versioning)
+      # See CLAUDE.md Principle #22 and PROJECT_CONVENTIONS.md Versioning Standards
+      # ========================================================================
+      - name: Update Telegram API LANGFUSE_RELEASE
+        run: |
+          echo "🏷️ Setting LANGFUSE_RELEASE=${{ steps.release-version.outputs.release }}"
+          # Get current env vars, add/update LANGFUSE_RELEASE, then update
+          CURRENT_VARS=$(aws lambda get-function-configuration \
+            --function-name ${{ env.TELEGRAM_FUNCTION }} \
+            --query 'Environment.Variables' \
+            --output json 2>/dev/null || echo '{}')
+
+          # Merge with new LANGFUSE_RELEASE
+          UPDATED_VARS=$(echo "$CURRENT_VARS" | jq --arg release "${{ steps.release-version.outputs.release }}" \
+            '. + {LANGFUSE_RELEASE: $release}')
+
+          # Update the function configuration
+          aws lambda update-function-configuration \
+            --function-name ${{ env.TELEGRAM_FUNCTION }} \
+            --environment "Variables=${UPDATED_VARS}"
+          aws lambda wait function-updated --function-name ${{ env.TELEGRAM_FUNCTION }}
+          echo "✅ Telegram API LANGFUSE_RELEASE updated"
+
+      - name: Update Worker LANGFUSE_RELEASE
+        run: |
+          CURRENT_VARS=$(aws lambda get-function-configuration \
+            --function-name ${{ env.WORKER_FUNCTION }} \
+            --query 'Environment.Variables' \
+            --output json 2>/dev/null || echo '{}')
+
+          UPDATED_VARS=$(echo "$CURRENT_VARS" | jq --arg release "${{ steps.release-version.outputs.release }}" \
+            '. + {LANGFUSE_RELEASE: $release}')
+
+          aws lambda update-function-configuration \
+            --function-name ${{ env.WORKER_FUNCTION }} \
+            --environment "Variables=${UPDATED_VARS}"
+          aws lambda wait function-updated --function-name ${{ env.WORKER_FUNCTION }}
+          echo "✅ Worker LANGFUSE_RELEASE updated"
 
       # ========================================================================
       # Step 2: Smoke test $LATEST directly (before any user sees it)
