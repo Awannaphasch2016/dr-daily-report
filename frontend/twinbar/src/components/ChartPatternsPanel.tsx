@@ -95,16 +95,34 @@ function getSentimentIcon(sentiment: 'bullish' | 'bearish' | 'neutral'): string 
 }
 
 /**
- * Format date for display
+ * Format date or bar index for display
+ *
+ * The start/end fields can be either:
+ * - ISO date strings (e.g., "2024-01-15")
+ * - Bar indices (e.g., "12", "bar_12")
+ *
+ * For bar indices, we display them as relative positions.
  */
-function formatDate(dateStr?: string): string {
-  if (!dateStr) return '-';
-  try {
-    const date = new Date(dateStr);
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  } catch {
-    return dateStr;
+function formatDateOrIndex(value?: string): string {
+  if (!value) return '-';
+
+  // Handle bar index format (e.g., "12", "bar_12")
+  if (/^(\d+|bar_\d+)$/.test(value)) {
+    const barIndex = value.replace('bar_', '');
+    return `Bar ${barIndex}`;
   }
+
+  // Try to parse as date
+  try {
+    const date = new Date(value);
+    if (!isNaN(date.getTime())) {
+      return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    }
+  } catch {
+    // Fall through to return raw value
+  }
+
+  return value;
 }
 
 /**
@@ -151,11 +169,11 @@ function PatternItem({ pattern }: { pattern: ChartPattern }) {
             </span>
           </div>
 
-          {/* Date range */}
+          {/* Date range or bar index range */}
           <div className="text-sm text-[var(--color-text-secondary)]">
             {pattern.start && pattern.end ? (
               <>
-                {formatDate(pattern.start)} - {formatDate(pattern.end)}
+                {formatDateOrIndex(pattern.start)} - {formatDateOrIndex(pattern.end)}
               </>
             ) : (
               <span>Recent pattern</span>
