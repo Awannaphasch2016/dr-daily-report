@@ -67,6 +67,54 @@ Comprehensive how-to guides for implementing CLAUDE.md principles. Each guide pr
 
 ---
 
+### External Service Integration
+
+#### [External Service Credential Isolation](external-service-credential-isolation.md)
+**Principle #24** | External services with webhook-based integrations require per-environment credentials.
+
+- **Pattern**: LINE, Telegram, Slack webhooks are per-channel—cannot share credentials across environments
+- **Isolation checklist**: Create channel → generate credentials → configure webhook → store in Doppler → verify E2E
+- **Verification**: HTTP 200 is insufficient—must verify user receives message (ground truth)
+- **Real incident**: LINE staging "account cannot reply" (used dev credentials for staging)
+- **Related**: Contextual Transfer Framework (separating portable vs context-bound)
+
+---
+
+### Logging & Observability
+
+#### [Logging Discipline](logging-discipline.md)
+**Principle #18** | Log for narrative reconstruction, not just event recording.
+
+- **Log level semantics**: ERROR (what failed), WARNING (what's unexpected), INFO (what happened), DEBUG (how it happened)
+- **Narrative structure**: Beginning (context) → Middle (milestones) → End (outcome with symbols)
+- **Boundary logging strategy**: WHERE you log determines WHAT survives Lambda failures
+- **Visual scanability**: Status symbols (✅⚠️❌), chapter separators, correlation IDs
+- **Critical insight**: Execution time shows WHAT system waits for, not WHERE code hangs
+
+---
+
+### Configuration & Environment
+
+#### [Configuration Variation Axis](configuration-variation.md)
+**Principle #23** | Choose configuration mechanism based on WHAT varies and WHEN it varies.
+
+- **Decision tree**: Secret → Doppler | Environment-specific → Doppler | Per-deployment → CI/CD | Complex → JSON | Static → Constant
+- **Doppler as isolation container**: Each environment is isolated with complete configuration set
+- **Flow patterns**: Doppler → Terraform (via TF_VAR_), CI/CD → Lambda (direct update)
+- **One-path execution**: Read env vars ONCE at startup (singleton pattern)
+- **Anti-patterns**: Hardcoding secrets, duplicating config, reading env vars per request
+
+#### [Timezone Discipline](timezone-discipline.md)
+**Principle #16** | Use Bangkok timezone (Asia/Bangkok, UTC+7) consistently across all system components.
+
+- **Infrastructure configuration**: Aurora, Lambda, EventBridge all use Bangkok timezone
+- **Code pattern**: Always use explicit `datetime.now(ZoneInfo("Asia/Bangkok"))`
+- **Date boundary handling**: Prevents cache misses at UTC/Bangkok date boundaries
+- **Anti-patterns**: Using `datetime.utcnow()`, missing TZ env var, implicit timezone
+- **Real incident**: Cache miss at date boundary (21:00 UTC Dec 30 ≠ 04:00 Bangkok Dec 31)
+
+---
+
 ## When to Use These Guides
 
 ### Before Deployment
@@ -159,6 +207,13 @@ Patterns become implementation guides through this path:
 
 ## Version History
 
+- **2026-01-12**: Added guides during CLAUDE.md abstraction level refactoring
+  - Logging Discipline (Principle #18) - extracted from CLAUDE.md
+  - Configuration Variation Axis (Principle #23) - extracted from CLAUDE.md
+  - Timezone Discipline (Principle #16) - extracted from CLAUDE.md
+- **2026-01-11**: Added External Service Credential Isolation guide (Principle #24)
+  - Derived from LINE staging deployment incident
+  - Integrated with Contextual Transfer Framework
 - **2026-01-04**: Initial guides created during CLAUDE.md abstraction refactoring
   - Cross-Boundary Contract Testing (Principle #19)
   - Execution Boundary Discipline (Principle #20)
@@ -177,6 +232,6 @@ Patterns become implementation guides through this path:
 
 ---
 
-*Index version: 2026-01-04*
-*Guides: 5 implementation guides (Principles #15, #17, #19, #20, #21)*
+*Index version: 2026-01-12*
+*Guides: 9 implementation guides (Principles #15, #16, #17, #18, #19, #20, #21, #23, #24)*
 *Status: Active - guides referenced by CLAUDE.md principles*

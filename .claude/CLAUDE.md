@@ -55,21 +55,13 @@ Research type compatibility BEFORE integrating heterogeneous systems (APIs, data
 Migration files are immutable once committed—never edit them. Always create new migrations for schema changes. Use reconciliation migrations (idempotent operations: CREATE TABLE IF NOT EXISTS) when database state is unknown. Prevents migration conflicts and unclear execution states. Verify with `DESCRIBE table_name` after applying. See [database-migration skill](.claude/skills/database-migration/).
 
 ### 6. Deployment Monitoring Discipline
-Use AWS CLI waiters (`aws lambda wait function-updated`), never `sleep X`. Use GitHub Actions `gh run watch --exit-status` for proper exit codes. Apply Progressive Evidence Strengthening (Principle #2): verify status code + payload + logs + actual behavior. Validate infrastructure-deployment contract before deploying (GitHub secrets match AWS reality). See [deployment skill](.claude/skills/deployment/).
+Use AWS CLI waiters (`aws lambda wait function-updated`), never `sleep X`. Use GitHub Actions `gh run watch --exit-status` for proper exit codes. Apply Progressive Evidence Strengthening (Principle #2): verify status code + payload + logs + actual behavior. Validate infrastructure-deployment contract before deploying.
 
-**Rollback triggers** (when to revert deployment):
-- Post-deployment smoke test fails (Lambda returns 500, import errors)
-- CloudWatch shows only START/END logs (no application logs = startup crash)
-- Error rate exceeds baseline (>5% errors in first 5 minutes)
-- Ground truth verification fails (database state doesn't match expectations)
+**Rollback triggers**: Post-deployment smoke test fails, CloudWatch shows only START/END logs (startup crash), error rate exceeds baseline (>5% in first 5 minutes), ground truth verification fails.
 
-**Rollback execution**:
-- Use previous known-good artifact (commit SHA or image digest)
-- Apply same deployment process (waiters, verification, smoke tests)
-- Document rollback reason and create incident report
-- Don't delete failed deployment (preserve for investigation)
+**Anti-pattern**: Assuming deployment succeeded because process exit code = 0. Exit code is weakest evidence.
 
-**Anti-pattern**: Assuming deployment succeeded because process exit code = 0. Exit code is weakest evidence - verify through smoke tests and ground truth.
+See [deployment skill](.claude/skills/deployment/) for rollback execution workflow, verification checklists, and manual deployment procedures.
 
 ### 7. Loud Mock Pattern
 Mock/stub data in production code must be centralized, explicit, and loud. Register ALL mocks in centralized registry (`src/mocks/__init__.py`), log loudly at startup (WARNING level), gate behind environment variables (fail in production if unexpected mocks active), document why each mock exists (owner, date, reason). Valid: speeding local dev. Invalid: hiding implementation gaps, bypassing security.
@@ -97,110 +89,46 @@ Build once, promote same immutable Docker image through all environments (dev �
 Use formal ontology relationships (OWL, RDF) for structured concept comparison. Eliminates "it depends" answers by applying 4 fundamental relationship types: part-whole, complement, substitution, composition. Transforms vague "X vs Y" questions into precise analytical frameworks with concrete examples. See [Relationship Analysis Guide](docs/RELATIONSHIP_ANALYSIS.md).
 
 ### 13. Secret Management Discipline
-Use Doppler for centralized secret management with config inheritance to prevent duplication. Cross-environment inheritance (dev → local_dev in `local` environment) automatically syncs shared secrets while allowing local overrides. Validate secrets at application startup, not on first use (fail-fast principle).
+Use Doppler for centralized secret management with config inheritance. Cross-environment inheritance (dev → local_dev) syncs shared secrets while allowing local overrides. Validate secrets at application startup (fail-fast).
 
-**Doppler Constraints** (platform limitations):
-1. **Same-environment inheritance forbidden**: Configs in same environment cannot inherit from each other
-2. **Environment-prefixed naming required**: Configs must use environment prefix (e.g., `local_*` for `local` environment)
-3. **Cross-environment inheritance allowed**: `local_dev` (in `local` env) can inherit from `dev` (in `dev` env)
+**Config organization**: `dev` (root) → `local_dev` (inherits), `stg` (root), `prd` (root).
 
-**Config Organization**:
-- `dev` (root, AWS): Shared development secrets
-- `local_dev` (branch, inherits from dev): Local overrides only (localhost, mock flags)
-- `stg` (root, AWS): Staging secrets
-- `prd` (root, AWS): Production secrets
+**Doppler constraints**: Same-environment inheritance forbidden, environment-prefixed naming required, cross-environment inheritance allowed.
 
-**Benefits**:
-- No secret duplication (9 local overrides + 9 inherited = 18 total)
-- Automatic propagation when dev secrets updated
-- Clear separation between environments
+**Anti-patterns**: Duplicating secrets across configs, manual secret sync, same-environment inheritance.
 
-**Anti-patterns**:
-- ❌ Duplicating secrets across configs (breaks single source of truth)
-- ❌ Same-environment inheritance (violates Doppler constraint)
-- ❌ Manual secret sync (error-prone, causes drift)
-
-See [Doppler Config Guide](docs/deployment/DOPPLER_CONFIG.md) for setup workflows and troubleshooting.
+See [Doppler Config Guide](docs/deployment/DOPPLER_CONFIG.md) for setup workflows, inheritance patterns, and troubleshooting.
 
 ### 14. Table Name Centralization
-All Aurora table names are defined in `src/data/aurora/table_names.py` as constants. This provides a single modification point if table schema evolves.
+All Aurora table names defined in `src/data/aurora/table_names.py` as constants. Centralized constants (not env vars) since names don't vary per environment. Use f-string interpolation for table names, parameterized queries for user data (SQL injection safety).
 
-**Pattern**:
-```python
-from src.data.aurora.table_names import DAILY_PRICES
+**Renaming workflow**: Update constant → create migration → run tests → deploy.
 
-query = f"SELECT * FROM {DAILY_PRICES} WHERE symbol = %s"
-```
-
-**Rationale**:
-- Table names are stable but treating them as configuration enables future flexibility
-- Centralized constants (not environment variables) since names don't vary per environment
-- f-string interpolation for table names, parameterized queries for user data (SQL injection safety)
-
-**If renaming a table**:
-1. Update constant in `table_names.py`
-2. Create migration SQL file
-3. Run tests to verify
-4. Deploy (constants propagate automatically via imports)
-
-**Removed tables**:
-- `ticker_info` - Dropped in migration 018 (empty table, replaced by ticker_master)
+See [Code Style Guide](docs/CODE_STYLE.md#database-patterns) for usage patterns and examples.
 
 ### 15. Infrastructure-Application Contract
 
-Maintain contract between application code (`src/`), infrastructure (`terraform/`), and principles (`.claude/CLAUDE.md`). Code deployed without matching infrastructure causes silent failures hours after deployment.
+Maintain contract between application code (`src/`), infrastructure (`terraform/`), and principles. Code deployed without matching infrastructure causes silent failures hours after deployment.
 
-**Deployment order**: (1) Update code, (2) **Create schema migration**, (3) **Update Terraform env vars**, (4) Update Doppler secrets, (5) **Deploy migration FIRST**, (6) Then deploy code, (7) Verify ground truth.
+**Deployment order**: Update code → Create migration → Update Terraform → Update Doppler → Deploy migration FIRST → Deploy code → Verify ground truth.
 
-**Startup validation**: Validate required env vars at Lambda startup (fail fast). No silent fallbacks (`os.environ.get('TZ', 'UTC')` hides missing config).
+**Startup validation**: Validate required env vars at Lambda startup (fail fast). No silent fallbacks.
 
-**Common failures**: Missing env var, schema not migrated before code, timezone date boundary bug (no TZ env var), copy-paste inheritance (old config missing new requirements).
+**Common failures**: Missing env var, schema not migrated before code, copy-paste inheritance.
 
-**Infrastructure Dependency Validation**: Before deploying code that depends on AWS infrastructure (S3, VPC endpoints, NAT Gateway), verify infrastructure exists and is correctly configured. Network path issues cause deterministic failure patterns (first N succeed, last M fail = bottleneck; random failures = performance issue).
-
-**VPC Endpoint Verification**:
-- Check endpoint exists: `aws ec2 describe-vpc-endpoints --filters "Name=vpc-id,Values=<vpc-id>" "Name=service-name,Values=com.amazonaws.<region>.s3"`
-- Verify state: "available"
-- Verify route table attachment: endpoint must be attached to Lambda subnet route tables
-- Test network path: Run Lambda → S3 operation → Check logs for direct connection (no NAT traversal)
-
-**NAT Gateway Saturation Patterns**:
-- **Symptom**: First N concurrent operations succeed, last M timeout
-- **Root Cause**: NAT Gateway connection establishment rate limit
-- **Evidence**: Timeline analysis shows deterministic split (not random)
-- **Solution**: Add VPC Gateway Endpoint (S3, DynamoDB) to bypass NAT
-
-See [Infrastructure-Application Contract Guide](docs/guides/infrastructure-application-contract.md) for deployment order, schema migration checklist, startup validation patterns, pre-deployment validation script, and 4 real failure instances. Integrates with Principle #1 (Defensive Programming), #2 (Progressive Evidence Strengthening), #5 (Database Migrations), #20 (Execution Boundary Discipline).
+See [Infrastructure-Application Contract Guide](docs/guides/infrastructure-application-contract.md) for deployment order, schema migration checklist, startup validation patterns, VPC endpoint verification, NAT Gateway saturation patterns, and real failure instances.
 
 ### 16. Timezone Discipline
 
-Use Bangkok timezone (Asia/Bangkok, UTC+7) consistently across all system components. For Bangkok-based users with no UTC requirements, single-timezone standardization eliminates mental conversion overhead and prevents date boundary bugs.
+Use Bangkok timezone (Asia/Bangkok, UTC+7) consistently across all system components. Single-timezone standardization eliminates mental conversion overhead and prevents date boundary bugs.
 
-**Infrastructure configuration**:
-- Aurora MySQL: `time_zone = "Asia/Bangkok"` (RDS parameter group)
-- Lambda functions: `TZ = "Asia/Bangkok"` (environment variable)
-- EventBridge Scheduler: UTC cron (platform limitation) but executes at Bangkok time equivalent
+**Infrastructure**: Aurora (`time_zone = "Asia/Bangkok"`), Lambda (`TZ = "Asia/Bangkok"`), EventBridge (UTC cron → Bangkok equivalent).
 
-**Code pattern** (explicit timezone):
-```python
-from zoneinfo import ZoneInfo
+**Code pattern**: Always use explicit `datetime.now(ZoneInfo("Asia/Bangkok"))` for business dates.
 
-# Explicit Bangkok timezone for business dates
-bangkok_tz = ZoneInfo("Asia/Bangkok")
-today = datetime.now(bangkok_tz).date()
-```
+**Anti-patterns**: Using `datetime.utcnow()`, using `datetime.now()` without explicit timezone, missing TZ env var.
 
-**Anti-patterns**:
-- ❌ Using `datetime.utcnow()` (implicit UTC, wrong for Bangkok business dates)
-- ❌ Using `datetime.now()` without explicit timezone (ambiguous, depends on env var)
-- ❌ Missing TZ env var in Lambda (defaults to UTC, causes date boundary bugs)
-
-**Rationale**:
-- Bangkok users + Bangkok scheduler = Bangkok dates everywhere
-- Prevents cache misses (21:00 UTC Dec 30 ≠ 04:00 Bangkok Dec 31)
-- Single timezone = no mental conversion overhead
-
-See [Timezone Implementation](.claude/validations/2025-12-30-etl-bangkok-timezone-verification.md) for validation.
+See [Timezone Discipline Guide](docs/guides/timezone-discipline.md) for infrastructure configuration, code patterns, date boundary handling, and real incident analysis.
 
 ### 17. Shared Virtual Environment Pattern
 
@@ -216,58 +144,17 @@ See [Shared Virtual Environment Guide](docs/guides/shared-virtual-environment.md
 
 ### 18. Logging Discipline (Storytelling Pattern)
 
-Log for narrative reconstruction, not just event recording. Each log level tells a story: ERROR (what failed), WARNING (what's unexpected), INFO (what happened), DEBUG (how it happened). Reading logs should explain what was executed or failed without needing to inspect traces directly. Logs serve as "weaker ground truth"—faster to inspect than traces, more reliable than status codes.
+Log for narrative reconstruction, not just event recording. Each log level tells a story: ERROR (what failed), WARNING (what's unexpected), INFO (what happened), DEBUG (how it happened). Logs serve as Layer 3 evidence (Principle #2)—faster than traces, more reliable than status codes.
 
-**Narrative structure**:
-- **Beginning**: What we're doing (context, inputs)
-- **Middle**: Key steps (transformations, milestones with breadcrumbs)
-- **End**: Outcome (✅ success / ❌ failure with details)
+**Narrative structure**: Beginning (context) → Middle (milestones) → End (✅ success / ❌ failure).
 
-**Visual scanability**:
-- **Symbols**: ✅ (success), ⚠️ (degraded), ❌ (failure)
-- **Chapters**: `====` separators, 📄 phase emojis
-- **Correlation**: `[job_id]` prefix for distributed threads
+**Visual scanability**: Status symbols (✅⚠️❌), chapter separators, correlation IDs for distributed threads.
 
-**Verification logging** (defensive storytelling):
-```python
-result = client.execute(query)
-if result.rowcount == 0:
-    logger.error("❌ Operation failed - 0 rows affected")  # Explicit
-else:
-    logger.info(f"✅ Affected {result.rowcount} rows")     # Verified
-```
+**Boundary logging**: WHERE you log determines WHAT survives Lambda failures. Log at handler boundaries, not deep in call stack.
 
-**Boundary Logging Strategy** (Lambda failure resilience):
+**Critical insight**: Execution time shows WHAT system waits for, not WHERE code hangs. Use stack traces (Layer 3) to find actual hang point.
 
-WHERE you log determines WHAT survives failures. Logs at layer boundaries survive execution failures; logs deep in call stack are lost when Lambda fails before log buffer flushes.
-
-**Pattern for network operations**:
-```python
-# LAYER BOUNDARY (Handler) - Always survives
-logger.info(f"Starting S3 upload: {key}")
-
-try:
-    # LAYER BOUNDARY (Service call) - Survives if exception raised
-    result = s3_client.upload_file(file_path, bucket, key)
-
-    # LAYER BOUNDARY (Success verification) - Survives on success
-    logger.info(f"✅ S3 upload completed: {key}")
-except Exception as e:
-    # LAYER BOUNDARY (Error handler) - Always survives
-    logger.error(f"❌ S3 upload failed: {key}", exc_info=True)
-    raise
-```
-
-**Critical insight**: "Execution Time ≠ Hang Location". Lambda execution time of 600s doesn't mean code hangs at 600s—it means ENTIRE execution (including network timeouts) took 600s. To find actual hang point, use stack traces (Layer 3 evidence), not execution time (Layer 1 evidence).
-
-**Anti-patterns**:
-- ❌ Logging errors at WARNING level (invisible to monitoring)
-- ❌ Missing narrative phases (can't reconstruct execution from logs)
-- ❌ Silent success (only logging failures hides what happened)
-- ❌ Logging only at depth (lost when Lambda fails before buffer flush)
-- ❌ Assuming long execution time = code hang at that line (confuses WHAT with WHERE)
-
-See [Logging as Storytelling](.claude/abstractions/architecture-2026-01-03-logging-as-storytelling.md) for comprehensive templates and examples. Integrates with Principle #2 (Progressive Evidence Strengthening - logs as Layer 3) and Principle #1 (Defensive Programming - verification logging).
+See [Logging Discipline Guide](docs/guides/logging-discipline.md) for narrative structure, boundary logging strategy, verification logging patterns, and anti-patterns.
 
 ### 19. Cross-Boundary Contract Testing
 
@@ -305,79 +192,55 @@ See [Deployment Blocker Resolution Guide](docs/guides/deployment-blocker-resolut
 
 ### 22. LLM Observability Discipline
 
-Use Langfuse for LLM tracing, scoring, and prompt management. Every user-facing LLM operation must be traced. Quality scores attached to traces enable trend analysis and regression detection. Langfuse provides Layer 3 evidence (observability signals) for LLM operations per Principle #2.
+Use Langfuse for LLM tracing, scoring, and prompt management. Every user-facing LLM operation must be traced. Quality scores enable trend analysis and regression detection. Langfuse provides Layer 3 evidence (Principle #2) for LLM operations.
 
-**Tracing pattern**:
-- Entry point decorated with `@observe(name="descriptive_name")`
-- Lambda handlers call `flush()` before returning (critical for serverless)
-- Trace names should be descriptive (not generic "process")
+**Tracing**: Entry points decorated with `@observe()`, Lambda handlers call `flush()` before returning (critical for serverless).
 
-**Scoring pattern**:
-- Score high-value outputs (final reports, user responses)
-- Don't score infrastructure (cache hits, data fetches)
-- 5 quality scores per report: faithfulness, completeness, reasoning_quality, compliance, consistency
+**Scoring**: Score high-value outputs (reports, responses), not infrastructure. 5 quality scores per report.
 
-**Langfuse unavailability**:
-- All Langfuse operations are non-blocking and fail gracefully
-- Missing traces/scores are acceptable (observability is best-effort)
-- Core functionality must work without Langfuse
+**Graceful degradation**: All Langfuse operations non-blocking. Core functionality works without Langfuse.
 
-**Versioning standard** (for trace traceability):
-- Format: `{env}-{version|branch}-{short_sha}`
-- Examples: `prd-v1.2.3-abc1234`, `stg-main-def5678`, `dev-dev-ghi9012`
-- Set automatically by CI/CD via `LANGFUSE_RELEASE` env var
-- Enables A/B testing, regression detection, and deployment correlation
+**Versioning**: Format `{env}-{version|branch}-{short_sha}`, set automatically by CI/CD via `LANGFUSE_RELEASE`.
 
-**Anti-patterns**:
-- ❌ Forgetting `flush()` in Lambda (traces lost)
-- ❌ Scoring everything (noise drowns signal)
-- ❌ Blocking on heavy evaluation (use async for expensive scores)
-- ❌ Environment-only versioning (`dev`) - no deployment traceability
-- ❌ Manual version updates - error-prone, forgotten
-
-See [Langfuse Integration Guide](docs/guides/langfuse-integration.md) and [langfuse-observability skill](.claude/skills/langfuse-observability/).
+See [Langfuse Integration Guide](docs/guides/langfuse-integration.md) and [langfuse-observability skill](.claude/skills/langfuse-observability/) for tracing patterns, scoring criteria, and versioning standard.
 
 ### 23. Configuration Variation Axis
 
-Choose configuration mechanism based on WHAT varies and WHEN it varies. This eliminates ad-hoc decisions about env vars vs constants vs config files.
+Choose configuration mechanism based on WHAT varies and WHEN it varies. Eliminates ad-hoc decisions about env vars vs constants vs config files.
 
-**Doppler as Environment Isolation Container**: Doppler holds ALL environment-specific configuration (not just secrets). Each environment (local/dev/stg/prd) is an isolated container with its complete configuration set. This ensures environment isolation and prevents cross-environment contamination.
+**Decision tree**: Secret? → Doppler | Environment-specific? → Doppler | Per-deployment? → CI/CD | Complex structure? → JSON | Static? → Python constant.
 
-**Decision heuristic**:
+**Doppler as isolation container**: Each environment (local/dev/stg/prd) is an isolated container with complete configuration set. Doppler → Terraform via `TF_VAR_` prefix.
 
-| Varies By | Mechanism | Location | Examples |
-|-----------|-----------|----------|----------|
-| Per environment | Doppler → env var | `os.environ.get()` | `AURORA_HOST`, `LANGFUSE_TRACING_ENVIRONMENT` |
-| Secret (any env) | Doppler → env var | `os.environ.get()` | API keys, passwords, tokens |
-| Per deployment | CI/CD → env var | GitHub Actions | `LANGFUSE_RELEASE` (commit-specific) |
-| Never | Python constant | Domain modules | Table names, score names |
-| Complex structure | JSON file | `config/*.json` | Tag taxonomies, prompt templates |
+**One-path execution**: Read env vars ONCE at startup (singleton pattern), not per-request.
 
-**Decision tree**:
-1. Contains secret? → Doppler (ALWAYS, regardless of sensitivity level)
-2. Differs by environment (local/dev/stg/prd)? → Doppler
-3. Changes per deployment (commit SHA, version)? → CI/CD direct update
-4. Complex nested structure? → JSON file
-5. Same across all environments? → Python constant
+**Anti-patterns**: Hardcoding secrets, duplicating config across environments, reading env vars per request.
 
-**Doppler → Terraform flow**:
-- Doppler secrets with `TF_VAR_` prefix are automatically passed to Terraform
-- Non-secret env vars also go through Doppler for environment isolation
-- Example: `TF_VAR_LANGFUSE_TRACING_ENVIRONMENT=dev` in Doppler → `var.LANGFUSE_TRACING_ENVIRONMENT` in Terraform
+See [Configuration Variation Guide](docs/guides/configuration-variation.md) for decision heuristic, flow patterns, migration checklist, and comprehensive examples.
 
-**One-path execution**: Values set via env vars are read ONCE at startup (singleton pattern), not on every request. This ensures deterministic behavior and avoids configuration drift during execution.
+### 24. External Service Credential Isolation
+
+External services with **webhook-based integrations** require **per-environment credentials**. Copying credentials across environments creates silent routing failures where operations succeed technically but fail functionally.
+
+**Why webhooks require isolation**: LINE, Telegram, Slack webhooks are per-channel/per-bot. Using dev credentials in staging means staging Lambda replies via dev channel—user receives nothing, but Lambda returns 200.
+
+**Isolation checklist for new environments**:
+1. Create new channel/bot/app in external service
+2. Generate new credentials for that channel
+3. Configure webhook URL to point to new environment
+4. Store credentials in Doppler under environment-specific config
+5. Verify end-to-end: user action → webhook → Lambda → reply → **user receives**
+
+**Services requiring isolation**: LINE, Telegram, Slack, Discord, Stripe webhooks, GitHub Apps, OAuth providers.
+
+**Verification**: HTTP 200 is Layer 1 evidence (weakest). External services require **Layer 4 ground truth**—user actually receives the message. See Principle #2.
 
 **Anti-patterns**:
-- ❌ Hardcoding secrets in code (security risk)
-- ❌ Duplicating config across environments (breaks single source of truth)
-- ❌ Using tfvars for env-specific values that Doppler already has
-- ❌ Using JSON for simple key-value pairs (overkill)
-- ❌ Scattering constants across multiple files (hard to audit)
-- ❌ Reading env vars on every request (non-deterministic)
+- ❌ Copying dev credentials to staging "to test quickly"
+- ❌ Sharing webhook channels across environments
+- ❌ Assuming HTTP 200 from SDK = message delivered
 
-**Validation**: At Lambda startup, validate required env vars exist (fail-fast per Principle #1). Missing env vars should raise errors, not use silent defaults.
-
-See Principle #13 (Secret Management), Principle #14 (Table Names), and [Doppler Config Guide](docs/deployment/DOPPLER_CONFIG.md).
+See [External Service Credential Isolation Guide](docs/guides/external-service-credential-isolation.md) for isolation checklist, verification patterns, and real incident analysis. Integrates with Principle #2 (Progressive Evidence), #13 (Secret Management), #15 (Infrastructure Contract).
 
 ---
 
