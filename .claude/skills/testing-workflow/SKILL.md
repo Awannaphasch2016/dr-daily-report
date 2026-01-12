@@ -181,6 +181,84 @@ pytest --cov
 | Patch where USED: `@patch('src.api.module.lib')` | Patch where defined: `@patch('lib')` |
 | `AsyncMock` for async methods | `Mock` for async (breaks await) |
 
+## Invariant Testing (Principle #25)
+
+Tests should verify **behavioral invariants** - properties that MUST remain true for the system to function.
+
+### Invariant Test Categories
+
+| Test Type | What It Verifies | Example |
+|-----------|------------------|---------|
+| Level 4 (Config) | Configuration is set | `test_env_vars_set()` |
+| Level 3 (Infra) | Connectivity works | `test_aurora_connection()` |
+| Level 2 (Data) | Data conditions hold | `test_data_freshness()` |
+| Level 1 (Service) | Service behavior | `test_lambda_responds()` |
+| Level 0 (User) | User flows work | `test_e2e_user_flow()` |
+
+### Writing Invariant Tests
+
+```python
+# Level 4: Configuration invariant
+class TestConfigurationInvariants:
+    def test_required_env_vars_set(self):
+        """Invariant: Required environment variables must be set."""
+        required = ["AURORA_HOST", "TZ", "LANGFUSE_RELEASE"]
+        for var in required:
+            assert os.environ.get(var), f"Missing required env var: {var}"
+
+# Level 2: Data invariant
+class TestDataInvariants:
+    @pytest.mark.integration
+    def test_price_data_exists_for_today(self, aurora_connection):
+        """Invariant: Aurora must have today's price data."""
+        result = aurora_connection.execute(
+            "SELECT COUNT(*) FROM daily_prices WHERE date = CURDATE()"
+        )
+        assert result[0][0] >= 46, "Missing price data for today"
+
+# Level 1: Service invariant
+class TestServiceInvariants:
+    @pytest.mark.smoke
+    def test_telegram_api_health(self):
+        """Invariant: telegram-api Lambda must respond to health check."""
+        response = invoke_lambda("telegram-api-dev", {"test": "health"})
+        assert response["statusCode"] == 200
+```
+
+### Invariant Test Markers
+
+```python
+@pytest.mark.invariant        # Mark as invariant test
+@pytest.mark.invariant_level_0  # User-facing invariant
+@pytest.mark.invariant_level_1  # Service invariant
+@pytest.mark.invariant_level_2  # Data invariant
+@pytest.mark.invariant_level_3  # Infrastructure invariant
+@pytest.mark.invariant_level_4  # Configuration invariant
+```
+
+### Running Invariant Tests
+
+```bash
+# All invariant tests
+pytest -m "invariant"
+
+# Specific level
+pytest -m "invariant_level_2"  # Data invariants only
+
+# Pre-deployment verification
+pytest -m "invariant" --tier=3
+```
+
+### Integration with Deployment
+
+Invariant tests should run:
+- **Before deployment**: Verify Level 4 (config) invariants
+- **After deployment**: Verify all levels bottom-up (4 → 0)
+
+See [Behavioral Invariant Guide](../../../docs/guides/behavioral-invariant-verification.md) and [System Invariants](../../invariants/system-invariants.md).
+
+---
+
 ## Next Steps
 
 - **For test patterns**: See [PATTERNS.md](PATTERNS.md)
@@ -188,3 +266,4 @@ pytest --cov
 - **For defensive programming**: See [DEFENSIVE.md](DEFENSIVE.md)
 - **For progressive testing (7-layer strategy)**: See [PROGRESSIVE-TESTING.md](PROGRESSIVE-TESTING.md)
 - **For Lambda/Docker/contract testing**: See [LAMBDA-TESTING.md](LAMBDA-TESTING.md)
+- **For invariant testing**: See [Behavioral Invariant Guide](../../../docs/guides/behavioral-invariant-verification.md)

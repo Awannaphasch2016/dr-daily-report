@@ -242,6 +242,40 @@ External services with **webhook-based integrations** require **per-environment 
 
 See [External Service Credential Isolation Guide](docs/guides/external-service-credential-isolation.md) for isolation checklist, verification patterns, and real incident analysis. Integrates with Principle #2 (Progressive Evidence), #13 (Secret Management), #15 (Infrastructure Contract).
 
+### 25. Behavioral Invariant Verification
+
+Every implementation operates within an **invariant envelope** - behaviors that MUST remain true for the system to function. Before claiming "done", verify the invariant envelope holds.
+
+**Invariant hierarchy**:
+- **Level 0 (User)**: User can X (e.g., "receive Telegram report")
+- **Level 1 (Service)**: Lambda returns Y (e.g., "200 with valid payload")
+- **Level 2 (Data)**: Aurora has Z (e.g., "today's price data")
+- **Level 3 (Infrastructure)**: A can reach B (e.g., "Lambda → Aurora")
+- **Level 4 (Configuration)**: X is set to Y (e.g., "migrations applied")
+
+**Implementation workflow**:
+1. **BEFORE**: State what MUST remain true (invariant envelope)
+2. **DURING**: Implement without violating stated invariants
+3. **AFTER**: Verify invariants at each affected level
+
+**Claiming "Done"**:
+```markdown
+**Invariants Verified**:
+- [x] Level 0: User receives report via Telegram
+- [x] Level 1: telegram-api returns valid response
+- [x] Level 2: Aurora has required data
+- [x] Level 3: Lambda → Aurora connectivity confirmed
+```
+
+**Verification strength** (per Principle #2): Invariants require Layer 4 (ground truth) verification for critical paths, not just Layer 1 (status codes).
+
+**Anti-patterns**:
+- ❌ "Done" without stating invariants
+- ❌ Verifying only the changed component
+- ❌ Layer 1 verification only ("it returned 200")
+
+See [Behavioral Invariant Guide](docs/guides/behavioral-invariant-verification.md) for invariant hierarchy, verification checklists, and integration with deployment workflow. Integrates with Principle #2 (Progressive Evidence), #19 (Cross-Boundary Testing), #20 (Execution Boundary).
+
 ---
 
 ## Extension Points

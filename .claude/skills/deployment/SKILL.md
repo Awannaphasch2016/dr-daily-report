@@ -315,12 +315,64 @@ aws lambda get-alias --function-name worker --name live
 5. **Artifact Promotion**: Dev image → Staging image → Prod image (same hash)
 6. **Secret Separation**: Runtime secrets (Doppler) vs Deployment secrets (GitHub)
 
+### Invariant Verification (Principle #25)
+
+Deployments must verify the **invariant envelope** - behaviors that MUST remain true.
+
+**Pre-Deployment (State Invariants)**:
+```markdown
+Deploying: {change description}
+
+Invariants that must remain true:
+- [ ] Level 0: User can send /report and receive PDF
+- [ ] Level 1: telegram-api responds correctly
+- [ ] Level 2: Aurora has required data
+- [ ] Level 3: Lambda → Aurora connectivity
+- [ ] Level 4: New env vars set in Doppler
+```
+
+**Post-Deployment (Verify Invariants)**:
+```bash
+# Level 4: Configuration
+/dev "verify env vars"
+doppler run -- printenv | grep REQUIRED_VAR
+
+# Level 3: Infrastructure
+/dev "test Aurora connectivity"
+
+# Level 2: Data
+/dev "SELECT COUNT(*) FROM daily_prices WHERE date = CURDATE()"
+
+# Level 1: Service
+/dev "invoke Lambda health check"
+
+# Level 0: User (manual or E2E test)
+# Send test message to bot, verify response
+```
+
+**Claiming "Deployment Complete"**:
+```markdown
+✅ Deployment complete
+
+**Invariants Verified**:
+- [x] Level 4: Config set
+- [x] Level 3: Connectivity confirmed
+- [x] Level 2: Data available
+- [x] Level 1: Lambda responds
+- [x] Level 0: User flow works
+
+**Confidence**: HIGH
+```
+
+See [Behavioral Invariant Guide](../../../docs/guides/behavioral-invariant-verification.md) and [System Invariants](../../invariants/system-invariants.md).
+
 ### When NOT to Deploy
 
 - ❌ Tests failing (run `just test-deploy` first)
 - ❌ Secrets not configured (run validation script)
 - ❌ Infrastructure not created (run `terraform apply` first)
 - ❌ No PR review for staging/prod (require approval)
+- ❌ Invariant envelope not stated (what must remain true?)
 
 ### AWS CLI Waiter Pattern
 

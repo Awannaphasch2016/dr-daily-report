@@ -8,6 +8,17 @@ Comprehensive how-to guides for implementing CLAUDE.md principles. Each guide pr
 
 ### Testing & Verification
 
+#### [Behavioral Invariant Verification](behavioral-invariant-verification.md)
+**Principle #25** | Every implementation operates within an invariant envelope—behaviors that MUST remain true for the system to function.
+
+- **Invariant hierarchy**: Level 0 (User) → Level 1 (Service) → Level 2 (Data) → Level 3 (Infrastructure) → Level 4 (Configuration)
+- **Implementation workflow**: State invariants (before) → implement → verify invariants (after)
+- **Claiming "Done"**: Requires explicit invariant verification, not just "code deployed"
+- **Verification strength**: Critical invariants require Layer 4 (ground truth) verification
+- **Real impact**: LINE bot 7-day outage, ETL timezone bug, NAT Gateway timeout (all implicit invariants)
+
+---
+
 #### [Cross-Boundary Contract Testing](cross-boundary-contract-testing.md)
 **Principle #19** | Test transitions between execution phases, service components, data domains, and temporal states—not just behavior within boundaries.
 
@@ -207,6 +218,10 @@ Patterns become implementation guides through this path:
 
 ## Version History
 
+- **2026-01-12**: Added Behavioral Invariant Verification guide (Principle #25)
+  - New principle addressing implicit assumptions in "done" claims
+  - Created invariant hierarchy (Levels 0-4)
+  - Added `.claude/invariants/` directory with templates
 - **2026-01-12**: Added guides during CLAUDE.md abstraction level refactoring
   - Logging Discipline (Principle #18) - extracted from CLAUDE.md
   - Configuration Variation Axis (Principle #23) - extracted from CLAUDE.md
@@ -225,13 +240,14 @@ Patterns become implementation guides through this path:
 
 ## See Also
 
-- **CLAUDE.md**: [../CLAUDE.md](../CLAUDE.md) - Core principles (WHY/WHEN)
-- **Abstractions**: [.claude/abstractions/](.claude/abstractions/) - Pattern analysis and graduation path
-- **Skills**: [.claude/skills/](.claude/skills/) - Executable workflows and checklists
-- **Documentation Index**: [docs/README.md](../README.md) - Complete documentation map
+- **CLAUDE.md**: [../../.claude/CLAUDE.md](../../.claude/CLAUDE.md) - Core principles (WHY/WHEN)
+- **Abstractions**: [../../.claude/abstractions/](../../.claude/abstractions/) - Pattern analysis and graduation path
+- **Skills**: [../../.claude/skills/](../../.claude/skills/) - Executable workflows and checklists
+- **Invariants**: [../../.claude/invariants/](../../.claude/invariants/) - System invariant checklists
+- **Documentation Index**: [../README.md](../README.md) - Complete documentation map
 
 ---
 
 *Index version: 2026-01-12*
-*Guides: 9 implementation guides (Principles #15, #16, #17, #18, #19, #20, #21, #23, #24)*
+*Guides: 10 implementation guides (Principles #15, #16, #17, #18, #19, #20, #21, #23, #24, #25)*
 *Status: Active - guides referenced by CLAUDE.md principles*

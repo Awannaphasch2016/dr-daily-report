@@ -1,0 +1,521 @@
+# Behavioral Invariant Verification Guide
+
+## Overview
+
+Every implementation operates within an **invariant envelope** - the set of behaviors that MUST remain true for the system to function correctly. This guide provides comprehensive patterns for identifying, stating, and verifying behavioral invariants.
+
+**Core Insight**: When Claude (or any agent) claims "✅ Done", that claim has weak epistemic weight unless the invariant envelope has been explicitly verified. "Code deployed" ≠ "System works".
+
+---
+
+## Why This Matters
+
+### The Problem
+
+| What We Say | What We Mean | What's Actually Verified |
+|-------------|--------------|-------------------------|
+| "Implementation complete" | Code changes deployed | Exit code = 0 |
+| "Feature works" | User can use feature | Lambda returns 200 |
+| "Bug fixed" | Issue resolved | Test passes |
+
+**Gap**: None of these verify that the **system still works as a whole**.
+
+### Real Incidents Caused by Implicit Invariants
+
+| Incident | Implicit Assumption | What Broke |
+|----------|---------------------|-----------|
+| LINE bot 7-day outage | "Lambda imports work" | ImportError at runtime |
+| ETL timezone bug | "TZ env var is set" | Missing configuration |
+| NAT Gateway timeout | "Lambda → S3 path works" | Network saturation |
+| Staging silent failure | "Webhook routes to Lambda" | Wrong channel credentials |
+
+**Pattern**: Every incident involved an implicit invariant that was never explicitly stated or verified.
+
+---
+
+## Invariant Hierarchy
+
+Invariants exist at multiple levels. Higher levels depend on lower levels.
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ Level 0: USER-FACING BEHAVIOR                               │
+│ "User can send /report and receive PDF via Telegram"        │
+├─────────────────────────────────────────────────────────────┤
+│ Level 1: SERVICE BEHAVIOR                                   │
+│ "telegram-api Lambda returns valid report payload"          │
+├─────────────────────────────────────────────────────────────┤
+│ Level 2: DATA BEHAVIOR                                      │
+│ "Aurora has today's price data for requested ticker"        │
+├─────────────────────────────────────────────────────────────┤
+│ Level 3: INFRASTRUCTURE BEHAVIOR                            │
+│ "Lambda can connect to Aurora within timeout"               │
+├─────────────────────────────────────────────────────────────┤
+│ Level 4: CONFIGURATION BEHAVIOR                             │
+│ "Migrations applied, env vars set, IAM policies attached"   │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Level Definitions
+
+#### Level 0: User-Facing Behavior
+What the end user experiences. The ultimate ground truth.
+
+**Examples**:
+- User sends `/report AAPL` → receives PDF in Telegram
+- User opens frontend → sees chart with current data
+- User clicks export → downloads CSV file
+
+**Verification**: Manual test or E2E automation with real user flow.
+
+#### Level 1: Service Behavior
+What individual services/Lambdas produce.
+
+**Examples**:
+- `telegram-api` returns `{"status": "success", "report_url": "..."}`
+- `report-worker` generates valid PDF bytes
+- API Gateway routes request to correct Lambda
+
+**Verification**: Invoke Lambda directly, check response structure.
+
+#### Level 2: Data Behavior
+What data exists and its correctness.
+
+**Examples**:
+- `daily_prices` table has rows for today
+- Precomputed reports exist for all 46 tickers
+- S3 bucket contains required static assets
+
+**Verification**: Query Aurora, list S3 objects, check data freshness.
+
+#### Level 3: Infrastructure Behavior
+Connectivity and resource availability.
+
+**Examples**:
+- Lambda → Aurora connection succeeds
+- Lambda → S3 upload works
+- VPC endpoints are correctly configured
+
+**Verification**: Network tests, connection pool health, timeout checks.
+
+#### Level 4: Configuration Behavior
+Static configuration that enables the system.
+
+**Examples**:
+- All migrations applied to Aurora
+- Environment variables set in Lambda
+- IAM policies allow required actions
+- Doppler secrets accessible
+
+**Verification**: Describe resources, check env vars, validate IAM.
+
+---
+
+## Implementation Workflow
+
+### Before Implementation: State Invariant Envelope
+
+Before starting any implementation, explicitly state:
+
+```markdown
+## Invariant Envelope
+
+**What I'm changing**: {description}
+
+**Invariants that MUST remain true**:
+
+### Level 0 (User)
+- [ ] User can send /report and receive response
+
+### Level 1 (Service)
+- [ ] telegram-api Lambda responds to webhook
+- [ ] report-worker generates valid PDF
+
+### Level 2 (Data)
+- [ ] Aurora has price data (not affected by this change)
+
+### Level 3 (Infrastructure)
+- [ ] Lambda → Aurora connectivity (not affected)
+
+### Level 4 (Configuration)
+- [ ] New env var X must be set in Doppler/Terraform
+```
+
+**Key Questions**:
+1. What behaviors could this change break?
+2. What implicit assumptions am I making?
+3. What MUST be true for this to work?
+
+### During Implementation: Don't Violate Invariants
+
+As you implement:
+- Check each change against stated invariants
+- If scope expands, add new invariants
+- If you discover implicit invariants, make them explicit
+
+**Anti-pattern**: Proceeding when you realize an invariant might be violated.
+
+### After Implementation: Verify Invariant Envelope
+
+Systematically verify each level that could be affected:
+
+```markdown
+## Invariant Verification
+
+### Level 4 (Configuration) ✅
+- [x] New env var `FEATURE_FLAG_X` added to Doppler dev config
+- [x] Terraform updated with new variable
+- [x] Verified: `doppler run -- printenv | grep FEATURE_FLAG_X`
+
+### Level 3 (Infrastructure) ✅
+- [x] Lambda → Aurora: `SELECT 1` succeeds
+- [x] No new infrastructure dependencies
+
+### Level 2 (Data) ✅
+- [x] `SELECT COUNT(*) FROM daily_prices WHERE date = CURDATE()` → 46 rows
+- [x] Data schema unchanged
+
+### Level 1 (Service) ✅
+- [x] `aws lambda invoke --function-name telegram-api-dev` → 200
+- [x] Response contains expected fields
+
+### Level 0 (User) ✅
+- [x] Sent `/report AAPL` via Telegram → received PDF
+- [x] PDF contains correct data
+```
+
+---
+
+## Verification Strength by Level
+
+Apply Progressive Evidence Strengthening (Principle #2) to invariant verification:
+
+| Level | Layer 1 (Weak) | Layer 2 | Layer 3 | Layer 4 (Strong) |
+|-------|----------------|---------|---------|------------------|
+| Level 0 | N/A | N/A | Logs show success | User received message |
+| Level 1 | Exit code 0 | HTTP 200 | Logs show processing | Response validates |
+| Level 2 | Query succeeds | Row count > 0 | Data timestamp recent | Data matches source |
+| Level 3 | No timeout | Connection opened | Query executed | Round-trip successful |
+| Level 4 | Describe succeeds | Value exists | Value is correct | Dependent service works |
+
+**Critical invariants require Layer 4 verification**.
+
+---
+
+## Invariant Checklist Template
+
+Use this template for any implementation:
+
+```markdown
+# Invariant Checklist: {Feature/Change Name}
+
+## Pre-Implementation
+
+### Invariant Envelope
+**Scope**: {What's being changed}
+
+**Level 0 (User)**:
+- [ ] {User behavior that must work}
+
+**Level 1 (Service)**:
+- [ ] {Service behavior that must work}
+
+**Level 2 (Data)**:
+- [ ] {Data condition that must hold}
+
+**Level 3 (Infrastructure)**:
+- [ ] {Connectivity that must work}
+
+**Level 4 (Configuration)**:
+- [ ] {Configuration that must be set}
+
+### Assumptions
+- {Assumption 1}
+- {Assumption 2}
+
+---
+
+## Post-Implementation
+
+### Verification Results
+
+**Level 4 (Configuration)**:
+- [ ] {Check}: {Result}
+
+**Level 3 (Infrastructure)**:
+- [ ] {Check}: {Result}
+
+**Level 2 (Data)**:
+- [ ] {Check}: {Result}
+
+**Level 1 (Service)**:
+- [ ] {Check}: {Result}
+
+**Level 0 (User)**:
+- [ ] {Check}: {Result}
+
+### Evidence
+- {Link to logs}
+- {Screenshot/output}
+
+### Confidence
+- [ ] HIGH: All levels verified to Layer 4
+- [ ] MEDIUM: Critical levels verified, others to Layer 2
+- [ ] LOW: Partial verification only
+
+---
+
+## Claiming "Done"
+
+**Implementation complete**: {timestamp}
+
+**Invariants verified**: {count}/{total}
+
+**Verification evidence**: {links}
+
+**Confidence**: HIGH | MEDIUM | LOW
+```
+
+---
+
+## Project-Specific Invariants
+
+### This Project's Level 0 Invariants
+
+These are the user-facing behaviors that define system success:
+
+```markdown
+## User-Facing Invariants
+
+### Telegram Bot
+- [ ] User sends `/start` → receives welcome message
+- [ ] User sends `/report TICKER` → receives PDF report
+- [ ] User sends `/watchlist` → receives portfolio summary
+
+### LINE Bot (Legacy - Maintenance Mode)
+- [ ] User sends message → receives response
+- [ ] Webhook processes without timeout
+
+### Frontend (Telegram Mini App)
+- [ ] User opens app → sees dashboard
+- [ ] User views chart → sees current data
+- [ ] User exports data → downloads file
+```
+
+### This Project's Critical Path
+
+The minimum invariants that guarantee system works:
+
+```
+1. Telegram webhook receives message
+   ↓
+2. telegram-api Lambda invoked
+   ↓
+3. Lambda can query Aurora
+   ↓
+4. Aurora has price data
+   ↓
+5. Report generated successfully
+   ↓
+6. User receives response
+```
+
+**If any link breaks, user experience fails.**
+
+---
+
+## Integration with Deployment Workflow
+
+### Pre-Deployment Invariant Check
+
+Before deploying:
+
+```bash
+# Level 4: Configuration
+/dev "verify all env vars set for new code"
+doppler run --config dev -- printenv | grep REQUIRED_VAR
+
+# Level 3: Infrastructure
+/dev "test Aurora connectivity"
+aws lambda invoke --function-name telegram-api-dev --payload '{"test":"aurora"}'
+
+# Level 2: Data
+/dev "verify data freshness"
+# SELECT MAX(date) FROM daily_prices
+
+# Level 1: Service (smoke test on dev)
+/dev "invoke Lambda health check"
+```
+
+### Post-Deployment Invariant Check
+
+After deploying:
+
+```bash
+# Level 1: Service responds
+/stg "verify Lambda responds"
+
+# Level 0: User flow works
+/stg "send test message to staging bot"
+# Or: Manual test via Telegram
+```
+
+### Invariant Verification in `/deploy`
+
+The deployment workflow should include:
+
+```markdown
+## Deployment Checklist
+
+### Pre-Deploy
+- [ ] State invariant envelope for this deployment
+- [ ] Verify Level 4 (configuration) in target environment
+
+### Deploy
+- [ ] Deploy code changes
+
+### Post-Deploy
+- [ ] Verify Level 3 (infrastructure) - connectivity
+- [ ] Verify Level 2 (data) - data availability
+- [ ] Verify Level 1 (service) - Lambda responds correctly
+- [ ] Verify Level 0 (user) - end-to-end test
+
+### Claim "Done"
+- [ ] All invariants verified
+- [ ] Evidence collected
+- [ ] Confidence level: HIGH
+```
+
+---
+
+## Anti-Patterns
+
+### 1. "Done" Without Stating Invariants
+
+**Bad**:
+```markdown
+✅ Implementation complete
+- Added new feature X
+- Deployed to dev
+```
+
+**Good**:
+```markdown
+✅ Implementation complete
+
+**Invariants Verified**:
+- [x] Level 0: User can use feature X
+- [x] Level 1: Lambda returns correct response
+- [x] Level 2: Data persisted correctly
+- [x] Level 3: No new infrastructure dependencies
+- [x] Level 4: New env var set in Doppler
+```
+
+### 2. Verifying Only Changed Component
+
+**Bad**: "I changed the report generator, so I tested report generation."
+
+**Good**: "I changed the report generator, so I verified:
+- Report generation works (Level 1)
+- User receives correct report (Level 0)
+- No regression in related features (Level 0)"
+
+### 3. Layer 1 Verification Only
+
+**Bad**: "Lambda returned 200, so it works."
+
+**Good**: "Lambda returned 200 (Layer 1), response contains expected fields (Layer 2), logs show correct processing (Layer 3), user received message (Layer 4)."
+
+### 4. Implicit Assumptions
+
+**Bad**: Deploying code that requires new env var without setting it.
+
+**Good**: Stating "This code requires `NEW_VAR` to be set" → Setting it → Verifying it's accessible.
+
+---
+
+## Verification Commands by Level
+
+### Level 4 (Configuration)
+
+```bash
+# Check env vars
+/dev "verify LANGFUSE_RELEASE env var is set"
+doppler run --config dev -- printenv | grep LANGFUSE_RELEASE
+
+# Check migrations
+/dev "DESCRIBE daily_prices"
+/dev "SHOW TABLES"
+
+# Check IAM
+aws iam get-role-policy --role-name lambda-role --policy-name s3-access
+```
+
+### Level 3 (Infrastructure)
+
+```bash
+# Aurora connectivity
+/dev "test Aurora connection"
+# Lambda invoke with connectivity test payload
+
+# S3 connectivity
+/dev "list S3 bucket contents"
+
+# Network path
+/dev "check VPC endpoint status"
+```
+
+### Level 2 (Data)
+
+```bash
+# Data freshness
+/dev "SELECT MAX(date) FROM daily_prices"
+
+# Data completeness
+/dev "SELECT COUNT(DISTINCT symbol) FROM daily_prices WHERE date = CURDATE()"
+
+# Precomputed data
+/dev "check precomputed reports exist"
+```
+
+### Level 1 (Service)
+
+```bash
+# Lambda health
+/dev "invoke telegram-api health check"
+
+# API response
+/dev "test API endpoint response"
+
+# Error rate
+/dev "check error rate in last 30 minutes"
+```
+
+### Level 0 (User)
+
+```bash
+# End-to-end test
+# Manual: Send message to Telegram bot
+# Or: Automated E2E test
+
+/dev "send test message to dev bot"
+# Verify user receives response
+```
+
+---
+
+## Related Principles
+
+- **Principle #2 (Progressive Evidence Strengthening)**: Invariant verification uses evidence hierarchy
+- **Principle #15 (Infrastructure-Application Contract)**: Infrastructure invariants are part of envelope
+- **Principle #19 (Cross-Boundary Contract Testing)**: Boundaries define invariant levels
+- **Principle #20 (Execution Boundary Discipline)**: Invariants exist at each execution boundary
+
+---
+
+## See Also
+
+- [CLAUDE.md - Principle #25](../../.claude/CLAUDE.md)
+- [Cross-Boundary Contract Testing](cross-boundary-contract-testing.md)
+- [Execution Boundary Discipline](execution-boundary-discipline.md)
+- [Deployment Skill](../../.claude/skills/deployment/)

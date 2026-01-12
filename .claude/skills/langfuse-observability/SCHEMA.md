@@ -50,7 +50,7 @@ Trace (root)
 | `session_id` | string | `trace_context(session_id=...)` | Runtime | Session grouping |
 | `tags` | string[] | `trace_context(tags=[...])` | Runtime | Filterable tags |
 | `metadata` | JSON | `trace_context(metadata={...})` | Runtime | Key-value metadata |
-| `release` | string | `LANGFUSE_RELEASE` env var | Client init | Version identifier |
+| `release` | string | `LANGFUSE_RELEASE` env var | Client init | Version identifier (format: `{env}-{version}-{sha}`) |
 | `environment` | string | `LANGFUSE_TRACING_ENVIRONMENT` env var | Client init | Environment name |
 | `level` | enum | `set_trace_level(...)` | Runtime | DEBUG/DEFAULT/WARNING/ERROR |
 
