@@ -2,7 +2,7 @@
 
 **Purpose**: Complete reference for Langfuse trace structure, columns, and relationships.
 
-**Related**: [Configuration](./README.md#configuration), [Principle #22](../../CLAUDE.md), [Principle #23](../../CLAUDE.md)
+**Related**: [Configuration](./README.md#configuration), [Principle #22](../principles/integration-principles.md), [Principle #23](../../CLAUDE.md) (Tier-0)
 
 ---
 

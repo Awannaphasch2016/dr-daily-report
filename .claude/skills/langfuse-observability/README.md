@@ -323,7 +323,7 @@ def generate(data):
 
 ## Configuration
 
-Per [Principle #23: Configuration Variation Axis](../../CLAUDE.md), Langfuse configuration follows clear separation between env vars (vary by environment/secret) and constants (never vary).
+Per [Principle #23: Configuration Variation Axis](../../CLAUDE.md) (Tier-0), Langfuse configuration follows clear separation between env vars (vary by environment/secret) and constants (never vary).
 
 ### Environment Variables (Doppler)
 
@@ -417,5 +417,5 @@ if final_state.get("error"):
 - [Scoring Service](../../../src/scoring/scoring_service.py)
 - [Quality Scorers](../../../src/scoring/)
 - [Langfuse Official Docs](https://langfuse.com/docs)
-- [Principle #22: LLM Observability Discipline](../../CLAUDE.md)
-- [Principle #23: Configuration Variation Axis](../../CLAUDE.md)
+- [Principle #22: LLM Observability Discipline](../principles/integration-principles.md)
+- [Principle #23: Configuration Variation Axis](../../CLAUDE.md) (Tier-0)

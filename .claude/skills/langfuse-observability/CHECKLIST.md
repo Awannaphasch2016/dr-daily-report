@@ -187,7 +187,7 @@ Regular monitoring tasks:
 
 ## Configuration Verification
 
-Per [Principle #23: Configuration Variation Axis](../../CLAUDE.md):
+Per [Principle #23: Configuration Variation Axis](../../CLAUDE.md) (Tier-0):
 
 ### Env Vars (Must be in Doppler)
 - [ ] `LANGFUSE_PUBLIC_KEY` - API key (secret)

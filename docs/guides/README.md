@@ -184,21 +184,43 @@ Each guide follows consistent structure:
 
 ---
 
-## Relationship to CLAUDE.md
+## Relationship to CLAUDE.md and Principle Clusters
 
-**CLAUDE.md** (Principles): WHY and WHEN
-- Goldilocks Zone of abstraction
-- Principles guide behavior
-- 8-15 lines per principle
-- Links to implementation guides
+### New Tiered Architecture (2026-01-12)
 
-**docs/guides/** (Implementation): HOW
-- Comprehensive how-to guides
-- Concrete methods and examples
-- Detailed workflows and checklists
-- Real-world incident analysis
+Principles are now organized by **applicability tier**:
 
-**Pattern**: Principle → Abstraction → Implementation Guide
+```
+CLAUDE.md (~156 lines)
+├── Tier-0: Core Principles (ALWAYS apply)
+│   └── #1, #2, #18, #20, #23, #25
+└── Routing Index → principle clusters
+
+.claude/principles/ (context-specific)
+├── deployment-principles.md (#6, #11, #15, #19, #21)
+├── testing-principles.md (#10, #19)
+├── data-principles.md (#3, #5, #14, #16)
+├── configuration-principles.md (#13, #24)
+├── integration-principles.md (#4, #7, #8, #22)
+└── meta-principles.md (#9, #12, #17)
+```
+
+**Benefits**:
+- **Token efficiency**: ~60% reduction (load only relevant clusters)
+- **High discoverability**: Routing index guides to relevant principles
+- **High connascence**: Related principles grouped together
+- **Separation of concerns**: Core vs context-specific
+
+### Document Purposes
+
+| Document | Purpose | Content Level |
+|----------|---------|---------------|
+| **CLAUDE.md** | Core principles | WHY + condensed WHAT |
+| **Principle Clusters** | Task-specific principles | Full principle text |
+| **Implementation Guides** | Deep how-to | HOW + examples + incidents |
+| **Skills** | Executable workflows | Checklists + patterns |
+
+**Pattern**: Principle (tier-0/cluster) → Implementation Guide → Skill
 
 ---
 
@@ -218,6 +240,12 @@ Patterns become implementation guides through this path:
 
 ## Version History
 
+- **2026-01-12**: Major architecture refactor - Principle Classification & Documentation Architecture
+  - Introduced tier-based principle classification (Tier-0 core vs Tier-1/2/3 context-specific)
+  - Created `.claude/principles/` directory with 6 connascent clusters
+  - Reduced CLAUDE.md from 301 lines to 156 lines (~48% reduction)
+  - Added routing index for context-based principle loading
+  - Token efficiency: ~60% savings by loading only relevant clusters
 - **2026-01-12**: Added Behavioral Invariant Verification guide (Principle #25)
   - New principle addressing implicit assumptions in "done" claims
   - Created invariant hierarchy (Levels 0-4)
@@ -240,7 +268,8 @@ Patterns become implementation guides through this path:
 
 ## See Also
 
-- **CLAUDE.md**: [../../.claude/CLAUDE.md](../../.claude/CLAUDE.md) - Core principles (WHY/WHEN)
+- **CLAUDE.md**: [../../.claude/CLAUDE.md](../../.claude/CLAUDE.md) - Tier-0 core principles + routing index
+- **Principle Clusters**: [../../.claude/principles/](../../.claude/principles/) - Context-specific principle clusters
 - **Abstractions**: [../../.claude/abstractions/](../../.claude/abstractions/) - Pattern analysis and graduation path
 - **Skills**: [../../.claude/skills/](../../.claude/skills/) - Executable workflows and checklists
 - **Invariants**: [../../.claude/invariants/](../../.claude/invariants/) - System invariant checklists

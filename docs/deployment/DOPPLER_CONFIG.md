@@ -4,7 +4,7 @@
 
 Doppler serves as the **environment isolation container** - holding ALL environment-specific configuration (not just secrets). Each environment (local/dev/stg/prd) is an isolated container with its complete configuration set.
 
-**Key Principle**: Doppler holds anything that differs between environments, whether sensitive or not. This ensures environment isolation and prevents cross-environment contamination. See [CLAUDE.md Principle #23](../../.claude/CLAUDE.md#23-configuration-variation-axis).
+**Key Principle**: Doppler holds anything that differs between environments, whether sensitive or not. This ensures environment isolation and prevents cross-environment contamination. See [Principle #23: Configuration Variation Axis](../../.claude/CLAUDE.md) (Tier-0 Core).
 
 **Environments**:
 - `local` - Local development (SSM tunnel to Aurora)

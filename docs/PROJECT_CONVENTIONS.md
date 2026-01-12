@@ -147,7 +147,7 @@ Every deployed artifact must be traceable to its source code commit. Use the app
 - ❌ Manual version updates in Doppler - forgotten, out of sync
 - ❌ Different formats for same context - confusion
 
-See [CLAUDE.md Principle #22](../.claude/CLAUDE.md#22-llm-observability-discipline) for Langfuse-specific versioning.
+See [Principle #22: LLM Observability Discipline](../.claude/principles/integration-principles.md) for Langfuse-specific versioning.
 
 ---
 
@@ -498,7 +498,7 @@ pip install -r requirements.txt
 pip install -e .
 ```
 
-**See**: [CLAUDE.md Principle #18](../.claude/CLAUDE.md#18-shared-virtual-environment-pattern) for complete details and rationale
+**See**: [Principle #17: Shared Virtual Environment](../.claude/principles/meta-principles.md) for complete details and rationale
 
 ---
 

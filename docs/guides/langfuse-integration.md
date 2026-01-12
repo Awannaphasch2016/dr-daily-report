@@ -2,7 +2,7 @@
 
 **Purpose**: LLM observability, evaluation, and prompt management for the Daily Report system.
 
-**Related**: [PromptOS Architecture](../../.claude/overviews/promptos-infrastructure-overview.md), [Principle #2: Progressive Evidence Strengthening](../CLAUDE.md)
+**Related**: [PromptOS Architecture](../../.claude/overviews/promptos-infrastructure-overview.md), [Principle #2: Progressive Evidence Strengthening](../../.claude/CLAUDE.md) (Tier-0)
 
 ---
 
@@ -47,7 +47,7 @@ agent.analyze_ticker()          ← @observe creates trace
 
 ### Environment Variables (Doppler)
 
-Per [Principle #23: Configuration Variation Axis](../../.claude/CLAUDE.md), Langfuse configuration uses env vars because values vary by environment or contain secrets.
+Per [Principle #23: Configuration Variation Axis](../../.claude/CLAUDE.md) (Tier-0), Langfuse configuration uses env vars because values vary by environment or contain secrets.
 
 | Variable | Type | Purpose | Values |
 |----------|------|---------|--------|
@@ -346,8 +346,8 @@ Create test datasets for systematic evaluation:
 **Internal**:
 - [Trace Schema Reference](../../.claude/skills/langfuse-observability/SCHEMA.md) - Complete column hierarchy and relationships
 - [Langfuse Observability Skill](../../.claude/skills/langfuse-observability/) - Workflows and checklists
-- [Principle #22: LLM Observability Discipline](../../.claude/CLAUDE.md)
-- [Principle #23: Configuration Variation Axis](../../.claude/CLAUDE.md)
+- [Principle #22: LLM Observability Discipline](../../.claude/principles/integration-principles.md)
+- [Principle #23: Configuration Variation Axis](../../.claude/CLAUDE.md) (Tier-0)
 
 **External**:
 - [Langfuse Official Docs](https://langfuse.com/docs)

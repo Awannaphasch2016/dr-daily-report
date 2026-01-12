@@ -644,8 +644,8 @@ print(json.dumps(json.loads(r['Payload'].read())['body']['schema'], indent=2))
 
 ### Documentation
 - [Automated Precompute](AUTOMATED_PRECOMPUTE.md) - Scheduler + Precompute architecture
-- [Multi-Layer Verification](.claude/CLAUDE.md#2-multi-layer-verification) - Core principle
-- [Aurora-First Architecture](.claude/CLAUDE.md#3-aurora-first-data-architecture) - Data flow
+- [Principle #2: Progressive Evidence Strengthening](../../.claude/CLAUDE.md) (Tier-0 Core)
+- [Principle #3: Aurora-First Architecture](../../.claude/principles/data-principles.md)
 
 ### Lambda Functions
 - `dr-daily-report-query-tool-{env}` - SQL query execution

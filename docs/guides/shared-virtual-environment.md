@@ -366,7 +366,7 @@ Similar "share instead of duplicate" philosophy:
 - `local_dev` inherits from `dev` (cross-environment)
 - Updates propagate automatically
 
-See [Principle #13: Secret Management Discipline](../CLAUDE.md#13-secret-management-discipline)
+See [Principle #13: Secret Management Discipline](../../.claude/principles/configuration-principles.md)
 
 ---
 
@@ -415,7 +415,7 @@ Traditional approach (isolated venvs per project) creates:
 ## See Also
 
 - **Abstraction**: [Shared Virtual Environment Pattern](.claude/abstractions/architecture-2026-01-02-shared-venv-pattern.md) - Complete technical details
-- **Principle #13**: [Secret Management Discipline](../CLAUDE.md#13-secret-management-discipline) - Similar config inheritance pattern
+- **Principle #13**: [Secret Management Discipline](../../.claude/principles/configuration-principles.md) - Similar config inheritance pattern
 - **Setup**: Project README setup instructions
 
 ---

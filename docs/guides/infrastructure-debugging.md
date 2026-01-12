@@ -504,9 +504,9 @@ ENV=dev doppler run -- terraform apply -var-file=terraform.dev.tfvars
 
 ## References
 
-- [CLAUDE.md Principle #2: Progressive Evidence Strengthening](../../.claude/CLAUDE.md#2-progressive-evidence-strengthening)
-- [CLAUDE.md Principle #15: Infrastructure-Application Contract](../../.claude/CLAUDE.md#15-infrastructure-application-contract)
-- [CLAUDE.md Principle #18: Logging Discipline](../../.claude/CLAUDE.md#18-logging-discipline-storytelling-pattern)
+- [Principle #2: Progressive Evidence Strengthening](../../.claude/CLAUDE.md) (Tier-0 Core)
+- [Principle #15: Infrastructure-Application Contract](../../.claude/principles/deployment-principles.md)
+- [Principle #18: Logging Discipline](../../.claude/CLAUDE.md) (Tier-0 Core)
 - [Error Investigation Skill](../../.claude/skills/error-investigation/)
 - [AWS VPC Endpoints Documentation](https://docs.aws.amazon.com/vpc/latest/privatelink/vpc-endpoints.html)
 - [AWS NAT Gateway Troubleshooting](https://docs.aws.amazon.com/vpc/latest/userguide/nat-gateway-troubleshooting.html)
