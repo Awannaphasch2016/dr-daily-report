@@ -322,12 +322,62 @@ Use Langfuse for LLM tracing, scoring, and prompt management. Every user-facing 
 - Missing traces/scores are acceptable (observability is best-effort)
 - Core functionality must work without Langfuse
 
+**Versioning standard** (for trace traceability):
+- Format: `{env}-{version|branch}-{short_sha}`
+- Examples: `prd-v1.2.3-abc1234`, `stg-main-def5678`, `dev-dev-ghi9012`
+- Set automatically by CI/CD via `LANGFUSE_RELEASE` env var
+- Enables A/B testing, regression detection, and deployment correlation
+
 **Anti-patterns**:
 - ❌ Forgetting `flush()` in Lambda (traces lost)
 - ❌ Scoring everything (noise drowns signal)
 - ❌ Blocking on heavy evaluation (use async for expensive scores)
+- ❌ Environment-only versioning (`dev`) - no deployment traceability
+- ❌ Manual version updates - error-prone, forgotten
 
 See [Langfuse Integration Guide](docs/guides/langfuse-integration.md) and [langfuse-observability skill](.claude/skills/langfuse-observability/).
+
+### 23. Configuration Variation Axis
+
+Choose configuration mechanism based on WHAT varies and WHEN it varies. This eliminates ad-hoc decisions about env vars vs constants vs config files.
+
+**Doppler as Environment Isolation Container**: Doppler holds ALL environment-specific configuration (not just secrets). Each environment (local/dev/stg/prd) is an isolated container with its complete configuration set. This ensures environment isolation and prevents cross-environment contamination.
+
+**Decision heuristic**:
+
+| Varies By | Mechanism | Location | Examples |
+|-----------|-----------|----------|----------|
+| Per environment | Doppler → env var | `os.environ.get()` | `AURORA_HOST`, `LANGFUSE_TRACING_ENVIRONMENT` |
+| Secret (any env) | Doppler → env var | `os.environ.get()` | API keys, passwords, tokens |
+| Per deployment | CI/CD → env var | GitHub Actions | `LANGFUSE_RELEASE` (commit-specific) |
+| Never | Python constant | Domain modules | Table names, score names |
+| Complex structure | JSON file | `config/*.json` | Tag taxonomies, prompt templates |
+
+**Decision tree**:
+1. Contains secret? → Doppler (ALWAYS, regardless of sensitivity level)
+2. Differs by environment (local/dev/stg/prd)? → Doppler
+3. Changes per deployment (commit SHA, version)? → CI/CD direct update
+4. Complex nested structure? → JSON file
+5. Same across all environments? → Python constant
+
+**Doppler → Terraform flow**:
+- Doppler secrets with `TF_VAR_` prefix are automatically passed to Terraform
+- Non-secret env vars also go through Doppler for environment isolation
+- Example: `TF_VAR_LANGFUSE_TRACING_ENVIRONMENT=dev` in Doppler → `var.LANGFUSE_TRACING_ENVIRONMENT` in Terraform
+
+**One-path execution**: Values set via env vars are read ONCE at startup (singleton pattern), not on every request. This ensures deterministic behavior and avoids configuration drift during execution.
+
+**Anti-patterns**:
+- ❌ Hardcoding secrets in code (security risk)
+- ❌ Duplicating config across environments (breaks single source of truth)
+- ❌ Using tfvars for env-specific values that Doppler already has
+- ❌ Using JSON for simple key-value pairs (overkill)
+- ❌ Scattering constants across multiple files (hard to audit)
+- ❌ Reading env vars on every request (non-deterministic)
+
+**Validation**: At Lambda startup, validate required env vars exist (fail-fast per Principle #1). Missing env vars should raise errors, not use silent defaults.
+
+See Principle #13 (Secret Management), Principle #14 (Table Names), and [Doppler Config Guide](docs/deployment/DOPPLER_CONFIG.md).
 
 ---
 

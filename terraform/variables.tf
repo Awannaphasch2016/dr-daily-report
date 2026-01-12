@@ -180,6 +180,12 @@ variable "LANGFUSE_HOST" {
   default     = "https://cloud.langfuse.com"
 }
 
+variable "LANGFUSE_TRACING_ENVIRONMENT" {
+  description = "Langfuse environment for trace filtering (dev, stg, prd). Set via Doppler TF_VAR_LANGFUSE_TRACING_ENVIRONMENT"
+  type        = string
+  default     = ""
+}
+
 ###############################################################################
 # Lambda Container Image Configuration
 ###############################################################################

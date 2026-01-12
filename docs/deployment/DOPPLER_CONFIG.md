@@ -2,7 +2,9 @@
 
 ## Overview
 
-Multi-environment Doppler setup using config inheritance to share secrets while allowing environment-specific overrides.
+Doppler serves as the **environment isolation container** - holding ALL environment-specific configuration (not just secrets). Each environment (local/dev/stg/prd) is an isolated container with its complete configuration set.
+
+**Key Principle**: Doppler holds anything that differs between environments, whether sensitive or not. This ensures environment isolation and prevents cross-environment contamination. See [CLAUDE.md Principle #23](../../.claude/CLAUDE.md#23-configuration-variation-axis).
 
 **Environments**:
 - `local` - Local development (SSM tunnel to Aurora)
@@ -93,6 +95,62 @@ if missing:
 ```
 
 **Why**: Fail-fast principle - catch missing secrets before processing user requests.
+
+---
+
+## Doppler → Terraform Flow
+
+Doppler integrates with Terraform through environment variable prefixing:
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                    DOPPLER → TERRAFORM FLOW                          │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│  DOPPLER CONFIG (dev)                                                │
+│  ────────────────────                                                │
+│                                                                      │
+│  Environment-Specific Values:                                        │
+│    AURORA_HOST = dev-aurora.cluster-xxx...                           │
+│    LANGFUSE_TRACING_ENVIRONMENT = dev                                │
+│    LANGFUSE_HOST = https://us.cloud.langfuse.com                     │
+│                                                                      │
+│  Secrets:                                                            │
+│    AURORA_MASTER_PASSWORD = <encrypted>                              │
+│    OPENROUTER_API_KEY = sk-or-v1-...                                 │
+│    LANGFUSE_SECRET_KEY = sk-lf-...                                   │
+│                                                                      │
+│  Terraform Variables (TF_VAR_ prefix):                               │
+│    TF_VAR_AURORA_MASTER_PASSWORD = <encrypted>                       │
+│    TF_VAR_LANGFUSE_SECRET_KEY = sk-lf-...                            │
+│    TF_VAR_LANGFUSE_TRACING_ENVIRONMENT = dev                         │
+│                                                                      │
+│                              ▼                                       │
+│                                                                      │
+│  CI/CD: doppler run -- terraform apply                               │
+│                                                                      │
+│                              ▼                                       │
+│                                                                      │
+│  TERRAFORM (terraform/variables.tf)                                  │
+│  ──────────────────────────────────                                  │
+│                                                                      │
+│  variable "LANGFUSE_TRACING_ENVIRONMENT" {                           │
+│    description = "Langfuse environment for trace filtering"          │
+│    type        = string                                              │
+│    default     = ""                                                  │
+│  }                                                                   │
+│                                                                      │
+│  # Used in Lambda environment:                                       │
+│  LANGFUSE_TRACING_ENVIRONMENT = var.LANGFUSE_TRACING_ENVIRONMENT     │
+│                                                                      │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+**Key Points**:
+- `TF_VAR_*` prefix makes Doppler secrets available as Terraform variables
+- Both secrets AND non-secrets can use `TF_VAR_` prefix
+- Terraform variables with `default = ""` require Doppler to provide value
+- CI/CD runs `doppler run -- terraform apply` to inject all variables
 
 ---
 

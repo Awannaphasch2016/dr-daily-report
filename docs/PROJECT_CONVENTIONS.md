@@ -10,6 +10,7 @@ This document contains factual information about how the codebase is organized. 
 
 - [Directory Structure](#directory-structure)
 - [Naming Conventions](#naming-conventions)
+  - [Versioning Standards](#versioning-standards)
 - [CLI Commands](#cli-commands)
 - [Module Organization](#module-organization)
 - [Extension Points](#extension-points)
@@ -103,6 +104,50 @@ Modules are organized by **business domain** (agent, data, workflow, api), not t
 ### Environment Variables
 - `UPPER_SNAKE_CASE` - All environment variables
   - Examples: `AURORA_HOST`, `OPENROUTER_API_KEY`, `PDF_BUCKET_NAME`
+
+### Versioning Standards
+
+Every deployed artifact must be traceable to its source code commit. Use the appropriate versioning format based on context:
+
+| Context | Purpose | Format | Example |
+|---------|---------|--------|---------|
+| **Release** | What version is running? | `{env}-{semver\|branch}-{sha}` | `prd-v1.2.3-abc1234` |
+| **Artifact** | Which build is this? | Timestamp or digest | `v20251201182404` |
+| **Algorithm** | Which logic version? | SemVer | `computation_version: 2.0` |
+
+**Component-specific versioning**:
+
+| Component | Version Type | Location | Set By |
+|-----------|-------------|----------|--------|
+| Lambda functions | Artifact | Docker image tag | CI/CD |
+| Langfuse traces | Release | `LANGFUSE_RELEASE` env var | CI/CD |
+| Data Lake computations | Algorithm | `computation_version` field | Code |
+| Frontend (twinbar) | Release | `package.json` version | Manual |
+| API responses | Release | `agent_version` field | Code |
+| Git releases | Release | Tags `v*.*.*` | Manual |
+
+**CI/CD automation** (required for Release versions):
+```yaml
+# GitHub Actions example
+- name: Set Release Version
+  run: |
+    SHORT_SHA="${GITHUB_SHA::7}"
+    if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+      RELEASE="prd-${{ github.ref_name }}-${SHORT_SHA}"
+    elif [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+      RELEASE="stg-main-${SHORT_SHA}"
+    else
+      RELEASE="dev-dev-${SHORT_SHA}"
+    fi
+    echo "LANGFUSE_RELEASE=${RELEASE}" >> $GITHUB_ENV
+```
+
+**Anti-patterns**:
+- ❌ Environment-only versioning (`dev`, `prd`) - no traceability
+- ❌ Manual version updates in Doppler - forgotten, out of sync
+- ❌ Different formats for same context - confusion
+
+See [CLAUDE.md Principle #22](../.claude/CLAUDE.md#22-llm-observability-discipline) for Langfuse-specific versioning.
 
 ---
 
@@ -462,10 +507,12 @@ pip install -e .
 **Where to find key components:**
 
 ### Configuration
-- **Environment variables**: Managed via Doppler (not in repo)
+- **Environment variables**: Managed via Doppler (environment isolation container - holds ALL env-specific config, not just secrets)
+- **Doppler → Terraform**: `TF_VAR_*` prefixed secrets in Doppler become Terraform variables
 - **AWS infrastructure**: `terraform/` (IaC definitions)
-- **Environment configs**: `terraform/envs/{dev,staging,prod}/`
+- **Environment configs**: `terraform/envs/{dev,staging,prod}/` (static values that don't vary by env)
 - **Lambda settings**: `terraform/*_lambda.tf` files
+- See [Doppler Config Guide](deployment/DOPPLER_CONFIG.md) and [CLAUDE.md Principle #23](../.claude/CLAUDE.md#23-configuration-variation-axis)
 
 ### Tests
 - **Shared tests** (agent, workflow, data): `tests/shared/`

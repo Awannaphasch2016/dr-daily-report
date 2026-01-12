@@ -171,9 +171,10 @@ resource "aws_lambda_function" "report_worker" {
       PDF_BUCKET_NAME          = aws_s3_bucket.pdf_reports.id
 
       # Langfuse Observability
-      LANGFUSE_PUBLIC_KEY = var.LANGFUSE_PUBLIC_KEY
-      LANGFUSE_SECRET_KEY = var.LANGFUSE_SECRET_KEY
-      LANGFUSE_HOST       = var.LANGFUSE_HOST
+      LANGFUSE_PUBLIC_KEY            = var.LANGFUSE_PUBLIC_KEY
+      LANGFUSE_SECRET_KEY            = var.LANGFUSE_SECRET_KEY
+      LANGFUSE_HOST                  = var.LANGFUSE_HOST
+      LANGFUSE_TRACING_ENVIRONMENT   = var.LANGFUSE_TRACING_ENVIRONMENT
 
       # Aurora MySQL connection (for caching reports)
       AURORA_HOST     = aws_rds_cluster.aurora.endpoint
