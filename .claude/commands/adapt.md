@@ -15,16 +15,54 @@ composition:
 
 # Adapt Command
 
-**Purpose**: Adapt techniques and patterns from external sources into the codebase while following local conventions and preserving knowledge.
+**Extends**: [/transfer](transfer.md)
+**Domain**: Code patterns, algorithms, techniques
+**Transfer Type**: Heterogeneous (source type != target type)
+
+---
+
+## Purpose
+
+Adapt techniques and patterns from external sources into the codebase while following local conventions and preserving knowledge.
 
 **Core Philosophy**: Focus on techniques, not code transplant. Understand before implementing. The goal is to create truly native code that applies external techniques, not to copy foreign code.
 
-**When to use**:
+---
+
+## Relationship to /transfer Framework
+
+This command is a **specialization** of the [/transfer](transfer.md) framework for code domains:
+
+| Transfer Aspect | /adapt Value |
+|-----------------|--------------|
+| **Concept** | Technique, algorithm, pattern (variable) |
+| **Source context** | External library, repo, docs, branch |
+| **Target context** | Our codebase |
+| **Transfer type** | Heterogeneous (source != target) |
+| **Key challenge** | Preserve algorithm essence, change implementation |
+
+The 7-step transfer process maps to our 6-phase workflow:
+- Steps 1-2 (IDENTIFY, ANALYZE SOURCE) → Phase 1 (Study Source)
+- Steps 3-4 (ANALYZE TARGET, MAP) → Phase 2 (Map to Local Context)
+- Step 5 (UNTANGLE) → Phase 3 (Design Local Implementation)
+- Step 6 (REWIRE) → Phase 4 (Implement)
+- Step 7 (VERIFY) → Phases 5-6 (Verify, Document)
+
+---
+
+## When to Use
+
+**Use /adapt when**:
 - Integrating algorithms from a library (different language/architecture)
 - Applying patterns from an experiment branch
 - Learning from an external repo's approach
 - Porting techniques from documentation or papers
 - Adopting best practices from reference implementations
+
+**Use /provision-env instead when**:
+- Creating a new AWS environment (dev, staging, prod)
+- Cloning infrastructure configuration
+- See: [/provision-env](provision-env.md)
 
 **Anti-pattern**: Blindly copying code without understanding → leads to unmaintainable "foreign tissue"
 
@@ -51,6 +89,8 @@ composition:
 ## Six-Phase Workflow
 
 ### Phase 1: Study Source
+**Transfer step**: IDENTIFY + ANALYZE SOURCE
+
 **Goal**: Understand what the source provides and how it works
 
 **Actions**:
@@ -72,6 +112,8 @@ composition:
 ---
 
 ### Phase 2: Map to Local Context
+**Transfer step**: ANALYZE TARGET + MAP
+
 **Goal**: Create explicit mapping between source concepts and local equivalents
 
 **Actions**:
@@ -93,6 +135,8 @@ composition:
 ---
 
 ### Phase 3: Design Local Implementation
+**Transfer step**: UNTANGLE
+
 **Goal**: Design how to implement techniques using local patterns
 
 **Actions**:
@@ -112,6 +156,8 @@ composition:
 ---
 
 ### Phase 4: Implement
+**Transfer step**: REWIRE
+
 **Goal**: Build using local patterns and conventions
 
 **Actions**:
@@ -133,6 +179,8 @@ composition:
 ---
 
 ### Phase 5: Verify
+**Transfer step**: VERIFY
+
 **Goal**: Confirm functionality matches source intent
 
 **Actions**:
@@ -153,6 +201,8 @@ composition:
 ---
 
 ### Phase 6: Document
+**Transfer step**: (Post-transfer documentation)
+
 **Goal**: Record what was adapted for future reference
 
 **Actions**:
@@ -568,9 +618,17 @@ See:
 
 ## See Also
 
+### Transfer Framework
+- [/transfer](transfer.md) - Abstract transfer framework (parent)
+- [/provision-env](provision-env.md) - Infrastructure transfer (sibling specialization)
+
+### Related Commands
 - `.claude/commands/abstract.md` - Extract patterns from adaptations
 - `.claude/commands/evolve.md` - Incorporate learnings into principles
 - `.claude/commands/explore.md` - Find sources to adapt
 - `.claude/commands/specify.md` - Design from scratch (alternative)
+
+### Supporting Resources
 - `.claude/skills/research/` - Research methodology
 - `.claude/adaptations/README.md` - Adaptation document index
+- [Contextual Transfer Framework](../abstractions/workflow-2026-01-11-contextual-transfer-framework.md) - Abstract theory

@@ -22,6 +22,39 @@ Slash commands provide direct user control over Claude's behavior by composing s
 
 ---
 
+## Command Taxonomy (Naming Convention)
+
+Commands are organized by their **relationship to existing state**:
+
+### Inspection Commands (Reveal Existing)
+Metaphor names that imply looking inside without modifying:
+- `/x-ray` - Deep structural inspection of existing systems
+- `/validate` - Verify claims about current state
+- `/locate` - Find where functionality lives
+
+### Analysis Commands (Think About Existing)
+Analysis names that imply reasoning about what exists:
+- `/analysis` - Comprehensive analysis workflow
+- `/what-if` - Counterfactual exploration
+- `/impact` - Assess change scope
+- `/trace` - Follow causality chains
+
+### Design Commands (Create New)
+Action verbs that imply producing something new:
+- `/design` - Domain-aware thorough design
+- `/specify` - Quick design sketches
+- `/explore` - Divergent option generation
+- `/adapt` - Integrate external techniques
+
+**Workflow pattern:**
+```bash
+/x-ray "current auth system"     # SEE what exists
+/what-if "OAuth instead of JWT"  # THINK about alternatives
+/design python "OAuth2 handler"  # CREATE new solution
+```
+
+---
+
 ## Available Commands
 
 ### `/journal` - Log Decisions with Smart Categorization
@@ -269,6 +302,68 @@ EnterPlanMode
 - `/abstract` - Extract patterns after adaptation (follows `/adapt`)
 
 **Core Principle**: "Understand before implementing" - prevents unmaintainable foreign code
+
+---
+
+### `/design` - Domain-Aware Design
+**Purpose**: Create new solutions with domain-specific checklists and patterns
+
+**Usage**:
+```bash
+# Domain auto-detected from keywords
+/design "VPC with private subnets for Lambda"         # Detects: aws
+/design "Repository pattern for Aurora access"        # Detects: python
+/design "REST API for backtester"                     # Detects: api
+
+# Explicit domain override
+/design aws "networking for multi-region deployment"
+/design python "event sourcing implementation"
+/design api "GraphQL schema for reports"
+/design schema "user preferences storage"
+/design frontend "chart component with WebSocket"
+```
+
+**Domains**:
+- `aws` - Infrastructure design (VPC, Lambda, IAM, Terraform)
+- `python` - Code architecture (SOLID, patterns, testing)
+- `api` - API endpoints (REST, GraphQL, authentication)
+- `schema` - Database design (tables, indexes, migrations)
+- `frontend` - UI components (React, state management, styling)
+
+**Output**: Design document at `.claude/designs/{date}-{domain}-{slug}.md`
+
+**Design vs Specify**:
+- `/specify` = Quick sketch, lightweight, exploratory
+- `/design` = Thorough, domain-aware, implementation-ready
+
+**Core Principle**: "Design is creation with constraints" - domain awareness ensures appropriate patterns
+
+---
+
+### `/x-ray` - Deep Structural Inspection
+**Purpose**: Reveal internal structure of existing systems - components, boundaries, dependencies, patterns
+
+**Usage**:
+```bash
+# Inspect architecture
+/x-ray "report generation pipeline"
+/x-ray "user request to report delivery"
+/x-ray "CI/CD pipeline"
+```
+
+**Output**:
+- Component inventory
+- Boundary map (service, data, phase, network, permission)
+- Dependency graph with critical path
+- Pattern analysis (architecture, integration, anti-patterns)
+- Trade-off analysis
+- Strengths and weaknesses
+
+**X-Ray vs Design**:
+- `/x-ray` = Inspect existing (reveal structure)
+- `/design` = Create new (produce solutions)
+
+**Core Principle**: "See inside before changing" - inspection before modification
 
 ---
 
@@ -607,6 +702,117 @@ cd ../dr-daily-report_telegram-wt-rest-api-for-backtester
 - ✅ Independent `.claude/` state per worktree
 - ✅ Each agent works at own pace
 - ✅ Merge when ready (no coordination needed)
+
+---
+
+## Environment Commands
+
+Target operations to specific environments **without switching worktrees**. Claude can execute commands against remote resources regardless of which branch/worktree is currently active.
+
+**Core Philosophy**: "Target environment, not location" - the worktree is irrelevant; environment targeting is about resource names.
+
+### `/local` - Local Development Environment
+**Purpose**: Execute operations in local dev environment (localhost + SSM tunnel to Aurora)
+
+**Usage**:
+```bash
+/local "start API server"
+/local "verify local setup"
+/local "SELECT COUNT(*) FROM daily_prices"  # Via SSM tunnel
+/local "run integration tests"
+```
+
+**Characteristics**:
+- API: `localhost:8000` (FastAPI/uvicorn)
+- Aurora: SSM tunnel to dev cluster
+- DynamoDB: LocalStack (`localhost:4566`)
+- Doppler: `local_dev` config (inherits from `dev`)
+
+**Safety**: Unrestricted (local only, no direct AWS impact)
+
+---
+
+### `/dev` - Development Environment Operations
+**Purpose**: Execute ANY operation targeting the dev environment
+
+**Usage**:
+```bash
+/dev "show telegram-api errors in last 30 min"
+/dev "SELECT COUNT(*) FROM daily_prices"
+/dev "get current image digest for telegram-api"
+/dev deploy
+```
+
+**Safety**: Unrestricted - no confirmation required for any operation
+
+---
+
+### `/stg` - Staging Environment Operations
+**Purpose**: Execute ANY operation targeting the staging environment
+
+**Usage**:
+```bash
+/stg "verify deployment succeeded"
+/stg "compare Lambda image with dev"
+/stg "query Aurora to verify data sync"
+/stg deploy  # Requires confirmation
+```
+
+**Safety**: Moderate gates
+- Read operations: No confirmation
+- Write operations: Confirmation required
+- Deploy operations: Confirmation required
+
+---
+
+### `/prd` - Production Environment Operations
+**Purpose**: Execute operations targeting production (read-only default)
+
+**Usage**:
+```bash
+/prd "show errors in last 1 hour"
+/prd "SELECT MAX(date) FROM daily_prices"
+/prd "compare Lambda image with staging"
+/prd deploy  # Redirects to /deploy prod
+```
+
+**Safety**: Restricted
+- Read operations: Always allowed
+- Write operations: Double confirmation required
+- Deploy operations: Redirect to full `/deploy prod` workflow
+
+---
+
+### Resource Resolution
+
+All commands automatically resolve resources using existing naming conventions:
+
+| Resource Type | `/local` | `/dev`, `/stg`, `/prd` |
+|---------------|----------|------------------------|
+| API | `localhost:8000` | API Gateway |
+| Lambda | N/A (local server) | `dr-daily-report-{component}-{env}` |
+| Log Group | stdout/stderr | `/aws/lambda/dr-daily-report-{component}-{env}` |
+| Aurora | SSM tunnel → dev | `dr-daily-report-{env}` cluster |
+| DynamoDB | LocalStack | AWS DynamoDB |
+| Doppler | `local_dev` | `dev`, `stg`, `prd` configs |
+
+---
+
+### Environment Commands vs `/deploy`
+
+| Capability | `/deploy` | `/local` | `/dev`, `/stg`, `/prd` |
+|------------|-----------|----------|------------------------|
+| Deployment | Full workflow | N/A | Quick or delegates to `/deploy` |
+| Server | N/A | Start/stop local | N/A |
+| Logs | N/A | Local stdout | CloudWatch access |
+| Queries | N/A | Aurora via tunnel | Aurora direct |
+| Comparison | N/A | N/A | Cross-environment |
+
+**Use `/deploy`** for: Full deployment workflow with all phases
+
+**Use `/local`** for: Local development (server, tests, debugging)
+
+**Use `/dev`, `/stg`, `/prd`** for: AWS operations (logs, queries, checks, comparisons)
 
 ---
 
@@ -1079,10 +1285,19 @@ For detailed command documentation, see individual command files in `.claude/com
 - [/validate](validate.md) - Validate claims with evidence (empirical)
 - [/proof](proof.md) - Formal deductive proofs (deductive)
 
-### Exploration
-- [/explore](explore.md) - Divergent solution exploration (explore ALL options)
-- [/what-if](what-if.md) - Counterfactual reasoning
-- [/specify](specify.md) - Lightweight design sketches (converge on chosen approach)
+### Inspection (Reveal Existing)
+- [/x-ray](x-ray.md) - Deep structural inspection of existing systems
+- [/locate](locate.md) - Find where functionality lives in the codebase
+
+### Analysis (Think About Existing)
+- [/what-if](what-if.md) - Counterfactual reasoning and comparison
+- [/analysis](analysis.md) - Comprehensive analysis workflow
+- [/impact](impact.md) - Assess change scope
+
+### Design (Create New)
+- [/design](design.md) - Domain-aware thorough design (aws, python, api, schema, frontend)
+- [/specify](specify.md) - Lightweight design sketches
+- [/explore](explore.md) - Divergent solution exploration
 - [/adapt](adapt.md) - Integrate external techniques into codebase
 
 ### Meta-Operations
@@ -1103,6 +1318,12 @@ For detailed command documentation, see individual command files in `.claude/com
 
 ### Code Quality
 - [/refactor](refactor.md) - Analyze complexity & hotspots
+
+### Environment Commands
+- [/local](local.md) - Execute operations targeting local environment (localhost + SSM tunnel)
+- [/dev](dev.md) - Execute operations targeting dev environment (unrestricted)
+- [/stg](stg.md) - Execute operations targeting staging environment (moderate gates)
+- [/prd](prd.md) - Execute operations targeting production environment (read-only default)
 
 ### Demos
 - [/explain](explain.md) - Composition demo
