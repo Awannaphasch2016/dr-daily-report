@@ -28,7 +28,7 @@ For complete component inventory, technology stack, and directory structure, see
 
 ## Tier-0: Core Principles (ALWAYS Apply)
 
-These 6 principles guide EVERY task. They are non-negotiable.
+These 8 principles guide EVERY task. They are non-negotiable.
 
 ### 1. Defensive Programming
 Fail fast and visibly when something is wrong. Silent failures hide bugs. Validate configuration at startup, not on first use. Explicitly detect operation failures (rowcount, status codes). No silent fallbacks or default values that hide error recovery. **Never assume data exists** without validating first. See [code-review skill](.claude/skills/code-review/).
@@ -93,29 +93,72 @@ Use `/invariant "goal"` to identify what must hold, `/reconcile domain` to fix v
 
 See [Behavioral Invariant Guide](docs/guides/behavioral-invariant-verification.md), [/invariant](.claude/commands/invariant.md), [/reconcile](.claude/commands/reconcile.md), [Invariants Directory](.claude/invariants/), and [Specifications](.claude/specs/).
 
-### 26. Thinking Tuple Protocol
-For non-trivial tasks, reason in discrete **Thinking Tuples**:
+### 26. Thinking Tuple Protocol (Universal Kernel)
+
+**Meta-Invariant**: Every reasoning episode runs through a Thinking Tuple. The tuple is the OS; commands are apps running on it.
 
 ```
-Tuple = (Constraints, Invariant, Principles, Process, Actions, Check)
+Tuple = (Constraints, Invariant, Principles, Strategy, Check)
 ```
 
 | Component | Question | Source |
 |-----------|----------|--------|
-| **Constraints** | What do we have/know? | Current state, resources |
-| **Invariant** | What must be true at end? | `/invariant`, success criteria |
-| **Principles** | What tradeoffs guide us? | Tier-0 + task clusters |
-| **Process** | What thinking mode? | diverge, converge, decompose, compare, reframe, escape |
-| **Actions** | What concrete steps? | Tool calls, commands |
+| **Constraints** | What do we have/know? | Current state, specs, context |
+| **Invariant** | What must be true at end? | Success criteria, `/invariant` |
+| **Principles** | What tradeoffs guide us? | Tier-0 + task-specific clusters |
+| **Strategy** | What modes to execute? | Pipeline of command-modes |
 | **Check** | Did we satisfy invariant? | Progressive Evidence (Layers 1-4) |
 
-**If Check fails**: Update Constraints with what was learned, possibly change Process mode, spin new tuple.
+**Strategy** is a pipeline of modes (commands as first-class functions):
+```
+Strategy = [
+  { mode: "/decompose", prompt: "break the problem" },
+  { mode: "/explore",   prompt: "find alternatives" },
+  { mode: "/consolidate", prompt: "synthesize" }
+]
+```
+
+**Tuple Router** (for any prompt, slash or plain):
+| Intent | Default Strategy |
+|--------|------------------|
+| Goal-oriented (build X, fix Y) | `[/step]` |
+| Exploration (what are options) | `[/explore]` |
+| Verification (is X correct) | `[/validate]` |
+| Explanation (how does X work) | `[/understand]` |
+| Comparison (X vs Y) | `[/what-if]` |
+| Causal analysis (why X) | `[/trace]` |
+
+**Check Loop**: After Strategy completes, evaluate Invariant. If insufficient, extend Strategy or spin new tuple with updated Constraints.
 
 **Error bound**: Without tuples, error ∝ (steps × drift). With tuples, error bounded by check frequency.
 
-Use `/step "goal"` to explicitly instantiate tuples for complex or long-running tasks.
+See [Thinking Tuple Guide](docs/guides/thinking-tuple-protocol.md), [/step command](.claude/commands/step.md), and [Tuple Architecture](.claude/diagrams/tuple-kernel-architecture.md).
 
-See [Thinking Tuple Guide](docs/guides/thinking-tuple-protocol.md), [/step command](.claude/commands/step.md), and [Thinking Process Architecture - Section 12](.claude/diagrams/thinking-process-architecture.md#12-thinking-tuple-protocol).
+### 27. Commands as Strategy Modes
+
+Commands are not independent—they are **modes within Strategy**. Each mode defines:
+- **Tuple Effects**: How it modifies Constraints, Invariant, Principles
+- **Local Check**: Mode-specific completion criteria
+
+| Command | Mode | Tuple Effect |
+|---------|------|--------------|
+| `/step` | goal_oriented | Full tuple control |
+| `/explore` | divergent | Expands Constraints with alternatives |
+| `/understand` | clarify | Refines Invariant with understanding criteria |
+| `/validate` | verify | Tests Invariant, annotates Check |
+| `/what-if` | compare | Adds alternatives to Constraints |
+| `/consolidate` | converge | Synthesizes Constraints into decision |
+| `/trace` | causal | Adds causal chain to Constraints |
+| `/decompose` | decompose | Breaks Invariant into sub-invariants |
+| `/invariant` | scan | Evaluates Check against specification |
+| `/reconcile` | fix | Executes Actions to satisfy Invariant |
+
+**Chaining**: Strategy can chain modes. Each mode updates tuple state before next mode executes.
+
+**Internal Modes**: Beyond slash commands, internal modes exist for micro-operations:
+- `summarize`, `rewrite_simple`, `extract_criteria`, `compare_two`
+
+See [Command Mode Specifications](.claude/commands/README.md).
 
 ---
 
@@ -165,7 +208,8 @@ See [Principles Index](.claude/principles/index.md) for keyword triggers and mul
 | 23 | Configuration Variation | 0 | Core |
 | 24 | External Service Credentials | 2 | Configuration |
 | 25 | Behavioral Invariant | 0 | Core |
-| 26 | Thinking Tuple Protocol | 0 | Core |
+| 26 | Thinking Tuple Protocol (Universal Kernel) | 0 | Core |
+| 27 | Commands as Strategy Modes | 0 | Core |
 
 ---
 
