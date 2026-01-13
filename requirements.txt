@@ -13,6 +13,7 @@ openai>=1.0.0,<2.0.0
 
 # Observability
 langfuse>=2.0.0
+ragas>=0.2.0  # LLM evaluation metrics (answer relevancy, faithfulness)
 
 # =============================================================================
 # Data Science / Analysis
@@ -30,6 +31,7 @@ matplotlib>=3.7.0
 yfinance>=0.2.40
 ta>=0.11.0
 qdrant-client>=1.9.0
+# stock-pattern: Vendored in vendor/stock_pattern/ (not on PyPI)
 
 # =============================================================================
 # Web Framework (Telegram API)

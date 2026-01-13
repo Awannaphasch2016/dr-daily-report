@@ -13,6 +13,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from src.types import AgentState
 from src.data.aurora.precompute_service import PrecomputeService
+from src.evaluation import observe, get_langchain_handler, set_observation_level
 import os
 
 # Setup logger
@@ -254,6 +255,7 @@ class WorkflowNodes:
 
         logger.info("=" * 80)
 
+    @observe(name="fetch_data")
     def fetch_data(self, state: AgentState) -> AgentState:
         """Fetch ticker data from Aurora (ground truth)
 
@@ -278,6 +280,7 @@ class WorkflowNodes:
         if not yahoo_ticker:
             error_msg = f"ไม่พบข้อมูล ticker สำหรับ {ticker}"
             state["error"] = error_msg
+            set_observation_level("ERROR")
             self._log_node_error("fetch_data", state, error_msg)
             return state
 
@@ -298,6 +301,7 @@ class WorkflowNodes:
                 f"Run scheduler to populate ticker data before generating reports."
             )
             state["error"] = error_msg
+            set_observation_level("ERROR")
             logger.error(f"   ❌ {error_msg}")
             self._log_node_error("fetch_data", state, error_msg)
             return state
@@ -378,6 +382,7 @@ class WorkflowNodes:
             "news_summary": news_summary
         }
 
+    @observe(name="analyze_technical")
     def analyze_technical(self, state: AgentState) -> dict:
         """
         Analyze technical indicators with percentile analysis.
@@ -522,6 +527,7 @@ class WorkflowNodes:
         # Return only modified fields (partial state)
         return {"user_facing_scores": scores}
 
+    @observe(name="generate_chart")
     def generate_chart(self, state: AgentState) -> dict:
         """
         Generate technical analysis chart.
@@ -573,11 +579,13 @@ class WorkflowNodes:
             logger.error(f"   ⚠️  Chart generation failed: {str(e)}")
             # Don't set error - chart is optional, continue without it
             chart_base64 = ""
+            set_observation_level("WARNING")  # Degraded but not fatal
             self._log_node_error("generate_chart", state, f"Exception: {str(e)}")
 
         # Return only modified fields (partial state)
         return {"chart_base64": chart_base64}
 
+    @observe(name="generate_report")
     def generate_report(self, state: AgentState) -> AgentState:
         """Generate Thai language report using LLM with Semantic Layer Architecture"""
         self._log_node_start("generate_report", state)
@@ -594,6 +602,7 @@ class WorkflowNodes:
             error_msg = f"Cannot generate report: ticker_data is empty or missing for {state.get('ticker')}"
             logger.error(error_msg)
             state["error"] = error_msg
+            set_observation_level("ERROR")
             self._log_node_error("generate_report", state, error_msg)
             return state
 
@@ -601,6 +610,7 @@ class WorkflowNodes:
             error_msg = f"Cannot generate report: indicators is empty or missing for {state.get('ticker')}"
             logger.error(error_msg)
             state["error"] = error_msg
+            set_observation_level("ERROR")
             self._log_node_error("generate_report", state, error_msg)
             return state
 
@@ -740,7 +750,11 @@ class WorkflowNodes:
             portfolio_insights=portfolio_insights,
             alpaca_data=alpaca_data
         )
-        response = self.llm.invoke([HumanMessage(content=prompt)])
+        # Get Langfuse callback handler for token tracking
+        langfuse_handler = get_langchain_handler()
+        invoke_config = {"callbacks": [langfuse_handler]} if langfuse_handler else {}
+
+        response = self.llm.invoke([HumanMessage(content=prompt)], config=invoke_config)
         initial_report = response.content
         llm_calls += 1
 
@@ -787,7 +801,7 @@ class WorkflowNodes:
                 portfolio_insights=portfolio_insights,
                 alpaca_data=alpaca_data
             )
-            response = self.llm.invoke([HumanMessage(content=prompt_with_strategy)])
+            response = self.llm.invoke([HumanMessage(content=prompt_with_strategy)], config=invoke_config)
             report = response.content
             llm_calls += 1
 
@@ -875,13 +889,97 @@ class WorkflowNodes:
         timing_metrics["total"] = total_latency
         state["timing_metrics"] = timing_metrics
 
-        # TODO: Async evaluation will be re-added with Langfuse integration
-        if yahoo_ticker:
-            logger.info(f"Evaluation disabled - will be re-enabled with Langfuse")
+        # ============================================
+        # QUALITY SCORING + LANGFUSE INTEGRATION
+        # ============================================
+        # Compute quality scores and push to Langfuse trace
+        try:
+            from src.evaluation import score_trace_batch
 
-            logger.info(f"Background evaluation thread spawned for {yahoo_ticker}, returning immediately")
-        else:
-            logger.warning("No yahoo_ticker available, skipping background evaluation")
+            # Compute quality scores (rule-based scorers - fast)
+            quality_scores = self.scoring_service.compute_all_quality_scores(
+                report_text=report,
+                context=scoring_context
+            )
+
+            # Build scores dict for Langfuse
+            langfuse_scores = {}
+
+            # Extract overall scores from each rule-based scorer result
+            for score_name, score_result in quality_scores.items():
+                if hasattr(score_result, 'overall_score'):
+                    overall = score_result.overall_score
+                    # Build comment from sub-scores if available
+                    comment = None
+                    if hasattr(score_result, 'sub_scores') and score_result.sub_scores:
+                        sub_details = [f"{k}={v:.1f}" for k, v in score_result.sub_scores.items()]
+                        comment = ", ".join(sub_details)
+                    langfuse_scores[score_name] = (overall, comment)
+
+            # Store scores in state for downstream use
+            state["quality_scores"] = {
+                name: result.overall_score if hasattr(result, 'overall_score') else 0
+                for name, result in quality_scores.items()
+            }
+
+            # Log score summary
+            score_summary = ", ".join([
+                f"{name}={result.overall_score:.1f}"
+                for name, result in quality_scores.items()
+                if hasattr(result, 'overall_score')
+            ])
+            logger.info(f"📈 Rule-based scores: {score_summary}")
+
+            # ============================================
+            # LLM-AS-JUDGE SCORING (Two-Tier Framework)
+            # ============================================
+            # Optional: Compute LLM-based scores if enabled
+            enable_llm_scoring = os.environ.get('ENABLE_LLM_SCORING', 'false').lower() == 'true'
+
+            if enable_llm_scoring:
+                try:
+                    # Build LLM scoring context
+                    llm_context = self.scoring_service.build_llm_scoring_context(
+                        report_text=report,
+                        ticker=ticker,
+                        context=scoring_context,
+                    )
+
+                    # Compute LLM scores (async via sync wrapper)
+                    llm_scores = self.scoring_service.compute_llm_scores(llm_context)
+
+                    # Convert to Langfuse format and merge
+                    llm_langfuse_scores = self.scoring_service.llm_scores_to_langfuse_format(llm_scores)
+                    langfuse_scores.update(llm_langfuse_scores)
+
+                    # Store LLM scores in state
+                    state["llm_scores"] = {
+                        name: result.value
+                        for name, result in llm_scores.items()
+                    }
+
+                    # Log LLM score summary
+                    llm_summary = ", ".join([
+                        f"{name}={result.value:.2f}"
+                        for name, result in llm_scores.items()
+                    ])
+                    logger.info(f"🤖 LLM-as-judge scores: {llm_summary}")
+
+                except Exception as e:
+                    logger.warning(f"⚠️ LLM scoring failed (non-blocking): {e}")
+                    state["llm_scores"] = {}
+            else:
+                state["llm_scores"] = {}
+
+            # Push all scores to Langfuse trace
+            scores_pushed = score_trace_batch(langfuse_scores)
+            if scores_pushed > 0:
+                logger.info(f"📊 Pushed {scores_pushed} scores to Langfuse")
+
+        except Exception as e:
+            logger.warning(f"⚠️ Quality scoring failed (non-blocking): {e}")
+            state["quality_scores"] = {}
+            state["llm_scores"] = {}
 
         # Reset query count for next run
         self._db_query_count_ref[0] = 0
@@ -891,6 +989,7 @@ class WorkflowNodes:
 
         return state
 
+    @observe(name="fetch_comparative_data")
     def fetch_comparative_data(self, state: AgentState) -> dict:
         """
         Fetch historical data for comparative analysis with similar tickers.
@@ -952,6 +1051,7 @@ class WorkflowNodes:
 
         except Exception as e:
             logger.error(f"   ⚠️  Comparative data fetch failed: {str(e)}")
+            set_observation_level("WARNING")  # Optional data, continue without it
             self._log_node_error("fetch_comparative_data", state, f"Exception: {str(e)}")
             comparative_data = {}
 
@@ -1065,6 +1165,7 @@ class WorkflowNodes:
         # Return empty dict (sink doesn't modify state)
         return {}
 
+    @observe(name="analyze_comparative_insights")
     def analyze_comparative_insights(self, state: AgentState) -> dict:
         """
         Perform comparative analysis and extract narrative-ready insights.
@@ -1121,6 +1222,7 @@ class WorkflowNodes:
 
         except Exception as e:
             logger.error(f"   ⚠️  Comparative analysis failed: {str(e)}")
+            set_observation_level("WARNING")  # Optional analysis, continue without it
             self._log_node_error("analyze_comparative_insights", state, f"Exception: {str(e)}")
             return {"comparative_insights": {}}
 

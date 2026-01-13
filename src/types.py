@@ -30,6 +30,8 @@ class AgentState(TypedDict):
     timing_metrics: dict  # Add timing metrics field
     api_costs: dict  # Add API costs field
     database_metrics: dict  # Add database metrics field
+    quality_scores: dict  # Aggregated rule-based quality scores (Langfuse integration)
+    llm_scores: dict  # LLM-as-judge scores (hallucination, helpfulness, conciseness, answer_relevancy)
     user_facing_scores: dict  # Add user-facing investment scores (0-10 scale)
     sec_filing_data: dict  # SEC EDGAR filing data (10-K, 10-Q, etc.)
     financial_markets_data: dict  # Chart patterns, candlestick patterns, support/resistance from Financial Markets MCP
