@@ -349,7 +349,14 @@ flowchart TD
     IMPLEMENT -.->|Uses| SKILL_TESTING
     IMPLEMENT -.->|Uses| SKILL_DEPLOY[deployment skill<br/>zero-downtime]
 
-    IMPLEMENT --> CMD_OBSERVE["/observe<br/>Track execution"]
+    IMPLEMENT --> CMD_INVARIANT["/invariant<br/>Verify invariants"]
+
+    CMD_INVARIANT --> VIOLATIONS{Invariant<br/>Violations?}
+
+    VIOLATIONS -->|Yes| CMD_RECONCILE["/reconcile<br/>Fix violations"]
+    CMD_RECONCILE --> CMD_INVARIANT
+
+    VIOLATIONS -->|No| CMD_OBSERVE["/observe<br/>Track execution"]
 
     CMD_OBSERVE --> WORKED{Success?}
 
@@ -380,6 +387,8 @@ flowchart TD
     style CMD_JOURNAL fill:#e1e5f5
     style CMD_BUGHUNT fill:#e1e5f5
     style CMD_ABSTRACT fill:#e1e5f5
+    style CMD_INVARIANT fill:#17a2b8,color:#fff
+    style CMD_RECONCILE fill:#17a2b8,color:#fff
 
     style SKILL_RESEARCH fill:#e1f5e1
     style SKILL_CODEREVIEW fill:#e1f5e1
@@ -389,7 +398,7 @@ flowchart TD
     style SKILL_API fill:#e1f5e1
 ```
 
-**Full cycle with principle checking**:
+**Full cycle with principle checking and invariant verification**:
 ```
 Problem
     → Classify Decision Tier (STRATEGIC/ANALYTICAL/TACTICAL)
@@ -397,6 +406,8 @@ Problem
     → [If ANALYTICAL] Reference Principles (include in analysis)
     → [If TACTICAL] Skip principle check (fast iteration)
     → Decompose → Explore → Specify → Validate → Implement
+    → /invariant (verify invariants hold)
+    → [If violations] /reconcile → /invariant (loop until delta = 0)
     → Observe → Document → Learn
 ```
 
@@ -405,7 +416,9 @@ Problem
 2. **Added CHECK_PRINCIPLES gate** - Enforced for STRATEGIC decisions only
 3. **Added BLOCK path** - CRITICAL violations prevent decision progression
 4. **Added REF_PRINCIPLES note** - ANALYTICAL decisions include principle alignment
-5. **Color coding** - Red (strategic gate), Yellow (analytical reference), Blue (tactical skip)
+5. **Added INVARIANT verification** - After implementation, verify behavioral invariants
+6. **Added RECONCILE loop** - Fix violations and re-verify until delta = 0
+7. **Color coding** - Red (strategic gate), Yellow (analytical reference), Teal (invariant verification)
 
 ---
 
@@ -895,7 +908,7 @@ graph LR
         MC1[/decompose]
         MC2[/abstract]
         MC3[/evolve]
-        MC4[/explain]
+        MC4[/reflect]
     end
 
     subgraph "Exploration Commands"
@@ -909,6 +922,21 @@ graph LR
         V2[/proof]
     end
 
+    subgraph "Verification Commands"
+        VER1[/invariant]
+        VER2[/reconcile]
+    end
+
+    subgraph "Inspection Commands"
+        INSP1[/x-ray]
+        INSP2[/locate]
+    end
+
+    subgraph "Design Commands"
+        DES1[/design]
+        DES2[/problem-statement]
+    end
+
     subgraph "Documentation Commands"
         D1[/journal]
         D2[/observe]
@@ -916,8 +944,8 @@ graph LR
 
     subgraph "Workflow Commands"
         W1[/bug-hunt]
-        W2[/refactor]
-        W3[/review]
+        W2[/restructure]
+        W3[/deploy]
     end
 
     MC1 -->|"Feeds into"| EX1
@@ -925,10 +953,16 @@ graph LR
     EX2 -->|"Feeds into"| EX3
     EX3 -->|"Feeds into"| V1
     V1 -->|"If valid"| IMPL[Implementation]
-    IMPL -->|"Track"| D2
+    IMPL -->|"Verify"| VER1
+    VER1 -->|"If violations"| VER2
+    VER2 -->|"Fix & re-verify"| VER1
+    VER1 -->|"If clean"| D2
     D2 -->|"Document"| D1
     D1 -->|"Extract patterns"| MC2
     MC2 -->|"Update principles"| MC3
+
+    INSP1 -->|"Informs"| DES1
+    DES1 -->|"Feeds into"| EX3
 
     W1 -.->|"Uses"| MC1
     W1 -.->|"Uses"| D2
@@ -937,7 +971,8 @@ graph LR
     W2 -.->|"Uses"| MC1
     W2 -.->|"Uses"| V1
 
-    W3 -.->|"Uses"| V1
+    W3 -.->|"Uses"| VER1
+    W3 -.->|"Uses"| VER2
 
     style MC1 fill:#fff3cd
     style MC2 fill:#fff3cd
@@ -951,6 +986,15 @@ graph LR
     style V1 fill:#d4edda
     style V2 fill:#d4edda
 
+    style VER1 fill:#17a2b8,color:#fff
+    style VER2 fill:#17a2b8,color:#fff
+
+    style INSP1 fill:#6f42c1,color:#fff
+    style INSP2 fill:#6f42c1,color:#fff
+
+    style DES1 fill:#fd7e14,color:#fff
+    style DES2 fill:#fd7e14,color:#fff
+
     style D1 fill:#f8d7da
     style D2 fill:#f8d7da
 
@@ -959,7 +1003,10 @@ graph LR
     style W3 fill:#e2e3e5
 ```
 
-**Composition**: Commands build on each other (decompose → explore → specify → validate → implement → observe → journal → abstract → evolve)
+**Composition**: Commands build on each other:
+- **Main flow**: decompose → explore → specify → validate → implement → **invariant → reconcile** → observe → journal → abstract → evolve
+- **Inspection flow**: x-ray → design → specify
+- **Verification loop**: invariant ↔ reconcile (until delta = 0)
 
 ---
 
@@ -1004,6 +1051,9 @@ flowchart TB
         O3[.claude/observations/<br/>Learnings]
         O4[.claude/validations/<br/>Proofs]
         O5[Code changes]
+        O6[.claude/invariants/<br/>Behavioral contracts]
+        O7[.claude/reports/<br/>X-ray analyses]
+        O8[.claude/what-if/<br/>Scenario analyses]
     end
 
     S1 -->|Always loaded| L3
@@ -1488,9 +1538,19 @@ When debugging or stuck, ask:
 
 ### Full Cycle with Self-Healing
 
-**Happy path**:
+**Happy path** (with invariant verification):
 ```
-Problem → Decompose → Explore → Specify → Validate → Implement → Observe → Success
+Problem → Decompose → Explore → Specify → Validate → Implement
+       → /invariant (verify) → [if clean] Observe → Success
+```
+
+**Invariant path (Convergence Loop)**:
+```
+Implement → /invariant (detect violations)
+         → /reconcile (generate fixes)
+         → Apply fixes
+         → /invariant (verify again)
+         → [if clean] Observe → Success
 ```
 
 **Failure path (Retrying Loop)**:
@@ -1525,3 +1585,345 @@ Current loop type not working
     → Switch loop type
     → Success with different perspective
 ```
+
+---
+
+## 11.5 Invariant Feedback Loop (Convergence Pattern)
+
+Unlike failure-driven loops (Retrying, Initial-Sensitive, Branching), the Invariant Feedback Loop is a **convergence pattern** - it ensures behavioral contracts hold before claiming "done".
+
+### Core Concept
+
+**"Done" = All invariants verified (delta = 0)**
+
+```mermaid
+flowchart TD
+    subgraph "Invariant Feedback Loop"
+        START[Implementation Complete] --> DETECT["/invariant<br/>Identify what must hold"]
+
+        DETECT --> CHECKLIST[Generate<br/>5-Level Verification Checklist]
+
+        CHECKLIST --> VERIFY[Verify Each Level<br/>4 → 3 → 2 → 1 → 0]
+
+        VERIFY --> VIOLATIONS{Violations<br/>Found?}
+
+        VIOLATIONS -->|Yes, δ > 0| RECONCILE["/reconcile<br/>Generate fix actions"]
+        VIOLATIONS -->|No, δ = 0| DONE[✅ Done<br/>Claim with confidence]
+
+        RECONCILE --> APPLY[Apply Fixes]
+        APPLY --> VERIFY
+    end
+
+    style DETECT fill:#17a2b8,color:#fff
+    style RECONCILE fill:#28a745,color:#fff
+    style DONE fill:#28a745,color:#fff
+    style VIOLATIONS fill:#ffc107
+```
+
+### 5-Level Invariant Hierarchy
+
+| Level | Type | What to Verify | Example |
+|-------|------|----------------|---------|
+| **4** | Configuration | Settings correct | Env vars, constants, Doppler |
+| **3** | Infrastructure | Connectivity works | Lambda → Aurora, Lambda → S3 |
+| **2** | Data | Data conditions hold | Schema valid, data fresh |
+| **1** | Service | Service behavior correct | Lambda returns 200, API contract |
+| **0** | User | User experience works | End-to-end flow succeeds |
+
+**Verification order**: Always bottom-up (Level 4 → Level 0)
+
+### Delta Function
+
+```
+δ(m, I) = 0  if member m satisfies invariant I
+δ(m, I) > 0  if member m violates invariant I
+
+Goal: Converge all δ to zero before claiming "done"
+```
+
+### Commands
+
+| Command | Purpose | Direction |
+|---------|---------|-----------|
+| `/invariant` | Identify invariants for goal | Divergent (expand) |
+| `/reconcile` | Generate fixes for violations | Convergent (collapse) |
+
+### Workflow Integration
+
+```
+/invariant "goal"    →    /reconcile    →    /invariant "goal"
+    (detect)              (converge)           (verify)
+       ↓                      ↓                    ↓
+   Identify              Generate             Confirm
+   invariants           fix actions          delta = 0
+```
+
+### Relationship to Other Loop Types
+
+| Loop Type | Trigger | Purpose |
+|-----------|---------|---------|
+| Retrying | Failure occurred | Fix execution |
+| Initial-Sensitive | Same failure repeats | Question assumptions |
+| Branching | All paths failing | Try different direction |
+| **Invariant** | Before claiming "done" | Verify contracts hold |
+
+**Key difference**: Invariant Loop is **proactive** (verify before failure), not **reactive** (respond to failure).
+
+### Tool-Loop Mapping (Updated)
+
+| Loop Type | Primary Tools | Escalation Signal | Learning Level |
+|-----------|---------------|-------------------|----------------|
+| Retrying | `/trace`, `/validate` | Same `/trace` output | Single-Loop |
+| Initial-Sensitive | `/hypothesis`, `/research` | Multiple hypotheses fail | Double-Loop |
+| Branching | `/compare`, `/impact` | All paths inadequate | Double-Loop |
+| Synchronize | `/validate`, `/consolidate` | Drift recurring | Single/Double-Loop |
+| Meta-Loop | `/reflect`, `/compare` | Loop type ineffective | Triple-Loop |
+| **Invariant** | `/invariant`, `/reconcile` | Cannot converge δ to 0 | **Convergence** |
+
+### Invariant Domain Files
+
+```
+.claude/invariants/
+├── system-invariants.md      # Always verify (critical path)
+├── deployment-invariants.md  # CI/CD, Lambda, Terraform
+├── data-invariants.md        # Aurora, migrations, timezone
+├── api-invariants.md         # Endpoints, contracts
+├── langfuse-invariants.md    # Tracing, scoring
+└── frontend-invariants.md    # React, state, charts
+```
+
+### Example Usage
+
+```bash
+# Before deployment
+/invariant "deploy new Langfuse scoring feature"
+# → Generates 5-level checklist
+
+# After implementation, check for violations
+/invariant "deploy new Langfuse scoring feature"
+# → Shows: 2 violations (Level 4: missing env var, Level 1: flush not called)
+
+# Generate fixes
+/reconcile langfuse
+# → Suggests: Add env var to Doppler, Add flush() call
+
+# Apply and re-verify
+/reconcile langfuse --apply
+/invariant "deploy new Langfuse scoring feature"
+# → All invariants satisfied (δ = 0)
+# → Ready to claim "done"
+```
+
+### See Also
+
+- **Commands**: [/invariant](../.claude/commands/invariant.md), [/reconcile](../.claude/commands/reconcile.md)
+- **Invariants Directory**: [.claude/invariants/](../.claude/invariants/)
+- **Principle**: CLAUDE.md #25 (Behavioral Invariant Verification)
+- **Guide**: [Behavioral Invariant Guide](../docs/guides/behavioral-invariant-verification.md)
+
+---
+
+## 12. Thinking Tuple Protocol
+
+The Thinking Tuple is the **runtime composition protocol** that forces all layers (Principles, Skills, Commands, Thinking Process) to be applied together at each reasoning step.
+
+### Core Insight
+
+**Layers are static definitions. The Tuple is runtime composition.**
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    THINKING TUPLE                                │
+│                                                                  │
+│  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐             │
+│  │ Constraints  │ │  Invariant   │ │  Principles  │             │
+│  │ (from Skills,│ │ (from /invari│ │ (from Tier-0,│             │
+│  │  context)    │ │  ant, goal)  │ │  clusters)   │             │
+│  └──────────────┘ └──────────────┘ └──────────────┘             │
+│           │              │                │                      │
+│           └──────────────┼────────────────┘                      │
+│                          ▼                                       │
+│  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐             │
+│  │   Process    │ │   Actions    │ │    Check     │             │
+│  │ (from Think- │ │ (tool calls, │ │ (did Actions │             │
+│  │  ing Arch)   │ │  commands)   │ │  → Invariant)│             │
+│  └──────────────┘ └──────────────┘ └──────────────┘             │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Tuple Structure
+
+```
+Tuple = (Constraints, Invariant, Principles, Process, Actions, Check)
+```
+
+| Component | Question | Source Layer |
+|-----------|----------|--------------|
+| **Constraints** | What do we have/know right now? | Skills, Context, Previous tuples |
+| **Invariant** | What must be true at step end? | `/invariant`, Success criteria |
+| **Principles** | What tradeoffs guide us? | CLAUDE.md Tier-0 + task clusters |
+| **Process** | What thinking mode to use? | Thinking Process Architecture |
+| **Actions** | What concrete steps to take? | Skills patterns, Tool calls |
+| **Check** | Did actions satisfy invariant? | Progressive Evidence (Layers 1-4) |
+
+### Layer Integration
+
+```
+Your Existing Layers              Tuple Component
+─────────────────────────────────────────────────────────
+CLAUDE.md Principles    ────────► Principles slot
+Skills                  ────────► Actions slot (patterns)
+Slash Commands          ────────► Pre-assembled tuples
+Thinking Process Arch   ────────► Process slot (modes)
+/invariant command      ────────► Invariant slot
+Progressive Evidence    ────────► Check slot (evidence levels)
+```
+
+### Process Modes (From Thinking Architecture)
+
+| Mode | When to Use | Section Reference |
+|------|-------------|-------------------|
+| **diverge** | Need more options, exploring | Section 4 (Diverge-Converge) |
+| **converge** | Have options, need to select | Section 4 (Diverge-Converge) |
+| **decompose** | Problem too large | Section 5 (Full Thinking Cycle) |
+| **compare** | Multiple viable options | Section 11 (Branching Loop) |
+| **reframe** | Current approach not working | Section 6 (Escaping Local Optima) |
+| **escape** | Stuck in local optimum | Section 6 (Escaping Local Optima) |
+
+### Tuple Chaining for Long-Running Tasks
+
+```
+Frame₀: (C₀, I₀, P₀, Proc₀, A₀, Check₀)
+    │
+    ▼ (Check passes, update constraints)
+Frame₁: (C₁, I₁, P₁, Proc₁, A₁, Check₁)
+    │
+    ▼ (Check passes, update constraints)
+Frame₂: (C₂, I₂, P₂, Proc₂, A₂, Check₂)
+    │
+    ...
+    │
+    ▼ (Final invariant satisfied)
+DONE: All invariants verified (δ = 0)
+```
+
+**Key insight**: Each tuple is a **checkpoint with full context**. If Check fails, spin a new tuple with updated constraints—don't abandon the run.
+
+### Error Bound Analysis
+
+**Without Tuples**:
+```
+Error ∝ (steps × drift_rate)
+- Stale assumptions compound silently
+- No recovery mechanism
+- Debugging is archaeology
+```
+
+**With Tuples**:
+```
+Error ∝ (undetected_drift × steps_between_checks)
+- Constraints refreshed each tuple
+- Failed Check → new tuple with updated state
+- Each tuple is observable checkpoint
+```
+
+### Check Failure Protocol
+
+When Check reveals violations:
+
+1. **Update Constraints**: Add what was learned
+2. **Consider Process Change**: Maybe switch from converge to diverge
+3. **Spin New Tuple**: Don't abandon, continue with updated state
+
+```mermaid
+flowchart TD
+    CHECK{Check<br/>Result?}
+
+    CHECK -->|PASS| NEXT[Proceed to<br/>next step]
+    CHECK -->|FAIL| UPDATE[Update Constraints<br/>with learnings]
+    CHECK -->|PARTIAL| DECIDE{Critical<br/>invariant?}
+
+    UPDATE --> PROCESS{Change<br/>Process Mode?}
+    DECIDE -->|Yes| UPDATE
+    DECIDE -->|No| NEXT
+
+    PROCESS -->|Yes| NEW_MODE[Select new mode:<br/>diverge/converge/escape]
+    PROCESS -->|No| NEW_TUPLE[Spin new tuple<br/>with same mode]
+
+    NEW_MODE --> NEW_TUPLE
+    NEW_TUPLE --> EXECUTE[Execute Actions]
+
+    style CHECK fill:#ffc107
+    style UPDATE fill:#17a2b8,color:#fff
+    style NEW_TUPLE fill:#28a745,color:#fff
+```
+
+### Relationship to Feedback Loops
+
+| Loop Type | When to Use | Tuple Role |
+|-----------|-------------|------------|
+| **Retrying** | Execution failed | New tuple with fix in Actions |
+| **Initial-Sensitive** | Assumptions wrong | New tuple with updated Constraints |
+| **Branching** | Path inadequate | New tuple with different Process mode |
+| **Invariant** | Verify before "done" | Check slot validates invariants |
+| **Meta-Loop** | Loop type not working | Switch tuple Process mode |
+
+### Explicit Tuple Instantiation
+
+Use `/step` command to force explicit tuple:
+
+```bash
+/step "deploy new scoring feature"
+```
+
+Produces structured output:
+
+```markdown
+# Thinking Tuple: Deploy new scoring feature
+
+## 1. Constraints
+**Known**: Code merged, tests passing
+**Resources**: AWS CLI, GitHub Actions
+**Limits**: Must not disrupt existing functionality
+
+## 2. Invariant
+**Must be true**: Lambda updated, endpoint responds, traces appear
+**Safety**: Existing /report must still work
+
+## 3. Principles
+**Active**: #1, #2, #6, #11
+**Tradeoff**: Safety over speed
+
+## 4. Process
+**Mode**: converge
+**Rationale**: Clear plan, need execution
+
+## 5. Actions
+1. Push to trigger CI/CD
+2. Wait for deployment (gh run watch)
+3. Invoke health check
+4. Verify traces
+
+## 6. Check
+**Result**: PASS
+**Evidence**: Layer 4 (Langfuse dashboard shows traces)
+**Next**: Proceed to staging
+```
+
+### When Tuple Protocol Activates
+
+| Condition | Tuple Required? |
+|-----------|----------------|
+| Simple lookup | No |
+| Single-action task | No |
+| Complex task (> 3 steps) | Yes |
+| Long-running task | Yes (at each step) |
+| After Check failure | Yes (spin new tuple) |
+| Autonomous mode | Yes (always) |
+
+### See Also
+
+- **Command**: [/step](../.claude/commands/step.md) - Explicit tuple instantiation
+- **Principle**: CLAUDE.md #26 (Thinking Tuple Protocol)
+- **Guide**: [Thinking Tuple Guide](../docs/guides/thinking-tuple-protocol.md)
+- **Related**: Section 11.5 (Invariant Feedback Loop) - Invariant slot integration

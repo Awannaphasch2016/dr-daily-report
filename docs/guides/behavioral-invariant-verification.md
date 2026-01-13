@@ -588,6 +588,7 @@ See [/invariant command](../../.claude/commands/invariant.md) and [/reconcile co
 ## See Also
 
 - [CLAUDE.md - Principle #25](../../.claude/CLAUDE.md) - Behavioral Invariant Verification (Tier-0)
+- [Thinking Process Architecture - Section 11.5](../../.claude/diagrams/thinking-process-architecture.md#115-invariant-feedback-loop-convergence-pattern) - Invariant Feedback Loop pattern
 - [/invariant command](../../.claude/commands/invariant.md) - Identify invariants for a goal
 - [/reconcile command](../../.claude/commands/reconcile.md) - Converge violations to compliance
 - [Invariants Directory](../../.claude/invariants/) - Domain-specific invariant files

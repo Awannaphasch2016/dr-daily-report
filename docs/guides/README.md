@@ -8,6 +8,17 @@ Comprehensive how-to guides for implementing CLAUDE.md principles. Each guide pr
 
 ### Testing & Verification
 
+#### [Thinking Tuple Protocol](thinking-tuple-protocol.md)
+**Principle #26** | The atomic unit of disciplined reasoning that forces composition of all layers at each reasoning step.
+
+- **Tuple structure**: (Constraints, Invariant, Principles, Process, Actions, Check)
+- **Layer integration**: Principles → Constraints slot, Skills → Actions slot, Thinking Arch → Process slot
+- **Process modes**: diverge, converge, decompose, compare, reframe, escape
+- **Error bound**: Without tuples, error ∝ (steps × drift). With tuples, error bounded by check frequency
+- **Checkpoint semantics**: Each tuple is a checkpoint. If Check fails, spin new tuple with updated Constraints
+
+---
+
 #### [Behavioral Invariant Verification](behavioral-invariant-verification.md)
 **Principle #25** | Every implementation operates within an invariant envelope—behaviors that MUST remain true for the system to function.
 
@@ -240,6 +251,18 @@ Patterns become implementation guides through this path:
 
 ## Version History
 
+- **2026-01-13**: Thinking Tuple Protocol - Runtime composition protocol for disciplined reasoning
+  - Added Principle #26 (Thinking Tuple Protocol) to CLAUDE.md Tier-0
+  - Created `/step` command for explicit tuple instantiation
+  - Added Section 12 (Thinking Tuple Protocol) to Thinking Process Architecture
+  - Created thinking-tuple-protocol.md implementation guide
+  - Tuple = (Constraints, Invariant, Principles, Process, Actions, Check)
+- **2026-01-13**: Thinking Process Architecture update - Added Invariant Feedback Loop
+  - Added Section 11.5 (Invariant Feedback Loop) to Thinking Process Architecture
+  - Added Verification Commands (/invariant, /reconcile) to command composition
+  - Updated Full Thinking Cycle to include invariant verification after implementation
+  - Added new knowledge outputs (.claude/invariants/, .claude/reports/, .claude/what-if/)
+  - Updated behavioral-invariant-verification.md with link to Section 11.5
 - **2026-01-12**: Major architecture refactor - Principle Classification & Documentation Architecture
   - Introduced tier-based principle classification (Tier-0 core vs Tier-1/2/3 context-specific)
   - Created `.claude/principles/` directory with 6 connascent clusters
@@ -277,6 +300,6 @@ Patterns become implementation guides through this path:
 
 ---
 
-*Index version: 2026-01-12*
-*Guides: 10 implementation guides (Principles #15, #16, #17, #18, #19, #20, #21, #23, #24, #25)*
+*Index version: 2026-01-13*
+*Guides: 11 implementation guides (Principles #15, #16, #17, #18, #19, #20, #21, #23, #24, #25, #26)*
 *Status: Active - guides referenced by CLAUDE.md principles*

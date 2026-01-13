@@ -46,11 +46,18 @@ Action verbs that imply producing something new:
 - `/explore` - Divergent option generation
 - `/adapt` - Integrate external techniques
 
+### Protocol Commands (Runtime Composition)
+Commands that force structured reasoning protocols:
+- `/step` - Thinking Tuple Protocol (Constraints → Invariant → Principles → Process → Actions → Check)
+- `/invariant` - Identify behavioral invariants for a goal
+- `/reconcile` - Converge violations back to compliance
+
 **Workflow pattern:**
 ```bash
 /x-ray "current auth system"     # SEE what exists
 /what-if "OAuth instead of JWT"  # THINK about alternatives
 /design python "OAuth2 handler"  # CREATE new solution
+/step "deploy OAuth handler"     # EXECUTE with disciplined reasoning
 ```
 
 ---
@@ -552,6 +559,138 @@ Symptom → Classify Type → Gather Evidence → Form Hypotheses
 - `/decompose failure` - Breaks down failure structure
 - `error-investigation` skill - AWS/Lambda patterns (auto-applied)
 - **`/bug-hunt`** - **Active investigation with type-specific workflows**
+
+---
+
+## Verification Commands (Behavioral Contracts)
+
+### `/invariant` - Identify Behavioral Invariants
+**Purpose**: Identify what must remain true for a goal, generating verification checklists before claiming "done"
+
+**Usage**:
+```bash
+# Goal-based invariant identification
+/invariant "deploy new Langfuse scoring feature"
+/invariant "add new API endpoint for backtest"
+
+# Domain-specific focus
+/invariant deployment "release v1.2.3"
+/invariant data "add new Aurora table"
+/invariant langfuse "add compliance score"
+```
+
+**5-Level Verification Hierarchy**:
+| Level | Type | What to Verify |
+|-------|------|----------------|
+| 4 | Configuration | Env vars, constants, Doppler |
+| 3 | Infrastructure | Lambda → Aurora, Lambda → S3 |
+| 2 | Data | Schema valid, data fresh |
+| 1 | Service | Lambda returns 200, API contract |
+| 0 | User | End-to-end flow succeeds |
+
+**Core Principle**: "Done" = All invariants verified (delta = 0), not just code written
+
+---
+
+### `/reconcile` - Converge Violations to Compliance
+**Purpose**: Generate specific fix actions to converge invariant violations back to compliance
+
+**Usage**:
+```bash
+# Reconcile by domain
+/reconcile deployment
+/reconcile langfuse
+
+# Preview fixes without applying
+/reconcile deployment --preview
+
+# Apply fixes with confirmation
+/reconcile deployment --apply
+```
+
+**Workflow Integration**:
+```
+/invariant "goal"    →    /reconcile    →    /invariant "goal"
+    (detect)              (converge)           (verify)
+       ↓                      ↓                    ↓
+   Identify              Generate             Confirm
+   invariants           fix actions          delta = 0
+```
+
+**Core Principle**: "Converge delta to zero" - systematic fix generation, not ad-hoc patching
+
+---
+
+### Invariant Feedback Loop
+
+The invariant commands form a **convergence loop** distinct from failure-driven loops:
+
+| Loop Type | Trigger | Purpose |
+|-----------|---------|---------|
+| Retrying | Failure occurred | Fix execution |
+| Initial-Sensitive | Same failure repeats | Question assumptions |
+| **Invariant** | Before claiming "done" | Verify contracts hold |
+
+**Key difference**: Invariant Loop is **proactive** (verify before failure), not **reactive** (respond to failure).
+
+**Invariant Domain Files**:
+- `.claude/invariants/system-invariants.md` - Always verify (critical path)
+- `.claude/invariants/deployment-invariants.md` - CI/CD, Lambda, Terraform
+- `.claude/invariants/data-invariants.md` - Aurora, migrations, timezone
+- `.claude/invariants/api-invariants.md` - Endpoints, contracts
+- `.claude/invariants/langfuse-invariants.md` - Tracing, scoring
+- `.claude/invariants/frontend-invariants.md` - React, state, charts
+
+---
+
+### `/step` - Thinking Tuple Protocol
+**Purpose**: Instantiate a Thinking Tuple - the atomic unit of disciplined reasoning that forces composition of all layers at each reasoning step
+
+**Usage**:
+```bash
+# Explicit tuple instantiation
+/step "deploy new scoring feature"
+/step "refactor authentication module"
+/step "investigate timeout bug"
+
+# With explicit mode selection
+/step --mode=diverge "explore caching strategies"
+/step --mode=converge "select best approach"
+```
+
+**Tuple Structure**:
+```
+Tuple = (Constraints, Invariant, Principles, Process, Actions, Check)
+```
+
+| Component | Question | Source |
+|-----------|----------|--------|
+| **Constraints** | What do we have/know? | Current state, resources |
+| **Invariant** | What must be true at end? | `/invariant`, success criteria |
+| **Principles** | What tradeoffs guide us? | Tier-0 + task clusters |
+| **Process** | What thinking mode? | diverge, converge, decompose, compare, reframe, escape |
+| **Actions** | What concrete steps? | Tool calls, commands |
+| **Check** | Did we satisfy invariant? | Progressive Evidence (Layers 1-4) |
+
+**Process Modes**:
+- `diverge` - Generate multiple options, explore broadly
+- `converge` - Narrow down, select from options
+- `decompose` - Break into subproblems
+- `compare` - Evaluate alternatives side-by-side
+- `reframe` - Change perspective on the problem
+- `escape` - Break out of local optimum
+
+**When to Use**:
+- Complex tasks (> 3 steps) where drift is possible
+- Long-running work needing checkpoints
+- After Check failures (spin new tuple with updated constraints)
+- Autonomous mode (always)
+
+**Error Bound**: Without tuples, error ∝ (steps × drift). With tuples, error bounded by check frequency.
+
+**Core Principle**: Each tuple is a **checkpoint with full context**. If Check fails, spin a new tuple with updated Constraints—don't abandon the run.
+
+See [/step command](step.md), [Thinking Tuple Guide](../../docs/guides/thinking-tuple-protocol.md), and [Thinking Process Architecture - Section 12](../diagrams/thinking-process-architecture.md#12-thinking-tuple-protocol).
 
 ---
 
@@ -1309,6 +1448,10 @@ For detailed command documentation, see individual command files in `.claude/com
 
 ### Debugging
 - [/bug-hunt](bug-hunt.md) - Systematic bug investigation with type-specific workflows
+
+### Verification (Behavioral Contracts)
+- [/invariant](invariant.md) - Identify behavioral invariants that must hold
+- [/reconcile](reconcile.md) - Converge violations back to compliance
 
 ### Worktree Management
 - [/wt-spin-off](wt-spin-off.md) - Create branch and worktree for parallel work

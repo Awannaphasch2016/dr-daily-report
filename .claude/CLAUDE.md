@@ -88,6 +88,30 @@ Use `/invariant "goal"` to identify what must hold, `/reconcile domain` to fix v
 
 See [Behavioral Invariant Guide](docs/guides/behavioral-invariant-verification.md), [/invariant](.claude/commands/invariant.md), [/reconcile](.claude/commands/reconcile.md), and [Invariants Directory](.claude/invariants/).
 
+### 26. Thinking Tuple Protocol
+For non-trivial tasks, reason in discrete **Thinking Tuples**:
+
+```
+Tuple = (Constraints, Invariant, Principles, Process, Actions, Check)
+```
+
+| Component | Question | Source |
+|-----------|----------|--------|
+| **Constraints** | What do we have/know? | Current state, resources |
+| **Invariant** | What must be true at end? | `/invariant`, success criteria |
+| **Principles** | What tradeoffs guide us? | Tier-0 + task clusters |
+| **Process** | What thinking mode? | diverge, converge, decompose, compare, reframe, escape |
+| **Actions** | What concrete steps? | Tool calls, commands |
+| **Check** | Did we satisfy invariant? | Progressive Evidence (Layers 1-4) |
+
+**If Check fails**: Update Constraints with what was learned, possibly change Process mode, spin new tuple.
+
+**Error bound**: Without tuples, error ∝ (steps × drift). With tuples, error bounded by check frequency.
+
+Use `/step "goal"` to explicitly instantiate tuples for complex or long-running tasks.
+
+See [Thinking Tuple Guide](docs/guides/thinking-tuple-protocol.md), [/step command](.claude/commands/step.md), and [Thinking Process Architecture - Section 12](.claude/diagrams/thinking-process-architecture.md#12-thinking-tuple-protocol).
+
 ---
 
 ## Principle Routing Index
@@ -136,6 +160,7 @@ See [Principles Index](.claude/principles/index.md) for keyword triggers and mul
 | 23 | Configuration Variation | 0 | Core |
 | 24 | External Service Credentials | 2 | Configuration |
 | 25 | Behavioral Invariant | 0 | Core |
+| 26 | Thinking Tuple Protocol | 0 | Core |
 
 ---
 
