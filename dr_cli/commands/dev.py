@@ -140,6 +140,205 @@ def verify(ctx, target):
     sys.exit(result.returncode)
 
 
+@dev.command("langfuse-test")
+@click.option('--ticker', default=None, help='Test with real ticker (requires Aurora)')
+@click.option('--verbose', '-v', is_flag=True, help='Show detailed output')
+@click.pass_context
+def langfuse_test(ctx, ticker, verbose):
+    """Test Langfuse tracing and scoring integration
+
+    Runs an isolated test trace to verify Langfuse is configured correctly.
+    Creates a 'test_scoring' trace with 5 quality scores.
+
+    Examples:
+      dr dev langfuse-test              # Test with mock data
+      dr dev langfuse-test --verbose    # Show detailed scoring output
+      dr dev langfuse-test --ticker DBS19  # Test with real ticker (needs Aurora)
+    """
+    import sys
+
+    use_doppler = ctx.obj.get('doppler', False)
+
+    if ticker:
+        # Real ticker test (requires Aurora)
+        click.echo(f"🔍 Testing Langfuse with real ticker: {ticker}")
+        click.echo("   ⚠️  Requires Aurora connection")
+        script = f'''
+import logging
+logging.basicConfig(level=logging.{"DEBUG" if verbose else "INFO"}, format="%(levelname)s - %(message)s")
+
+for name in ["httpx", "httpcore", "urllib3", "boto3", "botocore", "langchain", "openai"]:
+    logging.getLogger(name).setLevel(logging.ERROR)
+
+from src.agent import TickerAnalysisAgent
+
+agent = TickerAnalysisAgent()
+result = agent.analyze_ticker("{ticker}")
+
+print()
+print("=" * 50)
+print("RESULTS")
+print("=" * 50)
+print(f"Report: {{len(result.get('report', ''))}} chars")
+print(f"Quality Scores: {{result.get('quality_scores', {{}})}}")
+print(f"Error: {{result.get('error', '(none)')}}")
+print()
+print("Check Langfuse at: https://us.cloud.langfuse.com")
+'''
+    else:
+        # Mock data test (no Aurora needed)
+        click.echo("🧪 Testing Langfuse with mock data")
+        click.echo("   Testing all trace columns: user_id, session_id, tags, metadata, scores")
+        script = f'''
+import logging
+import os
+from datetime import datetime
+
+logging.basicConfig(level=logging.{"DEBUG" if verbose else "INFO"}, format="%(levelname)s - %(message)s")
+
+from src.evaluation import observe, score_trace_batch, flush, get_langfuse_client, trace_context
+from src.scoring.scoring_service import ScoringService, ScoringContext
+
+# Verify Langfuse is configured
+client = get_langfuse_client()
+if not client:
+    print("❌ Langfuse not configured!")
+    print("   Set LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY")
+    exit(1)
+
+print("✅ Langfuse client initialized")
+
+# Create mock context
+context = ScoringContext(
+    indicators={{"current_price": 100, "rsi": 55, "macd": 1.2}},
+    percentiles={{"rsi_percentile": 45, "volume_percentile": 60}},
+    news=[{{"title": "Test news", "summary": "Good quarterly results"}}],
+    ticker_data={{"symbol": "TEST", "name": "Test Corporation", "sector": "Technology"}},
+    market_conditions={{"uncertainty_score": 0.3, "volatility": "normal"}}
+)
+
+# Mock report
+test_report = """
+**สรุปวิเคราะห์ TEST**
+
+ราคาปัจจุบัน: 100 บาท
+RSI: 55 (อยู่ในระดับปกติ)
+Volume: ปกติ
+
+ข่าว: มีข่าวดีออกมาเกี่ยวกับผลประกอบการ
+
+แนะนำ: ถือ
+"""
+
+@observe(name="test_scoring")
+def run_test():
+    # Use trace_context to set all Langfuse columns
+    with trace_context(
+        user_id="test_user_123",
+        session_id=f"test_session_{{datetime.now().strftime('%Y%m%d_%H%M%S')}}",
+        tags=["test", "cli"],
+        metadata={{
+            "ticker": "TEST",
+            "workflow": "langfuse_test",
+            "model": "mock",
+            "source": "dr_cli"
+        }}
+    ):
+        print()
+        print("Trace context set:")
+        print("  user_id: test_user_123")
+        print("  session_id: test_session_*")
+        print("  tags: [test, cli]")
+        print("  metadata: ticker=TEST, workflow=langfuse_test, model=mock, source=dr_cli")
+        print()
+
+        print("Computing quality scores (rule-based)...")
+        service = ScoringService(enable_llm_scoring=True)
+        scores = service.compute_all_quality_scores(test_report, context)
+
+        print()
+        print("Rule-based scores computed:")
+        for name, result in scores.items():
+            if hasattr(result, "overall_score"):
+                print(f"  {{name}}: {{result.overall_score:.1f}}")
+
+        # Push rule-based scores to Langfuse
+        langfuse_scores = {{}}
+        for name, result in scores.items():
+            if hasattr(result, "overall_score"):
+                langfuse_scores[name] = (result.overall_score, None)
+
+        pushed = score_trace_batch(langfuse_scores)
+        print()
+        print(f"📊 Pushed {{pushed}} rule-based scores to Langfuse")
+
+        # Compute LLM-as-judge scores (Two-Tier Framework)
+        print()
+        print("Computing LLM-as-judge scores...")
+        llm_context = service.build_llm_scoring_context(
+            report_text=test_report,
+            ticker="TEST",
+            context=context,
+            query="Generate stock analysis report for TEST"
+        )
+
+        llm_scores = service.compute_llm_scores(llm_context)
+
+        if llm_scores:
+            print()
+            print("LLM-as-judge scores computed:")
+            for name, result in llm_scores.items():
+                print(f"  {{name}}: {{result.value:.2f}}")
+
+            # Push LLM scores to Langfuse
+            llm_langfuse_scores = service.llm_scores_to_langfuse_format(llm_scores)
+            llm_pushed = score_trace_batch(llm_langfuse_scores)
+            print()
+            print(f"📊 Pushed {{llm_pushed}} LLM-as-judge scores to Langfuse")
+        else:
+            print("⚠️  LLM scoring disabled or failed")
+
+        return scores, llm_scores if llm_scores else {{}}
+
+# Run test
+scores = run_test()
+
+# Flush to ensure sent
+flush()
+
+print()
+print("=" * 50)
+print("✅ Test complete!")
+print()
+print("Columns populated:")
+print("  ✅ timestamp (automatic)")
+print("  ✅ name: test_scoring")
+print("  ✅ user_id: test_user_123")
+print("  ✅ session_id: test_session_*")
+print("  ✅ tags: [test, cli]")
+print("  ✅ metadata: ticker, workflow, model, source")
+print("  ✅ environment: via LANGFUSE_TRACING_ENVIRONMENT")
+print("  ✅ rule-based scores: faithfulness, completeness, reasoning_quality, compliance, consistency")
+print("  ✅ LLM-as-judge scores: hallucination, helpfulness, conciseness, answer_relevancy")
+print()
+print("View trace at: https://us.cloud.langfuse.com")
+print("Look for trace named: test_scoring")
+print("=" * 50)
+'''
+
+    # Run the script
+    cmd = [sys.executable, "-c", script]
+
+    if use_doppler:
+        doppler_cmd = ["doppler", "run", "--config", "dev_local", "--"]
+        result = subprocess.run(doppler_cmd + cmd, cwd=PROJECT_ROOT)
+    else:
+        click.echo("⚠️  Running without Doppler - Langfuse keys must be in environment")
+        result = subprocess.run(cmd, cwd=PROJECT_ROOT)
+
+    sys.exit(result.returncode)
+
+
 def _basic_verify(target, use_doppler):
     """Basic verification when full script not available"""
     click.echo("🔍 Basic Development Environment Check")
