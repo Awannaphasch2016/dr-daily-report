@@ -78,7 +78,15 @@ Before claiming "done", verify the **invariant envelope**:
 - **Level 3 (Infra)**: A can reach B
 - **Level 4 (Config)**: X is set to Y
 
-See [Behavioral Invariant Guide](docs/guides/behavioral-invariant-verification.md) and [System Invariants](.claude/invariants/system-invariants.md).
+**The Invariant Feedback Loop**:
+```
+/invariant → /reconcile → /invariant
+  (detect)    (converge)   (verify)
+```
+
+Use `/invariant "goal"` to identify what must hold, `/reconcile domain` to fix violations, then `/invariant` again to verify delta = 0.
+
+See [Behavioral Invariant Guide](docs/guides/behavioral-invariant-verification.md), [/invariant](.claude/commands/invariant.md), [/reconcile](.claude/commands/reconcile.md), and [Invariants Directory](.claude/invariants/).
 
 ---
 

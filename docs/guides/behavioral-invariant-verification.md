@@ -504,6 +504,78 @@ aws iam get-role-policy --role-name lambda-role --policy-name s3-access
 
 ---
 
+## Slash Commands: The Invariant Feedback Loop
+
+Two slash commands complete the invariant workflow:
+
+### /invariant - Identify What Must Hold (Divergent)
+
+Use `/invariant` to identify invariants for a goal:
+
+```bash
+# Goal-based invariant identification
+/invariant "deploy new Langfuse scoring feature"
+/invariant "add new API endpoint for backtest"
+
+# Domain-specific focus
+/invariant deployment "release v1.2.3"
+/invariant data "add new Aurora table"
+```
+
+**Output**: Checklist of invariants organized by level (0-4).
+
+### /reconcile - Converge Violations to Compliance (Convergent)
+
+Use `/reconcile` when violations are found:
+
+```bash
+# Reconcile by domain
+/reconcile deployment
+/reconcile langfuse
+
+# Preview fixes without applying
+/reconcile deployment --preview
+
+# Apply fixes with confirmation
+/reconcile deployment --apply
+```
+
+**Output**: Specific fix actions to converge delta to zero.
+
+### The Complete Workflow
+
+```
+/invariant    →    /reconcile    →    /invariant
+  (detect)          (converge)        (verify)
+     ↓                  ↓                ↓
+  Identify         Generate          Confirm
+  invariants       fix actions       delta = 0
+```
+
+**Example**:
+```bash
+# 1. Before implementation: identify invariants
+/invariant "deploy new scoring feature"
+
+# 2. Implement feature
+
+# 3. Check for violations
+/invariant "deploy new scoring feature"
+# → Shows: 2 violations found
+
+# 4. Generate and apply fixes
+/reconcile langfuse
+/reconcile langfuse --apply
+
+# 5. Verify convergence (delta = 0)
+/invariant "deploy new scoring feature"
+# → All invariants satisfied
+```
+
+See [/invariant command](../../.claude/commands/invariant.md) and [/reconcile command](../../.claude/commands/reconcile.md) for full documentation.
+
+---
+
 ## Related Principles
 
 - **Principle #2 (Progressive Evidence Strengthening)**: Invariant verification uses evidence hierarchy
@@ -515,7 +587,10 @@ aws iam get-role-policy --role-name lambda-role --policy-name s3-access
 
 ## See Also
 
-- [CLAUDE.md - Principle #25](../../.claude/CLAUDE.md)
+- [CLAUDE.md - Principle #25](../../.claude/CLAUDE.md) - Behavioral Invariant Verification (Tier-0)
+- [/invariant command](../../.claude/commands/invariant.md) - Identify invariants for a goal
+- [/reconcile command](../../.claude/commands/reconcile.md) - Converge violations to compliance
+- [Invariants Directory](../../.claude/invariants/) - Domain-specific invariant files
 - [Cross-Boundary Contract Testing](cross-boundary-contract-testing.md)
 - [Execution Boundary Discipline](execution-boundary-discipline.md)
 - [Deployment Skill](../../.claude/skills/deployment/)
