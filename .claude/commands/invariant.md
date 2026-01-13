@@ -12,6 +12,91 @@
 
 ---
 
+## Tuple Effects (Universal Kernel Integration)
+
+**Mode Type**: `scan`
+
+When `/invariant` executes as a mode within a Strategy pipeline:
+
+| Tuple Component | Effect |
+|-----------------|--------|
+| **Constraints** | **NONE**: Does not modify known state |
+| **Invariant** | **POPULATE**: Loads specification-based invariants |
+| **Principles** | **NONE**: Does not modify principles |
+| **Strategy** | Typically first mode; informs subsequent modes |
+| **Check** | **EVALUATE**: Outputs delta (violations count) |
+
+**Invariant Population Examples**:
+```yaml
+before:
+  invariant: null  # Undefined success criteria
+
+after:
+  invariant:
+    goal: "deploy new scoring feature"
+    levels:
+      level_4_config:
+        - "SCORE_NAMES constant updated"
+        - "LANGFUSE_RELEASE version format correct"
+      level_3_infra:
+        - "Lambda → Langfuse connectivity"
+      level_2_data:
+        - "New scores appear in dashboard"
+      level_1_service:
+        - "Scorer returns valid scores (0.0-1.0)"
+      level_0_user:
+        - "Generate report → see score in Langfuse"
+```
+
+**Check Evaluation Output**:
+```yaml
+check:
+  delta: 2  # Number of violations
+  violations:
+    - level: 4
+      invariant: "SCORE_NAMES constant updated"
+      status: false
+    - level: 1
+      invariant: "flush() called after scoring"
+      status: false
+  recommendation: "/reconcile to fix violations"
+```
+
+---
+
+## Local Check (Mode Completion Criteria)
+
+The `/invariant` mode is complete when ALL of the following hold:
+
+| Criterion | Verification |
+|-----------|--------------|
+| **Domain Identified** | Goal mapped to domain(s) (deployment, data, api, etc.) |
+| **Invariants Loaded** | Domain-specific invariant files consulted |
+| **All Levels Checked** | Levels 4→0 examined systematically |
+| **Delta Calculated** | Exact count of violations determined |
+| **Verification Commands** | Concrete commands provided for each check |
+
+**Check Result Mapping**:
+- **PASS (delta = 0)**: All invariants satisfied → can claim "done"
+- **PARTIAL (delta > 0)**: Violations exist → `/reconcile` to fix
+- **FAIL**: Unable to verify (infrastructure unreachable) → investigate blockers
+
+**Delta Semantics**:
+```
+δ(member, Invariant) = 0   if member satisfies Invariant  ✅
+δ(member, Invariant) > 0   if member violates Invariant   ❌
+
+Goal: ∀m ∈ Members: δ(m, I) = 0
+```
+
+**Invariant Feedback Loop**:
+```
+/invariant → /reconcile → /invariant
+  (scan)      (fix)        (verify delta = 0)
+```
+
+---
+
 ## Quick Reference
 
 ```bash

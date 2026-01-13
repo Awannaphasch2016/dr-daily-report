@@ -32,6 +32,79 @@ composition:
 
 ---
 
+## Tuple Effects (Universal Kernel Integration)
+
+**Mode Type**: `converge`
+
+When `/consolidate` executes as a mode within a Strategy pipeline:
+
+| Tuple Component | Effect |
+|-----------------|--------|
+| **Constraints** | **SYNTHESIZE**: Collapses multiple sources into unified model |
+| **Invariant** | **NONE**: Does not modify success criteria |
+| **Principles** | **ADD**: May extract new heuristics from patterns |
+| **Strategy** | Terminal mode; typically ends pipeline |
+| **Check** | Evaluates coherence criteria (see Local Check) |
+
+**Constraint Synthesis Examples**:
+```yaml
+before:
+  constraints:
+    sources:
+      - "docs/error-handling.md: Use exceptions in utilities"
+      - "src/workflow/: State-based error handling"
+      - "CLAUDE.md Principle #8: Error Handling Duality"
+    contradictions: ["utility vs workflow error patterns"]
+    gaps: ["when to use which pattern"]
+
+after:
+  constraints:
+    unified_model:
+      concept: "Error Handling Duality"
+      components:
+        - "Workflow nodes: state-based (resumable)"
+        - "Utility functions: exceptions (fail fast)"
+      decision_rule: "Choose by context: workflow vs utility"
+    contradictions_resolved: true
+    gaps_filled: true
+    patterns_extracted:
+      - "Error Handling Duality Pattern"
+```
+
+**Persistence Effect**:
+Consolidations are automatically saved to `.claude/consolidate/`, making synthesized knowledge available for future tuple instantiations as Constraints.
+
+---
+
+## Local Check (Mode Completion Criteria)
+
+The `/consolidate` mode is complete when ALL of the following hold:
+
+| Criterion | Verification |
+|-----------|--------------|
+| **Sources Gathered** | ≥2 information sources identified |
+| **Contradictions Resolved** | Conflicts between sources reconciled |
+| **Gaps Documented** | Missing information explicitly noted |
+| **Model Unified** | Single coherent understanding created |
+| **Patterns Extracted** | Strategic patterns identified (if any exist) |
+| **Persisted** | Saved to `.claude/consolidate/{date}-{slug}.md` |
+
+**Check Result Mapping**:
+- **PASS**: Coherent model created, persisted → knowledge available for future use
+- **PARTIAL**: Model incomplete, gaps remain → may need `/explore` for more info
+- **FAIL**: Unable to synthesize (fundamental contradictions) → consider `/trace` for root cause
+
+**Coherence Assessment**:
+```yaml
+coherence_check:
+  unified: true           # Single mental model?
+  contradictions: 0       # All resolved?
+  gaps_documented: true   # Unknowns explicit?
+  actionable: true        # Can inform decisions?
+```
+
+---
+
 ## Execution Flow
 
 ### Phase 1: Gather Information

@@ -28,6 +28,74 @@ composition:
 
 ---
 
+## Tuple Effects (Universal Kernel Integration)
+
+**Mode Type**: `verify`
+
+When `/validate` executes as a mode within a Strategy pipeline:
+
+| Tuple Component | Effect |
+|-----------------|--------|
+| **Constraints** | **REFINE**: Adds evidence (supporting/contradicting) |
+| **Invariant** | **TEST**: Evaluates claim against evidence |
+| **Principles** | **NONE**: Does not modify principles |
+| **Strategy** | Consumes this mode; informs subsequent modes |
+| **Check** | Annotates with confidence level (see Local Check) |
+
+**Constraint Refinement Examples**:
+```yaml
+before:
+  constraints:
+    assumption: "yfinance API responds within 5s"
+    evidence: []
+
+after:
+  constraints:
+    assumption: "yfinance API responds within 5s"
+    evidence:
+      supporting: []
+      contradicting:
+        - "CloudWatch p95 latency: 8.7s"
+        - "23% of requests exceed 5s threshold"
+      confidence: LOW
+    verdict: FALSE
+```
+
+**Check Annotation**:
+```yaml
+check:
+  claim: "yfinance API responds within 5s"
+  result: FALSE
+  confidence: HIGH
+  evidence_layers:
+    layer_3: "CloudWatch logs show p95 = 8.7s"
+  recommendation: "Add timeout=5 + fallback to cache"
+```
+
+---
+
+## Local Check (Mode Completion Criteria)
+
+The `/validate` mode is complete when ALL of the following hold:
+
+| Criterion | Verification |
+|-----------|--------------|
+| **Evidence Collected** | Both supporting AND contradicting evidence sought |
+| **Confidence Assigned** | HIGH, MEDIUM, or LOW with reasoning |
+| **Verdict Rendered** | TRUE, FALSE, PARTIALLY TRUE, or INCONCLUSIVE |
+| **Sources Documented** | Evidence sources linked (code, logs, observations) |
+| **Recommendation Given** | Clear next step based on verdict |
+
+**Check Result Mapping**:
+- **PASS**: Claim validated with high confidence → proceed with assumption
+- **PARTIAL**: Claim partially true → proceed with caveats documented
+- **FAIL**: Claim false → alternative approach needed; DO NOT proceed
+
+**Integration with Check Loop**:
+The confidence level from `/validate` feeds directly into the tuple's Check component, allowing the Check Loop to make informed decisions about whether to proceed or spin a new tuple.
+
+---
+
 ## Quick Reference
 
 ### Smart Validation (Auto-detects Type)

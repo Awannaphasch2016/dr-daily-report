@@ -21,6 +21,61 @@ composition: []
 
 ---
 
+## Tuple Effects (Universal Kernel Integration)
+
+**Mode Type**: `divergent`
+
+When `/explore` executes as a mode within a Strategy pipeline:
+
+| Tuple Component | Effect |
+|-----------------|--------|
+| **Constraints** | **EXPAND**: Adds discovered alternatives, resources, patterns |
+| **Invariant** | **NONE**: Does not modify success criteria |
+| **Principles** | **ADD**: May discover domain-specific heuristics |
+| **Strategy** | Consumes this mode; may suggest follow-up modes |
+| **Check** | Evaluates coverage criteria (see Local Check) |
+
+**Constraint Expansion Examples**:
+```yaml
+before:
+  constraints:
+    problem: "How to cache computed metrics"
+    known: []
+
+after:
+  constraints:
+    problem: "How to cache computed metrics"
+    known:
+      - "Option 1: Redis (sub-ms latency, new infrastructure)"
+      - "Option 2: DynamoDB (already in use, 2-5ms latency)"
+      - "Option 3: S3 + CloudFront (cost-effective, higher latency)"
+      - "Option 4: In-memory (fastest, no persistence)"
+    heuristics_discovered:
+      - "Prefer existing infrastructure unless latency is critical"
+```
+
+---
+
+## Local Check (Mode Completion Criteria)
+
+The `/explore` mode is complete when ALL of the following hold:
+
+| Criterion | Verification |
+|-----------|--------------|
+| **Coverage** | ≥3 viable alternatives identified |
+| **Diversity** | Options span different approaches (not variants of same) |
+| **Evaluation** | Scoring matrix completed with rationale |
+| **Ranking** | Top choice identified with clear rationale |
+| **Resources** | Authoritative sources gathered for each option |
+| **Next Step** | Clear path to `/specify` or `/what-if` |
+
+**Check Result Mapping**:
+- **PASS**: All criteria satisfied → proceed to next mode
+- **PARTIAL**: Some criteria missing → extend with more exploration
+- **FAIL**: Unable to find viable alternatives → consider `/reframe`
+
+---
+
 ## Purpose
 
 Systematically explore the solution space BEFORE committing to a specific approach. Prevents anchoring bias by generating, evaluating, and ranking multiple alternatives with objective criteria.

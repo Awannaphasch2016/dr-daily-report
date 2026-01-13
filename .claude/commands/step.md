@@ -18,6 +18,100 @@
 
 ---
 
+## Tuple Effects (Universal Kernel Integration)
+
+**Mode Type**: `goal_oriented`
+
+`/step` has **full tuple control** - it can instantiate, modify, and verify all components:
+
+| Tuple Component | Effect |
+|-----------------|--------|
+| **Constraints** | **FULL**: Explicitly states current known state |
+| **Invariant** | **FULL**: Defines what must be true at completion |
+| **Principles** | **FULL**: Selects Tier-0 + task-specific principles |
+| **Strategy** | **ORCHESTRATE**: Composes other modes into pipeline |
+| **Check** | **FULL**: Evaluates against invariant with evidence layers |
+
+**Strategy Orchestration**:
+Unlike other modes that execute within a Strategy, `/step` can **define** the Strategy:
+
+```yaml
+# /step can compose other modes into a pipeline
+strategy:
+  - mode: "/decompose"
+    prompt: "break down the deployment task"
+  - mode: "/invariant"
+    prompt: "identify what must hold"
+  - mode: "/explore"
+    prompt: "find deployment approaches"
+  - mode: "/consolidate"
+    prompt: "synthesize deployment plan"
+```
+
+**Tuple Chaining**:
+For long-running tasks, `/step` chains tuples:
+
+```
+Frame_0: (C₀, I₀, P₀, Strategy₀, Check₀)
+    │
+    ▼ (Check passes, update constraints)
+Frame_1: (C₁, I₁, P₁, Strategy₁, Check₁)
+    │
+    ▼ (Check passes, update constraints)
+Frame_N: (Cₙ, Iₙ, Pₙ, Strategyₙ, Checkₙ)
+    │
+    ▼ (Final invariant satisfied)
+DONE: Ground truth verified
+```
+
+---
+
+## Local Check (Mode Completion Criteria)
+
+The `/step` mode is complete when ALL of the following hold:
+
+| Criterion | Verification |
+|-----------|--------------|
+| **Constraints Stated** | Current known state explicitly documented |
+| **Invariant Defined** | Success criteria measurable |
+| **Principles Selected** | Relevant principles identified with rationale |
+| **Strategy Executed** | All pipeline modes completed |
+| **Evidence Collected** | Layers 1-4 evidence gathered per Principle #2 |
+| **Invariant Satisfied** | Ground truth verification passes |
+
+**Check Result Mapping**:
+- **PASS**: Invariant satisfied with Layer 4 evidence → can claim "done"
+- **PARTIAL**: Invariant partially satisfied → spin new tuple with updated constraints
+- **FAIL**: Invariant violated → change Strategy, try different approach
+
+**Error Bound Analysis**:
+```
+Without tuples:
+  Error ∝ (steps × drift_rate)  # Unbounded
+
+With tuples:
+  Error ∝ (undetected_drift × steps_between_checks)  # Bounded by check frequency
+
+/step ensures check_frequency = 1 per tuple, bounding error per reasoning step.
+```
+
+**Recovery Protocol**:
+```yaml
+if check_result == FAIL:
+  options:
+    1. extend_strategy:
+        action: "Add more modes to pipeline"
+        when: "Progress made but incomplete"
+    2. spin_new_tuple:
+        action: "Update Constraints with learned info"
+        when: "Assumptions invalidated"
+    3. escape_hatch:
+        action: "Report failure with diagnostics"
+        when: "Stuck, need human input"
+```
+
+---
+
 ## Quick Reference
 
 ```bash

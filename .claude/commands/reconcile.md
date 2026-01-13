@@ -12,6 +12,101 @@
 
 ---
 
+## Tuple Effects (Universal Kernel Integration)
+
+**Mode Type**: `fix`
+
+When `/reconcile` executes as a mode within a Strategy pipeline:
+
+| Tuple Component | Effect |
+|-----------------|--------|
+| **Constraints** | **UPDATE**: Adds learned fixes, patterns discovered |
+| **Invariant** | **NONE**: Uses invariants from prior `/invariant` |
+| **Principles** | **NONE**: Does not modify principles |
+| **Strategy** | Follows `/invariant`; may loop: `/invariant → /reconcile → /invariant` |
+| **Check** | **EVALUATE**: Outputs delta = 0 when all fixes applied |
+
+**Constraint Update Examples**:
+```yaml
+before:
+  constraints:
+    violations:
+      - "Missing LANGFUSE_RELEASE in deploy-line-bot.yml"
+      - "Missing flush() in report_worker.py"
+    fixes_generated: []
+
+after:
+  constraints:
+    violations:
+      - "Missing LANGFUSE_RELEASE in deploy-line-bot.yml"
+      - "Missing flush() in report_worker.py"
+    fixes_generated:
+      - file: ".github/workflows/deploy-line-bot.yml"
+        action: "Add LANGFUSE_RELEASE env var"
+        confidence: HIGH
+        applied: true
+      - file: "src/handlers/report_worker.py"
+        action: "Add flush() before return"
+        confidence: HIGH
+        applied: true
+    delta_after: 0  # All violations fixed
+```
+
+**Check Evaluation Output**:
+```yaml
+check:
+  delta_before: 2
+  fixes_applied: 2
+  delta_after: 0
+  status: CONVERGED  # All invariants now satisfied
+```
+
+---
+
+## Local Check (Mode Completion Criteria)
+
+The `/reconcile` mode is complete when ALL of the following hold:
+
+| Criterion | Verification |
+|-----------|--------------|
+| **Violations Identified** | All violations from `/invariant` addressed |
+| **Fixes Generated** | Specific fix action for each violation |
+| **Confidence Assigned** | HIGH, MEDIUM, or LOW per fix |
+| **Delta Tracked** | Before/after delta calculated |
+| **Verification Plan** | Commands to verify fixes worked |
+
+**Check Result Mapping**:
+- **PASS (delta = 0)**: All violations fixed → invariant loop complete
+- **PARTIAL (delta > 0)**: Some fixes applied, others need attention → loop again
+- **FAIL**: Unable to fix (requires manual intervention) → escalate
+
+**Convergence Protocol**:
+```
+┌────────────────────────────────────────────────────┐
+│                INVARIANT TRIANGLE                   │
+│                                                     │
+│                   INVARIANT (I)                     │
+│                      /\                             │
+│                     /  \                            │
+│                    /    \                           │
+│               DETECT    CONVERGE                    │
+│             (/invariant) (/reconcile)               │
+│                    \    /                           │
+│                     \  /                            │
+│                      \/                             │
+│                 MEMBERS (M)                         │
+│                                                     │
+│  Goal: ∀m ∈ M: δ(m, I) → 0                         │
+└────────────────────────────────────────────────────┘
+```
+
+**Loop Termination**:
+- **Success**: delta = 0 → exit loop, proceed with Strategy
+- **Max iterations**: 3 loops → escalate (likely design issue)
+- **Stagnation**: delta unchanged → needs `/trace` for root cause
+
+---
+
 ## Quick Reference
 
 ```bash
