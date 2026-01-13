@@ -1,0 +1,79 @@
+# Deployment Shared Specification
+# CI/CD pipeline for both LINE Bot and Telegram Mini App
+
+objective: shared/deployment
+description: "GitHub Actions CI/CD pipeline - build, test, deploy"
+owner: DevOps (.github/workflows/)
+created: 2026-01-13
+
+# Used by
+consumers:
+  - linebot     # dr-line-bot-{env} Lambda
+  - telegram    # dr-telegram-api-{env} Lambda + frontend
+
+# Branch strategy
+branches:
+  dev:
+    triggers: "push to dev branch"
+    deploys_to: "dev environment"
+    duration: "~8 minutes"
+
+  main:
+    triggers: "push to main branch"
+    deploys_to: "stg environment"
+    duration: "~10 minutes"
+
+  tags:
+    triggers: "v*.*.* tag"
+    deploys_to: "prd environment"
+    duration: "~12 minutes"
+
+# AWS Resources
+resources:
+  ecr:
+    repository: "dr-daily-report"
+    tag_pattern: "{env}-{sha}"
+
+  lambda:
+    line_bot: "dr-line-bot-{env}"
+    telegram_api: "dr-telegram-api-{env}"
+
+  s3:
+    frontend: "dr-telegram-frontend-{env}"
+
+# Pipeline stages
+stages:
+  - name: "Build"
+    steps:
+      - checkout
+      - build_docker_image
+      - push_to_ecr
+
+  - name: "Test"
+    steps:
+      - unit_tests
+      - integration_tests
+      - type_check
+
+  - name: "Deploy"
+    steps:
+      - update_lambda_image
+      - wait_for_update
+      - smoke_test
+
+  - name: "Verify"
+    steps:
+      - health_check
+      - cloudwatch_logs
+      - langfuse_traces
+
+# Key invariants
+invariants:
+  - "Same Docker image promoted through environments"
+  - "Waiters used, not sleep"
+  - "Smoke test after every deployment"
+  - "Rollback on failure"
+
+# Components
+components:
+  invariants: invariants.md

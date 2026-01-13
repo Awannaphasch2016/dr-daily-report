@@ -1,0 +1,51 @@
+# Aurora MySQL Shared Specification
+# Data layer for both LINE Bot and Telegram Mini App
+
+objective: shared/aurora
+description: "Aurora MySQL data layer - source of truth for all financial data"
+owner: Data Layer (src/data/aurora/)
+created: 2026-01-13
+
+# Used by
+consumers:
+  - linebot     # LINE Bot reads precomputed data
+  - telegram    # Telegram API reads precomputed data
+
+# AWS Resources
+resources:
+  rds:
+    engine: aurora-mysql
+    version: "8.0"
+    instance_class: db.t3.medium
+    cluster_identifier: "dr-aurora-{env}"
+
+  secrets:
+    aurora_host: "Doppler: AURORA_HOST"
+    aurora_user: "Doppler: AURORA_USER"
+    aurora_password: "Doppler: AURORA_PASSWORD"
+    aurora_database: "Doppler: AURORA_DATABASE"
+
+# Tables
+tables:
+  - name: daily_prices
+    purpose: "OHLCV data for all tickers"
+    refresh: "Nightly scheduler"
+
+  - name: ticker_master
+    purpose: "Ticker metadata (46 tracked tickers)"
+    refresh: "Manual updates"
+
+  - name: precomputed_reports
+    purpose: "Cached report data"
+    refresh: "Nightly scheduler"
+
+# Key invariants
+invariants:
+  - "Data freshness < 24h"
+  - "46 tickers always present"
+  - "Timezone = Asia/Bangkok"
+  - "All queries < 5s"
+
+# Components
+components:
+  invariants: invariants.md

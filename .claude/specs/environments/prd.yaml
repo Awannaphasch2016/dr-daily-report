@@ -1,0 +1,222 @@
+# Production Environment Constraints (AWS)
+# Applied to all specifications when targeting prd environment
+
+environment: prd
+description: "AWS production - real APIs + strict SLAs enforced"
+created: 2026-01-13
+
+# General characteristics
+characteristics:
+  purpose: "Serve real users with guaranteed quality"
+  data_freshness: "24h maximum (enforced)"
+  performance_sla: "strict (enforced)"
+  debug_logging: false
+  mocks_allowed: false  # Absolutely forbidden
+
+# Deployment triggers
+deployment:
+  trigger: "push v*.*.* tag"
+  duration: "~12 minutes"
+  approval_required: false  # But recommended for major changes
+  rollback_ready: true
+
+# AWS Resources
+resources:
+  lambda:
+    line_bot: "dr-line-bot-prd"
+    telegram_api: "dr-telegram-api-prd"
+    provisioned_concurrency: 2
+
+  aurora:
+    cluster: "dr-aurora-prd"
+    instance_class: "db.t3.medium"
+    multi_az: true
+    backup_retention: 7
+
+  s3:
+    frontend: "dr-telegram-frontend-prd"
+    pdf: "dr-pdf-storage-prd"
+
+  cloudfront:
+    distribution: "dr-telegram-cdn-prd"
+
+# Requirements (strictest - everything enforced)
+requirements:
+  # Real APIs (same as dev/stg)
+  - id: PRD-001
+    description: "Production LINE channel"
+    rationale: "Real users"
+
+  - id: PRD-002
+    description: "Production Telegram bot"
+    rationale: "Real users"
+
+  - id: PRD-003
+    description: "Production Aurora"
+    rationale: "Real data"
+
+  # SLAs ENFORCED (unique to prd)
+  - id: PRD-004
+    description: "Response time SLA ENFORCED"
+    rationale: "User experience guarantee"
+    sla:
+      line_webhook: "< 20s (LINE timeout)"
+      report_generation: "< 30s"
+      simple_commands: "< 5s"
+      api_health: "< 1s"
+      frontend_load: "< 3s"
+
+  - id: PRD-005
+    description: "Error rate SLA ENFORCED"
+    rationale: "Reliability guarantee"
+    sla:
+      error_rate: "< 1%"
+      availability: "> 99.5%"
+
+  - id: PRD-006
+    description: "Data freshness ENFORCED"
+    rationale: "Accuracy guarantee"
+    sla:
+      max_stale: "24h"
+
+  # Infrastructure requirements
+  - id: PRD-007
+    description: "Multi-AZ Aurora"
+    rationale: "High availability"
+
+  - id: PRD-008
+    description: "Automated backups"
+    rationale: "Data protection"
+
+  - id: PRD-009
+    description: "Monitoring alerts active"
+    rationale: "Incident detection"
+
+  - id: PRD-010
+    description: "VPC endpoints for S3"
+    rationale: "Performance + reliability"
+
+# Absolutely forbidden
+forbidden:
+  - id: PRD-F001
+    description: "NO MOCKS (zero tolerance)"
+    severity: "critical"
+    rationale: "Real users, real data only"
+
+  - id: PRD-F002
+    description: "No test credentials"
+    severity: "critical"
+    rationale: "Production isolation"
+
+  - id: PRD-F003
+    description: "No debug logging"
+    severity: "high"
+    rationale: "Performance overhead, security risk"
+
+  - id: PRD-F004
+    description: "No DevTools in bundle"
+    severity: "high"
+    rationale: "Security, bundle size"
+
+  - id: PRD-F005
+    description: "No exposed source maps"
+    severity: "high"
+    rationale: "Security"
+
+  - id: PRD-F006
+    description: "No test LINE/Telegram channels"
+    severity: "critical"
+    rationale: "Real users only"
+
+# Invariant requirements (all enforced)
+invariant_requirements:
+  linebot:
+    level_4:
+      - "Production LINE channel ONLY"
+      - "All env vars validated at startup"
+      - "LANGFUSE_RELEASE format enforced"
+      - "No mock env vars"
+    level_3:
+      - "VPC endpoint for S3"
+      - "NAT Gateway capacity verified"
+      - "Multi-AZ Aurora"
+    level_2:
+      - "Data freshness < 24h (enforced)"
+      - "All 46 tickers present"
+    level_1:
+      - "Webhook returns 200 within 20s (HARD requirement)"
+      - "Error rate < 1%"
+      - "All traces captured"
+    level_0:
+      - "All commands work perfectly"
+      - "Response time within SLA (enforced)"
+
+  telegram:
+    level_4:
+      - "Production API endpoints"
+      - "All env vars validated"
+      - "LANGFUSE_RELEASE format enforced"
+      - "No mock env vars"
+    level_3:
+      - "CloudFront configured correctly"
+      - "VPC endpoint for S3"
+      - "Multi-AZ Aurora"
+    level_2:
+      - "Data freshness < 24h (enforced)"
+    level_1:
+      - "API error rate < 1%"
+      - "All endpoints respond correctly"
+      - "All traces captured"
+    level_0:
+      - "Full user experience flawless"
+      - "Performance within SLA (enforced)"
+      - "Frontend loads < 3s"
+
+# Rollback policy
+rollback:
+  triggers:
+    - "SLA violation (response time > threshold)"
+    - "Error rate > 1%"
+    - "Health check fails"
+    - "Import errors in logs"
+    - "No application logs (startup crash)"
+
+  process:
+    - "Use previous known-good image digest"
+    - "Same deployment process (waiters, verification)"
+    - "Document rollback reason"
+    - "Create incident report"
+    - "Post-mortem within 48h"
+
+# Monitoring (required)
+monitoring:
+  alerts_required:
+    - "Error rate > 0.5% (warning)"
+    - "Error rate > 1% (critical)"
+    - "Response time > SLA (critical)"
+    - "Lambda errors (critical)"
+    - "Aurora connection issues (critical)"
+    - "Data staleness > 24h (critical)"
+
+  dashboards_required:
+    - "CloudWatch metrics"
+    - "Langfuse traces"
+    - "Error tracking"
+    - "SLA compliance"
+
+# Verification checklist
+verification:
+  before_deploy:
+    - "All stg verification passed"
+    - "Performance benchmarks acceptable"
+    - "No critical bugs"
+    - "Rollback plan documented"
+    - "On-call notified"
+
+  after_deploy:
+    - "Health check returns 200"
+    - "No errors in first 5 minutes"
+    - "SLA metrics within threshold"
+    - "Langfuse traces appearing"
+    - "Monitoring alerts not firing"
+    - "Sample user flow verified"

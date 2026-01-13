@@ -1,0 +1,56 @@
+# Langfuse Observability Shared Specification
+# LLM tracing and scoring for both LINE Bot and Telegram Mini App
+
+objective: shared/langfuse
+description: "Langfuse observability - tracing, scoring, and prompt management"
+owner: Observability Layer (src/integrations/langfuse_client.py)
+created: 2026-01-13
+
+# Used by
+consumers:
+  - linebot     # Trace report generation
+  - telegram    # Trace API requests and report generation
+
+# External service
+service:
+  provider: langfuse.com
+  type: SaaS
+  dashboard: "https://cloud.langfuse.com"
+
+# Credentials (Doppler)
+secrets:
+  - LANGFUSE_PUBLIC_KEY
+  - LANGFUSE_SECRET_KEY
+  - LANGFUSE_HOST
+  - LANGFUSE_RELEASE  # Version tracking
+
+# Key features used
+features:
+  tracing:
+    enabled: true
+    decorator: "@observe(name='...')"
+    flush: "Required in Lambda before return"
+
+  scoring:
+    enabled: true
+    scores:
+      - faithfulness
+      - completeness
+      - reasoning_quality
+      - compliance
+      - consistency
+
+  versioning:
+    format: "{env}-{version|branch}-{short_sha}"
+    example: "prd-v1.2.3-abc1234"
+
+# Key invariants
+invariants:
+  - "Every report has a trace"
+  - "flush() called before Lambda return"
+  - "Langfuse unavailability doesn't break core functionality"
+  - "Version set via LANGFUSE_RELEASE"
+
+# Components
+components:
+  invariants: invariants.md

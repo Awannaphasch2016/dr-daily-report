@@ -1,0 +1,51 @@
+# Shared Components Convergence State
+# Auto-updated by /invariant and /reconcile commands
+
+objective: shared
+specs:
+  - .claude/specs/shared/aurora/spec.yaml
+  - .claude/specs/shared/langfuse/spec.yaml
+  - .claude/specs/shared/deployment/spec.yaml
+last_verified: null
+verified_by: null
+
+# Current convergence status
+convergence:
+  delta: null  # null = unknown, 0 = fixed-point, >0 = violations
+  status: unknown  # converged | diverging | unknown
+
+# Per-component status
+components:
+  aurora:
+    last_verified: null
+    delta: null
+    status: unknown
+    environments:
+      dev: { delta: null, status: unknown }
+      stg: { delta: null, status: unknown }
+      prd: { delta: null, status: unknown }
+
+  langfuse:
+    last_verified: null
+    delta: null
+    status: unknown
+    environments:
+      dev: { delta: null, status: unknown }
+      stg: { delta: null, status: unknown }
+      prd: { delta: null, status: unknown }
+
+  deployment:
+    last_verified: null
+    delta: null
+    status: unknown
+    # Deployment spans all environments
+    pipeline_status: unknown
+
+# Recent verification history
+history: []
+
+# Notes
+notes: |
+  This file tracks shared components used by both linebot and telegram.
+  Run /invariant shared/{component} {env} to verify.
+  Run /reconcile shared/{component} to fix violations.

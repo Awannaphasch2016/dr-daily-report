@@ -1,0 +1,71 @@
+# LINE Bot Convergence State
+# Auto-updated by /invariant and /reconcile commands
+
+objective: linebot
+spec: .claude/specs/linebot/spec.yaml
+last_verified: null  # Not yet verified
+verified_by: null
+
+# Current convergence status
+convergence:
+  delta: null  # null = unknown, 0 = fixed-point, >0 = violations
+  status: unknown  # converged | diverging | unknown
+
+# Per-environment status
+environments:
+  dev:
+    last_verified: null
+    delta: null
+    status: unknown
+
+  stg:
+    last_verified: null
+    delta: null
+    status: unknown
+
+  prd:
+    last_verified: null
+    delta: null
+    status: unknown
+
+# Per-level status (aggregate across environments)
+levels:
+  level_4_config:
+    status: unknown
+    violations: []
+    last_checked: null
+
+  level_3_infra:
+    status: unknown
+    violations: []
+    last_checked: null
+
+  level_2_data:
+    status: unknown
+    violations: []
+    last_checked: null
+
+  level_1_service:
+    status: unknown
+    violations: []
+    last_checked: null
+
+  level_0_user:
+    status: unknown
+    violations: []
+    last_checked: null
+
+# Recent verification history
+history: []
+# Format:
+# - timestamp: 2026-01-13T10:30:00+07:00
+#   environment: dev
+#   delta: 0
+#   violations_fixed: 2
+#   verified_by: Claude
+
+# Notes
+notes: |
+  This file is auto-generated and auto-updated.
+  Run /invariant linebot {env} to verify and update.
+  Run /reconcile linebot to fix violations.

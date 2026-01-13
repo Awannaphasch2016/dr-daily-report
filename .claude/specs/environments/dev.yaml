@@ -1,0 +1,123 @@
+# Development Environment Constraints (AWS)
+# Applied to all specifications when targeting dev environment
+
+environment: dev
+description: "AWS dev environment - real APIs, relaxed SLAs"
+created: 2026-01-13
+
+# General characteristics
+characteristics:
+  purpose: "Development testing with real AWS services"
+  data_freshness: "24h tolerance"
+  performance_sla: "relaxed (best effort)"
+  debug_logging: true
+  mocks_allowed: false  # Real APIs only
+
+# Deployment triggers
+deployment:
+  trigger: "push to dev branch"
+  duration: "~8 minutes"
+  approval_required: false
+
+# AWS Resources
+resources:
+  lambda:
+    line_bot: "dr-line-bot-dev"
+    telegram_api: "dr-telegram-api-dev"
+
+  aurora:
+    cluster: "dr-aurora-dev"
+    instance_class: "db.t3.medium"
+
+  s3:
+    frontend: "dr-telegram-frontend-dev"
+    pdf: "dr-pdf-storage-dev"
+
+# Requirements (real APIs)
+requirements:
+  - id: DEV-001
+    description: "Real LINE API (test channel)"
+    rationale: "Validate LINE integration"
+
+  - id: DEV-002
+    description: "Real Telegram integration"
+    rationale: "Validate Telegram Mini App"
+
+  - id: DEV-003
+    description: "Real Aurora database"
+    rationale: "Validate data layer"
+
+  - id: DEV-004
+    description: "Real Langfuse tracing"
+    rationale: "Validate observability"
+
+  - id: DEV-005
+    description: "Real S3 for PDFs"
+    rationale: "Validate storage"
+
+# Relaxations (vs stg/prd)
+relaxations:
+  - id: DEV-R001
+    description: "Data freshness: 24h (vs strict in prd)"
+    rationale: "Don't block dev on scheduler issues"
+
+  - id: DEV-R002
+    description: "Performance SLA: best effort"
+    rationale: "Focus on correctness over speed"
+
+  - id: DEV-R003
+    description: "Debug logging enabled"
+    rationale: "Easier troubleshooting"
+
+  - id: DEV-R004
+    description: "Test LINE/Telegram channels"
+    rationale: "Don't impact real users"
+
+# Forbidden (same as stg/prd)
+forbidden:
+  - id: DEV-F001
+    description: "NO MOCKS"
+    severity: "critical"
+    rationale: "Mocks only in local environment"
+
+  - id: DEV-F002
+    description: "No production credentials"
+    rationale: "Environment isolation"
+
+  - id: DEV-F003
+    description: "No production LINE channel"
+    rationale: "Don't spam real users"
+
+# Invariant requirements
+invariant_requirements:
+  linebot:
+    level_4:
+      - "Real LINE credentials (test channel)"
+      - "LANGFUSE_RELEASE set"
+    level_3:
+      - "Real Aurora connectivity"
+      - "Real LINE API reachable"
+    level_1:
+      - "Webhook works (best effort timing)"
+    level_0:
+      - "Commands work end-to-end"
+
+  telegram:
+    level_4:
+      - "Real API endpoints"
+      - "LANGFUSE_RELEASE set"
+    level_3:
+      - "Real CloudFront/S3"
+      - "Real Aurora connectivity"
+    level_1:
+      - "API responds correctly"
+    level_0:
+      - "User flows work"
+
+# Verification checklist
+verification:
+  - "Credentials point to dev resources (not local, not prd)"
+  - "NO mock env vars set"
+  - "Real APIs configured"
+  - "Langfuse traces appearing in dev"
+  - "Debug logging working"

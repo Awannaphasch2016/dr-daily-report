@@ -1,0 +1,93 @@
+# Local Development Environment Constraints
+# Applied when running on development machine (localhost)
+
+environment: local
+description: "Local development - mocks allowed, fast iteration"
+created: 2026-01-13
+
+# General characteristics
+characteristics:
+  purpose: "Local development and rapid iteration"
+  data_freshness: "No requirement (can use mock data)"
+  performance_sla: "None"
+  debug_logging: true
+  mocks_allowed: true  # ONLY environment where mocks are allowed
+
+# How to run locally
+setup:
+  backend: "just dev-api"
+  frontend: "cd frontend/twinbar && npm run dev"
+  database: "SSM tunnel to Aurora dev"
+
+# Doppler config
+doppler:
+  config: "local_dev"
+  inherits_from: "dev"
+  overrides:
+    - AURORA_HOST (localhost via tunnel)
+    - MOCK_LINE (optional)
+
+# What's allowed in local (NOT allowed elsewhere)
+allowed:
+  - id: LOCAL-001
+    description: "MOCK_LINE=true"
+    rationale: "Skip LINE API for rapid testing"
+
+  - id: LOCAL-002
+    description: "Mock external APIs"
+    rationale: "Isolated testing without network"
+
+  - id: LOCAL-003
+    description: "Mock data in Aurora"
+    rationale: "Test edge cases"
+
+  - id: LOCAL-004
+    description: "Stale/missing data"
+    rationale: "Don't block local dev on data freshness"
+
+  - id: LOCAL-005
+    description: "Debug logging at all levels"
+    rationale: "Easier troubleshooting"
+
+  - id: LOCAL-006
+    description: "Hot module replacement"
+    rationale: "Fast frontend iteration"
+
+  - id: LOCAL-007
+    description: "React DevTools"
+    rationale: "Frontend debugging"
+
+  - id: LOCAL-008
+    description: "Source maps exposed"
+    rationale: "Debugging"
+
+# Still restricted
+restrictions:
+  - id: LOCAL-R001
+    description: "No production credentials"
+    rationale: "Prevent accidental production access"
+
+  - id: LOCAL-R002
+    description: "No real user data"
+    rationale: "Privacy compliance"
+
+# Invariant relaxations
+invariant_overrides:
+  all_specs:
+    level_4:
+      - "Mock env vars allowed"
+    level_3:
+      - "Connectivity can be mocked"
+    level_2:
+      - "Data freshness: no requirement"
+    level_1:
+      - "Services can be mocked"
+    level_0:
+      - "User experience: best effort"
+
+# Verification
+verification:
+  - "Can run with mocks (MOCK_LINE=true)"
+  - "Can run without mocks (real APIs)"
+  - "SSM tunnel works for Aurora"
+  - "Frontend hot reload works"

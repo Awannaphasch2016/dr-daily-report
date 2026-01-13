@@ -1,0 +1,101 @@
+# Telegram Mini App Specification
+# Web-based financial dashboard via Telegram Mini App platform
+
+objective: telegram
+description: "Web dashboard for Thai stock market analysis via Telegram Mini App"
+owner: Telegram Lambda Handler (src/telegram_lambda_handler.py) + Frontend (frontend/twinbar/)
+created: 2026-01-13
+
+# Deployment targets
+environments:
+  - dev   # Development (dr-telegram-api-dev, S3 frontend)
+  - stg   # Staging (dr-telegram-api-stg)
+  - prd   # Production (dr-telegram-api-prd)
+
+# Dependencies on other specifications
+dependencies:
+  - shared/aurora      # Data layer (precomputed prices, daily_prices)
+  - shared/langfuse    # Observability (tracing, scoring)
+  - shared/deployment  # CI/CD pipeline
+
+# AWS Resources - Backend
+resources:
+  lambda:
+    name_pattern: "dr-telegram-api-{env}"
+    runtime: python3.11
+    timeout: 30
+    memory: 1024  # Higher for API processing
+
+  api_gateway:
+    type: HTTP  # API Gateway v2
+    stage: "{env}"
+    cors: true
+
+  s3:
+    frontend_bucket: "dr-telegram-frontend-{env}"
+    pdf_bucket: "dr-pdf-storage-{env}"
+
+  cloudfront:
+    distribution: "dr-telegram-cdn-{env}"
+    origin: "dr-telegram-frontend-{env}.s3.amazonaws.com"
+
+# Frontend Stack
+frontend:
+  framework: "React 18 + TypeScript"
+  bundler: "Vite"
+  styling: "TailwindCSS"
+  state: "Zustand"
+  charts: "Lightweight Charts"
+  location: "frontend/twinbar/"
+
+# External integrations
+external:
+  telegram_platform:
+    mini_app: true
+    web_app_sdk: true
+    bot_father: true
+
+# User flows
+flows:
+  - name: "View Dashboard"
+    trigger: "Open Mini App"
+    output: "Stock dashboard with watchlist"
+    latency_sla: "< 3s initial load"
+
+  - name: "View Stock Report"
+    trigger: "Select ticker"
+    output: "Detailed analysis with chart"
+    latency_sla: "< 2s"
+
+  - name: "Generate PDF Report"
+    trigger: "Click 'Generate Report'"
+    output: "PDF download or share"
+    latency_sla: "< 30s"
+
+  - name: "View Chart Patterns"
+    trigger: "Enable pattern overlay"
+    output: "Technical patterns on candlestick chart"
+    latency_sla: "< 1s render"
+
+# API Endpoints
+api:
+  base_path: "/api/v1"
+  endpoints:
+    - path: "/health"
+      method: GET
+      description: "Health check"
+    - path: "/report/{ticker}"
+      method: GET
+      description: "Get stock report"
+    - path: "/tickers"
+      method: GET
+      description: "List all tickers"
+    - path: "/watchlist"
+      method: GET
+      description: "Get user watchlist"
+
+# Specification components
+components:
+  invariants: invariants.md
+  constraints: constraints.md
+  acceptance: acceptance.md

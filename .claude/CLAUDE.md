@@ -86,7 +86,12 @@ Before claiming "done", verify the **invariant envelope**:
 
 Use `/invariant "goal"` to identify what must hold, `/reconcile domain` to fix violations, then `/invariant` again to verify delta = 0.
 
-See [Behavioral Invariant Guide](docs/guides/behavioral-invariant-verification.md), [/invariant](.claude/commands/invariant.md), [/reconcile](.claude/commands/reconcile.md), and [Invariants Directory](.claude/invariants/).
+**Spec-Driven Development**: For long-running tasks, use specification files to maintain ground truth:
+- **Specifications by Objective**: [.claude/specs/](.claude/specs/) - LINE Bot, Telegram, shared components
+- **Environment Constraints**: local (mocks) → dev/stg (real APIs) → prd (real APIs + SLAs)
+- **Convergence Tracking**: [.claude/state/convergence/](.claude/state/convergence/) - Track verification status
+
+See [Behavioral Invariant Guide](docs/guides/behavioral-invariant-verification.md), [/invariant](.claude/commands/invariant.md), [/reconcile](.claude/commands/reconcile.md), [Invariants Directory](.claude/invariants/), and [Specifications](.claude/specs/).
 
 ### 26. Thinking Tuple Protocol
 For non-trivial tasks, reason in discrete **Thinking Tuples**:
@@ -178,6 +183,8 @@ See [Principles Index](.claude/principles/index.md) for keyword triggers and mul
 
 ## References
 
+- **Specifications**: [.claude/specs/](.claude/specs/) - Spec-driven development by objective (LINE Bot, Telegram, shared)
+- **Convergence State**: [.claude/state/](.claude/state/) - Runtime verification and checkpoint tracking
 - **Principle Clusters**: [.claude/principles/](.claude/principles/) - Context-specific principles by task/domain
 - **Project Conventions**: [docs/PROJECT_CONVENTIONS.md](docs/PROJECT_CONVENTIONS.md) - Directory structure, naming patterns, CLI commands
 - **Implementation Guides**: [docs/guides/README.md](docs/guides/README.md) - Comprehensive how-to guides

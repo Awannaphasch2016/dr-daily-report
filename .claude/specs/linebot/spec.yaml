@@ -1,0 +1,62 @@
+# LINE Bot Specification
+# Chat-based financial reports via LINE messaging platform
+
+objective: linebot
+description: "Chat-based daily financial reports for Thai stock market via LINE"
+owner: LINE webhook handler (src/integrations/line_bot.py)
+created: 2026-01-13
+
+# Deployment targets
+environments:
+  - dev   # Development (dr-line-bot-dev)
+  - stg   # Staging (dr-line-bot-stg)
+  - prd   # Production (dr-line-bot-prd)
+
+# Dependencies on other specifications
+dependencies:
+  - shared/aurora      # Data layer (precomputed prices)
+  - shared/langfuse    # Observability (tracing, scoring)
+  - shared/deployment  # CI/CD pipeline
+
+# AWS Resources
+resources:
+  lambda:
+    name_pattern: "dr-line-bot-{env}"
+    runtime: python3.11
+    timeout: 30  # LINE webhook timeout is 20s
+    memory: 512
+
+  api_gateway:
+    type: REST
+    path: "/line/webhook"
+    method: POST
+
+# External integrations
+external:
+  line_platform:
+    messaging_api: true
+    rich_menu: true
+    webhook: true
+
+# User flows
+flows:
+  - name: "Generate Report"
+    trigger: "/report {TICKER}"
+    output: "PDF report or text summary"
+    latency_sla: "< 30s"
+
+  - name: "View Watchlist"
+    trigger: "/watchlist"
+    output: "Portfolio summary"
+    latency_sla: "< 5s"
+
+  - name: "Help"
+    trigger: "/start or /help"
+    output: "Welcome message with commands"
+    latency_sla: "< 2s"
+
+# Specification components
+components:
+  invariants: invariants.md
+  constraints: constraints.md
+  acceptance: acceptance.md
