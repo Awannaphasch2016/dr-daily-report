@@ -21,7 +21,9 @@ import {
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
-  Customized,
+  useOffset,
+  useChartHeight,
+  useChartWidth,
 } from 'recharts';
 import type { PriceDataPoint, ChartPattern } from '../types/report';
 
@@ -194,6 +196,7 @@ function getPatternTrendlines(patternType: string): Array<{ from: string; to: st
 
 /**
  * Custom component to render pattern trendlines as SVG lines
+ * Uses Recharts 3.x hooks to compute pixel positions from chart dimensions and domains
  */
 interface PatternTrendlinesProps {
   patternOverlays: Array<{
@@ -204,19 +207,45 @@ interface PatternTrendlinesProps {
     confidence: string;
   }>;
   data: PriceDataPoint[];
-  xScale: any;
-  yScale: any;
+  yDomain: [number, number];
 }
 
 function PatternTrendlinesRenderer({
   patternOverlays,
   data,
-  xScale,
-  yScale,
+  yDomain,
 }: PatternTrendlinesProps) {
-  if (!xScale || !yScale || !data || data.length === 0) {
+  // Use Recharts 3.x hooks for chart dimensions
+  const offset = useOffset();
+  const chartWidth = useChartWidth();
+  const chartHeight = useChartHeight();
+
+  if (!offset || !chartWidth || !chartHeight || !data || data.length === 0) {
     return null;
   }
+
+  // Calculate plot area dimensions
+  const plotLeft = offset.left || 0;
+  const plotTop = offset.top || 0;
+  const plotWidth = chartWidth - (offset.left || 0) - (offset.right || 0);
+  const plotHeight = chartHeight - (offset.top || 0) - (offset.bottom || 0);
+
+  // Create scale functions based on data indices and price domain
+  const dataLength = data.length;
+  const [yMin, yMax] = yDomain;
+
+  // X scale: maps bar index to pixel position
+  const xScale = (barIndex: number): number => {
+    // Center of each bar
+    const barWidth = plotWidth / dataLength;
+    return plotLeft + (barIndex + 0.5) * barWidth;
+  };
+
+  // Y scale: maps price to pixel position (inverted - higher prices at top)
+  const yScale = (price: number): number => {
+    const normalized = (price - yMin) / (yMax - yMin);
+    return plotTop + plotHeight * (1 - normalized);
+  };
 
   return (
     <g className="pattern-trendlines">
@@ -239,18 +268,12 @@ function PatternTrendlinesRenderer({
 
           // Validate indices
           if (isNaN(fromBarIdx) || isNaN(toBarIdx)) return null;
-          if (fromBarIdx >= data.length || toBarIdx >= data.length) return null;
+          if (fromBarIdx >= dataLength || toBarIdx >= dataLength) return null;
 
-          // Get dates for X coordinates
-          const fromDate = data[fromBarIdx]?.date;
-          const toDate = data[toBarIdx]?.date;
-
-          if (!fromDate || !toDate) return null;
-
-          // Calculate pixel coordinates using Recharts scales
-          const x1 = xScale(fromDate);
+          // Calculate pixel coordinates
+          const x1 = xScale(fromBarIdx);
           const y1 = yScale(fromPrice);
-          const x2 = xScale(toDate);
+          const x2 = xScale(toBarIdx);
           const y2 = yScale(toPrice);
 
           // Validate coordinates
@@ -451,26 +474,14 @@ export function FullChart({
             labelFormatter={(label) => `Date: ${label}`}
           />
 
-          {/* Chart Pattern Overlays - render as trendlines connecting pattern points */}
-          <Customized
-            component={({ xAxisMap, yAxisMap }: any) => {
-              const xAxis = xAxisMap?.[0];
-              const yAxis = yAxisMap?.[0];
-              if (!xAxis?.scale || !yAxis?.scale) return null;
-
-              // Filter out null entries and cast to correct type
-              const validOverlays = patternOverlays.filter((o): o is NonNullable<typeof o> => o !== null);
-
-              return (
-                <PatternTrendlinesRenderer
-                  patternOverlays={validOverlays as any}
-                  data={data}
-                  xScale={xAxis.scale}
-                  yScale={yAxis.scale}
-                />
-              );
-            }}
-          />
+          {/* Chart Pattern Overlays - render as trendlines using Recharts 3.x hooks */}
+          {patternOverlays.length > 0 && (
+            <PatternTrendlinesRenderer
+              patternOverlays={patternOverlays.filter((o): o is NonNullable<typeof o> => o !== null) as any}
+              data={data}
+              yDomain={yDomain as [number, number]}
+            />
+          )}
 
           {/* Candlesticks - render from low to high for full range */}
           <Bar
