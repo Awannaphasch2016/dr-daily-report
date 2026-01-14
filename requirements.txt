@@ -13,6 +13,8 @@ openai>=1.0.0,<2.0.0
 
 # Observability
 langfuse>=2.0.0
+# Note: pyarrow must be pinned to version with pre-built wheels for Lambda (manylinux2014)
+pyarrow==16.1.0  # Pinned for Lambda compatibility
 ragas>=0.2.0  # LLM evaluation metrics (answer relevancy, faithfulness)
 
 # =============================================================================
