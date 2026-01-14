@@ -139,7 +139,12 @@ class SimpleReportGenerator:
 
     @observe(name="generate_singlestage")
     def _generate_singlestage(self, **kwargs) -> tuple:
-        """Generate report using Semantic Layer Architecture (three-layer pattern)."""
+        """Generate report using Semantic Layer Architecture (three-layer pattern).
+
+        Note:
+            Prompt metadata is attached to Langfuse traces for version tracking.
+            This enables A/B testing and performance comparison between prompt versions.
+        """
         indicators = kwargs['indicators']
         strategy_performance = kwargs.get('strategy_performance', {})
 
@@ -185,6 +190,10 @@ class SimpleReportGenerator:
             alpaca_data=kwargs.get('alpaca_data', {})
         )
 
+        # Get prompt metadata for Langfuse tracking (enables version comparison)
+        prompt_metadata = self.prompt_builder.get_prompt_metadata()
+        logger.info(f"📝 Using prompt: {prompt_metadata['prompt_name']} v{prompt_metadata['prompt_version']} ({prompt_metadata['prompt_source']})")
+
         # LLM call
         response = self.llm.invoke(prompt)
         report = response.content if hasattr(response, 'content') else str(response)
@@ -200,11 +209,12 @@ class SimpleReportGenerator:
             strategy_performance=strategy_performance
         )
 
-        # Calculate API costs
+        # Calculate API costs with prompt metadata for tracing
         api_costs = {
             'llm_calls': 1,
             'estimated_input_tokens': len(prompt) // 4,
-            'estimated_output_tokens': len(report) // 4
+            'estimated_output_tokens': len(report) // 4,
+            'prompt_metadata': prompt_metadata  # For Langfuse version tracking
         }
 
         return report, api_costs

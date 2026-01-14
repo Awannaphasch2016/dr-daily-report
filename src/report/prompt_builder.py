@@ -3,9 +3,10 @@
 
 import logging
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple, Any
 
 from src.report.number_injector import NumberInjector
+from src.integrations.prompt_service import get_prompt_service, PromptResult
 
 # Setup logger
 logger = logging.getLogger(__name__)
@@ -21,12 +22,14 @@ class PromptBuilder:
         Args:
             context_builder: Optional ContextBuilder instance for section presence detection
         """
+        self._prompt_service = get_prompt_service()
+        self._prompt_result: Optional[PromptResult] = None
         self.main_prompt_template = self._load_main_prompt_template()
         self.context_builder = context_builder
 
     def _load_main_prompt_template(self) -> str:
         """
-        Load the main prompt template from disk.
+        Load the main prompt template from Langfuse or disk.
 
         Returns:
             Main prompt template string
@@ -34,16 +37,32 @@ class PromptBuilder:
         Raises:
             FileNotFoundError: If template file doesn't exist
         """
-        templates_dir = Path(__file__).parent / "prompt_templates" / "th" / "single-stage"
+        # Use PromptService for Langfuse integration with file fallback
+        self._prompt_result = self._prompt_service.get_prompt("report-generation")
+        logger.info(f"📝 Prompt loaded: source={self._prompt_result.source}, version={self._prompt_result.version}")
+        return self._prompt_result.content
 
-        # Use v4 minimal template (single template solution)
-        filepath = templates_dir / "main_prompt_v4_minimal.txt"
+    def get_prompt_metadata(self) -> Dict[str, Any]:
+        """Get prompt metadata for Langfuse trace tracking.
 
-        if not filepath.exists():
-            raise FileNotFoundError(f"Main prompt template not found: {filepath}")
+        Returns:
+            Dict with prompt_name, prompt_version, prompt_source for trace metadata
 
-        with open(filepath, 'r', encoding='utf-8') as f:
-            return f.read()
+        Note:
+            Call this after build_prompt() to attach metadata to Langfuse traces.
+            This enables performance comparison between prompt versions.
+        """
+        if self._prompt_result:
+            return {
+                "prompt_name": self._prompt_result.name,
+                "prompt_version": self._prompt_result.version,
+                "prompt_source": self._prompt_result.source,
+            }
+        return {
+            "prompt_name": "report-generation",
+            "prompt_version": "unknown",
+            "prompt_source": "unknown",
+        }
 
     def _build_placeholder_list(self, placeholders, ground_truth=None, indicators=None,
                                 percentiles=None, ticker_data=None,
