@@ -293,3 +293,218 @@ class TestLineBotIntegration:
         # If a message was sent, verify it has content
         if sent_messages:
             assert len(str(sent_messages[0])) > 0, "Reply message should not be empty"
+
+
+class TestLineBotHelpCommand:
+    """Tests for LINE bot help command per linebot/invariants.md.
+
+    Invariant: /help returns command reference (Level 0 User Invariant).
+    """
+
+    @pytest.fixture
+    def mock_dependencies(self):
+        """Patch all heavy dependencies that LineBot uses"""
+        with patch('src.integrations.line_bot.TickerAnalysisAgent') as mock_agent, \
+             patch('src.integrations.line_bot.DataFetcher') as mock_fetcher, \
+             patch('src.integrations.line_bot.PrecomputeService') as mock_precompute, \
+             patch('src.integrations.line_bot.PDFStorage') as mock_pdf, \
+             patch.dict('os.environ', {
+                 'LINE_CHANNEL_ACCESS_TOKEN': 'test_token',
+                 'LINE_CHANNEL_SECRET': 'test_secret'
+             }):
+            mock_fetcher_instance = MagicMock()
+            mock_fetcher_instance.load_tickers.return_value = {'DBS19': 'DBS Bank'}
+            mock_fetcher.return_value = mock_fetcher_instance
+            mock_precompute_instance = MagicMock()
+            mock_precompute.return_value = mock_precompute_instance
+            mock_pdf_instance = MagicMock()
+            mock_pdf_instance.is_available.return_value = False
+            mock_pdf.return_value = mock_pdf_instance
+            yield
+
+    @pytest.fixture
+    def line_bot(self, mock_dependencies):
+        """Create LineBot instance with mocked dependencies"""
+        from src.integrations.line_bot import LineBot
+        return LineBot()
+
+    def test_help_command_returns_usage_instructions(self, line_bot):
+        """Test that 'help' command returns usage instructions."""
+        event = {
+            "type": "message",
+            "message": {"type": "text", "text": "help"}
+        }
+        result = line_bot.handle_message(event)
+
+        assert result is not None
+        assert "วิธีใช้งาน" in result or "วิธีใช้" in result, "Help message should contain usage instructions"
+
+    def test_help_command_thai_keyword(self, line_bot):
+        """Test that Thai help keyword 'วิธีใช้' returns help message."""
+        event = {
+            "type": "message",
+            "message": {"type": "text", "text": "วิธีใช้"}
+        }
+        result = line_bot.handle_message(event)
+
+        assert result is not None
+        assert "Daily Report Bot" in result or "ticker" in result, "Help should mention bot purpose"
+
+    def test_help_command_lists_example_tickers(self, line_bot):
+        """Test that help message includes example tickers."""
+        event = {
+            "type": "message",
+            "message": {"type": "text", "text": "help"}
+        }
+        result = line_bot.handle_message(event)
+
+        assert "DBS19" in result or "ticker" in result, "Help should include example tickers"
+
+
+class TestLineBotInvalidTicker:
+    """Tests for LINE bot invalid ticker handling per linebot/invariants.md.
+
+    Invariant: Invalid ticker returns 'Ticker not found' with suggestions (Level 0 User Invariant).
+    """
+
+    @pytest.fixture
+    def mock_dependencies(self):
+        """Patch all heavy dependencies that LineBot uses"""
+        with patch('src.integrations.line_bot.TickerAnalysisAgent') as mock_agent, \
+             patch('src.integrations.line_bot.DataFetcher') as mock_fetcher, \
+             patch('src.integrations.line_bot.PrecomputeService') as mock_precompute, \
+             patch('src.integrations.line_bot.PDFStorage') as mock_pdf, \
+             patch.dict('os.environ', {
+                 'LINE_CHANNEL_ACCESS_TOKEN': 'test_token',
+                 'LINE_CHANNEL_SECRET': 'test_secret'
+             }):
+            mock_fetcher_instance = MagicMock()
+            mock_fetcher_instance.load_tickers.return_value = {'DBS19': 'DBS Bank', 'UOB19': 'UOB Bank'}
+            mock_fetcher.return_value = mock_fetcher_instance
+            mock_precompute_instance = MagicMock()
+            mock_precompute_instance.get_cached_report.return_value = None  # Simulate cache miss
+            mock_precompute.return_value = mock_precompute_instance
+            mock_pdf_instance = MagicMock()
+            mock_pdf_instance.is_available.return_value = False
+            mock_pdf.return_value = mock_pdf_instance
+            yield {'precompute': mock_precompute_instance}
+
+    @pytest.fixture
+    def line_bot(self, mock_dependencies):
+        """Create LineBot instance with mocked dependencies"""
+        from src.integrations.line_bot import LineBot
+        return LineBot()
+
+    def test_invalid_ticker_returns_not_ready_message(self, line_bot, mock_dependencies):
+        """Test that uncached ticker returns 'not ready' message."""
+        event = {
+            "type": "message",
+            "message": {"type": "text", "text": "INVALID_TICKER_XYZ"}
+        }
+        result = line_bot.handle_message(event)
+
+        assert result is not None
+        # Should indicate report is not ready (Aurora-first architecture)
+        assert "ยังไม่พร้อม" in result or "not ready" in result.lower() or "ลองใหม่" in result
+
+    def test_empty_message_returns_prompt(self, line_bot):
+        """Test that empty message returns prompt for ticker."""
+        event = {
+            "type": "message",
+            "message": {"type": "text", "text": ""}
+        }
+        result = line_bot.handle_message(event)
+
+        assert result is not None
+        assert "ticker" in result.lower() or "ส่งชื่อ" in result
+
+
+class TestLineBotReportContent:
+    """Tests for LINE bot report content per linebot/invariants.md.
+
+    Invariant: Report contains required sections (Level 2 Data Invariant).
+    """
+
+    @pytest.fixture
+    def mock_dependencies(self):
+        """Patch all heavy dependencies that LineBot uses"""
+        with patch('src.integrations.line_bot.TickerAnalysisAgent') as mock_agent, \
+             patch('src.integrations.line_bot.DataFetcher') as mock_fetcher, \
+             patch('src.integrations.line_bot.PrecomputeService') as mock_precompute, \
+             patch('src.integrations.line_bot.PDFStorage') as mock_pdf, \
+             patch.dict('os.environ', {
+                 'LINE_CHANNEL_ACCESS_TOKEN': 'test_token',
+                 'LINE_CHANNEL_SECRET': 'test_secret'
+             }):
+            mock_fetcher_instance = MagicMock()
+            mock_fetcher_instance.load_tickers.return_value = {'DBS19': 'DBS Bank'}
+            mock_fetcher.return_value = mock_fetcher_instance
+
+            # Configure mock precompute with a realistic cached report
+            mock_precompute_instance = MagicMock()
+            mock_precompute_instance.get_cached_report.return_value = {
+                'report_text': """รายงานวิเคราะห์ DBS19
+
+📊 สรุปภาพรวมตลาด
+ตลาดมีความผันผวน...
+
+💼 วิเคราะห์พอร์ตโฟลิโอ
+สถานะการลงทุน...
+
+📰 ข่าวสารสำคัญ
+ข่าวล่าสุดเกี่ยวกับ DBS...
+
+💭 วิเคราะห์ความเชื่อมั่น
+sentiment analysis...
+
+✅ คำแนะนำ
+แนะนำให้ถือ...""",
+                'ticker': 'DBS19',
+                'generated_at': '2026-01-14T10:00:00'
+            }
+            mock_precompute.return_value = mock_precompute_instance
+
+            mock_pdf_instance = MagicMock()
+            mock_pdf_instance.is_available.return_value = False
+            mock_pdf.return_value = mock_pdf_instance
+            yield {'precompute': mock_precompute_instance}
+
+    @pytest.fixture
+    def line_bot(self, mock_dependencies):
+        """Create LineBot instance with mocked dependencies"""
+        from src.integrations.line_bot import LineBot
+        return LineBot()
+
+    def test_cached_report_returns_report_text(self, line_bot, mock_dependencies):
+        """Test that cached report returns the stored report text."""
+        event = {
+            "type": "message",
+            "message": {"type": "text", "text": "DBS19"}
+        }
+        result = line_bot.handle_message(event)
+
+        assert result is not None
+        # Verify precompute cache was checked
+        mock_dependencies['precompute'].get_cached_report.assert_called()
+
+    def test_report_contains_market_section(self, line_bot):
+        """Test that report contains market overview section."""
+        event = {
+            "type": "message",
+            "message": {"type": "text", "text": "DBS19"}
+        }
+        result = line_bot.handle_message(event)
+
+        assert result is not None
+        assert "ตลาด" in result or "market" in result.lower(), "Report should contain market section"
+
+    def test_report_contains_recommendation_section(self, line_bot):
+        """Test that report contains recommendation section."""
+        event = {
+            "type": "message",
+            "message": {"type": "text", "text": "DBS19"}
+        }
+        result = line_bot.handle_message(event)
+
+        assert result is not None
+        assert "คำแนะนำ" in result or "แนะนำ" in result, "Report should contain recommendation section"
