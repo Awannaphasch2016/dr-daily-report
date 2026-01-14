@@ -87,11 +87,12 @@ Before claiming "done", verify the **invariant envelope**:
 Use `/invariant "goal"` to identify what must hold, `/reconcile domain` to fix violations, then `/invariant` again to verify delta = 0.
 
 **Spec-Driven Development**: For long-running tasks, use specification files to maintain ground truth:
+- **Create Feature Specs**: `/feature "name"` creates contractual specs in [.claude/specs/](.claude/specs/)
 - **Specifications by Objective**: [.claude/specs/](.claude/specs/) - LINE Bot, Telegram, shared components
 - **Environment Constraints**: local (mocks) → dev/stg (real APIs) → prd (real APIs + SLAs)
 - **Convergence Tracking**: [.claude/state/convergence/](.claude/state/convergence/) - Track verification status
 
-See [Behavioral Invariant Guide](docs/guides/behavioral-invariant-verification.md), [/invariant](.claude/commands/invariant.md), [/reconcile](.claude/commands/reconcile.md), [Invariants Directory](.claude/invariants/), and [Specifications](.claude/specs/).
+See [Behavioral Invariant Guide](docs/guides/behavioral-invariant-verification.md), [/feature](.claude/commands/feature.md), [/invariant](.claude/commands/invariant.md), [/reconcile](.claude/commands/reconcile.md), [Invariants Directory](.claude/invariants/), and [Specifications](.claude/specs/).
 
 ### 26. Thinking Tuple Protocol (Universal Kernel)
 
@@ -150,6 +151,7 @@ Commands are not independent—they are **modes within Strategy**. Each mode def
 | `/consolidate` | converge | Synthesizes Constraints into decision |
 | `/trace` | causal | Adds causal chain to Constraints |
 | `/decompose` | decompose | Breaks Invariant into sub-invariants |
+| `/feature` | define | Populates Constraints + Invariant from spec files |
 | `/invariant` | scan | Evaluates Check against specification |
 | `/reconcile` | fix | Executes Actions to satisfy Invariant |
 

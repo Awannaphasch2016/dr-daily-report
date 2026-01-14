@@ -70,6 +70,13 @@ Same specification, different constraints:
 
 ## Usage
 
+### Create/Update Feature Specification
+```bash
+/feature "stock-backtester"           # Create new feature spec
+/feature "telegram" invariants        # Update specific section
+/feature "linebot" constraints        # Add learned constraints
+```
+
 ### Load Specification
 ```bash
 /spec linebot           # View LINE Bot specification

@@ -42,7 +42,8 @@ Analysis names that imply reasoning about what exists:
 ### Design Commands (Create New)
 Action verbs that imply producing something new:
 - `/design` - Domain-aware thorough design
-- `/specify` - Quick design sketches
+- `/specify` - Quick design sketches (exploratory)
+- `/feature` - Contractual feature specification (persistent)
 - `/explore` - Divergent option generation
 - `/adapt` - Integrate external techniques
 
@@ -270,6 +271,48 @@ EnterPlanMode
 **vs Plan Mode**: Specify = exploratory sketch, Plan Mode = implementation-ready plan
 
 **Core Principle**: "Sometimes you just need to think out loud" - quick designs for exploration
+
+---
+
+### `/feature` - Contractual Feature Specification
+**Purpose**: Create or update feature specifications in `.claude/specs/` that integrate with the Thinking Tuple kernel
+
+**Usage**:
+```bash
+# Create new feature spec
+/feature "stock-backtester"
+
+# Update specific section
+/feature "telegram" invariants
+/feature "linebot" constraints
+```
+
+**Output structure**:
+```
+.claude/specs/{feature}/
+  spec.yaml          # Metadata, dependencies, resources, flows
+  invariants.md      # 5-level behavioral contracts (Level 4->0)
+  constraints.md     # Learned restrictions (grows over time)
+  acceptance.md      # "Done" criteria for verification
+```
+
+**Tuple Integration**:
+- `spec.yaml` -> Populates **Constraints** (dependencies, resources)
+- `invariants.md` -> Populates **Invariant** (5-level contracts)
+- `constraints.md` -> Populates **Constraints** (learned knowledge)
+- `acceptance.md` -> Populates **Check** (acceptance criteria)
+
+**vs /specify**: `/specify` = exploratory (disposable), `/feature` = contractual (persistent)
+
+**Workflow**:
+```bash
+/specify "backtester API" api     # Explore design (optional)
+/feature "stock-backtester"       # Create contractual spec
+/invariant "stock-backtester"     # Verify against spec
+/reconcile "stock-backtester"     # Fix violations -> delta = 0
+```
+
+**Core Principle**: "Features have contracts" - specs define what MUST hold, what we've learned, and how to verify "done"
 
 ---
 
