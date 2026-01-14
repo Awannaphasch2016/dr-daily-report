@@ -72,7 +72,19 @@ on:
 - **Daily Schedule:** 5:00 AM Bangkok time (22:00 UTC previous day) via EventBridge
 - **Task:** Fetches 47 tickers from Yahoo Finance
 - **Storage:** Raw data to Aurora `ticker_data` table
-- **Precompute:** Currently manual (automatic triggering disabled)
+- **Precompute:** Triggered via Step Functions workflow
+- **Pattern Precompute (NEW):** Detects chart patterns for all tickers after reports
+
+**Scheduler Lambda Functions:**
+| Function | Handler | Purpose |
+|----------|---------|---------|
+| `ticker-scheduler` | `ticker_fetcher_handler.lambda_handler` | Fetch raw data from Yahoo Finance |
+| `precompute-controller` | `precompute_controller_handler.lambda_handler` | Start Step Functions workflow |
+| `get-ticker-list` | `get_ticker_list_handler.lambda_handler` | Query ticker_master for active symbols |
+| `report-worker` | `report_worker_handler.lambda_handler` | Generate AI report for single ticker |
+| `pattern-precompute` | `pattern_precompute_handler.lambda_handler` | Detect chart patterns for single ticker |
+
+**Note:** All scheduler Lambdas share the same Docker image and deploy together via `deploy-scheduler-*.yml` workflows.
 
 **Deployment Behavior:**
 

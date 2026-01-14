@@ -48,6 +48,115 @@ Store complete reports in Aurora precomputed_reports table
 
 ---
 
+## Pattern Precomputation (NEW - 2026-01-15)
+
+**Purpose**: Reduce Telegram Mini App load time latency by pre-computing chart patterns daily.
+
+**Performance Impact**:
+- **Before**: Patterns computed ad-hoc on each API request (200-500ms latency)
+- **After**: Patterns served from cache (~5ms latency)
+- **Improvement**: 97-99% latency reduction
+
+### Architecture Flow
+
+```
+Step Functions Precompute Workflow
+    ↓
+FanOutToWorkers (Report Generation)
+    ↓ (after reports complete)
+FanOutToPatternWorkers (NEW)
+    ↓
+Pattern Precompute Lambda (per ticker, MaxConcurrency=10)
+    ↓
+Detect patterns using PatternDetectionService
+    ↓
+Store to Aurora chart_pattern_data table
+    ↓
+✅ Telegram API serves cached patterns instantly
+```
+
+### Components
+
+| Component | Location | Purpose |
+|-----------|----------|---------|
+| Pattern Lambda | `src/scheduler/pattern_precompute_handler.py` | Detect patterns for single ticker |
+| Terraform | `terraform/precompute_workflow.tf:364-409` | Lambda + IAM definitions |
+| Step Functions | `terraform/step_functions/precompute_workflow.json` | `FanOutToPatternWorkers` Map state |
+| Repository | `src/data/aurora/chart_pattern_repository.py` | Aurora CRUD operations |
+| API Cache | `src/api/transformer.py:_detect_chart_patterns()` | Cache lookup with ad-hoc fallback |
+
+### API Cache Strategy
+
+The `ResponseTransformer` uses a **cache-first with fallback** strategy:
+
+```python
+def _detect_chart_patterns(self, ticker: str) -> list[ChartPattern]:
+    # TRY: Cached patterns first (fast path, ~5ms)
+    try:
+        cached_patterns = repo.get_latest_patterns(symbol=ticker, days=7)
+        if cached_patterns:
+            return cached_patterns  # Cache hit!
+    except Exception:
+        pass  # Fallback to ad-hoc
+
+    # FALLBACK: Ad-hoc detection (slow path, 200-500ms)
+    return pattern_service.detect_patterns(ticker, days=180)
+```
+
+### Manual Trigger for Pattern Precompute
+
+**Method 1: Invoke Lambda Directly**
+```bash
+# Single ticker
+aws lambda invoke \
+  --function-name dr-daily-report-pattern-precompute-dev \
+  --payload '{"ticker":"NVDA19","ticker_id":1}' \
+  /tmp/pattern-result.json
+
+cat /tmp/pattern-result.json
+```
+
+**Method 2: Via Step Functions (Full Workflow)**
+```bash
+# Trigger full precompute workflow (includes patterns)
+aws lambda invoke \
+  --function-name dr-daily-report-precompute-controller-dev \
+  --payload '{"source":"manual"}' \
+  /tmp/precompute.json
+```
+
+### Verify Pattern Data
+
+```bash
+# Check patterns in Aurora
+mysql -h localhost -P 3307 -u admin -p daily_report_dev
+
+SELECT symbol, pattern_date, pattern_type, confidence, implementation
+FROM chart_pattern_data
+WHERE pattern_date = CURDATE()
+ORDER BY symbol, pattern_type;
+```
+
+### Troubleshooting Pattern Precompute
+
+**Issue: Patterns not appearing in API response**
+1. Check Lambda logs: `/aws/lambda/dr-daily-report-pattern-precompute-dev`
+2. Verify Aurora table has recent data: `SELECT * FROM chart_pattern_data WHERE pattern_date = CURDATE()`
+3. Check API cache TTL (7 days lookback)
+4. Force ad-hoc fallback by clearing cache or waiting for TTL
+
+**Issue: Pattern Lambda timeout**
+- Pattern detection takes 10-20s per ticker
+- Lambda timeout: 60s (sufficient)
+- If timeout, check yfinance data availability
+
+**Issue: Step Functions fails at FanOutToPatternWorkers**
+- Check MaxConcurrency (10) isn't overwhelming Aurora
+- Verify VPC connectivity (Lambda needs Aurora access)
+- Check IAM permissions for pattern Lambda
+
+---
+
 ## Implementation Details
 
 ### EventBridge Scheduler (Current)

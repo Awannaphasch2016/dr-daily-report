@@ -85,13 +85,20 @@ resource "aws_iam_role_policy" "precompute_workflow_policy" {
 # NOTE: report_worker Lambda is defined in async_report.tf as aws_lambda_function.report_worker
 # We reference it directly instead of using a data source to avoid circular dependency
 
+# Pattern precompute function name (used before the resource is created)
+locals {
+  pattern_precompute_function_name = "${var.project_name}-pattern-precompute-${var.environment}"
+}
+
 # Read state machine definition template and substitute variables
 locals {
   precompute_workflow_definition = templatefile("${path.module}/step_functions/precompute_workflow.json", {
-    region                        = var.aws_region
-    account_id                    = data.aws_caller_identity.current.account_id
-    get_ticker_list_function_name = aws_lambda_function.get_ticker_list.function_name
-    report_worker_function_arn    = aws_lambda_function.report_worker.arn
+    region                          = var.aws_region
+    account_id                      = data.aws_caller_identity.current.account_id
+    get_ticker_list_function_name   = aws_lambda_function.get_ticker_list.function_name
+    report_worker_function_arn      = aws_lambda_function.report_worker.arn
+    # Construct ARN from known values to avoid circular dependency
+    pattern_precompute_function_arn = "arn:aws:lambda:${var.aws_region}:${data.aws_caller_identity.current.account_id}:function:${local.pattern_precompute_function_name}"
   })
 }
 
@@ -347,4 +354,106 @@ output "precompute_controller_function_arn" {
 output "precompute_schedule" {
   value       = "Triggered automatically by EventBridge Scheduler at 5:00 AM Bangkok time"
   description = "Precompute workflow schedule (invoked by scheduler Lambda)"
+}
+
+###############################################################################
+# Pattern Precompute Lambda
+# Purpose: Precompute chart patterns for a single ticker (called by Step Functions)
+###############################################################################
+
+resource "aws_lambda_function" "pattern_precompute" {
+  function_name = local.pattern_precompute_function_name
+  role          = aws_iam_role.telegram_lambda_role.arn
+
+  # Container image deployment from ECR (same image as other Lambdas)
+  package_type = "Image"
+  image_uri    = "${aws_ecr_repository.lambda.repository_url}:${var.lambda_image_tag}"
+
+  image_config {
+    command = ["src.scheduler.pattern_precompute_handler.lambda_handler"]
+  }
+
+  # Pattern detection for 1 ticker takes ~10-20s
+  timeout     = 60
+  memory_size = 512
+
+  environment {
+    variables = {
+      ENVIRONMENT     = var.environment
+      LOG_LEVEL       = "INFO"
+      TZ              = "Asia/Bangkok"
+      AURORA_HOST     = aws_rds_cluster.aurora.endpoint
+      AURORA_PORT     = "3306"
+      AURORA_DATABASE = var.aurora_database_name
+      AURORA_USER     = var.aurora_master_username
+      AURORA_PASSWORD = var.AURORA_MASTER_PASSWORD
+    }
+  }
+
+  vpc_config {
+    subnet_ids         = local.private_subnets_with_nat
+    security_group_ids = [aws_security_group.lambda_aurora.id]
+  }
+
+  tags = merge(local.common_tags, {
+    Name      = "${var.project_name}-pattern-precompute-${var.environment}"
+    App       = "telegram-api"
+    Component = "pattern-precompute"
+    Layer     = "scheduler"
+  })
+
+  depends_on = [
+    aws_ecr_repository.lambda,
+    aws_rds_cluster.aurora
+  ]
+}
+
+# CloudWatch Log Group for Pattern Precompute Lambda
+resource "aws_cloudwatch_log_group" "pattern_precompute_logs" {
+  name              = "/aws/lambda/${aws_lambda_function.pattern_precompute.function_name}"
+  retention_in_days = var.log_retention_days
+
+  tags = merge(local.common_tags, {
+    Name      = "${var.project_name}-pattern-precompute-logs-${var.environment}"
+    App       = "telegram-api"
+    Component = "pattern-precompute-logging"
+  })
+}
+
+# Lambda permission for Step Functions to invoke pattern precompute
+resource "aws_lambda_permission" "pattern_precompute_sfn_invoke" {
+  statement_id  = "AllowStepFunctionsInvoke"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.pattern_precompute.function_name
+  principal     = "states.amazonaws.com"
+  source_arn    = aws_sfn_state_machine.precompute_workflow.arn
+}
+
+# Add pattern precompute Lambda to Step Functions IAM policy
+resource "aws_iam_role_policy" "precompute_workflow_pattern_policy" {
+  name = "${var.project_name}-precompute-workflow-pattern-${var.environment}"
+  role = aws_iam_role.precompute_workflow_role.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "lambda:InvokeFunction"
+        ]
+        Resource = aws_lambda_function.pattern_precompute.arn
+      }
+    ]
+  })
+}
+
+output "pattern_precompute_function_name" {
+  value       = aws_lambda_function.pattern_precompute.function_name
+  description = "Name of the pattern precompute Lambda function"
+}
+
+output "pattern_precompute_function_arn" {
+  value       = aws_lambda_function.pattern_precompute.arn
+  description = "ARN of the pattern precompute Lambda function"
 }

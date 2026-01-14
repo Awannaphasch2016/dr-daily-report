@@ -1,5 +1,5 @@
 {
-  "Comment": "Precompute workflow - parallel report generation (simplified version)",
+  "Comment": "Precompute workflow - parallel report and pattern generation",
   "StartAt": "PrepareTickerList",
   "States": {
     "PrepareTickerList": {
@@ -100,6 +100,70 @@
         }
       },
       "ResultPath": "$.fanout_results",
+      "Next": "FanOutToPatternWorkers"
+    },
+
+    "FanOutToPatternWorkers": {
+      "Type": "Map",
+      "Comment": "Precompute chart patterns for all tickers (runs after reports)",
+      "ItemsPath": "$.ticker_list.tickers",
+      "MaxConcurrency": 10,
+      "Parameters": {
+        "ticker.$": "$$.Map.Item.Value",
+        "execution_id.$": "$$.Execution.Name"
+      },
+      "Iterator": {
+        "StartAt": "InvokePatternWorker",
+        "States": {
+          "InvokePatternWorker": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::lambda:invoke",
+            "Parameters": {
+              "FunctionName": "${pattern_precompute_function_arn}",
+              "Payload": {
+                "ticker.$": "$.ticker",
+                "execution_id.$": "$.execution_id"
+              }
+            },
+            "ResultPath": "$.pattern_result",
+            "ResultSelector": {
+              "Payload.$": "$.Payload"
+            },
+            "Retry": [
+              {
+                "ErrorEquals": ["States.ALL"],
+                "IntervalSeconds": 2,
+                "MaxAttempts": 2,
+                "BackoffRate": 2.0
+              }
+            ],
+            "Catch": [
+              {
+                "ErrorEquals": ["States.ALL"],
+                "ResultPath": "$.error",
+                "Next": "HandlePatternError"
+              }
+            ],
+            "Next": "PatternWorkerDone"
+          },
+          "PatternWorkerDone": {
+            "Type": "Pass",
+            "Comment": "Pattern worker completed",
+            "End": true
+          },
+          "HandlePatternError": {
+            "Type": "Pass",
+            "Comment": "Pattern detection error - log and continue",
+            "Parameters": {
+              "ticker.$": "$.ticker",
+              "status": "failed",
+              "error.$": "$.error.Cause"
+            },
+            "End": true
+          }
+        }
+      },
+      "ResultPath": "$.pattern_results",
       "Next": "RecordStartTime"
     },
 
@@ -114,13 +178,14 @@
 
     "AggregateResults": {
       "Type": "Pass",
-      "Comment": "Workflow completed. Step Functions Map waited for all Lambda invocations to finish.",
+      "Comment": "Workflow completed. Reports and patterns precomputed for all tickers.",
       "Parameters": {
         "status": "completed",
         "execution_id.$": "$$.Execution.Name",
         "total_tickers": 46,
-        "message": "Precompute workflow completed. All workers invoked directly and tracked by Step Functions.",
-        "results.$": "$.fanout_results"
+        "message": "Precompute workflow completed. Reports and chart patterns generated for all tickers.",
+        "report_results.$": "$.fanout_results",
+        "pattern_results.$": "$.pattern_results"
       },
       "End": true
     }

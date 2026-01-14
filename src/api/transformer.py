@@ -863,7 +863,15 @@ class ResponseTransformer:
         }
 
     def _detect_chart_patterns(self, ticker: str) -> list[ChartPattern]:
-        """Detect chart patterns using stock-pattern library
+        """Get chart patterns - uses cached data with fallback to ad-hoc detection.
+
+        Strategy:
+        1. Try cached patterns from chart_pattern_data table (fast, ~5ms)
+        2. Fallback to ad-hoc detection if no cached data (slow, 200-500ms)
+
+        This provides best of both worlds:
+        - Fast response when precompute has run
+        - Graceful degradation for new tickers or stale cache
 
         Args:
             ticker: Stock ticker symbol
@@ -871,6 +879,41 @@ class ResponseTransformer:
         Returns:
             List of ChartPattern objects
         """
+        # TRY: Cached patterns first (fast path)
+        try:
+            from src.data.aurora.chart_pattern_repository import get_chart_pattern_repository
+
+            repo = get_chart_pattern_repository()
+
+            # Look for patterns from last 7 days (handles weekends/holidays)
+            cached_patterns = repo.get_latest_patterns(
+                symbol=ticker,
+                days=7,
+                implementation='custom'  # Use custom detector results (has coordinate points)
+            )
+
+            if cached_patterns:
+                patterns = []
+                for p in cached_patterns:
+                    pattern_data = p.get('pattern_data', {})
+                    patterns.append(ChartPattern(
+                        type=p['pattern_type'],
+                        pattern=pattern_data.get('pattern', p['pattern_type']),
+                        confidence=p['confidence'],
+                        start=p.get('start_date'),
+                        end=p.get('end_date'),
+                        points=pattern_data.get('points', {})
+                    ))
+
+                logger.info(f"✅ Using {len(patterns)} cached pattern(s) for {ticker}")
+                return patterns
+
+            logger.debug(f"No cached patterns for {ticker}, falling back to ad-hoc")
+
+        except Exception as e:
+            logger.warning(f"Cache lookup failed for {ticker}, falling back to ad-hoc: {e}")
+
+        # FALLBACK: Ad-hoc detection (slower but always works)
         try:
             pattern_service = get_pattern_service()
             result = pattern_service.detect_patterns(ticker, days=180)
@@ -886,7 +929,7 @@ class ResponseTransformer:
                     points=p.get('points', {})
                 ))
 
-            logger.info(f"✅ Detected {len(patterns)} chart pattern(s) for {ticker}")
+            logger.info(f"✅ Ad-hoc detected {len(patterns)} chart pattern(s) for {ticker}")
             return patterns
 
         except Exception as e:

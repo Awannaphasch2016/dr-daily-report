@@ -199,10 +199,16 @@ Build time: {duration}
 | telegram-api-{env} | ✅ | 45s |
 | report-worker-{env} | ✅ | 42s |
 | ticker-scheduler-{env} | ✅ | 38s |
+| pattern-precompute-{env} | ✅ | 35s |
+| precompute-controller-{env} | ✅ | 36s |
+| get-ticker-list-{env} | ✅ | 34s |
 | ... | ... | ... |
 
 Total functions: {count}
 Total time: {duration}
+
+**Note**: Pattern precompute Lambda (`pattern-precompute-{env}`) auto-deploys with scheduler workflow.
+For pattern precomputation docs, see: `docs/deployment/AUTOMATED_PRECOMPUTE.md#pattern-precomputation`
 
 ---
 
@@ -218,6 +224,8 @@ Apply time: {duration}
 - [✅] Health check: {"status":"ok"}
 - [✅] No errors in logs (last 5 min)
 - [✅] Image digest matches
+- [✅] Pattern precompute Lambda exists (scheduler deployments)
+- [✅] Step Functions state machine updated (FanOutToPatternWorkers)
 
 ---
 
