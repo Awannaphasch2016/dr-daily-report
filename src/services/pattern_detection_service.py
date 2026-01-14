@@ -67,18 +67,20 @@ class PatternDetectionService:
 
     def _init_registry(self) -> None:
         """Initialize registry with available pattern detector adapters."""
-        # Register stock-pattern adapter (preferred, priority=10)
+        # Register custom adapter (preferred, priority=10)
+        # Custom adapter outputs coordinate points for overlay rendering
+        custom_adapter = CustomPatternAdapter()
+        self._registry.register_detector(custom_adapter, priority=10)
+        logger.info("Registered custom pattern adapter (priority=10)")
+
+        # Register stock-pattern adapter (fallback, priority=5)
+        # Note: stock-pattern outputs legacy format without coordinate points
         stock_adapter = StockPatternAdapter()
         if stock_adapter.is_available():
-            self._registry.register_detector(stock_adapter, priority=10)
-            logger.info("Registered stock-pattern adapter (priority=10)")
+            self._registry.register_detector(stock_adapter, priority=5)
+            logger.info("Registered stock-pattern adapter (priority=5)")
         else:
             logger.debug("stock-pattern library not available, skipping registration")
-
-        # Register custom adapter (fallback, priority=5)
-        custom_adapter = CustomPatternAdapter()
-        self._registry.register_detector(custom_adapter, priority=5)
-        logger.info("Registered custom pattern adapter (priority=5)")
 
         # Log registry stats
         stats = self._registry.get_stats()

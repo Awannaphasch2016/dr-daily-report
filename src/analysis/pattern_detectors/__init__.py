@@ -31,8 +31,10 @@ Usage:
     )
 
     registry = get_pattern_registry()
-    registry.register_detector(StockPatternAdapter(), priority=10)
-    registry.register_detector(CustomPatternAdapter(), priority=5)
+    # Custom preferred (priority=10) - outputs coordinate points for overlays
+    registry.register_detector(CustomPatternAdapter(), priority=10)
+    # Stock-pattern fallback (priority=5) - outputs legacy metadata format
+    registry.register_detector(StockPatternAdapter(), priority=5)
 
     # Detect with automatic fallback
     result = registry.detect_with_fallback('bullish_flag', ticker, df, pivots, config)
