@@ -76,16 +76,14 @@ resource "aws_iam_role_policy" "precompute_workflow_policy" {
         Action = [
           "lambda:InvokeFunction"
         ]
-        Resource = data.aws_lambda_function.report_worker.arn
+        Resource = aws_lambda_function.report_worker.arn
       }
     ]
   })
 }
 
-# Data source for report_worker Lambda (defined in async_report.tf)
-data "aws_lambda_function" "report_worker" {
-  function_name = "${var.project_name}-report-worker-${var.environment}"
-}
+# NOTE: report_worker Lambda is defined in async_report.tf as aws_lambda_function.report_worker
+# We reference it directly instead of using a data source to avoid circular dependency
 
 # Read state machine definition template and substitute variables
 locals {
@@ -93,7 +91,7 @@ locals {
     region                        = var.aws_region
     account_id                    = data.aws_caller_identity.current.account_id
     get_ticker_list_function_name = aws_lambda_function.get_ticker_list.function_name
-    report_worker_function_arn    = data.aws_lambda_function.report_worker.arn
+    report_worker_function_arn    = aws_lambda_function.report_worker.arn
   })
 }
 
@@ -121,7 +119,7 @@ resource "aws_sfn_state_machine" "precompute_workflow" {
 resource "aws_lambda_permission" "report_worker_sfn_invoke" {
   statement_id  = "AllowStepFunctionsInvoke"
   action        = "lambda:InvokeFunction"
-  function_name = data.aws_lambda_function.report_worker.function_name
+  function_name = aws_lambda_function.report_worker.function_name
   principal     = "states.amazonaws.com"
   source_arn    = aws_sfn_state_machine.precompute_workflow.arn
 }
