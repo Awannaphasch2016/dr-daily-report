@@ -222,16 +222,23 @@ This document catalogs all remaining work items identified through:
 ## 5. Future Enhancements (Not Started)
 
 ### 5.1 Advanced Pattern Recognition
-**Status:** Stub Implementation  
+**Status:** ✅ Implemented (2026-01-14)
 **Source:** `docs/BOT_REASONING_DESIGN.md:1594-1603`
 
-**Remaining Tasks:**
-1. Implement classic patterns (Head & Shoulders, Double Top/Bottom, Triangles)
-2. Use ML models for pattern detection (CNN on candlestick images)
-3. Add pattern success rate statistics from historical data
+**Completed:**
+1. ✅ Implemented classic patterns (Head & Shoulders, Double Top/Bottom, Triangles, Flags, Wedges)
+2. ✅ Pattern detection service with registry-based fallback (`src/services/pattern_detection_service.py`)
+3. ✅ Coordinate points for overlay rendering (`{A: [date, price], B: [date, price]}`)
+4. ✅ Frontend pattern overlays on candlestick chart (`FullChart.tsx` with ReferenceArea)
+5. ✅ ChartPatternsPanel for pattern listing with confidence levels
 
-**Effort Estimate:** 1-2 weeks  
-**Priority:** Future
+**Remaining (Future Enhancements):**
+1. ML models for pattern detection (CNN on candlestick images)
+2. Pattern success rate statistics from historical data
+3. Store patterns in dedicated Aurora table (migration 020 ready, integration pending)
+
+**Specification:** `.claude/specs/shared/chart_pattern_data.md`
+**Visual Reference:** `.claude/skills/visual-ta-validation/patterns.md`
 
 ### 5.2 Multi-Ticker Correlation Analysis
 **Status:** Not Started  

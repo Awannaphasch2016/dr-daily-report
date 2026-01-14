@@ -21,7 +21,7 @@ import {
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
-  ReferenceArea,
+  Customized,
 } from 'recharts';
 import type { PriceDataPoint, ChartPattern } from '../types/report';
 
@@ -106,6 +106,173 @@ function calculateSMA(data: PriceDataPoint[], period: number): number[] {
     }
   }
   return sma;
+}
+
+/**
+ * Pattern point coordinate type
+ * Format: [bar_index_string, price_number]
+ */
+type PatternPoint = [string, number];
+
+/**
+ * Get trendlines to draw for a pattern type
+ * Returns array of line segments, each defined by start and end point keys
+ */
+function getPatternTrendlines(patternType: string): Array<{ from: string; to: string; style?: 'solid' | 'dashed' }> {
+  const type = patternType.toLowerCase();
+
+  // Flag patterns: draw channel lines (upper and lower boundaries)
+  if (type.includes('flag')) {
+    return [
+      { from: 'A', to: 'C', style: 'solid' },  // Upper trendline
+      { from: 'B', to: 'D', style: 'solid' },  // Lower trendline
+    ];
+  }
+
+  // Triangles: converging trendlines
+  if (type.includes('triangle')) {
+    if (type.includes('ascending')) {
+      return [
+        { from: 'A', to: 'C', style: 'solid' },  // Rising lower trendline
+        { from: 'B', to: 'D', style: 'dashed' }, // Flat upper resistance
+      ];
+    }
+    if (type.includes('descending')) {
+      return [
+        { from: 'A', to: 'C', style: 'dashed' }, // Flat lower support
+        { from: 'B', to: 'D', style: 'solid' },  // Falling upper trendline
+      ];
+    }
+    // Symmetrical triangle
+    return [
+      { from: 'A', to: 'C', style: 'solid' },  // Upper trendline
+      { from: 'B', to: 'D', style: 'solid' },  // Lower trendline
+    ];
+  }
+
+  // Wedges: converging trendlines
+  if (type.includes('wedge')) {
+    return [
+      { from: 'A', to: 'C', style: 'solid' },  // Upper trendline
+      { from: 'B', to: 'D', style: 'solid' },  // Lower trendline
+    ];
+  }
+
+  // Head and shoulders: neckline + peak connections
+  if (type.includes('head') && type.includes('shoulder')) {
+    return [
+      { from: 'B', to: 'D', style: 'solid' },  // Neckline
+      { from: 'A', to: 'C', style: 'dashed' }, // Left shoulder to head
+      { from: 'C', to: 'E', style: 'dashed' }, // Head to right shoulder
+    ];
+  }
+
+  // Double top/bottom: connect the two peaks/troughs + support/resistance
+  if (type.includes('double')) {
+    return [
+      { from: 'A', to: 'C', style: 'solid' },  // Connect the two tops/bottoms
+      { from: 'A', to: 'B', style: 'dashed' }, // First peak to trough
+      { from: 'B', to: 'C', style: 'dashed' }, // Trough to second peak
+    ];
+  }
+
+  // VCP (Volatility Contraction Pattern): show contracting range
+  if (type.includes('vcp')) {
+    return [
+      { from: 'A', to: 'C', style: 'solid' },
+      { from: 'B', to: 'D', style: 'solid' },
+    ];
+  }
+
+  // Default: connect all available points in sequence
+  return [
+    { from: 'A', to: 'B', style: 'solid' },
+    { from: 'B', to: 'C', style: 'dashed' },
+    { from: 'C', to: 'D', style: 'dashed' },
+  ];
+}
+
+/**
+ * Custom component to render pattern trendlines as SVG lines
+ */
+interface PatternTrendlinesProps {
+  patternOverlays: Array<{
+    key: string;
+    type: string;
+    points: Record<string, PatternPoint>;
+    colors: { fill: string; stroke: string };
+    confidence: string;
+  }>;
+  data: PriceDataPoint[];
+  xScale: any;
+  yScale: any;
+}
+
+function PatternTrendlinesRenderer({
+  patternOverlays,
+  data,
+  xScale,
+  yScale,
+}: PatternTrendlinesProps) {
+  if (!xScale || !yScale || !data || data.length === 0) {
+    return null;
+  }
+
+  return (
+    <g className="pattern-trendlines">
+      {patternOverlays.map((overlay) => {
+        const trendlines = getPatternTrendlines(overlay.type);
+        const points = overlay.points || {};
+
+        return trendlines.map((line, lineIdx) => {
+          const fromPoint = points[line.from];
+          const toPoint = points[line.to];
+
+          // Skip if points don't exist
+          if (!fromPoint || !toPoint) return null;
+
+          // Parse bar indices and get prices
+          const fromBarIdx = parseInt(fromPoint[0], 10);
+          const toBarIdx = parseInt(toPoint[0], 10);
+          const fromPrice = fromPoint[1];
+          const toPrice = toPoint[1];
+
+          // Validate indices
+          if (isNaN(fromBarIdx) || isNaN(toBarIdx)) return null;
+          if (fromBarIdx >= data.length || toBarIdx >= data.length) return null;
+
+          // Get dates for X coordinates
+          const fromDate = data[fromBarIdx]?.date;
+          const toDate = data[toBarIdx]?.date;
+
+          if (!fromDate || !toDate) return null;
+
+          // Calculate pixel coordinates using Recharts scales
+          const x1 = xScale(fromDate);
+          const y1 = yScale(fromPrice);
+          const x2 = xScale(toDate);
+          const y2 = yScale(toPrice);
+
+          // Validate coordinates
+          if (isNaN(x1) || isNaN(y1) || isNaN(x2) || isNaN(y2)) return null;
+
+          return (
+            <line
+              key={`${overlay.key}-line-${lineIdx}`}
+              x1={x1}
+              y1={y1}
+              x2={x2}
+              y2={y2}
+              stroke={overlay.colors.stroke}
+              strokeWidth={2}
+              strokeDasharray={line.style === 'dashed' ? '6 3' : undefined}
+              strokeLinecap="round"
+            />
+          );
+        });
+      })}
+    </g>
+  );
 }
 
 
@@ -230,13 +397,13 @@ export function FullChart({
             <span className="text-gray-600 dark:text-gray-400 ml-2">Patterns:</span>
             {patternOverlays.slice(0, 3).map((overlay: any) => (
               <span key={overlay.key} className="flex items-center gap-1">
-                <div
-                  className="w-3 h-3 rounded-sm border"
-                  style={{
-                    backgroundColor: overlay.colors.fill,
-                    borderColor: overlay.colors.stroke
-                  }}
-                />
+                <svg width="16" height="8" className="flex-shrink-0">
+                  <line
+                    x1="0" y1="4" x2="16" y2="4"
+                    stroke={overlay.colors.stroke}
+                    strokeWidth={2}
+                  />
+                </svg>
                 <span className="capitalize">
                   {overlay.type.replace(/_/g, ' ').replace('bullish ', '').replace('bearish ', '')}
                 </span>
@@ -284,28 +451,26 @@ export function FullChart({
             labelFormatter={(label) => `Date: ${label}`}
           />
 
-          {/* Chart Pattern Overlays - render behind candlesticks */}
-          {patternOverlays.map((overlay: any) => (
-            <ReferenceArea
-              key={overlay.key}
-              x1={overlay.startDate}
-              x2={overlay.endDate}
-              y1={overlay.patternLow}
-              y2={overlay.patternHigh}
-              fill={overlay.colors.fill}
-              stroke={overlay.colors.stroke}
-              strokeWidth={2}
-              strokeDasharray="4 2"
-              fillOpacity={0.3}
-              label={{
-                value: overlay.type.replace(/_/g, ' ').split(' ').map((w: string) => w[0]?.toUpperCase()).join(''),
-                position: 'insideTopRight',
-                fill: overlay.colors.stroke,
-                fontSize: 10,
-                fontWeight: 'bold',
-              }}
-            />
-          ))}
+          {/* Chart Pattern Overlays - render as trendlines connecting pattern points */}
+          <Customized
+            component={({ xAxisMap, yAxisMap }: any) => {
+              const xAxis = xAxisMap?.[0];
+              const yAxis = yAxisMap?.[0];
+              if (!xAxis?.scale || !yAxis?.scale) return null;
+
+              // Filter out null entries and cast to correct type
+              const validOverlays = patternOverlays.filter((o): o is NonNullable<typeof o> => o !== null);
+
+              return (
+                <PatternTrendlinesRenderer
+                  patternOverlays={validOverlays as any}
+                  data={data}
+                  xScale={xAxis.scale}
+                  yScale={yAxis.scale}
+                />
+              );
+            }}
+          />
 
           {/* Candlesticks - render from low to high for full range */}
           <Bar
