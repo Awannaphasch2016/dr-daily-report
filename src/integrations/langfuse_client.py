@@ -110,3 +110,46 @@ def flush():
             logger.debug("Langfuse traces flushed")
         except Exception as e:
             logger.warning(f"Failed to flush Langfuse traces: {e}")
+
+
+# Observation level tracking (for degraded operations)
+_observation_level = "INFO"
+
+
+def set_observation_level(level: str):
+    """Set observation level for current trace.
+
+    Used to mark degraded operations (WARNING) or failures (ERROR).
+    """
+    global _observation_level
+    _observation_level = level
+    logger.debug(f"Observation level set to: {level}")
+
+
+def get_observation_level() -> str:
+    """Get current observation level."""
+    return _observation_level
+
+
+def get_langchain_handler():
+    """Get LangChain callback handler for Langfuse integration.
+
+    Returns a handler that can be passed to LangChain's callback system
+    for tracing LLM calls.
+
+    Returns:
+        LangChain callback handler or None if Langfuse not configured.
+    """
+    client = get_langfuse_client()
+    if client is None:
+        return None
+
+    try:
+        from langfuse.callback import CallbackHandler
+        return CallbackHandler()
+    except ImportError:
+        logger.warning("Langfuse callback handler not available")
+        return None
+    except Exception as e:
+        logger.warning(f"Failed to create Langfuse callback handler: {e}")
+        return None
