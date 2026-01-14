@@ -20,7 +20,7 @@ ragas>=0.2.0  # LLM evaluation metrics (answer relevancy, faithfulness)
 # =============================================================================
 numpy>=1.24.0,<2.0.0
 pandas>=2.0.0
-scipy>=1.11.0
+scipy==1.11.4  # Pinned to version with pre-built wheels for Lambda (GCC 7.3)
 scikit-learn==1.5.2  # Pinned to version with pre-built wheels for Lambda
 networkx>=3.0
 matplotlib>=3.7.0
