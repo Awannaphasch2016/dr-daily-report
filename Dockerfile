@@ -15,8 +15,12 @@ RUN yum install -y gcc gcc-c++ curl && yum clean all
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 ENV PATH="/root/.cargo/bin:${PATH}"
 
-# Install dependencies
-RUN pip install --no-cache-dir -r ${LAMBDA_TASK_ROOT}/requirements.txt
+# Install numpy FIRST with pre-built wheels to prevent build deps from compiling it
+# This avoids GCC 9.3 requirement for numpy 2.x (Lambda has GCC 7.3.1)
+RUN pip install --no-cache-dir numpy==1.26.4
+
+# Install remaining dependencies with pre-built binaries preferred
+RUN pip install --no-cache-dir --prefer-binary -r ${LAMBDA_TASK_ROOT}/requirements.txt
 
 # Copy application code
 COPY src/ ${LAMBDA_TASK_ROOT}/src/
