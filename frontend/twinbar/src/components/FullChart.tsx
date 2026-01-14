@@ -40,19 +40,21 @@ interface FullChartProps {
  * Get color for pattern based on sentiment
  */
 function getPatternColor(type: string): { fill: string; stroke: string } {
+  const normalizedType = type.toLowerCase().replace(/_/g, '');
+
   const bullishPatterns = [
-    'bullish_flag', 'bullish_vcp', 'reverse_head_shoulders',
-    'double_bottom', 'falling_wedge', 'ascending_triangle'
+    'bullishflag', 'bullishvcp', 'reverseheadshoulders',
+    'doublebottom', 'fallingwedge', 'ascendingtriangle'
   ];
   const bearishPatterns = [
-    'bearish_flag', 'bearish_vcp', 'head_shoulders',
-    'double_top', 'rising_wedge', 'descending_triangle'
+    'bearishflag', 'bearishvcp', 'headshoulders',
+    'doubletop', 'risingwedge', 'descendingtriangle'
   ];
 
-  if (bullishPatterns.some(p => type.toLowerCase().includes(p.replace('_', '')))) {
+  if (bullishPatterns.some(p => normalizedType.includes(p))) {
     return { fill: 'rgba(34, 197, 94, 0.15)', stroke: '#22c55e' }; // Green
   }
-  if (bearishPatterns.some(p => type.toLowerCase().includes(p.replace('_', '')))) {
+  if (bearishPatterns.some(p => normalizedType.includes(p))) {
     return { fill: 'rgba(239, 68, 68, 0.15)', stroke: '#ef4444' }; // Red
   }
   return { fill: 'rgba(59, 130, 246, 0.15)', stroke: '#3b82f6' }; // Blue (neutral)
@@ -287,8 +289,9 @@ function PatternTrendlinesRenderer({
               x2={x2}
               y2={y2}
               stroke={overlay.colors.stroke}
-              strokeWidth={2}
-              strokeDasharray={line.style === 'dashed' ? '6 3' : undefined}
+              strokeWidth={3}
+              strokeOpacity={0.9}
+              strokeDasharray={line.style === 'dashed' ? '8 4' : undefined}
               strokeLinecap="round"
             />
           );
