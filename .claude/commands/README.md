@@ -1157,6 +1157,60 @@ All commands automatically resolve resources using existing naming conventions:
 
 ---
 
+## Utility Commands
+
+### `/handholding` - Step-by-Step Guidance
+**Purpose**: Guide users through complex or unfamiliar tasks with explicit confirmation at each step
+
+**Usage**:
+```bash
+# Basic usage
+/handholding "deploy to production"
+/handholding "set up feature-alerts environment"
+/handholding "debug this timeout error"
+
+# With pace modifier
+/handholding "deploy to staging" quick      # Fewer confirmations
+/handholding "migrate database" careful     # Default, confirm each step
+/handholding "set up CI/CD" thorough        # Extra explanations
+```
+
+**What makes it different**:
+| Aspect | Regular Commands | `/handholding` |
+|--------|-----------------|----------------|
+| **Confirmation** | At end or critical points | Every step |
+| **Explanation** | Minimal | What, Why, Risk for each step |
+| **Progress** | Implicit | Explicit "Step X of Y" |
+| **Abort** | Say "stop" | Explicit [Abort] option |
+| **Reversibility** | Not stated | Stated for each step |
+
+**Step format**:
+```markdown
+## Step {N} of {Total}: {Step Name}
+
+**What I'll do**: {Clear description}
+**Why**: {Rationale}
+**Reversible**: {Yes | No | Partially}
+**Risk**: {None | Low | Medium | High}
+
+[ Proceed ] [ Skip ] [ Explain More ] [ Abort ]
+```
+
+**Pace levels**:
+- `careful` (default) - Confirm every step, full explanations
+- `quick` - Auto-proceed read-only steps, confirm writes only
+- `thorough` - Extended explanations with examples
+
+**When to use**:
+- Nervous about complex operations (first production deploy)
+- Learning new workflows
+- High-stakes tasks where mistakes are costly
+- Teaching someone through a process
+
+**Core Principle**: "Psychological safety through explicit control" - users feel safe attempting complex tasks because they understand each step and can abort anytime
+
+---
+
 ## Command Composition Patterns
 
 Commands can orchestrate multiple capabilities in sequence:
@@ -1617,6 +1671,9 @@ For detailed command documentation, see individual command files in `.claude/com
 - [/stg](stg.md) - Execute operations targeting staging environment (moderate gates)
 - [/prd](prd.md) - Execute operations targeting production environment (read-only default)
 - [/env](env.md) - Generic feature branch environment targeting
+
+### Utility Commands
+- [/handholding](handholding.md) - Step-by-step guidance through complex tasks
 
 ### Demos
 - [/explain](explain.md) - Composition demo
