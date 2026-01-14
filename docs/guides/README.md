@@ -139,6 +139,25 @@ Comprehensive how-to guides for implementing CLAUDE.md principles. Each guide pr
 
 ## When to Use These Guides
 
+### Before Starting Any Guide: Surface Knowledge Gaps
+
+Before diving into implementation, use `/qna` to surface what you know, assume, and don't know:
+
+```bash
+/qna "deployment pipeline" deep
+```
+
+This reveals:
+- **Confident knowledge**: Facts from code/docs
+- **Assumptions**: Inferred beliefs that might be wrong
+- **Knowledge gaps**: Missing information that could block you
+
+**Why this matters**: Many guide failures happen because implementers have incorrect assumptions. `/qna` surfaces them BEFORE you start, enabling user correction.
+
+**See**: [/qna command](../../.claude/commands/qna.md), [Thinking Tuple Constraints](thinking-tuple-protocol.md#1-constraints-start-state)
+
+---
+
 ### Before Deployment
 1. **Cross-Boundary Contract Testing**: Validate phase boundaries (Docker container tests)
 2. **Execution Boundary Discipline**: Verify WHERE code runs and WHAT it needs
@@ -155,6 +174,13 @@ Comprehensive how-to guides for implementing CLAUDE.md principles. Each guide pr
 2. **Infrastructure-Application Contract**: Check env vars, schema, permissions match code
 3. **Cross-Boundary Contract Testing**: Add boundary tests to prevent regression
 4. **Deployment Blocker Resolution**: Pipeline blocked → bypass unrelated blocker, fix separately
+
+### When Stuck (Same Error Repeatedly)
+1. **Use `/qna`**: Surface your assumptions about the problem
+2. **User Verification**: Get user to correct incorrect beliefs
+3. **Regenerate Hypotheses**: With corrected knowledge, try again
+
+This is the Initial-Sensitive Loop escalation pattern—see [Thinking Process Architecture](../../.claude/diagrams/thinking-process-architecture.md#2-initial-sensitive-loop-double-loop-learning).
 
 ---
 

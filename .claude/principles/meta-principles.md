@@ -22,16 +22,38 @@ When failures persist, use `/reflect` to identify which loop type you're using:
 
 **Thinking tools for loop identification**:
 - `/trace` - Root cause analysis (why did this fail?)
+- `/qna` - Surface knowledge state (what do I know/assume/not know?)
 - `/hypothesis` - Generate new assumptions
 - `/compare` - Evaluate alternative paths
 - `/reflect` - Identify current loop pattern
 
+**Escalation with `/qna` (Initial-Sensitive Loop)**:
+
+When stuck in a retrying loop (same error repeated), use `/qna` to surface your knowledge state before generating new hypotheses:
+
+```
+Retrying Loop (3x same error)
+    ↓
+/reflect → "Execution varies, outcome identical" (stuck signal)
+    ↓
+/qna "{problem}" → Surface knowledge state for user verification
+    → Confident: "Lambda uses Python 3.11"
+    → Assumed: "Cache invalidates on data change" ← Might be wrong!
+    → Unknown: "How TTL is configured"
+    ↓
+User: "Actually, cache uses fixed 15-min TTL"
+    ↓
+/hypothesis → Generate alternatives with CORRECTED knowledge
+```
+
+**Why `/qna` before `/hypothesis`**: Without surfacing current beliefs, you might generate hypotheses that are all wrong because they're based on faulty assumptions. `/qna` enables user correction BEFORE exploring alternatives.
+
 **When to switch loops**:
-- 2+ failed retries → Switch from retrying to research
+- 2+ failed retries → Use `/qna` to surface assumptions, then Initial-sensitive
 - Same error repeated → Initial-sensitive (wrong assumptions)
 - No progress → Meta-loop (change strategy entirely)
 
-See [Thinking Process Architecture - Feedback Loops](../diagrams/thinking-process-architecture.md#11-feedback-loop-types-self-healing-properties) and [Metacognitive Commands](../diagrams/thinking-process-architecture.md#metacognitive-commands-thinking-about-thinking).
+See [Thinking Process Architecture - Feedback Loops](../diagrams/thinking-process-architecture.md#11-feedback-loop-types-self-healing-properties), [Initial-Sensitive Loop with /qna](../diagrams/thinking-process-architecture.md#2-initial-sensitive-loop-double-loop-learning), and [/qna command](../commands/qna.md).
 
 ---
 

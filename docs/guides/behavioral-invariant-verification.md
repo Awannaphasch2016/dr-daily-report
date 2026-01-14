@@ -31,6 +31,30 @@ Every implementation operates within an **invariant envelope** - the set of beha
 
 **Pattern**: Every incident involved an implicit invariant that was never explicitly stated or verified.
 
+### Surfacing Implicit Assumptions with /qna
+
+Before implementation, use `/qna` to surface implicit assumptions that might become implicit invariants:
+
+```bash
+/qna "deploy new caching feature"
+```
+
+**What /qna reveals**:
+- **Confident knowledge**: Facts you know with certainty (from code, docs)
+- **Assumptions**: Beliefs you've inferred but haven't verified
+- **Knowledge gaps**: Information you need but don't have
+
+**Example output**:
+```
+Confident: "Lambda uses Python 3.11"
+Assumed: "Cache invalidates on data change" ← Might be wrong!
+Unknown: "How TTL is configured"
+```
+
+By surfacing assumptions BEFORE implementation, you can convert them into explicit invariants and verify them, preventing incidents like those above.
+
+**See also**: [/qna command](../../.claude/commands/qna.md)
+
 ---
 
 ## Invariant Hierarchy
@@ -385,6 +409,125 @@ The deployment workflow should include:
 - [ ] Evidence collected
 - [ ] Confidence level: HIGH
 ```
+
+---
+
+## Cascade Violation Pattern
+
+**Key Learning**: A single visible symptom often masks multiple sequential dependencies. When one fix reveals another violation, you're experiencing a **cascade**—not a simple bug.
+
+### The Problem
+
+Traditional debugging fixes one violation, then discovers another:
+
+```
+❌ Wrong approach (fix-reveal-fix loop):
+┌──────────────────────────────────────────────────────────────────┐
+│ Symptom: "No markets found" in UI                                │
+│    ↓                                                             │
+│ Fix 1: Found wrong API URL → Fixed frontend                      │
+│    ↓                                                             │
+│ NEW symptom: CORS error                                          │
+│    ↓                                                             │
+│ Fix 2: Added CloudFront to CORS → Fixed                          │
+│    ↓                                                             │
+│ NEW symptom: API returns empty results                           │
+│    ↓                                                             │
+│ Fix 3: Found missing table → Created it                          │
+│    ↓                                                             │
+│ NEW symptom: table empty                                         │
+│    ↓                                                             │
+│ ... (continues for 6+ iterations)                                │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+This is inefficient because each fix only reveals the next hidden violation.
+
+### The Solution: Pre-Scan ALL Levels
+
+Before fixing anything, scan ALL invariant levels (4→3→2→1→0) to build a complete violation map:
+
+```
+✅ Correct approach (pre-scan then fix):
+┌──────────────────────────────────────────────────────────────────┐
+│ Step 1: PRE-SCAN ALL LEVELS                                      │
+│                                                                  │
+│ L4 Config:  ❌ Wrong API URL, ❌ Missing CORS origin              │
+│ L3 Infra:   ✅ Lambda deployed, ✅ API Gateway active             │
+│ L2 Schema:  ❌ precomputed_reports missing                        │
+│ L2 Data:    ❌ No reports populated                               │
+│ L1 Service: ❌ Cache stale                                        │
+│ L0 User:    ❌ "No markets found"                                 │
+│                                                                  │
+│ Step 2: BUILD DEPENDENCY GRAPH                                   │
+│                                                                  │
+│ Config → Schema → Data → Cache → UI                              │
+│                                                                  │
+│ Step 3: FIX IN DEPENDENCY ORDER                                  │
+│                                                                  │
+│ 1. Fix API URL (L4)                                              │
+│ 2. Add CORS origin (L4)                                          │
+│ 3. Create table (L2)                                             │
+│ 4. Populate data (L2)                                            │
+│ 5. Force refresh cache (L1)                                      │
+│ 6. Verify UI (L0)                                                │
+│                                                                  │
+│ Step 4: VERIFY DELTA = 0                                         │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+### Dependency Order
+
+Violations have dependencies. Fix in this order:
+
+| Order | Layer | Examples | Why First |
+|-------|-------|----------|-----------|
+| 1 | Config (L4) | URLs, CORS, env vars | Everything needs correct addressing |
+| 2 | Schema (L2) | Tables, columns | Data needs structure |
+| 3 | Data (L2) | Rows, relationships | Services need data |
+| 4 | Cache (L1) | Rankings, computed values | Derived from data |
+| 5 | User (L0) | UI verification | Depends on everything |
+
+### Cache Invalidation Rule
+
+**Critical**: After populating data, cache may still be stale. Always:
+
+1. Check cache TTL (is it using old data?)
+2. Force refresh if needed: `?force_refresh=true`
+3. Verify cache reflects new data before checking L0
+
+```bash
+# After populating precomputed_reports:
+curl "https://{api}/api/v1/rankings?force_refresh=true"
+
+# Verify cache now has data:
+curl "https://{api}/api/v1/rankings" | jq '.results[0].chart_data != null'
+```
+
+### When to Suspect a Cascade
+
+| Signal | Meaning |
+|--------|---------|
+| Fix one thing, another breaks | Hidden dependencies |
+| L0 symptom, L4 root cause | Long dependency chain |
+| "It worked in dev" | Environment delta |
+| New environment, old code | Missing transfer steps |
+
+### Real Example: Production Telegram Mini App
+
+**Visible symptom**: "No markets found" in production UI
+
+**Actual cascade** (6 violations in dependency order):
+1. ❌ L4: Frontend calling dev API URL (wrong environment)
+2. ❌ L4: CORS missing production CloudFront domain
+3. ❌ L2: precomputed_reports table missing
+4. ❌ L2: daily_indicators table missing
+5. ❌ L2: No report data populated
+6. ❌ L1: Rankings cache stale (populated before data existed)
+
+**Solution**: Pre-scan revealed all 6, fixed in order, single reconciliation pass.
+
+See [Environment Provisioning Invariants](../../.claude/invariants/environment-provisioning-invariants.md) for complete checklist.
 
 ---
 

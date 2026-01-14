@@ -49,6 +49,18 @@ Each component draws from existing layers, ensuring they're all composed togethe
 - Resource limits (time, permissions)
 - Blockers discovered
 
+**Tool**: Use `/qna` to explicitly surface the Constraints slot:
+```bash
+/qna "current task or problem"
+```
+
+`/qna` reveals:
+- **Confident knowledge** → Known facts (high certainty)
+- **Assumptions** → Inferred beliefs that might be wrong (medium certainty)
+- **Knowledge gaps** → Missing information (blockers)
+
+This is especially valuable when escalating from a Retrying loop to Initial-Sensitive loop (see [Thinking Process Architecture](../../.claude/diagrams/thinking-process-architecture.md#11-feedback-loop-types)).
+
 **Template**:
 ```markdown
 ## Constraints
@@ -56,6 +68,9 @@ Each component draws from existing layers, ensuring they're all composed togethe
 **Known facts**:
 - {What we know to be true}
 - {Results from previous steps}
+
+**Assumptions** (verify with user if uncertain):
+- {What we've inferred but haven't verified}
 
 **Available resources**:
 - Tools: {Read, Write, Bash, MCP, etc.}
@@ -66,6 +81,7 @@ Each component draws from existing layers, ensuring they're all composed togethe
 
 **Limits/Blockers**:
 - {Known constraints or obstacles}
+- {Knowledge gaps identified by /qna}
 ```
 
 ---
