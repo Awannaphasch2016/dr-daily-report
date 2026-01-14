@@ -966,6 +966,40 @@ Target operations to specific environments **without switching worktrees**. Clau
 
 ---
 
+### `/env` - Generic Feature Branch Environments
+**Purpose**: Execute operations targeting feature branch environments (extends fixed commands)
+
+**Usage**:
+```bash
+# Target feature branch environment
+/env "feature-alerts" "show errors in last 30 min"
+/env "feature-backtest" "SELECT COUNT(*) FROM users"
+/env "feature-charts" deploy
+
+# List available feature environments
+/env --list
+```
+
+**Resource Resolution**:
+```
+/env "feature-alerts" → dr-daily-report-{component}-feature-alerts
+```
+
+**Safety Level Mapping**:
+| Pattern | Safety | Confirmation |
+|---------|--------|--------------|
+| `feature-*`, `experiment-*` | Unrestricted | None |
+| `staging-*`, `stg-*` | Moderate | Writes only |
+| `hotfix-*`, `release-*` | Restricted | All writes + deploys |
+
+**Why both fixed + generic?**
+- Fixed commands (`/dev`, `/prd`) provide explicit safety differentiation
+- `/prd` being distinct has psychological safety value
+- `/env` extends the pattern to arbitrary feature branches
+- 90% of operations use fixed environments; `/env` handles feature branches
+
+---
+
 ### Resource Resolution
 
 All commands automatically resolve resources using existing naming conventions:
@@ -1582,6 +1616,7 @@ For detailed command documentation, see individual command files in `.claude/com
 - [/dev](dev.md) - Execute operations targeting dev environment (unrestricted)
 - [/stg](stg.md) - Execute operations targeting staging environment (moderate gates)
 - [/prd](prd.md) - Execute operations targeting production environment (read-only default)
+- [/env](env.md) - Generic feature branch environment targeting
 
 ### Demos
 - [/explain](explain.md) - Composition demo
