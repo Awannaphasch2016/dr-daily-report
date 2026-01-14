@@ -1384,17 +1384,29 @@ Bug: Lambda timeout
 
 **When to use**: Execution varies but outcome identical, assumptions might be wrong
 
-**Tools**: `/hypothesis` (generate alternatives), `/research` (test), `/validate` (check)
+**Tools**: `/qna` (surface knowledge state), `/hypothesis` (generate alternatives), `/research` (test), `/validate` (check)
 
-**Example**:
+**Two types of blockers**:
+- **Knowledge gaps** (incomplete information): Claude doesn't have information needed to proceed
+- **Incorrect assumptions** (incorrect information): Claude has wrong beliefs about how something works
+
+**Example with `/qna` self-interviewing**:
 ```
 After 3 retrying attempts with same failure:
 → /reflect → "Execution varies, outcome identical"
-→ /hypothesis → "Maybe assumption X is wrong"
+→ /qna "{stuck problem}" → Surface knowledge state for user verification
+  → Confident: "Lambda uses Python 3.11"
+  → Assumed: "Cache invalidates on data change"  ← Might be wrong!
+  → Unknown: "How TTL is configured"
+→ User: "Actually, cache uses fixed 15-min TTL, doesn't invalidate on change"
+→ /hypothesis → Generate alternatives with corrected knowledge
 → /research → Test alternative assumption
 → /validate → New assumption correct
 → Success with different starting point
 ```
+
+**Why `/qna` before `/hypothesis`**:
+Without surfacing current beliefs, Claude might generate hypotheses that are all wrong because they're based on faulty assumptions. `/qna` lets the user correct incorrect knowledge BEFORE exploring alternatives.
 
 **Escalation signal**: `/validate` fails multiple hypotheses
 
@@ -1468,7 +1480,10 @@ After multiple retrying attempts:
 - **Tool signal**: `/trace` shows same root cause repeatedly
 - **`/reflect` reveals**: "Execution varies but outcome identical"
 - **Pattern**: Retrying loop isn't working
-- **Escalate**: Use `/hypothesis` to question assumptions (initial-sensitive)
+- **Escalate**:
+  1. Use `/qna` to surface current knowledge state for user verification
+  2. User corrects any incorrect assumptions or fills knowledge gaps
+  3. Use `/hypothesis` to generate alternatives with corrected knowledge
 
 **Initial-Sensitive → Branching**:
 - **Tool signal**: `/validate` shows multiple assumptions all fail
@@ -1495,7 +1510,7 @@ After multiple retrying attempts:
 | Loop Type | Primary Tools | Escalation Signal | Learning Level |
 |-----------|---------------|-------------------|----------------|
 | **Retrying** | `/trace`, `/validate` | Same `/trace` output repeatedly | Single-Loop |
-| **Initial-Sensitive** | `/hypothesis`, `/research`, `/validate` | `/validate` fails multiple hypotheses | Double-Loop |
+| **Initial-Sensitive** | `/qna`, `/hypothesis`, `/research`, `/validate` | `/validate` fails multiple hypotheses | Double-Loop |
 | **Branching** | `/compare`, `/impact` | `/impact` shows all paths inadequate | Double-Loop |
 | **Synchronize** | `/validate`, `/consolidate` | Drift recurring despite `/consolidate` | Single/Double-Loop |
 | **Meta-Loop** | `/reflect`, `/compare` | `/reflect` reveals loop type ineffective | Triple-Loop |
@@ -1520,6 +1535,13 @@ When debugging or stuck, ask:
 - `/trace`: "What's the root cause?"
   - If same answer repeatedly → stuck in retrying loop
   - If different answers → making progress
+
+**Knowledge State Reveal** (NEW):
+- `/qna`: "What do I know, assume, and not know about this problem?"
+  - Surfaces confident knowledge (verified facts)
+  - Reveals assumptions (inferred beliefs that might be wrong)
+  - Identifies gaps (missing information)
+  - Enables user to correct incorrect assumptions BEFORE exploring alternatives
 
 **Assumption Validation**:
 - `/validate`: "Is my assumption correct?"
@@ -1562,7 +1584,9 @@ Observe (failure) → /trace (root cause) → Fix → Implement → Observe → 
 ```
 Retrying (3x same error)
     → /reflect (stuck signal)
-    → /hypothesis (new assumptions)
+    → /qna (surface knowledge state for user verification)
+    → User corrects: "Actually, X works differently..."
+    → /hypothesis (new assumptions with corrected knowledge)
     → /research (test)
     → /validate (check)
     → Success with different assumption
@@ -1674,7 +1698,7 @@ Goal: Converge all δ to zero before claiming "done"
 | Loop Type | Primary Tools | Escalation Signal | Learning Level |
 |-----------|---------------|-------------------|----------------|
 | Retrying | `/trace`, `/validate` | Same `/trace` output | Single-Loop |
-| Initial-Sensitive | `/hypothesis`, `/research` | Multiple hypotheses fail | Double-Loop |
+| Initial-Sensitive | `/qna`, `/hypothesis`, `/research` | Multiple hypotheses fail | Double-Loop |
 | Branching | `/compare`, `/impact` | All paths inadequate | Double-Loop |
 | Synchronize | `/validate`, `/consolidate` | Drift recurring | Single/Double-Loop |
 | Meta-Loop | `/reflect`, `/compare` | Loop type ineffective | Triple-Loop |
