@@ -7,8 +7,11 @@ WORKDIR ${LAMBDA_TASK_ROOT}
 # Copy requirements file (single source of truth)
 COPY requirements.txt ./
 
-# Install all dependencies
-# Use --no-cache-dir to reduce image size
+# Install numpy FIRST with pre-built wheels to prevent build deps from compiling it
+# This avoids GCC 9.3 requirement for numpy 2.x
+RUN pip install --no-cache-dir numpy==1.26.4
+
+# Install remaining dependencies with pre-built binaries preferred
 RUN pip install --no-cache-dir --prefer-binary -r requirements.txt
 
 # Copy application code (changes most frequently, so placed last)
