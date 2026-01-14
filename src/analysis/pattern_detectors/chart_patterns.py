@@ -221,6 +221,14 @@ class ChartPatternDetector(BasePatternDetector):
             low_range = lows.max() - lows.min()
 
             if high_range > 0 and low_range > 0:
+                # Extract key points for visualization:
+                # A = first high touch, B = first low touch, C = second high touch
+                # D = second low touch, E = apex/current position
+                high_idx_1 = np.argmax(highs[:len(highs)//2])
+                low_idx_1 = np.argmin(lows[:len(lows)//2])
+                high_idx_2 = len(highs)//2 + np.argmax(highs[len(highs)//2:])
+                low_idx_2 = len(lows)//2 + np.argmin(lows[len(lows)//2:])
+
                 patterns.append({
                     'pattern': PATTERN_TRIANGLE,
                     'type': pattern_type,
@@ -228,7 +236,14 @@ class ChartPatternDetector(BasePatternDetector):
                     'end_date': self._format_date(segment.index[-1]),
                     'resistance_level': float(highs.max()),
                     'support_level': float(lows.min()),
-                    'confidence': CONFIDENCE_MEDIUM
+                    'confidence': CONFIDENCE_MEDIUM,
+                    'points': {
+                        'A': (self._format_date(segment.index[high_idx_1]), float(highs[high_idx_1])),
+                        'B': (self._format_date(segment.index[low_idx_1]), float(lows[low_idx_1])),
+                        'C': (self._format_date(segment.index[high_idx_2]), float(highs[high_idx_2])),
+                        'D': (self._format_date(segment.index[low_idx_2]), float(lows[low_idx_2])),
+                        'E': (self._format_date(segment.index[-1]), float(segment['Close'].iloc[-1])),
+                    }
                 })
 
         return patterns[:5]
@@ -269,8 +284,11 @@ class ChartPatternDetector(BasePatternDetector):
             # Check if peaks are similar (within 2%)
             if abs(peak1 - peak2) / max(peak1, peak2) < 0.02:
                 # Check if there's a valley between peaks
-                valley = highs[i:peak2_idx].min()
+                valley_idx_rel = np.argmin(highs[i:peak2_idx])
+                valley_idx = i + valley_idx_rel
+                valley = highs[valley_idx]
                 if valley < peak1 * 0.95:  # At least 5% drop
+                    # Points: A = first peak, B = valley, C = second peak
                     patterns.append({
                         'pattern': PATTERN_DOUBLE_TOP,
                         'type': PATTERN_TYPE_BEARISH,
@@ -278,7 +296,12 @@ class ChartPatternDetector(BasePatternDetector):
                         'peak2_price': float(peak2),
                         'valley_price': float(valley),
                         'date': self._format_date(data.index[peak2_idx]),
-                        'confidence': CONFIDENCE_MEDIUM
+                        'confidence': CONFIDENCE_MEDIUM,
+                        'points': {
+                            'A': (self._format_date(data.index[i]), float(peak1)),
+                            'B': (self._format_date(data.index[valley_idx]), float(valley)),
+                            'C': (self._format_date(data.index[peak2_idx]), float(peak2)),
+                        }
                     })
 
         # Detect double bottoms (bullish reversal)
@@ -293,8 +316,11 @@ class ChartPatternDetector(BasePatternDetector):
             # Check if bottoms are similar (within 2%)
             if abs(bottom1 - bottom2) / max(bottom1, bottom2) < 0.02:
                 # Check if there's a peak between bottoms
-                peak = lows[i:bottom2_idx].max()
+                peak_idx_rel = np.argmax(lows[i:bottom2_idx])
+                peak_idx = i + peak_idx_rel
+                peak = lows[peak_idx]
                 if peak > bottom1 * 1.05:  # At least 5% rise
+                    # Points: A = first bottom, B = peak, C = second bottom
                     patterns.append({
                         'pattern': PATTERN_DOUBLE_BOTTOM,
                         'type': PATTERN_TYPE_BULLISH,
@@ -302,7 +328,12 @@ class ChartPatternDetector(BasePatternDetector):
                         'bottom2_price': float(bottom2),
                         'peak_price': float(peak),
                         'date': self._format_date(data.index[bottom2_idx]),
-                        'confidence': CONFIDENCE_MEDIUM
+                        'confidence': CONFIDENCE_MEDIUM,
+                        'points': {
+                            'A': (self._format_date(data.index[i]), float(bottom1)),
+                            'B': (self._format_date(data.index[peak_idx]), float(peak)),
+                            'C': (self._format_date(data.index[bottom2_idx]), float(bottom2)),
+                        }
                     })
 
         return patterns[:5]
@@ -348,23 +379,54 @@ class ChartPatternDetector(BasePatternDetector):
 
             if trend_slope > 0.01 and consolidation_std < trend_std * 0.5:
                 # Bullish flag/pennant
+                # Extract key points for visualization:
+                # A = trend start (lowest point in trend), B = trend peak (flagpole top)
+                # C = consolidation high, D = consolidation low, E = current close
+                trend_start_idx = i - 10
+                trend_peak_idx = i - 10 + np.argmax(data['High'].iloc[i-10:i].values)
+                consol_high_idx = i + np.argmax(data['High'].iloc[i:i+5].values)
+                consol_low_idx = i + np.argmin(data['Low'].iloc[i:i+5].values)
+                end_idx = i + 4
+
                 patterns.append({
                     'pattern': PATTERN_FLAG_PENNANT,
                     'type': PATTERN_TYPE_BULLISH,
                     'start_date': self._format_date(data.index[i]),
                     'end_date': self._format_date(data.index[i+5]),
                     'trend_direction': 'up',
-                    'confidence': CONFIDENCE_LOW
+                    'confidence': CONFIDENCE_LOW,
+                    'points': {
+                        'A': (self._format_date(data.index[trend_start_idx]), float(data['Low'].iloc[trend_start_idx])),
+                        'B': (self._format_date(data.index[trend_peak_idx]), float(data['High'].iloc[trend_peak_idx])),
+                        'C': (self._format_date(data.index[consol_high_idx]), float(data['High'].iloc[consol_high_idx])),
+                        'D': (self._format_date(data.index[consol_low_idx]), float(data['Low'].iloc[consol_low_idx])),
+                        'E': (self._format_date(data.index[end_idx]), float(data['Close'].iloc[end_idx])),
+                    }
                 })
             elif trend_slope < -0.01 and consolidation_std < trend_std * 0.5:
                 # Bearish flag/pennant
+                # A = trend start (highest point), B = trend trough (flagpole bottom)
+                # C = consolidation high, D = consolidation low, E = current close
+                trend_start_idx = i - 10
+                trend_trough_idx = i - 10 + np.argmin(data['Low'].iloc[i-10:i].values)
+                consol_high_idx = i + np.argmax(data['High'].iloc[i:i+5].values)
+                consol_low_idx = i + np.argmin(data['Low'].iloc[i:i+5].values)
+                end_idx = i + 4
+
                 patterns.append({
                     'pattern': PATTERN_FLAG_PENNANT,
                     'type': PATTERN_TYPE_BEARISH,
                     'start_date': self._format_date(data.index[i]),
                     'end_date': self._format_date(data.index[i+5]),
                     'trend_direction': 'down',
-                    'confidence': CONFIDENCE_LOW
+                    'confidence': CONFIDENCE_LOW,
+                    'points': {
+                        'A': (self._format_date(data.index[trend_start_idx]), float(data['High'].iloc[trend_start_idx])),
+                        'B': (self._format_date(data.index[trend_trough_idx]), float(data['Low'].iloc[trend_trough_idx])),
+                        'C': (self._format_date(data.index[consol_high_idx]), float(data['High'].iloc[consol_high_idx])),
+                        'D': (self._format_date(data.index[consol_low_idx]), float(data['Low'].iloc[consol_low_idx])),
+                        'E': (self._format_date(data.index[end_idx]), float(data['Close'].iloc[end_idx])),
+                    }
                 })
 
         return patterns[:5]
@@ -448,6 +510,8 @@ class ChartPatternDetector(BasePatternDetector):
 
                 # Verify converging (20% convergence minimum)
                 if convergence_ratio < 0.8:
+                    # Extract points: A=lower start, B=upper start, C=lower mid, D=upper mid, E=apex
+                    mid_idx = len(segment) // 2
                     patterns.append({
                         'pattern': PATTERN_WEDGE_RISING,
                         'type': PATTERN_TYPE_BEARISH,
@@ -458,7 +522,14 @@ class ChartPatternDetector(BasePatternDetector):
                         'convergence_ratio': float(convergence_ratio),
                         'start_spread': float(start_spread),
                         'end_spread': float(end_spread),
-                        'confidence': CONFIDENCE_MEDIUM
+                        'confidence': CONFIDENCE_MEDIUM,
+                        'points': {
+                            'A': (self._format_date(segment.index[0]), float(lows[0])),
+                            'B': (self._format_date(segment.index[0]), float(highs[0])),
+                            'C': (self._format_date(segment.index[mid_idx]), float(lows[mid_idx])),
+                            'D': (self._format_date(segment.index[mid_idx]), float(highs[mid_idx])),
+                            'E': (self._format_date(segment.index[-1]), float(segment['Close'].iloc[-1])),
+                        }
                     })
 
             # Falling Wedge: Both descending, resistance steeper than support
@@ -470,6 +541,8 @@ class ChartPatternDetector(BasePatternDetector):
 
                 # Verify converging (20% convergence minimum)
                 if convergence_ratio < 0.8:
+                    # Extract points: A=upper start, B=lower start, C=upper mid, D=lower mid, E=apex
+                    mid_idx = len(segment) // 2
                     patterns.append({
                         'pattern': PATTERN_WEDGE_FALLING,
                         'type': PATTERN_TYPE_BULLISH,
@@ -480,7 +553,14 @@ class ChartPatternDetector(BasePatternDetector):
                         'convergence_ratio': float(convergence_ratio),
                         'start_spread': float(start_spread),
                         'end_spread': float(end_spread),
-                        'confidence': CONFIDENCE_MEDIUM
+                        'confidence': CONFIDENCE_MEDIUM,
+                        'points': {
+                            'A': (self._format_date(segment.index[0]), float(highs[0])),
+                            'B': (self._format_date(segment.index[0]), float(lows[0])),
+                            'C': (self._format_date(segment.index[mid_idx]), float(highs[mid_idx])),
+                            'D': (self._format_date(segment.index[mid_idx]), float(lows[mid_idx])),
+                            'E': (self._format_date(segment.index[-1]), float(segment['Close'].iloc[-1])),
+                        }
                     })
 
         # Summary logging with counts

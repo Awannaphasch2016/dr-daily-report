@@ -191,10 +191,24 @@ class CustomPatternAdapter(PatternDetectorInterface):
         }
 
     def _extract_points(self, result: Dict) -> Dict[str, Any]:
-        """Extract pattern points from result."""
-        points = {}
+        """Extract pattern points from result.
 
-        # Extract price-related fields as points
+        Coordinate points for visualization are expected in format:
+        { 'A': (timestamp, price), 'B': (timestamp, price), ... }
+
+        If 'points' key exists with coordinate data, use it directly.
+        Otherwise, fall back to extracting metadata fields (legacy).
+        """
+        # New format: coordinate points for line drawing
+        if 'points' in result and isinstance(result['points'], dict):
+            points = result['points']
+            # Validate at least one point has correct tuple format
+            for key, value in points.items():
+                if isinstance(value, (tuple, list)) and len(value) == 2:
+                    return points  # Valid coordinate points, use directly
+
+        # Legacy format: extract metadata fields (won't render lines, but preserves data)
+        points = {}
         price_fields = [
             'left_shoulder_price', 'head_price', 'right_shoulder_price', 'neckline',
             'peak1_price', 'peak2_price', 'valley_price',
