@@ -31,6 +31,7 @@ Metaphor names that imply looking inside without modifying:
 - `/x-ray` - Deep structural inspection of existing systems
 - `/validate` - Verify claims about current state
 - `/locate` - Find where functionality lives
+- `/qna` - Reveal Claude's understanding and knowledge gaps
 
 ### Analysis Commands (Think About Existing)
 Analysis names that imply reasoning about what exists:
@@ -1000,6 +1001,74 @@ All commands automatically resolve resources using existing naming conventions:
 
 ## Code Quality
 
+### `/qna` - Knowledge Alignment Check
+**Purpose**: Proactively reveal Claude's understanding and knowledge gaps before implementation
+
+**Usage**:
+```bash
+# Basic knowledge probe
+/qna "real-time stock alerts"
+
+# Probe with depth level
+/qna "deployment pipeline" deep
+/qna "error handling" surface
+
+# Domain-specific probing
+/qna "telegram mini app architecture"
+```
+
+**Depth levels**:
+- `surface` - Quick alignment (3-5 facts, 2-3 gaps)
+- `moderate` (default) - Standard probe (5-10 facts, 3-5 gaps)
+- `deep` - Comprehensive audit (exhaustive facts, systematic gap analysis)
+
+**Output**:
+- What I Know (Confident) - Facts with sources
+- What I Assume (Medium Confidence) - Inferred beliefs
+- What I Don't Know (Knowledge Gaps) - Missing information
+- Questions to Align - Clarifying questions with impact
+- Confidence Score (1-10)
+
+**Core Principle**: "Uncertainty should be explicit" - surface assumptions early to prevent rework
+
+---
+
+### `/pay-debt` - Technical Debt Payment Plan
+**Purpose**: Identify technical debt with prioritized "payment plan" using complexity and hotspot analysis
+
+**Usage**:
+```bash
+# Analyze directory with default budget (sprint)
+/pay-debt "src/workflow/"
+
+# With specific budget
+/pay-debt "src/" quick        # Quick wins only (1-2 days)
+/pay-debt "src/" sprint       # One sprint (5-10 days)
+/pay-debt "src/" quarter      # Quarterly investment (20-40 days)
+```
+
+**Output**:
+- **Debt Inventory**: P0/P1/P2/P3 items with complexity and churn metrics
+- **Interest Calculation**: Cost of NOT fixing (hours/month wasted)
+- **Payment Plan**: Phased actions with effort estimates
+- **Verification Criteria**: Before/after complexity targets
+
+**Priority Matrix**:
+| Churn | Complexity | Priority | Action |
+|-------|-----------|----------|--------|
+| High | High | **P0** 🔥 | Pay immediately |
+| High | Low | P1 ⚠️ | Pay this sprint |
+| Low | High | P2 📝 | Schedule payment |
+| Low | Low | P3 ✅ | Monitor only |
+
+**Relationship to `/refacter` skill**:
+- `/pay-debt` = WHAT to refactor (prioritization, planning)
+- `/refacter` skill = HOW to refactor (patterns, techniques)
+
+**Core Principle**: "Debt has interest" - quantify the cost of not paying to prioritize effectively
+
+---
+
 ### `/refactor` - Analyze Complexity & Hotspots
 **Purpose**: Identify high-priority refactoring opportunities using complexity analysis and git churn
 
@@ -1470,6 +1539,7 @@ For detailed command documentation, see individual command files in `.claude/com
 ### Inspection (Reveal Existing)
 - [/x-ray](x-ray.md) - Deep structural inspection of existing systems
 - [/locate](locate.md) - Find where functionality lives in the codebase
+- [/qna](qna.md) - Reveal Claude's understanding and knowledge gaps
 
 ### Analysis (Think About Existing)
 - [/what-if](what-if.md) - Counterfactual reasoning and comparison
@@ -1503,6 +1573,8 @@ For detailed command documentation, see individual command files in `.claude/com
 - [/wt-remove](wt-remove.md) - Remove worktree directory
 
 ### Code Quality
+- [/qna](qna.md) - Knowledge alignment check before implementation
+- [/pay-debt](pay-debt.md) - Technical debt payment plan
 - [/refactor](refactor.md) - Analyze complexity & hotspots
 
 ### Environment Commands

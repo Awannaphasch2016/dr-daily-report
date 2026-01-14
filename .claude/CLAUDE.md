@@ -86,6 +86,21 @@ Before claiming "done", verify the **invariant envelope**:
 
 Use `/invariant "goal"` to identify what must hold, `/reconcile domain` to fix violations, then `/invariant` again to verify delta = 0.
 
+**Cascade Violation Pattern**: A single visible symptom often masks multiple sequential dependencies. When one fix reveals another violation, you're in a cascade. **Pre-scan ALL levels (4→3→2→1→0) BEFORE fixing anything.** This prevents the "fix-reveal-fix" loop:
+```
+❌ Wrong: Fix L1 → Discover L2 broken → Fix L2 → Discover L3 broken...
+✅ Right: Scan L4→L3→L2→L1→L0 → Build dependency graph → Fix in order
+```
+
+**Dependency-Aware Reconciliation**: Violations have dependencies. Fix in dependency order:
+1. **Config** (env vars, URLs, CORS) - foundation for everything
+2. **Schema** (tables, columns) - foundation for data
+3. **Data** (rows, relationships) - foundation for service
+4. **Cache** (rankings, computed values) - derived from data
+5. **Runtime** (verify user can X) - depends on all above
+
+**Cache Invalidation Rule**: After populating data, verify cache reflects it. Either force refresh (`?force_refresh=true`) or wait for TTL expiry. Stale cache is a common "invisible" violation.
+
 **Spec-Driven Development**: For long-running tasks, use specification files to maintain ground truth:
 - **Create Feature Specs**: `/feature "name"` creates contractual specs in [.claude/specs/](.claude/specs/)
 - **Specifications by Objective**: [.claude/specs/](.claude/specs/) - LINE Bot, Telegram, shared components
@@ -154,6 +169,8 @@ Commands are not independent—they are **modes within Strategy**. Each mode def
 | `/feature` | define | Populates Constraints + Invariant from spec files |
 | `/invariant` | scan | Evaluates Check against specification |
 | `/reconcile` | fix | Executes Actions to satisfy Invariant |
+| `/qna` | probe | Reveals Constraints (knowledge state) for user verification |
+| `/pay-debt` | analyze | Reveals Constraints (debt inventory) + defines Invariant (targets) |
 
 **Chaining**: Strategy can chain modes. Each mode updates tuple state before next mode executes.
 
