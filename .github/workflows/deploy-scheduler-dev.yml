@@ -223,12 +223,17 @@ jobs:
             --query 'Environment.Variables' \
             --output json 2>/dev/null || echo '{}')
 
-          UPDATED_VARS=$(echo "$CURRENT_VARS" | jq --arg release "${{ steps.release-version.outputs.release }}" \
+          # Merge with new LANGFUSE_RELEASE (use -c for compact single-line JSON)
+          UPDATED_VARS=$(echo "$CURRENT_VARS" | jq -c --arg release "${{ steps.release-version.outputs.release }}" \
             '. + {LANGFUSE_RELEASE: $release}')
 
+          # Write to temp file to avoid shell quoting issues
+          echo "{\"Variables\": $UPDATED_VARS}" > /tmp/env-vars.json
+
+          # Update the function configuration using --cli-input-json
           aws lambda update-function-configuration \
             --function-name ${{ env.FUNCTION_NAME }} \
-            --environment "Variables=${UPDATED_VARS}"
+            --cli-input-json "$(jq '{Environment: .}' /tmp/env-vars.json)"
           aws lambda wait function-updated --function-name ${{ env.FUNCTION_NAME }}
           echo "✅ LANGFUSE_RELEASE updated"
 
