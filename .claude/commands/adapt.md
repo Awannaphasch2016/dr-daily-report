@@ -116,12 +116,27 @@ The 7-step transfer process maps to our 6-phase workflow:
 
 **Goal**: Create explicit mapping between source concepts and local equivalents
 
+**Surface assumptions first with `/qna`**:
+Before creating mappings, surface what you know and assume about both source and target:
+
+```bash
+/qna "adapting {source} for {goal}" moderate
+```
+
+This reveals:
+- **Confident knowledge**: What you know about source and target
+- **Assumptions**: Beliefs about compatibility that might be wrong
+- **Knowledge gaps**: Missing information that could block adaptation
+
+**Why `/qna` before mapping**: Hidden assumptions about source behavior or target constraints are the #1 cause of failed adaptations. Surfacing them early enables user correction.
+
 **Actions**:
-1. Identify local equivalents for source concepts
-2. Find gaps (what source has that we don't)
-3. Find conflicts (where source violates our principles)
-4. Create concept mapping table
-5. Decide: adopt, skip, or adapt for each concept
+1. Run `/qna` to surface assumptions about source and target
+2. Identify local equivalents for source concepts
+3. Find gaps (what source has that we don't)
+4. Find conflicts (where source violates our principles)
+5. Create concept mapping table
+6. Decide: adopt, skip, or adapt for each concept
 
 **Output**: Concept mapping table
 
@@ -181,7 +196,7 @@ The 7-step transfer process maps to our 6-phase workflow:
 ### Phase 5: Verify
 **Transfer step**: VERIFY
 
-**Goal**: Confirm functionality matches source intent
+**Goal**: Confirm functionality matches source intent AND behavioral invariants hold
 
 **Actions**:
 1. Test functionality matches source behavior
@@ -189,6 +204,23 @@ The 7-step transfer process maps to our 6-phase workflow:
 3. Check principle compliance (CLAUDE.md)
 4. Verify cross-boundary contracts (Principle #19)
 5. Run full test suite
+6. **Verify behavioral invariants** (Principle #25)
+
+**Behavioral invariant verification with `/invariant`**:
+Before claiming adaptation complete, verify invariants at all levels:
+
+```bash
+/invariant "adapted {goal} feature works correctly"
+```
+
+This generates a 5-level verification checklist:
+- Level 4: Configuration (env vars, constants)
+- Level 3: Infrastructure (Lambda → Aurora connectivity)
+- Level 2: Data (schema, data conditions)
+- Level 1: Service (API behavior, contracts)
+- Level 0: User (end-to-end flow)
+
+**Why `/invariant` before claiming "done"**: Adapted code may introduce implicit invariants that aren't obvious. `/invariant` makes them explicit so you verify them.
 
 **Output**: Verification checklist
 
@@ -196,7 +228,7 @@ The 7-step transfer process maps to our 6-phase workflow:
 1. **Surface**: Tests pass (exit code 0)
 2. **Content**: Output matches expected format
 3. **Observability**: Logs show correct behavior
-4. **Ground truth**: Actual behavior matches intent
+4. **Ground truth**: Actual behavior matches intent (verified via `/invariant`)
 
 ---
 
@@ -308,6 +340,21 @@ Next steps:
 
 ## Concept Mapping
 
+### Knowledge State (from /qna)
+
+**Confident** (verified facts):
+- {Fact about source}
+- {Fact about target}
+
+**Assumed** (inferred, verify with user):
+- {Assumption about source behavior}
+- {Assumption about target constraints}
+
+**Unknown** (knowledge gaps):
+- {Gap that could block adaptation}
+
+### Mapping Table
+
 | Source Concept | Local Equivalent | Gap/Conflict | Action |
 |----------------|------------------|--------------|--------|
 | {concept} | {equivalent} | {none/gap/conflict} | {adopt/skip/adapt} |
@@ -361,6 +408,16 @@ Next steps:
 - [ ] Defensive programming (Principle #1)
 - [ ] Evidence strengthening (Principle #2)
 - [ ] Logging discipline (Principle #18)
+- [ ] Behavioral invariants verified (Principle #25)
+
+**Behavioral invariants** (from /invariant):
+| Level | Invariant | Status |
+|-------|-----------|--------|
+| 4 (Config) | {env var set} | [ ] Verified |
+| 3 (Infra) | {connectivity works} | [ ] Verified |
+| 2 (Data) | {schema valid} | [ ] Verified |
+| 1 (Service) | {API contract} | [ ] Verified |
+| 0 (User) | {end-to-end flow} | [ ] Verified |
 
 **Functionality verified**:
 - [ ] {Feature 1 works}
@@ -622,6 +679,10 @@ See:
 - [/transfer](transfer.md) - Abstract transfer framework (parent)
 - [/provision-env](provision-env.md) - Infrastructure transfer (sibling specialization)
 
+### Key Integrations
+- [/qna](qna.md) - Surface assumptions in Phase 2 (Map to Local Context)
+- [/invariant](invariant.md) - Verify behavioral invariants in Phase 5 (Verify)
+
 ### Related Commands
 - `.claude/commands/abstract.md` - Extract patterns from adaptations
 - `.claude/commands/evolve.md` - Incorporate learnings into principles
@@ -632,3 +693,4 @@ See:
 - `.claude/skills/research/` - Research methodology
 - `.claude/adaptations/README.md` - Adaptation document index
 - [Contextual Transfer Framework](../abstractions/workflow-2026-01-11-contextual-transfer-framework.md) - Abstract theory
+- [Behavioral Invariant Guide](../../docs/guides/behavioral-invariant-verification.md) - Invariant verification methodology

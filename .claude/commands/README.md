@@ -320,6 +320,8 @@ EnterPlanMode
 ### `/adapt` - Integrate External Techniques
 **Purpose**: Adapt techniques and patterns from external sources into the codebase while following local conventions and preserving knowledge
 
+**Mode**: `transfer` (Tuple Effect: Heterogeneous transfer - maps source Constraints to target context)
+
 **Usage**:
 ```bash
 # From external repository
@@ -337,11 +339,15 @@ EnterPlanMode
 
 **Six-Phase Workflow**:
 1. **Study** - Understand what the source provides
-2. **Map** - Map concepts to local equivalents
+2. **Map** - Surface assumptions with `/qna`, then map concepts to local equivalents
 3. **Design** - Design local implementation using source techniques
 4. **Implement** - Build using local patterns
-5. **Verify** - Test functionality matches source intent
+5. **Verify** - Test with `/invariant` to verify behavioral invariants hold
 6. **Document** - Record decisions and learnings
+
+**Key integrations**:
+- **Phase 2**: Use `/qna "adapting {source} for {goal}"` to surface assumptions before mapping
+- **Phase 5**: Use `/invariant "adapted feature works"` to verify behavioral invariants
 
 **Output**: Adaptation document at `.claude/adaptations/{date}-{slug}.md`
 

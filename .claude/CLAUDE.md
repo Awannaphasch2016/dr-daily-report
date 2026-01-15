@@ -171,6 +171,7 @@ Commands are not independent—they are **modes within Strategy**. Each mode def
 | `/reconcile` | fix | Executes Actions to satisfy Invariant |
 | `/qna` | probe | Reveals Constraints (knowledge state) for user verification |
 | `/pay-debt` | analyze | Reveals Constraints (debt inventory) + defines Invariant (targets) |
+| `/adapt` | transfer | Heterogeneous transfer: maps source Constraints to target context |
 
 **Chaining**: Strategy can chain modes. Each mode updates tuple state before next mode executes.
 
