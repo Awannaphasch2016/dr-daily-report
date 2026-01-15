@@ -53,9 +53,7 @@ def _validate_required_config() -> None:
 
 
 def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
-    
-# Trigger rebuild for Step Functions pattern precompute
-"""
+    """
     Precompute chart patterns for a single ticker.
 
     Event format:
