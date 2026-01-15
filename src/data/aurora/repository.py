@@ -42,6 +42,27 @@ class TickerRepository:
         self.client = client or get_aurora_client()
 
     # =========================================================================
+    # Ticker Lookup Operations
+    # =========================================================================
+
+    def get_ticker_by_symbol(self, symbol: str) -> Optional[Dict[str, Any]]:
+        """Get ticker info from ticker_master by symbol.
+
+        Args:
+            symbol: Ticker symbol (e.g., 'NVDA19')
+
+        Returns:
+            Dict with id, symbol, name, etc. or None if not found
+        """
+        query = """
+            SELECT id, symbol, name, sector, market_cap, is_active, created_at, updated_at
+            FROM ticker_master
+            WHERE symbol = %s
+            LIMIT 1
+        """
+        return self.client.fetch_one(query, (symbol,))
+
+    # =========================================================================
     # Historical Price Query Operations (Read-only)
     # =========================================================================
     # Note: Write operations removed (migration 018) due to ticker_info dependency

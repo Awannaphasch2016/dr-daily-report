@@ -107,7 +107,7 @@
       "Type": "Map",
       "Comment": "Precompute chart patterns for all tickers (runs after reports)",
       "ItemsPath": "$.ticker_list.tickers",
-      "MaxConcurrency": 10,
+      "MaxConcurrency": 3,
       "Parameters": {
         "ticker.$": "$$.Map.Item.Value",
         "execution_id.$": "$$.Execution.Name"
