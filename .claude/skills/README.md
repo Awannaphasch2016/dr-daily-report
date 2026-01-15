@@ -2,7 +2,9 @@
 
 **Auto-discovered capabilities for specialized assistance.**
 
-This directory contains 10 Claude Code skills that provide focused expertise for common development tasks in the dr-daily-report project. Skills are automatically discovered and invoked by Claude when relevant to the user's request.
+This directory contains 15 Claude Code skills that provide focused expertise for common development tasks in the dr-daily-report project. Skills are automatically discovered and invoked by Claude when relevant to the user's request.
+
+**New in 2026**: Skills now support **tiered composition**. Tier-1 skills are modular, reusable units. Tier-2 skills compose Tier-1 skills for domain-specific workflows.
 
 ---
 
@@ -221,6 +223,104 @@ Claude: [Detects "review" + "performance" keywords]
 
 ---
 
+### 11. performance-investigation
+**Focus**: Web performance metrics, bottleneck identification, optimization patterns
+
+**When Claude uses this**:
+- Diagnosing slow page loads or interactions
+- Investigating API latency issues
+- Optimizing bundle size or rendering
+- Analyzing CloudWatch metrics for bottlenecks
+
+**Files**:
+- `SKILL.md` - Investigation workflow and decision tree
+- `METRICS-GLOSSARY.md` - Performance terminology (LCP, TTFB, etc.)
+- `METRICS-MAP.md` - Metrics → Infrastructure → Code mapping
+- `OPTIMIZATION-PATTERNS.md` - Common fixes with code examples
+- `TOOLS.md` - Browser DevTools, AWS tools, libraries
+- `CHECKLIST.md` - Step-by-step investigation checklist
+
+**Example trigger**: "Why is the modal slow to open?" or "How do I improve page load time?"
+
+---
+
+### 12. prompt-engineering (Tier-1)
+**Focus**: Techniques for designing effective LLM prompts
+
+**When Claude uses this**:
+- Designing new prompts for LLM tasks
+- Debugging poor LLM output quality
+- Optimizing prompts for token efficiency
+- Preventing prompt injection attacks
+
+**Files**:
+- `SKILL.md` - Core principles, decision tree
+- `TECHNIQUES.md` - Zero-shot, few-shot, chain-of-thought patterns
+- `ANTI-PATTERNS.md` - Common mistakes to avoid
+- `SECURITY.md` - Prompt injection prevention
+
+**Example trigger**: "How do I write better prompts?" or "Add few-shot examples"
+
+---
+
+### 13. context-engineering (Tier-1)
+**Focus**: Optimizing the information provided to LLMs through semantic layers, token optimization, and hallucination prevention
+
+**When Claude uses this**:
+- Preparing data for LLM consumption
+- Reducing token usage in prompts
+- Preventing hallucinations in outputs
+- Building semantic layers for data
+
+**Files**:
+- `SKILL.md` - Core principles, decision tree
+- `SEMANTIC-LAYER.md` - Three-layer architecture (83% accuracy pattern)
+- `TOKEN-OPTIMIZATION.md` - Token efficiency strategies
+- `HALLUCINATION-PREVENTION.md` - Ground truth patterns
+
+**Example trigger**: "How do I prevent number hallucinations?" or "Optimize context tokens"
+
+---
+
+### 14. prompt-management (Tier-1)
+**Focus**: Langfuse prompt versioning, A/B testing, and observability patterns
+
+**When Claude uses this**:
+- Versioning prompts in Langfuse
+- Setting up A/B tests for prompt variants
+- Tracking prompt performance metrics
+- Deploying prompt changes
+
+**Files**:
+- `SKILL.md` - Core concepts, environment strategy
+- `VERSIONING.md` - Version management, labels, rollback
+- `AB-TESTING.md` - A/B testing setup and analysis
+- `OBSERVABILITY.md` - Metrics, tracing, alerting
+
+**Example trigger**: "How do I version prompts in Langfuse?" or "Set up A/B test"
+
+---
+
+### 15. report-prompt-workflow (Tier-2)
+**Focus**: Composed workflow for DR report prompt engineering, context building, and management
+
+**Tier**: 2 (Composes: prompt-engineering, context-engineering, prompt-management)
+
+**When Claude uses this**:
+- Modifying DR report prompts
+- Adding new data sections to reports
+- Debugging report generation issues
+- A/B testing report prompts
+
+**Files**:
+- `SKILL.md` - Architecture overview, key files
+- `WORKFLOW.md` - Step-by-step modification guide
+- `CHECKLIST.md` - Pre-deployment validation checklist
+
+**Example trigger**: "Improve the DR report prompt" or "Add new indicator to report"
+
+---
+
 ## How Skills Work
 
 ### Auto-Discovery Process
@@ -248,7 +348,34 @@ Every skill follows this structure:
 ---
 name: skill-name
 description: Brief description of what this skill helps with (1-2 sentences)
+tier: 1                    # Optional: 1 (modular) or 2 (composed)
+depends:                   # Optional: for Tier-2 skills
+  - prompt-engineering
+  - context-engineering
 ---
+```
+
+### Tiered Architecture
+
+Skills support **composition** through tiers:
+
+| Tier | Description | Example |
+|------|-------------|---------|
+| **Tier-1** | Modular, reusable patterns | prompt-engineering, context-engineering |
+| **Tier-2** | Domain-specific, composes Tier-1 | report-prompt-workflow |
+
+**Why tiers?**
+- **Tier-1 skills** are generic and can be reused across domains
+- **Tier-2 skills** combine Tier-1 skills for specific workflows
+- Avoids duplication (DRY principle for skills)
+- Enables skill composition (build complex from simple)
+
+**Example composition**:
+```
+report-prompt-workflow (Tier-2)
+├── depends: prompt-engineering (Tier-1)
+├── depends: context-engineering (Tier-1)
+└── depends: prompt-management (Tier-1)
 ```
 
 ### Progressive Disclosure
@@ -281,6 +408,13 @@ Skills use **progressive disclosure** to balance detail and navigability:
 | "Investigate root cause" | research | Investigation methodology |
 | "Chart trendlines wavy" | data-visualization | Mathematical correctness |
 | "Add pattern overlay" | data-visualization | Visual hierarchy, layering |
+| "Page is slow" | performance-investigation | Bottleneck identification |
+| "Modal takes too long" | performance-investigation | API latency, rendering |
+| "Write better prompts" | prompt-engineering | Prompt design patterns |
+| "Prevent hallucinations" | context-engineering | Semantic layer, ground truth |
+| "Version prompts" | prompt-management | Langfuse versioning |
+| "A/B test prompts" | prompt-management | Experiment tracking |
+| "Improve DR report" | report-prompt-workflow | Composed workflow |
 
 ---
 
@@ -395,6 +529,10 @@ Want to know which skills are most useful? Check CLAUDE.md references:
 | telegram-uiux | UI/Frontend Principles | "UI", "state", "component" |
 | research | (Implicit via investigation) | "investigate", "root cause" |
 | line-uiux | (Legacy - minimal references) | "LINE", "legacy" |
+| prompt-engineering | (New) | "prompt", "few-shot", "LLM" |
+| context-engineering | (New) | "context", "hallucination", "semantic" |
+| prompt-management | (New) | "langfuse", "version", "A/B test" |
+| report-prompt-workflow | (Tier-2) | "report prompt", "DR report" |
 
 ---
 
@@ -447,6 +585,7 @@ CLAUDE.md says "fail fast and visibly." The code-review skill shows you 5 specif
 
 ### All Skills at a Glance
 
+**Tier-1 (Modular)**:
 1. **testing-workflow** - Test patterns, anti-patterns, defensive testing
 2. **telegram-uiux** - Telegram Mini App UI/UX, state management
 3. **refacter** - Complexity analysis, hotspot detection, refactoring
@@ -457,6 +596,13 @@ CLAUDE.md says "fail fast and visibly." The code-review skill shows you 5 specif
 8. **code-review** - Security, performance, defensive programming
 9. **database-migration** - Schema migrations, reconciliation, MySQL
 10. **data-visualization** - Mathematically correct charts, trendlines, overlays
+11. **performance-investigation** - Web performance metrics, bottleneck identification
+12. **prompt-engineering** - LLM prompt design, few-shot, chain-of-thought
+13. **context-engineering** - Semantic layers, token optimization, hallucination prevention
+14. **prompt-management** - Langfuse versioning, A/B testing, observability
+
+**Tier-2 (Composed)**:
+15. **report-prompt-workflow** - DR report prompt lifecycle (composes 12-14)
 
 ### Commands
 
