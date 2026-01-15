@@ -228,27 +228,22 @@ class TestTickerFetcherHandler:
     def test_missing_bucket_name_env_var(self):
         """GIVEN Lambda with missing PDF_BUCKET_NAME env var
         WHEN handler is invoked
-        THEN it should still execute (bucket_name = None is handled by TickerFetcher)
+        THEN it should raise RuntimeError (fail-fast validation)
+
+        Note: Updated to expect validation failure per Defensive Programming principle.
+        Handler now validates required env vars at startup.
         """
         incomplete_env = self.valid_env.copy()
         del incomplete_env['PDF_BUCKET_NAME']
 
         with patch.dict(os.environ, incomplete_env):
-            with patch('src.scheduler.ticker_fetcher.TickerFetcher') as mock_fetcher_class:
-                mock_fetcher = MagicMock()
-                mock_fetcher.fetch_all_tickers.return_value = self.mock_fetch_results
-                mock_fetcher_class.return_value = mock_fetcher
+            from src.scheduler.ticker_fetcher_handler import lambda_handler
 
-                from src.scheduler.ticker_fetcher_handler import lambda_handler
+            with pytest.raises(RuntimeError) as exc_info:
+                lambda_handler({}, MagicMock())
 
-                result = lambda_handler({}, MagicMock())
-
-                # Should succeed - TickerFetcher handles None bucket
-                assert result['statusCode'] == 200
-
-                # Verify TickerFetcher was called with None
-                call_kwargs = mock_fetcher_class.call_args.kwargs
-                assert call_kwargs['bucket_name'] is None
+            # Verify error message mentions the missing var
+            assert 'PDF_BUCKET_NAME' in str(exc_info.value)
 
     @patch.dict(os.environ, {}, clear=True)
     @patch('src.scheduler.ticker_fetcher.TickerFetcher')
@@ -319,7 +314,14 @@ class TestTickerFetcherHandlerResponseFormat:
         self.valid_env = {
             'PDF_BUCKET_NAME': 'test-bucket',
             'DATA_LAKE_BUCKET': 'test-lake',
-            'ENVIRONMENT': 'test'
+            'ENVIRONMENT': 'test',
+            'LOG_LEVEL': 'INFO',
+            'AURORA_HOST': 'test-aurora.cluster.amazonaws.com',
+            'AURORA_PORT': '3306',
+            'AURORA_DATABASE': 'ticker_data',
+            'AURORA_USER': 'admin',
+            'AURORA_PASSWORD': 'test-password',
+            'TZ': 'Asia/Bangkok'  # Required for timezone-aware date handling (Principle #16)
         }
 
     @patch.dict(os.environ, {}, clear=True)
@@ -420,6 +422,14 @@ class TestPrecomputeTrigger:
         self.valid_env = {
             'PDF_BUCKET_NAME': 'test-pdf-bucket',
             'DATA_LAKE_BUCKET': 'test-data-lake-bucket',
+            'ENVIRONMENT': 'test',
+            'LOG_LEVEL': 'INFO',
+            'AURORA_HOST': 'test-aurora.cluster.amazonaws.com',
+            'AURORA_PORT': '3306',
+            'AURORA_DATABASE': 'ticker_data',
+            'AURORA_USER': 'admin',
+            'AURORA_PASSWORD': 'test-password',
+            'TZ': 'Asia/Bangkok',  # Required for timezone-aware date handling (Principle #16)
             'PRECOMPUTE_CONTROLLER_ARN': 'arn:aws:lambda:region:account:function:precompute-controller'
         }
 
@@ -524,11 +534,9 @@ class TestPrecomputeTrigger:
         mock_fetcher.fetch_all_tickers.return_value = self.fetch_results
         mock_fetcher_class.return_value = mock_fetcher
 
-        # Environment without PRECOMPUTE_CONTROLLER_ARN
-        env_without_arn = {
-            'PDF_BUCKET_NAME': 'test-bucket',
-            'DATA_LAKE_BUCKET': 'test-lake'
-        }
+        # Environment without PRECOMPUTE_CONTROLLER_ARN (but with all required vars)
+        env_without_arn = self.valid_env.copy()
+        del env_without_arn['PRECOMPUTE_CONTROLLER_ARN']
 
         with patch.dict(os.environ, env_without_arn):
             from src.scheduler.ticker_fetcher_handler import lambda_handler
