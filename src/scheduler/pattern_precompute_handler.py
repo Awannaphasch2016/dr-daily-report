@@ -34,7 +34,9 @@ def _validate_required_config() -> None:
 
     Raises:
         RuntimeError: If any required environment variable is missing
-    """
+    
+# Trigger rebuild for Step Functions pattern precompute
+"""
     required_vars = {
         'TZ': 'Bangkok timezone for date handling'
     }
@@ -51,7 +53,9 @@ def _validate_required_config() -> None:
 
 
 def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
-    """
+    
+# Trigger rebuild for Step Functions pattern precompute
+"""
     Precompute chart patterns for a single ticker.
 
     Event format:
@@ -67,7 +71,9 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             "patterns_stored": 3,
             "status": "success" | "error"
         }
-    """
+    
+# Trigger rebuild for Step Functions pattern precompute
+"""
     # Validate configuration at startup
     _validate_required_config()
 
@@ -186,7 +192,9 @@ def _get_pattern_code(pattern_type: str) -> str:
 
     Returns:
         Short code (e.g., 'FLAGU')
-    """
+    
+# Trigger rebuild for Step Functions pattern precompute
+"""
     codes = {
         'bullish_flag': 'FLAGU',
         'bearish_flag': 'FLAGD',
