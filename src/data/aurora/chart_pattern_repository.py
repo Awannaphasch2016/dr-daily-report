@@ -38,12 +38,16 @@ ALLOWED_PATTERN_TYPES: Set[str] = {
     'head_shoulders', 'inverse_head_shoulders',
     # Wedges
     'ascending_wedge', 'descending_wedge',
+    'rising_wedge', 'falling_wedge',  # Aliases
     # Double patterns
     'double_top', 'double_bottom',
     # Triangles
+    'triangle',  # Generic triangle
     'ascending_triangle', 'descending_triangle', 'symmetrical_triangle',
+    # VCP patterns
+    'vcp', 'bullish_vcp', 'bearish_vcp',
     # Other patterns
-    'cup_handle', 'vcp',
+    'cup_handle',
     # Generic (for custom patterns)
     'bullish', 'bearish', 'neutral',
 }

@@ -46,18 +46,30 @@ class TickerRepository:
     # =========================================================================
 
     def get_ticker_by_symbol(self, symbol: str) -> Optional[Dict[str, Any]]:
-        """Get ticker info from ticker_master by symbol.
+        """Get ticker info from ticker_master by symbol via ticker_aliases.
+
+        Note: ticker_master doesn't have symbol column. Symbols are in ticker_aliases
+        which references ticker_master.id via ticker_id.
 
         Args:
-            symbol: Ticker symbol (e.g., 'NVDA19')
+            symbol: Ticker symbol (e.g., 'NVDA19', 'D05.SI')
 
         Returns:
-            Dict with id, symbol, name, etc. or None if not found
+            Dict with id, symbol, company_name, etc. or None if not found
         """
         query = """
-            SELECT id, symbol, name, sector, market_cap, is_active, created_at, updated_at
-            FROM ticker_master
-            WHERE symbol = %s
+            SELECT
+                m.id,
+                a.symbol,
+                m.company_name,
+                m.sector,
+                m.exchange,
+                m.is_active,
+                m.created_at,
+                m.updated_at
+            FROM ticker_aliases a
+            JOIN ticker_master m ON a.ticker_id = m.id
+            WHERE a.symbol = %s
             LIMIT 1
         """
         return self.client.fetch_one(query, (symbol,))
