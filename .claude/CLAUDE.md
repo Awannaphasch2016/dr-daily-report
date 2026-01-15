@@ -171,7 +171,11 @@ Commands are not independent—they are **modes within Strategy**. Each mode def
 | `/reconcile` | fix | Executes Actions to satisfy Invariant |
 | `/qna` | probe | Reveals Constraints (knowledge state) for user verification |
 | `/pay-debt` | analyze | Reveals Constraints (debt inventory) + defines Invariant (targets) |
-| `/adapt` | transfer | Heterogeneous transfer: maps source Constraints to target context |
+| `/transfer` | transform | **Foundation**: Transform(X, A, B, Invariants) → X' |
+| `/adapt` | transform | Specialization: code, external→internal, adapt |
+| `/provision-env` | transform | Specialization: infra, internal→internal, copy |
+| `/perf` | observe | Reveals performance Constraints from CloudWatch metrics |
+| `/optimize` | transform | Transforms Constraints while maintaining Invariant stability (Tier-2) |
 
 **Chaining**: Strategy can chain modes. Each mode updates tuple state before next mode executes.
 
@@ -179,6 +183,45 @@ Commands are not independent—they are **modes within Strategy**. Each mode def
 - `summarize`, `rewrite_simple`, `extract_criteria`, `compare_two`
 
 See [Command Mode Specifications](.claude/commands/README.md).
+
+### 28. Compositional Hierarchy (Meta-Architectural Principle)
+
+> "Everything is layered. Make the layers explicit."
+
+**Core Concept**: Tier-N composition replaces undifferentiated "references" with structured relationships.
+
+**Relationship Taxonomy**:
+| Relationship | Direction | Meaning | Example |
+|--------------|-----------|---------|---------|
+| `composes` | Higher → Lower | Builds on, combines | Tier-2 skill → Tier-1 skills |
+| `depends` | Same/Cross tier | Requires, doesn't build | Skill → external library |
+| `invokes` | Cross-domain | Calls as capability | Command → skill |
+| `grounds` | Meta → Instance | Provides foundation | Principle → implementation |
+
+**Universal Tier Structure**:
+```
+Tier-0: Core/Atomic (always present, self-contained)
+Tier-1: Modular (reusable, independent)
+Tier-2: Composed (builds on Tier-1)
+Tier-N: Higher composition (builds on lower tiers)
+```
+
+**Applied Across Domains**:
+| Domain | Tier-0 | Tier-1 | Tier-2+ |
+|--------|--------|--------|---------|
+| Principles | Core (#1,2,18,20,23,25-28) | Domain clusters | Task-specific |
+| Skills | — | Modular (prompt-eng, testing) | Composed (report-workflow) |
+| Commands | Atomic (/explore, /validate) | — | Orchestrated (/optimize, /analysis) |
+| Invariants | Level 4 (config) | Levels 3-2 (infra, data) | Levels 1-0 (service, user) |
+| Tests | Tier-0 (unit) | Tier-1-2 (integration) | Tier-3-4 (e2e) |
+
+**Why This Matters**:
+- **Clarity**: "A composes B" is more precise than "A references B"
+- **Reusability**: Tier-1 modules can be composed into multiple Tier-2 solutions
+- **Maintainability**: Changes to Tier-1 automatically benefit all Tier-2 dependents
+- **Cognitive load**: Hierarchical structure is easier to navigate than flat references
+
+See [Compositional Hierarchy Guide](.claude/principles/compositional-hierarchy.md).
 
 ---
 
@@ -230,6 +273,7 @@ See [Principles Index](.claude/principles/index.md) for keyword triggers and mul
 | 25 | Behavioral Invariant | 0 | Core |
 | 26 | Thinking Tuple Protocol (Universal Kernel) | 0 | Core |
 | 27 | Commands as Strategy Modes | 0 | Core |
+| 28 | Compositional Hierarchy | 0 | Core |
 
 ---
 

@@ -620,6 +620,29 @@ Invariant:
 | `/what-if` | Executes in compare Process mode |
 | `/decompose` | Executes in decompose Process mode |
 | `/reflect` | Triggered when Check fails repeatedly |
+| `/transfer` | **Foundation for transform commands** - maps to full tuple |
+| `/adapt` | Transform specialization (code, external→internal) |
+| `/provision-env` | Transform specialization (infra, internal→internal) |
+
+---
+
+## Integration with Transform Foundation
+
+The [Transform Foundation](../../.claude/commands/transfer.md) maps directly to the Thinking Tuple:
+
+```
+Transform(X, Context_A, Context_B, Invariants) → X'
+
+Mapping:
+├── Context_A      →  Constraints (what we have/know)
+├── Invariants     →  Invariant (what must be preserved)
+├── {principles}   →  Principles (domain-specific)
+├── 7-step process →  Process (transfer mode)
+├── domain steps   →  Actions (concrete execution)
+└── verify X'      →  Check (did we satisfy invariant?)
+```
+
+**Key insight**: Every transformation is a Thinking Tuple execution. The Transform function formalizes what was implicit in transformation workflows.
 
 ---
 
@@ -642,3 +665,4 @@ Each todo item can map to a tuple:
 - [Thinking Process Architecture - Section 12](../../.claude/diagrams/thinking-process-architecture.md#12-thinking-tuple-protocol) - Architecture integration
 - [Behavioral Invariant Guide](behavioral-invariant-verification.md) - Invariant slot details
 - [Principle #2 Progressive Evidence](../../.claude/CLAUDE.md) - Check slot evidence levels
+- [Transform Foundation](../../.claude/commands/transfer.md) - Unified transformation theory

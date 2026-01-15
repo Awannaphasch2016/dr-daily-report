@@ -15,9 +15,25 @@ composition:
 
 # Adapt Command
 
-**Extends**: [/transfer](transfer.md)
+**Extends**: [/transfer](transfer.md) (Foundation Layer)
 **Domain**: Code patterns, algorithms, techniques
 **Transfer Type**: Heterogeneous (source type != target type)
+
+---
+
+## Foundation Parameters
+
+This command is a **specialization** of the [Transform Foundation](transfer.md):
+
+```
+Transform(X, Context_A, Context_B, Invariants) → X'
+
+/adapt instantiation:
+├── WHAT (X):        code (algorithms, patterns, techniques)
+├── WHERE:           external→internal OR internal→internal
+├── HOW:             adapt (conceptual translation)
+└── Invariants:      {algorithm_essence, CLAUDE.md_principles}
+```
 
 ---
 
@@ -29,19 +45,19 @@ Adapt techniques and patterns from external sources into the codebase while foll
 
 ---
 
-## Relationship to /transfer Framework
+## Relationship to Foundation Layer
 
-This command is a **specialization** of the [/transfer](transfer.md) framework for code domains:
+This command implements the [Transform Foundation](transfer.md) for code domains:
 
-| Transfer Aspect | /adapt Value |
-|-----------------|--------------|
-| **Concept** | Technique, algorithm, pattern (variable) |
-| **Source context** | External library, repo, docs, branch |
-| **Target context** | Our codebase |
+| Foundation Aspect | /adapt Value |
+|-------------------|--------------|
+| **X (What)** | Algorithm, pattern, technique |
+| **Context_A** | External library, repo, docs, branch |
+| **Context_B** | Our codebase |
+| **Invariants** | Algorithm essence + CLAUDE.md principles |
 | **Transfer type** | Heterogeneous (source != target) |
-| **Key challenge** | Preserve algorithm essence, change implementation |
 
-The 7-step transfer process maps to our 6-phase workflow:
+The Foundation's 7-step process maps to our 6-phase workflow:
 - Steps 1-2 (IDENTIFY, ANALYZE SOURCE) → Phase 1 (Study Source)
 - Steps 3-4 (ANALYZE TARGET, MAP) → Phase 2 (Map to Local Context)
 - Step 5 (UNTANGLE) → Phase 3 (Design Local Implementation)

@@ -14,15 +14,183 @@ arg_schema:
 
 # Provision Environment Command
 
-**Extends**: [/transfer](transfer.md)
+**Extends**: [/transfer](transfer.md) (Foundation Layer)
 **Domain**: Infrastructure configuration
 **Transfer Type**: Homogeneous (source env = target env type)
+
+---
+
+## Foundation Parameters
+
+This command is a **specialization** of the [Transform Foundation](transfer.md):
+
+```
+Transform(X, Context_A, Context_B, Invariants) → X'
+
+/provision-env instantiation:
+├── WHAT (X):        infra (infrastructure configuration)
+├── WHERE:           internal→internal (env to env)
+├── HOW:             copy (mechanical reproduction with name substitution)
+└── Invariants:      {resource_isolation, functionality, behavioral_contracts}
+```
 
 ---
 
 ## Purpose
 
 Create a new isolated infrastructure environment by cloning and adapting an existing working environment. This is a **homogeneous transfer** - source and target are both AWS environments.
+
+**IMPORTANT**: This project uses `-var-file` pattern, NOT Terraform workspaces.
+
+---
+
+## Quick Start: Feature Branch Environment
+
+The fastest path to creating an isolated feature branch environment:
+
+```bash
+# 1. Create tfvars file from dev
+cp terraform/terraform.dev.tfvars terraform/terraform.feature-auth.tfvars
+
+# 2. Edit environment name (the only REQUIRED change)
+sed -i 's/environment  = "dev"/environment  = "feature-auth"/' terraform/terraform.feature-auth.tfvars
+
+# 3. Plan (verify what will be created)
+cd terraform && doppler run --config dev -- terraform plan -var-file=terraform.feature-auth.tfvars
+
+# 4. Apply (create infrastructure)
+doppler run --config dev -- terraform apply -var-file=terraform.feature-auth.tfvars
+
+# 5. Cleanup when done
+terraform destroy -var-file=terraform.feature-auth.tfvars
+rm terraform.feature-auth.tfvars
+```
+
+**What this creates**: Complete isolated infrastructure with `-feature-auth` suffix:
+- Lambda: `dr-daily-report-line-bot-feature-auth`
+- Lambda: `dr-daily-report-telegram-api-feature-auth`
+- DynamoDB: `dr-daily-report-telegram-watchlist-feature-auth`
+- **Aurora**: `dr-daily-report-aurora-feature-auth` (+$43/month)
+- etc.
+
+**What is shared**: S3 buckets, ECR repository (same Docker images), VPC/NAT Gateway
+
+---
+
+## Feature Branch .tfvars Pattern
+
+### Environment Naming Convention
+
+| Environment Type | tfvars File | Example |
+|-----------------|-------------|---------|
+| Development | `terraform.dev.tfvars` | `environment = "dev"` |
+| Staging | `terraform.staging.tfvars` | `environment = "staging"` |
+| Production | `terraform.prod.tfvars` | `environment = "prod"` |
+| **Feature Branch** | `terraform.feature-{name}.tfvars` | `environment = "feature-auth"` |
+
+### Feature Branch tfvars Template
+
+```hcl
+# terraform/terraform.feature-{name}.tfvars
+# Created from: terraform.dev.tfvars
+# Purpose: Isolated environment for feature development
+
+# REQUIRED CHANGE: Set unique environment name
+environment  = "feature-{name}"  # e.g., "feature-auth", "feature-charts"
+
+# Project Configuration (inherit from dev)
+project_name = "dr-daily-report"
+owner        = "data-team"
+cost_center  = "engineering"
+
+# AWS Configuration
+aws_region = "ap-southeast-1"
+
+# Lambda Configuration
+lambda_memory  = 512
+lambda_timeout = 120
+log_retention_days = 3  # Shorter retention for feature envs (cost savings)
+
+# OPTIONAL: Override for testing
+# aurora_min_acu = 0.5  # Same as dev by default
+```
+
+### What Gets Isolated vs Shared
+
+| Resource | Isolated Per-Environment | Shared | Notes |
+|----------|-------------------------|--------|-------|
+| Lambda functions | ✓ (suffixed) | | `dr-daily-report-*-{env}` |
+| IAM roles | ✓ (suffixed) | | `dr-daily-report-*-role-{env}` |
+| DynamoDB tables | ✓ (suffixed) | | `dr-daily-report-*-{env}` |
+| API Gateway | ✓ (suffixed) | | Separate API per env |
+| Step Functions | ✓ (suffixed) | | `dr-daily-report-*-{env}` |
+| CloudWatch Log Groups | ✓ (prefixed) | | Per-function logs |
+| **Aurora MySQL** | ✓ (suffixed) | | `dr-daily-report-aurora-{env}` |
+| S3 buckets | | ✓ (same buckets) | Shared across envs |
+| ECR repository | | ✓ (same images) | Docker images shared |
+| VPC/Subnets | | ✓ (same network) | Default VPC |
+| NAT Gateway | | ✓ (shared) | Single NAT for all |
+
+**Note**: Aurora IS isolated per environment. Each environment creates its own Aurora cluster with `${var.environment}` suffix. This is by design in `terraform/aurora.tf`.
+
+### Cost Considerations
+
+| Resource | Dev Cost | Feature Branch Additional |
+|----------|----------|---------------------------|
+| Lambda | Pay-per-use | ~$0/month (idle) |
+| DynamoDB | On-demand | ~$0/month (idle) |
+| API Gateway | Pay-per-call | ~$0/month (idle) |
+| **Aurora** | ~$43/month | **+$43/month** (new cluster) |
+| **NAT Gateway** | ~$32/month | $0 (shared) |
+
+**Cost warning**: Each new environment creates a NEW Aurora cluster (~$43/month minimum). Feature branches are NOT free if you need Aurora.
+
+**When to create isolated environment**:
+- Testing infrastructure changes (Lambda, IAM, API Gateway) → Low cost (pay-per-use)
+- Testing schema migrations → **Costs $43+/month** for Aurora cluster
+- Frontend-only changes → **Don't need new env** (use existing dev API)
+
+### Cleanup Procedure
+
+```bash
+# 1. Destroy infrastructure
+cd terraform
+doppler run --config dev -- terraform destroy -var-file=terraform.feature-auth.tfvars
+
+# 2. Remove tfvars file (not tracked in git)
+rm terraform.feature-auth.tfvars
+
+# 3. Verify no orphaned resources
+aws lambda list-functions --query "Functions[?contains(FunctionName, 'feature-auth')]"
+```
+
+### CI/CD Integration (Future)
+
+Feature branch environments can be automatically provisioned via GitHub Actions:
+
+```yaml
+# .github/workflows/feature-env.yml (future)
+on:
+  push:
+    branches:
+      - 'feature/**'
+
+jobs:
+  provision:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create tfvars
+        run: |
+          BRANCH_NAME=${GITHUB_REF#refs/heads/}
+          ENV_NAME=${BRANCH_NAME//\//-}  # feature/auth -> feature-auth
+          cp terraform/terraform.dev.tfvars terraform/terraform.${ENV_NAME}.tfvars
+          sed -i "s/environment  = \"dev\"/environment  = \"${ENV_NAME}\"/" terraform/terraform.${ENV_NAME}.tfvars
+
+      - name: Terraform Apply
+        run: |
+          cd terraform
+          terraform apply -var-file=terraform.${ENV_NAME}.tfvars -auto-approve
+```
 
 ---
 
@@ -41,15 +209,23 @@ Create a new isolated infrastructure environment by cloning and adapting an exis
 
 ---
 
-## Domain-Specific Configuration
+## Relationship to Foundation Layer
 
-| Transfer Aspect | Infrastructure Value |
-|-----------------|---------------------|
-| **What to transfer** | Working infrastructure configuration |
-| **Source context** | Existing environment (e.g., dev) |
-| **Target context** | New environment (e.g., staging) |
-| **Portable** | Terraform structure, IAM policy shapes, env var keys |
-| **Context-bound** | Resource names, external credentials, ARNs |
+This command implements the [Transform Foundation](transfer.md) for infrastructure domains:
+
+| Foundation Aspect | /provision-env Value |
+|-------------------|----------------------|
+| **X (What)** | Infrastructure configuration (Terraform, IAM, env vars) |
+| **Context_A** | Existing environment (e.g., dev) |
+| **Context_B** | New environment (e.g., staging) |
+| **Invariants** | Resource isolation, functionality, behavioral contracts |
+| **Transfer type** | Homogeneous (env → env) |
+
+**Portable** (Foundation Step 5 - UNTANGLE):
+- Terraform structure, IAM policy shapes, env var keys
+
+**Context-bound** (Foundation Step 5 - UNTANGLE):
+- Resource names, external credentials, ARNs
 
 ---
 
@@ -87,7 +263,9 @@ Checklist:
 ### External Services
 - LINE Bot channel
 - Telegram Bot
-- Aurora cluster (shared)
+
+### Database
+- Aurora cluster: dr-daily-report-aurora-{env} (isolated per environment)
 ```
 
 ---
@@ -131,8 +309,8 @@ Constraints checklist:
 |---------|--------------------| -------|
 | LINE Bot | YES (per-channel webhooks) | Create new channel |
 | Telegram Bot | YES (per-bot tokens) | Create new bot |
-| Aurora | NO (shared database) | Same connection |
-| S3 | MAYBE (depends on bucket policy) | Usually shared |
+| Aurora | YES (per-env cluster) | New cluster created (+$43/month) |
+| S3 | NO (shared buckets) | Same buckets |
 | OpenRouter | NO (API key shared) | Same key |
 
 ---
@@ -145,8 +323,9 @@ Constraints checklist:
 |-----------------|-----------------|--------|
 | `dr-daily-report-line-bot-dev` | `dr-daily-report-line-bot-staging` | Clone + rename |
 | `dr-daily-report-line-bot-role-dev` | `dr-daily-report-line-bot-role-staging` | Clone + rename |
+| `dr-daily-report-aurora-dev` | `dr-daily-report-aurora-staging` | **NEW CLUSTER** (+$43/mo) |
 | `LINE_CHANNEL_ACCESS_TOKEN` (dev) | `LINE_CHANNEL_ACCESS_TOKEN` (staging) | **NEW CREDENTIAL** |
-| `AURORA_HOST` | `AURORA_HOST` | Same value |
+| `AURORA_HOST` | `AURORA_HOST` | **NEW VALUE** (new cluster endpoint) |
 | `OPENROUTER_API_KEY` | `OPENROUTER_API_KEY` | Same value |
 
 ---
@@ -225,12 +404,14 @@ aws lambda create-function \
 
 #### 6.4 Update Doppler Secrets
 ```bash
-# Set isolated credentials
+# Set isolated credentials (external services)
 doppler secrets set LINE_CHANNEL_ACCESS_TOKEN="{new_token}" --config {target_env}
 doppler secrets set LINE_CHANNEL_SECRET="{new_secret}" --config {target_env}
 
-# Shared credentials can inherit or be set explicitly
-doppler secrets set AURORA_HOST="{same_host}" --config {target_env}
+# Aurora credentials (NEW cluster created by Terraform)
+# AURORA_HOST will be the new cluster endpoint from terraform output
+doppler secrets set AURORA_HOST="{new_cluster_endpoint}" --config {target_env}
+doppler secrets set AURORA_PASSWORD="{same_password_or_new}" --config {target_env}
 ```
 
 ---
@@ -329,24 +510,26 @@ Infrastructure: LINE bot Lambda + IAM + external integration
 ## Step 3: ANALYZE TARGET (staging)
 - Must be isolated from dev
 - LINE channel must be separate (per-channel webhooks)
-- Aurora can be shared
+- Aurora cluster will be NEW (created by Terraform)
 
 ## Step 4: MAP
 | Source | Target | Action |
 |--------|--------|--------|
 | Lambda name | -staging suffix | Clone |
+| Aurora cluster | -staging suffix | **NEW** (+$43/mo) |
 | LINE_CHANNEL_* | NEW | Isolate |
-| AURORA_* | Same | Copy |
+| AURORA_HOST | NEW endpoint | Update after terraform |
 
 ## Step 5: UNTANGLE
 Portable: Lambda config, IAM shape
-Context-bound: LINE credentials, resource names
+Context-bound: LINE credentials, Aurora endpoint, resource names
 
 ## Step 6: REWIRE
 1. Created IAM role: dr-daily-report-line-bot-role-staging
 2. Created Lambda: dr-daily-report-line-bot-staging
-3. Created LINE channel in Developer Console
-4. Updated Doppler with staging LINE credentials
+3. Created Aurora cluster: dr-daily-report-aurora-staging
+4. Created LINE channel in Developer Console
+5. Updated Doppler with staging credentials (LINE + Aurora endpoint)
 
 ## Step 7: VERIFY
 - [ ] Lambda returns 200 ✓
@@ -362,6 +545,7 @@ Context-bound: LINE credentials, resource names
 
 - [/transfer](transfer.md) - Abstract transfer framework
 - [/adapt](adapt.md) - Code transfer (heterogeneous)
+- [Infrastructure Monitoring Exploration](../explorations/2026-01-14-infrastructure-monitoring-alerting.md) - Environment management pattern
 - [Credential Isolation Lessons](../reports/2026-01-11-line-staging-credential-isolation-lessons.md) - Real incident
 - [Deployment Skill](../skills/deployment/) - Deployment workflows
 - [CLAUDE.md Principle #24](../CLAUDE.md) - External Service Credential Isolation
