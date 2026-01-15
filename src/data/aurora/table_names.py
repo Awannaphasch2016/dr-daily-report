@@ -61,6 +61,9 @@ TICKER_MASTER = "ticker_master"
 TICKER_ALIASES = "ticker_aliases"
 """Ticker symbol aliases and mappings (DR format ↔ Yahoo format)"""
 
+CHART_PATTERN_DATA = "chart_pattern_data"
+"""Detected chart patterns with implementation provenance tracking"""
+
 
 # ============================================================================
 # Deprecated Tables (Scheduled for Removal)
@@ -91,6 +94,7 @@ class TABLES:
     COMPARATIVE_FEATURES = COMPARATIVE_FEATURES
     TICKER_MASTER = TICKER_MASTER
     TICKER_ALIASES = TICKER_ALIASES
+    CHART_PATTERN_DATA = CHART_PATTERN_DATA
 
 
 # ============================================================================
@@ -137,6 +141,7 @@ __all__ = [
     'COMPARATIVE_FEATURES',
     'TICKER_MASTER',
     'TICKER_ALIASES',
+    'CHART_PATTERN_DATA',
 
     # Convenience namespace
     'TABLES',
