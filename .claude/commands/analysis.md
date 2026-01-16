@@ -32,6 +32,70 @@ composition:
 
 ---
 
+## Tuple Effects (Universal Kernel Integration)
+
+**Mode Type**: `orchestrate`
+
+**Tier**: 2 (Composes: `/explore`, `/what-if`, `/validate`, `/consolidate`)
+
+When `/analysis` executes, it orchestrates a multi-mode pipeline:
+
+| Pipeline Step | Command | Mode | Tuple Effect |
+|---------------|---------|------|--------------|
+| 1 | `/explore` | divergent | Expands Constraints with alternatives |
+| 2 | `/what-if` | compare | Adds alternatives to Constraints |
+| 3 | `/validate` | verify | Tests Invariant, annotates Check |
+| 4 | `/consolidate` | converge | Synthesizes Constraints into decision |
+
+**Aggregate Tuple Effect**:
+
+| Tuple Component | Effect |
+|-----------------|--------|
+| **Constraints** | **COMPREHENSIVE**: Full topic understanding from all angles |
+| **Invariant** | **REFINED**: Validated assumptions, tested hypotheses |
+| **Principles** | **NONE**: Does not modify principles |
+| **Strategy** | Consumes 4 modes in sequence |
+| **Check** | Aggregates checks from all 4 phases |
+
+**Pipeline State Flow**:
+```yaml
+phase_1_explore:
+  constraints_added: ["alternative_1", "alternative_2", "edge_cases"]
+
+phase_2_what_if:
+  constraints_added: ["comparison_matrix", "trade_offs"]
+
+phase_3_validate:
+  check_annotation:
+    hypotheses_tested: 3
+    validated: 2
+    refuted: 1
+
+phase_4_consolidate:
+  output: "synthesized_understanding"
+  confidence: HIGH
+```
+
+---
+
+## Local Check (Mode Completion Criteria)
+
+The `/analysis` orchestration is complete when ALL phases complete:
+
+| Phase | Completion Criterion |
+|-------|---------------------|
+| **Explore** | Multiple perspectives gathered, alternatives identified |
+| **What-If** | Alternatives compared, trade-offs documented |
+| **Validate** | Key assumptions tested with evidence |
+| **Consolidate** | Findings synthesized into coherent summary |
+
+**Aggregate Check Result**:
+- **PASS**: All 4 phases completed → comprehensive analysis ready
+- **PARTIAL**: Some phases incomplete → continue remaining phases
+- **FAIL**: Explore phase failed → topic too vague, need clarification
+
+---
+
 ## Execution Flow
 
 This command automatically chains four analysis phases:

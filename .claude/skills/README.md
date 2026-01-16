@@ -1,8 +1,10 @@
 # Claude Code Skills
 
-**Auto-discovered capabilities for specialized assistance.**
+**Part of the Agent Kernel** - Auto-discovered capabilities for specialized assistance.
 
 This directory contains 15 Claude Code skills that provide focused expertise for common development tasks in the dr-daily-report project. Skills are automatically discovered and invoked by Claude when relevant to the user's request.
+
+> **Agent Kernel** = The complete knowledge system (`.claude/*` + `docs/*`). Skills are one layer within the Agent Kernel. See [CLAUDE.md](../CLAUDE.md#agent-kernel) for the full architecture.
 
 **New in 2026**: Skills now support **tiered composition**. Tier-1 skills are modular, reusable units. Tier-2 skills compose Tier-1 skills for domain-specific workflows.
 
@@ -357,7 +359,7 @@ depends:                   # Optional: for Tier-2 skills
 
 ### Tiered Architecture
 
-Skills support **composition** through tiers:
+Skills support **composition** through tiers (see [Principle #28: Compositional Hierarchy](../principles/compositional-hierarchy.md)):
 
 | Tier | Description | Example |
 |------|-------------|---------|
@@ -373,9 +375,38 @@ Skills support **composition** through tiers:
 **Example composition**:
 ```
 report-prompt-workflow (Tier-2)
-├── depends: prompt-engineering (Tier-1)
-├── depends: context-engineering (Tier-1)
-└── depends: prompt-management (Tier-1)
+├── composes: prompt-engineering (Tier-1)
+├── composes: context-engineering (Tier-1)
+└── composes: prompt-management (Tier-1)
+```
+
+### Relationship Taxonomy
+
+Skills use four relationship types (replacing generic "references"):
+
+| Relationship | Direction | Meaning | Example |
+|--------------|-----------|---------|---------|
+| **composes** | Higher → Lower | Builds on, combines | Tier-2 skill → Tier-1 skills |
+| **depends** | Same/Cross tier | Requires, doesn't build | Skill → external library |
+| **invokes** | Cross-domain | Calls as capability | Command → skill |
+| **grounds** | Meta → Instance | Provides foundation | Principle → skill pattern |
+
+**In YAML frontmatter**:
+```yaml
+---
+name: report-prompt-workflow
+tier: 2
+depends:                    # Lists what this skill composes/depends on
+  - prompt-engineering      # composes (Tier-1 skill)
+  - context-engineering     # composes (Tier-1 skill)
+  - radon                   # depends (external tool)
+---
+```
+
+**In documentation** (use explicit language):
+```markdown
+❌ Vague: "This skill references code-review"
+✅ Explicit: "This skill composes code-review's DEFENSIVE.md patterns"
 ```
 
 ### Progressive Disclosure

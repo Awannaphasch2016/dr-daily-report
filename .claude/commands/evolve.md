@@ -24,6 +24,37 @@ composition:
 
 ---
 
+## Tuple Effects (Universal Kernel Integration)
+
+**Part of the Agent Kernel** - Meta-learning operation for knowledge system maintenance.
+
+**Mode Type**: `meta`
+
+**Tier**: 2 (Composes: research skill, `/invariant`, `/reconcile`)
+
+| Tuple Component | Effect |
+|-----------------|--------|
+| **Constraints** | **EXPAND**: Adds drift analysis, pattern discoveries, violations |
+| **Invariant** | **EVALUATE**: Checks Agent Kernel compliance (Step 10) |
+| **Principles** | **UPDATE**: May propose changes to Tier-0/1/2 principles |
+| **Strategy** | 10-step pipeline ending with compliance verification |
+| **Check** | **ANNOTATE**: Reports delta (compliance violations), drift metrics |
+
+**Local Check** (mode-specific completion):
+- Drift analysis complete (Steps 1-7)
+- Evolution report generated (Steps 8-9)
+- Agent Kernel compliance verified (Step 10, delta = 0)
+
+**Composition**:
+```yaml
+invokes:
+  - skill: research    # Systematic review methodology
+  - command: invariant # Step 10: Compliance check
+  - command: reconcile # Step 10: Fix violations (optional)
+```
+
+---
+
 ## Quick Reference
 
 ```bash
@@ -715,6 +746,111 @@ Report: .claude/evolution/2025-12-24-{focus_area}.md
 
 Next review: {date + 30 days}
 ```
+
+---
+
+### Step 10: Invariant Compliance Check (Self-Verification)
+
+**Purpose**: After applying updates, verify the Agent Kernel itself remains compliant.
+
+**Why this step exists**: Evolution updates (new commands, updated principles, modified skills) can introduce inconsistencies. This step closes the loop by checking that all updated artifacts comply with Agent Kernel standards.
+
+**What to check**:
+
+1. **Commands updated during evolution**:
+   - Do they have Tuple Effects sections?
+   - Are they in CLAUDE.md command table?
+   - Do they have correct mode type and tier?
+
+2. **Principles updated during evolution**:
+   - Are they properly tiered (0/1/2/3)?
+   - Are they in the correct cluster file?
+   - Is the principle index updated?
+
+3. **Skills updated during evolution**:
+   - Do they reference Agent Kernel?
+   - Are they properly tiered?
+
+**Execution**:
+
+```bash
+# For each artifact updated in Steps 7-9:
+/invariant "Agent Kernel compliance for {updated_artifact}"
+
+# If violations found:
+/reconcile commands  # or principles, skills, etc.
+
+# Verify delta = 0:
+/invariant "Agent Kernel compliance for {updated_artifact}"
+```
+
+**Compliance checklist for commands**:
+
+| Check | Requirement |
+|-------|-------------|
+| Tuple Effects | Has "Tuple Effects (Universal Kernel Integration)" section |
+| Mode Type | Defined (e.g., `meta`, `execute`, `transform`) |
+| Tier | Specified if Tier-2+ (composes other commands) |
+| CLAUDE.md Entry | Listed in Principle #27 command table |
+| Agent Kernel Reference | Has "Part of the Agent Kernel" header |
+
+**Compliance checklist for principles**:
+
+| Check | Requirement |
+|-------|-------------|
+| Tier Assignment | Explicitly tiered (0/1/2/3) |
+| Cluster Membership | In correct cluster file (`.claude/principles/`) |
+| Index Entry | Listed in `principles/index.md` |
+| CLAUDE.md Reference | Quick reference table updated |
+
+**Output**:
+
+```markdown
+## Step 10: Invariant Compliance Check
+
+**Artifacts updated this evolution**: {count}
+
+### Commands
+| Command | Tuple Effects | CLAUDE.md | Status |
+|---------|---------------|-----------|--------|
+| /evolve | ✅ Added | ❌ Missing | ⚠️ |
+
+### Principles
+| Principle | Tier | Cluster | Index | Status |
+|-----------|------|---------|-------|--------|
+| #29 New Principle | 2 | testing | ✅ | ✅ |
+
+### Compliance Actions
+
+**Auto-fixed**:
+- Added `/evolve` to CLAUDE.md command table
+
+**Manual required**:
+- None
+
+**Final delta**: 0 (all compliant)
+```
+
+**Integration with Invariant Triangle**:
+
+```
+/evolve workflow:
+  Steps 1-7: Detect drift, propose updates
+  Steps 8-9: Generate report, save
+  Step 10:   /invariant → /reconcile → /invariant (delta = 0)
+              └────────────────────────────────────┘
+                     Invariant Feedback Loop
+```
+
+**When to skip Step 10**:
+- Evolution was read-only (no updates made)
+- Focus area was narrow (e.g., just `docs`)
+- Manual review preferred over auto-fix
+
+**Auto-fix behavior**:
+- Mechanical fixes (add to table, add section) → auto-apply
+- Content changes (rewrite principle) → require confirmation
+- Cross-cutting changes → always require confirmation
 
 ---
 

@@ -25,6 +25,69 @@ composition:
 
 ---
 
+## Tuple Effects (Universal Kernel Integration)
+
+**Mode Type**: `clarify`
+
+When `/understand` executes as a mode within a Strategy pipeline:
+
+| Tuple Component | Effect |
+|-----------------|--------|
+| **Constraints** | **EXPAND**: Adds mental model (what/how/why/relationships) |
+| **Invariant** | **REFINE**: Sets understanding criteria (audience can comprehend) |
+| **Principles** | **NONE**: Does not modify principles |
+| **Strategy** | Consumes this mode; enables subsequent explanation modes |
+| **Check** | Annotates with clarity level and audience alignment |
+
+**Constraint Expansion Example**:
+```yaml
+before:
+  constraints:
+    topic: "Lambda cold start"
+    knowledge: []
+
+after:
+  constraints:
+    topic: "Lambda cold start"
+    knowledge:
+      what: "Initial container setup when Lambda invoked after idle"
+      how: "Runtime initialization, handler loading, dependency imports"
+      why: "Serverless trade-off: no pre-warmed instances"
+      relationships: ["provisioned concurrency", "init duration", "memory size"]
+    audience_level: "intermediate"
+```
+
+**Check Annotation**:
+```yaml
+check:
+  concept: "Lambda cold start"
+  understood: TRUE
+  clarity_level: HIGH
+  audience_alignment: "intermediate - technical details appropriate"
+  gaps_remaining: ["provisioned concurrency pricing not covered"]
+```
+
+---
+
+## Local Check (Mode Completion Criteria)
+
+The `/understand` mode is complete when ALL of the following hold:
+
+| Criterion | Verification |
+|-----------|--------------|
+| **Mental Model Built** | What/How/Why/Relationships documented |
+| **Audience Detected** | Beginner/Intermediate/Expert identified |
+| **Explanation Generated** | Tailored to audience level |
+| **Key Takeaways Listed** | 2-4 actionable insights |
+| **Related Concepts Linked** | Paths for further exploration |
+
+**Check Result Mapping**:
+- **PASS**: Concept understood and explained clearly → proceed
+- **PARTIAL**: Mental model built but explanation unclear → refine explanation
+- **FAIL**: Cannot build mental model → need more research via `/explore`
+
+---
+
 ## Execution Flow
 
 ### Phase 1: Internal Understanding (Research)

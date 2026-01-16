@@ -2,9 +2,14 @@
 
 ## Overview
 
-The Thinking Tuple Protocol is the **runtime composition mechanism** that forces all layers (Principles, Skills, Commands, Thinking Process Architecture) to be applied together at each reasoning step. It's not a new layer—it's the glue that ensures disciplined reasoning in complex and long-running tasks.
+The Thinking Tuple Protocol is the **runtime reasoning engine** within the [Agent Kernel](../../.claude/CLAUDE.md#agent-kernel). It forces all layers (Principles, Skills, Commands, Thinking Process Architecture) to be applied together at each reasoning step.
 
-**Core Insight**: Layers (principles, skills, commands) are static definitions. The Tuple is what forces their composition at runtime, enabling bounded error growth.
+**Terminology**:
+- **Agent Kernel**: The complete knowledge system (`.claude/*` + `docs/*`)
+- **Thinking Tuple Protocol**: This document - the runtime reasoning engine
+- **Universal Kernel**: Synonym for Thinking Tuple Protocol
+
+**Core Insight**: The Agent Kernel has many static layers (principles, skills, commands). The Thinking Tuple is what composes them at runtime, enabling bounded error growth.
 
 ---
 
@@ -620,7 +625,8 @@ Invariant:
 | `/what-if` | Executes in compare Process mode |
 | `/decompose` | Executes in decompose Process mode |
 | `/reflect` | Triggered when Check fails repeatedly |
-| `/transfer` | **Foundation for transform commands** - maps to full tuple |
+| `/move` | **Executable Foundation for transform commands** - maps to full tuple |
+| `/transfer` | Theory documentation for Transform abstraction |
 | `/adapt` | Transform specialization (code, external→internal) |
 | `/provision-env` | Transform specialization (infra, internal→internal) |
 
@@ -628,7 +634,7 @@ Invariant:
 
 ## Integration with Transform Foundation
 
-The [Transform Foundation](../../.claude/commands/transfer.md) maps directly to the Thinking Tuple:
+The [Transform Foundation](../../.claude/commands/move.md) (executable via `/move`) maps directly to the Thinking Tuple:
 
 ```
 Transform(X, Context_A, Context_B, Invariants) → X'
@@ -665,4 +671,5 @@ Each todo item can map to a tuple:
 - [Thinking Process Architecture - Section 12](../../.claude/diagrams/thinking-process-architecture.md#12-thinking-tuple-protocol) - Architecture integration
 - [Behavioral Invariant Guide](behavioral-invariant-verification.md) - Invariant slot details
 - [Principle #2 Progressive Evidence](../../.claude/CLAUDE.md) - Check slot evidence levels
-- [Transform Foundation](../../.claude/commands/transfer.md) - Unified transformation theory
+- [/move command](../../.claude/commands/move.md) - Executable foundation for transformations
+- [Transform Theory](../../.claude/commands/transfer.md) - Unified transformation theory (documentation)

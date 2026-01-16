@@ -4,6 +4,54 @@
 
 ---
 
+## Agent Kernel
+
+The **Agent Kernel** is the complete knowledge system that powers Claude's reasoning in this project.
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                         AGENT KERNEL                                 │
+│  The complete knowledge system for disciplined AI-assisted dev       │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│  ┌──────────────────────────────────────────────────────────────┐   │
+│  │  THINKING TUPLE PROTOCOL (Runtime / "Universal Kernel")      │   │
+│  │  The reasoning engine: (Constraints, Invariant, Principles,  │   │
+│  │  Strategy, Actions, Check) - See Principle #26               │   │
+│  └──────────────────────────────────────────────────────────────┘   │
+│                              ▲                                       │
+│         ┌────────────────────┼────────────────────┐                 │
+│         │                    │                    │                 │
+│  ┌──────┴──────┐  ┌─────────┴─────────┐  ┌──────┴──────┐           │
+│  │  Commands   │  │    Principles     │  │   Skills    │           │
+│  │  (40+ cmds) │  │  (28 principles)  │  │ (15 skills) │           │
+│  │  /step      │  │  Tier-0 (Core)    │  │ Auto-load   │           │
+│  │  /validate  │  │  Tier-1/2/3       │  │ on context  │           │
+│  └─────────────┘  └───────────────────┘  └─────────────┘           │
+│         │                    │                    │                 │
+│  ┌──────┴────────────────────┴────────────────────┴──────┐         │
+│  │              KNOWLEDGE ARTIFACTS                       │         │
+│  │  specs/  invariants/  journals/  observations/         │         │
+│  │  validations/  abstractions/  explorations/            │         │
+│  └────────────────────────────────────────────────────────┘         │
+│                              │                                       │
+│  ┌───────────────────────────┴───────────────────────────┐          │
+│  │                    DOCUMENTATION                       │          │
+│  │  docs/guides/  docs/adr/  docs/deployment/             │          │
+│  └────────────────────────────────────────────────────────┘          │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+**Key Terminology**:
+- **Agent Kernel**: The complete system (`.claude/*` + `docs/*`)
+- **Thinking Tuple Protocol**: The runtime reasoning engine (Principle #26)
+- **Universal Kernel**: Synonym for Thinking Tuple Protocol
+
+**Use "Agent Kernel" when referring to**: The whole knowledge architecture
+**Use "Thinking Tuple" when referring to**: The specific reasoning protocol
+
+---
+
 ## About This Document
 
 Principles are organized by **applicability tier**:
@@ -164,18 +212,22 @@ Commands are not independent—they are **modes within Strategy**. Each mode def
 | `/validate` | verify | Tests Invariant, annotates Check |
 | `/what-if` | compare | Adds alternatives to Constraints |
 | `/consolidate` | converge | Synthesizes Constraints into decision |
+| `/analysis` | orchestrate | Tier-2: Chains `/explore` → `/what-if` → `/validate` → `/consolidate` |
 | `/trace` | causal | Adds causal chain to Constraints |
 | `/decompose` | decompose | Breaks Invariant into sub-invariants |
 | `/feature` | define | Populates Constraints + Invariant from spec files |
 | `/invariant` | scan | Evaluates Check against specification |
 | `/reconcile` | fix | Executes Actions to satisfy Invariant |
+| `/deploy` | execute | Transforms code to runtime state; 5-phase deployment pipeline |
 | `/qna` | probe | Reveals Constraints (knowledge state) for user verification |
 | `/pay-debt` | analyze | Reveals Constraints (debt inventory) + defines Invariant (targets) |
-| `/transfer` | transform | **Foundation**: Transform(X, A, B, Invariants) → X' |
+| `/move` | transform | **Executable Foundation**: Transform(X, A, B, Invariants) → X' |
+| `/transfer` | — | Theory documentation for Transform abstraction |
 | `/adapt` | transform | Specialization: code, external→internal, adapt |
 | `/provision-env` | transform | Specialization: infra, internal→internal, copy |
 | `/perf` | observe | Reveals performance Constraints from CloudWatch metrics |
 | `/optimize` | transform | Transforms Constraints while maintaining Invariant stability (Tier-2) |
+| `/evolve` | meta | Tier-2: Detects drift, proposes updates, verifies Agent Kernel compliance |
 
 **Chaining**: Strategy can chain modes. Each mode updates tuple state before next mode executes.
 

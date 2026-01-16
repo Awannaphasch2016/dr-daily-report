@@ -29,6 +29,41 @@ composition:
 
 ---
 
+## Tuple Effects (Universal Kernel Integration)
+
+**Part of the Agent Kernel** - Deployment execution within the knowledge system.
+
+**Mode Type**: `execute`
+
+**Tier**: 1 (Atomic command, invokes `deployment` skill)
+
+| Tuple Component | Effect |
+|-----------------|--------|
+| **Constraints** | **EXPAND**: Adds environment config, image digests, function states, health status |
+| **Invariant** | **SET**: Deployment success = (all functions updated ∧ health check passes ∧ no errors in logs) |
+| **Principles** | **LOAD**: Deployment cluster (#6, #11, #15) |
+| **Strategy** | Consumes this mode; 5-phase pipeline (pre-validation → build → update → terraform → post-validation) |
+| **Check** | **ANNOTATE**: Progressive evidence through phases (Layer 1→4 validation) |
+
+**Local Check** (mode-specific completion):
+- Phase 1: Pre-validation passes (clean git, Doppler config exists)
+- Phase 2: Docker image built and pushed (digest obtained)
+- Phase 3: All Lambda functions updated (waiter confirms)
+- Phase 4: Terraform state synced
+- Phase 5: Health check returns OK, no errors in logs
+
+**Composition**:
+```yaml
+invokes:
+  - skill: deployment  # Deployment methodology and checklists
+grounds:
+  - principle: #6   # Deployment Monitoring Discipline
+  - principle: #11  # Artifact Promotion Principle
+  - principle: #15  # Infrastructure-Application Contract
+```
+
+---
+
 ## Quick Reference
 
 ```bash

@@ -1,8 +1,10 @@
 # Claude Code Slash Commands
 
-**Explicit orchestration layer for composable workflows.**
+**Part of the Agent Kernel** - The orchestration layer for composable workflows.
 
 Slash commands provide direct user control over Claude's behavior by composing skills, other commands, and scripts into powerful multi-stage pipelines.
+
+> **Agent Kernel** = The complete knowledge system (`.claude/*` + `docs/*`). Commands are one layer within the Agent Kernel. See [CLAUDE.md](../CLAUDE.md#agent-kernel) for the full architecture.
 
 ---
 
@@ -609,6 +611,93 @@ Symptom → Classify Type → Gather Evidence → Form Hypotheses
 - `/decompose failure` - Breaks down failure structure
 - `error-investigation` skill - AWS/Lambda patterns (auto-applied)
 - **`/bug-hunt`** - **Active investigation with type-specific workflows**
+
+---
+
+## Performance Commands
+
+### `/perf` - Performance Monitoring & Diagnostics
+**Purpose**: Quick access to performance metrics, diagnostics, and optimization recommendations using CloudWatch.
+
+**Usage**:
+```bash
+# Quick health check (default)
+/perf
+/perf status
+
+# Diagnose specific component
+/perf diagnose telegram-api
+/perf diagnose aurora
+
+# Deep trace into layer
+/perf trace lambda
+/perf trace aurora
+
+# Get optimization recommendations
+/perf recommend
+```
+
+**Modes**:
+- `status` (default) - Active alarms, latency, error rates
+- `diagnose` - Root cause analysis for specific component
+- `trace` - Deep layer investigation (lambda, aurora, frontend)
+- `recommend` - Actionable optimization suggestions
+
+**Output** (status example):
+```markdown
+## Performance Status
+| Function | P50 | P95 | Cold Start % |
+|----------|-----|-----|--------------|
+| telegram-api | 1.2s | 3.5s | 15% |
+
+Alarms: ✅ 2 OK, ⚠️ 1 ALARM
+```
+
+**Core Principle**: "Measure before optimizing" - data-driven performance insights
+
+---
+
+### `/optimize` - Performance Optimization with Invariant Preservation
+**Purpose**: Performance optimization workflow that improves metrics while preserving behavioral invariants (delta = 0).
+
+**Tier**: 2 (Composes: `/perf`, `/design`, `/invariant`, `/reconcile`)
+
+**Usage**:
+```bash
+# Standard optimization workflow
+/optimize "Lambda cold start latency"
+/optimize "API response time"
+
+# With scope modifier
+/optimize "telegram-api P95 latency" quick      # 1-2 targeted changes
+/optimize "report generation time" standard     # Full workflow (default)
+/optimize "overall system latency" thorough     # Includes A/B testing
+```
+
+**Execution Flow**:
+```
+MEASURE → IDENTIFY INVARIANTS → DESIGN → IMPLEMENT → VERIFY
+  /perf      /invariant          /design   (user)    /invariant
+                                                         ↓
+                                              delta = 0? ✅ Success
+                                              delta ≠ 0? ❌ Rollback
+```
+
+**Success Criteria**:
+```
+Performance ↑  AND  Invariant delta = 0
+```
+
+**Output** (verification):
+```markdown
+## Verification Results
+Performance: P95 5.2s → 1.9s (63% improvement) ✅
+Invariants: All 6 preserved (delta = 0) ✅
+
+✅ OPTIMIZATION SUCCESSFUL
+```
+
+**Core Principle**: "Optimize with guardrails" - performance improvements must not break functionality
 
 ---
 
@@ -1219,7 +1308,22 @@ All commands automatically resolve resources using existing naming conventions:
 
 ## Command Composition Patterns
 
-Commands can orchestrate multiple capabilities in sequence:
+Commands can orchestrate multiple capabilities in sequence. See [Principle #28: Compositional Hierarchy](../principles/compositional-hierarchy.md) for the underlying theory.
+
+### Relationship Taxonomy
+
+Commands use four relationship types (replacing generic "references"):
+
+| Relationship | Direction | Meaning | Example |
+|--------------|-----------|---------|---------|
+| **composes** | Higher → Lower | Builds on, combines | `/optimize` → `/perf`, `/design` |
+| **depends** | Same/Cross tier | Requires, doesn't build | Command → external tool |
+| **invokes** | Cross-domain | Calls as capability | Command → skill |
+| **grounds** | Meta → Instance | Provides foundation | Principle → command pattern |
+
+**Tiered Commands**:
+- **Tier-0 (Atomic)**: Single-purpose commands (`/explore`, `/validate`, `/observe`)
+- **Tier-2 (Orchestrated)**: Compose other commands/skills (`/optimize`, `/analysis`)
 
 ### 1. Command Invokes Skill
 
@@ -1636,8 +1740,9 @@ For detailed command documentation, see individual command files in `.claude/com
 - [/qna](qna.md) - Reveal Claude's understanding and knowledge gaps
 
 ### Analysis (Think About Existing)
+- [/understand](understand.md) - Build mental model and explain concepts
 - [/what-if](what-if.md) - Counterfactual reasoning and comparison
-- [/analysis](analysis.md) - Comprehensive analysis workflow
+- [/analysis](analysis.md) - Comprehensive analysis workflow (Tier-2)
 - [/impact](impact.md) - Assess change scope
 
 ### Design (Create New)
@@ -1670,6 +1775,10 @@ For detailed command documentation, see individual command files in `.claude/com
 - [/qna](qna.md) - Knowledge alignment check before implementation
 - [/pay-debt](pay-debt.md) - Technical debt payment plan
 - [/refactor](refactor.md) - Analyze complexity & hotspots
+
+### Performance
+- [/perf](perf.md) - Performance monitoring and diagnostics (status, diagnose, trace, recommend)
+- [/optimize](optimize.md) - Performance optimization with invariant preservation (Tier-2)
 
 ### Environment Commands
 - [/local](local.md) - Execute operations targeting local environment (localhost + SSM tunnel)
