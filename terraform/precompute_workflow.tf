@@ -97,8 +97,9 @@ locals {
     account_id                      = data.aws_caller_identity.current.account_id
     get_ticker_list_function_name   = aws_lambda_function.get_ticker_list.function_name
     report_worker_function_arn      = aws_lambda_function.report_worker.arn
-    # Construct ARN from known values to avoid circular dependency
+    # Construct ARNs from known values to avoid circular dependency
     pattern_precompute_function_arn = "arn:aws:lambda:${var.aws_region}:${data.aws_caller_identity.current.account_id}:function:${local.pattern_precompute_function_name}"
+    static_api_function_arn         = var.static_api_enabled ? "arn:aws:lambda:${var.aws_region}:${data.aws_caller_identity.current.account_id}:function:${local.static_api_function_name}" : ""
   })
 }
 
@@ -245,7 +246,7 @@ resource "aws_lambda_function" "get_ticker_list" {
     variables = {
       ENVIRONMENT      = var.environment
       LOG_LEVEL        = "INFO"
-      AURORA_HOST      = aws_rds_cluster.aurora.endpoint
+      AURORA_HOST      = local.aurora_connection_endpoint
       AURORA_PORT      = "3306"
       AURORA_DATABASE  = var.aurora_database_name
       AURORA_USER      = var.aurora_master_username
@@ -382,7 +383,7 @@ resource "aws_lambda_function" "pattern_precompute" {
       ENVIRONMENT     = var.environment
       LOG_LEVEL       = "INFO"
       TZ              = "Asia/Bangkok"
-      AURORA_HOST     = aws_rds_cluster.aurora.endpoint
+      AURORA_HOST     = local.aurora_connection_endpoint
       AURORA_PORT     = "3306"
       AURORA_DATABASE = var.aurora_database_name
       AURORA_USER     = var.aurora_master_username
@@ -456,4 +457,150 @@ output "pattern_precompute_function_name" {
 output "pattern_precompute_function_arn" {
   value       = aws_lambda_function.pattern_precompute.arn
   description = "ARN of the pattern precompute Lambda function"
+}
+
+###############################################################################
+# Static API Generator Lambda
+# Purpose: Generate static JSON files for CloudFront CDN serving
+###############################################################################
+
+locals {
+  static_api_function_name = "${var.project_name}-static-api-generator-${var.environment}"
+}
+
+resource "aws_lambda_function" "static_api_generator" {
+  count         = var.static_api_enabled ? 1 : 0
+  function_name = local.static_api_function_name
+  role          = aws_iam_role.telegram_lambda_role.arn
+
+  # Container image deployment from ECR (same image as other Lambdas)
+  package_type = "Image"
+  image_uri    = "${aws_ecr_repository.lambda.repository_url}:${var.lambda_image_tag}"
+
+  image_config {
+    command = ["src.scheduler.static_api_handler.lambda_handler"]
+  }
+
+  # Static API generation for ~46 tickers takes ~30-60s
+  timeout     = 120
+  memory_size = 512
+
+  environment {
+    variables = {
+      ENVIRONMENT              = var.environment
+      LOG_LEVEL                = "INFO"
+      TZ                       = "Asia/Bangkok"
+      AURORA_HOST              = local.aurora_connection_endpoint
+      AURORA_PORT              = "3306"
+      AURORA_DATABASE          = var.aurora_database_name
+      AURORA_USER              = var.aurora_master_username
+      AURORA_PASSWORD          = var.AURORA_MASTER_PASSWORD
+      STATIC_API_BUCKET        = var.static_api_enabled ? aws_s3_bucket.static_api[0].id : ""
+      STATIC_API_CLOUDFRONT_ID = var.static_api_enabled ? aws_cloudfront_distribution.static_api[0].id : ""
+    }
+  }
+
+  vpc_config {
+    subnet_ids         = local.private_subnets_with_nat
+    security_group_ids = [aws_security_group.lambda_aurora.id]
+  }
+
+  tags = merge(local.common_tags, {
+    Name      = "${var.project_name}-static-api-generator-${var.environment}"
+    App       = "shared"
+    Component = "static-api-generator"
+    Layer     = "scheduler"
+  })
+
+  depends_on = [
+    aws_ecr_repository.lambda,
+    aws_rds_cluster.aurora,
+    aws_s3_bucket.static_api
+  ]
+}
+
+# CloudWatch Log Group for Static API Generator Lambda
+resource "aws_cloudwatch_log_group" "static_api_generator_logs" {
+  count             = var.static_api_enabled ? 1 : 0
+  name              = "/aws/lambda/${local.static_api_function_name}"
+  retention_in_days = var.log_retention_days
+
+  tags = merge(local.common_tags, {
+    Name      = "${var.project_name}-static-api-generator-logs-${var.environment}"
+    App       = "shared"
+    Component = "static-api-generator-logging"
+  })
+}
+
+# Lambda permission for Step Functions to invoke static API generator
+resource "aws_lambda_permission" "static_api_generator_sfn_invoke" {
+  count         = var.static_api_enabled ? 1 : 0
+  statement_id  = "AllowStepFunctionsInvoke"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.static_api_generator[0].function_name
+  principal     = "states.amazonaws.com"
+  source_arn    = aws_sfn_state_machine.precompute_workflow.arn
+}
+
+# IAM Policy for static API generator to upload to S3 and invalidate CloudFront
+resource "aws_iam_role_policy" "static_api_generator_policy" {
+  count = var.static_api_enabled ? 1 : 0
+  name  = "${var.project_name}-static-api-generator-${var.environment}"
+  role  = aws_iam_role.telegram_lambda_role.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:PutObject",
+          "s3:PutObjectAcl",
+          "s3:DeleteObject",
+          "s3:ListBucket"
+        ]
+        Resource = [
+          aws_s3_bucket.static_api[0].arn,
+          "${aws_s3_bucket.static_api[0].arn}/*"
+        ]
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "cloudfront:CreateInvalidation"
+        ]
+        Resource = aws_cloudfront_distribution.static_api[0].arn
+      }
+    ]
+  })
+}
+
+# Add static API generator Lambda to Step Functions IAM policy
+resource "aws_iam_role_policy" "precompute_workflow_static_api_policy" {
+  count = var.static_api_enabled ? 1 : 0
+  name  = "${var.project_name}-precompute-workflow-static-api-${var.environment}"
+  role  = aws_iam_role.precompute_workflow_role.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "lambda:InvokeFunction"
+        ]
+        Resource = aws_lambda_function.static_api_generator[0].arn
+      }
+    ]
+  })
+}
+
+output "static_api_generator_function_name" {
+  value       = var.static_api_enabled ? aws_lambda_function.static_api_generator[0].function_name : null
+  description = "Name of the static API generator Lambda function"
+}
+
+output "static_api_generator_function_arn" {
+  value       = var.static_api_enabled ? aws_lambda_function.static_api_generator[0].arn : null
+  description = "ARN of the static API generator Lambda function"
 }

@@ -1,5 +1,5 @@
 {
-  "Comment": "Precompute workflow - parallel report and pattern generation",
+  "Comment": "Precompute workflow - PARALLEL report and pattern generation",
   "StartAt": "PrepareTickerList",
   "States": {
     "PrepareTickerList": {
@@ -15,177 +15,232 @@
           "BackoffRate": 2.0
         }
       ],
-      "Next": "FanOutToWorkers"
+      "Next": "ParallelProcessing"
     },
 
-    "FanOutToWorkers": {
-      "Type": "Map",
-      "ItemsPath": "$.ticker_list.tickers",
-      "MaxConcurrency": 46,
-      "Parameters": {
-        "ticker.$": "$$.Map.Item.Value",
-        "execution_id.$": "$$.Execution.Name"
-      },
-      "Iterator": {
-        "StartAt": "InvokeReportWorker",
-        "States": {
-          "InvokeReportWorker": {
-            "Type": "Task",
-            "Resource": "arn:aws:states:::lambda:invoke",
-            "Parameters": {
-              "FunctionName": "${report_worker_function_arn}",
-              "Payload": {
-                "ticker.$": "$.ticker",
-                "execution_id.$": "$.execution_id",
-                "source": "step_functions_precompute"
-              }
-            },
-            "ResultPath": "$.worker_result",
-            "ResultSelector": {
-              "Payload.$": "$.Payload"
-            },
-            "Retry": [
-              {
-                "ErrorEquals": ["States.ALL"],
-                "IntervalSeconds": 2,
-                "MaxAttempts": 3,
-                "BackoffRate": 2.0
-              }
-            ],
-            "Catch": [
-              {
-                "ErrorEquals": ["States.ALL"],
-                "ResultPath": "$.error",
-                "Next": "HandleWorkerError"
-              }
-            ],
-            "Next": "CheckWorkerSuccess"
-          },
-          "CheckWorkerSuccess": {
-            "Type": "Choice",
-            "Choices": [
-              {
-                "Variable": "$.worker_result.Payload.status",
-                "StringEquals": "success",
-                "Next": "WorkerSucceeded"
-              }
-            ],
-            "Default": "WorkerFailed"
-          },
-          "WorkerSucceeded": {
-            "Type": "Pass",
-            "Comment": "Worker completed successfully",
-            "End": true
-          },
-          "WorkerFailed": {
-            "Type": "Pass",
-            "Comment": "Worker failed but allowing partial success",
-            "Parameters": {
-              "ticker.$": "$.ticker",
-              "status": "failed",
-              "error.$": "$.worker_result.Payload.error"
-            },
-            "End": true
-          },
-          "HandleWorkerError": {
-            "Type": "Pass",
-            "Comment": "Lambda invocation error - log error, allow partial success",
-            "Parameters": {
-              "ticker.$": "$.ticker",
-              "status": "failed",
-              "error.$": "$.error.Cause"
-            },
-            "End": true
+    "ParallelProcessing": {
+      "Type": "Parallel",
+      "Comment": "Run report generation and pattern detection in PARALLEL (both read from ticker_data, write to different tables)",
+      "Branches": [
+        {
+          "StartAt": "FanOutToWorkers",
+          "States": {
+            "FanOutToWorkers": {
+              "Type": "Map",
+              "Comment": "Generate reports for all tickers (46 parallel)",
+              "ItemsPath": "$.ticker_list.tickers",
+              "MaxConcurrency": 46,
+              "Parameters": {
+                "ticker.$": "$$.Map.Item.Value",
+                "execution_id.$": "$$.Execution.Name"
+              },
+              "Iterator": {
+                "StartAt": "InvokeReportWorker",
+                "States": {
+                  "InvokeReportWorker": {
+                    "Type": "Task",
+                    "Resource": "arn:aws:states:::lambda:invoke",
+                    "Parameters": {
+                      "FunctionName": "${report_worker_function_arn}",
+                      "Payload": {
+                        "ticker.$": "$.ticker",
+                        "execution_id.$": "$.execution_id",
+                        "source": "step_functions_precompute"
+                      }
+                    },
+                    "ResultPath": "$.worker_result",
+                    "ResultSelector": {
+                      "Payload.$": "$.Payload"
+                    },
+                    "Retry": [
+                      {
+                        "ErrorEquals": ["States.ALL"],
+                        "IntervalSeconds": 2,
+                        "MaxAttempts": 3,
+                        "BackoffRate": 2.0
+                      }
+                    ],
+                    "Catch": [
+                      {
+                        "ErrorEquals": ["States.ALL"],
+                        "ResultPath": "$.error",
+                        "Next": "HandleWorkerError"
+                      }
+                    ],
+                    "Next": "CheckWorkerSuccess"
+                  },
+                  "CheckWorkerSuccess": {
+                    "Type": "Choice",
+                    "Choices": [
+                      {
+                        "Variable": "$.worker_result.Payload.status",
+                        "StringEquals": "success",
+                        "Next": "WorkerSucceeded"
+                      }
+                    ],
+                    "Default": "WorkerFailed"
+                  },
+                  "WorkerSucceeded": {
+                    "Type": "Pass",
+                    "Comment": "Worker completed successfully",
+                    "End": true
+                  },
+                  "WorkerFailed": {
+                    "Type": "Pass",
+                    "Comment": "Worker failed but allowing partial success",
+                    "Parameters": {
+                      "ticker.$": "$.ticker",
+                      "status": "failed",
+                      "error.$": "$.worker_result.Payload.error"
+                    },
+                    "End": true
+                  },
+                  "HandleWorkerError": {
+                    "Type": "Pass",
+                    "Comment": "Lambda invocation error - log error, allow partial success",
+                    "Parameters": {
+                      "ticker.$": "$.ticker",
+                      "status": "failed",
+                      "error.$": "$.error.Cause"
+                    },
+                    "End": true
+                  }
+                }
+              },
+              "ResultPath": "$.report_results",
+              "End": true
+            }
+          }
+        },
+        {
+          "StartAt": "FanOutToPatternWorkers",
+          "States": {
+            "FanOutToPatternWorkers": {
+              "Type": "Map",
+              "Comment": "Precompute chart patterns for all tickers (46 parallel)",
+              "ItemsPath": "$.ticker_list.tickers",
+              "MaxConcurrency": 46,
+              "Parameters": {
+                "ticker.$": "$$.Map.Item.Value",
+                "execution_id.$": "$$.Execution.Name"
+              },
+              "Iterator": {
+                "StartAt": "InvokePatternWorker",
+                "States": {
+                  "InvokePatternWorker": {
+                    "Type": "Task",
+                    "Resource": "arn:aws:states:::lambda:invoke",
+                    "Parameters": {
+                      "FunctionName": "${pattern_precompute_function_arn}",
+                      "Payload": {
+                        "ticker.$": "$.ticker",
+                        "execution_id.$": "$.execution_id"
+                      }
+                    },
+                    "ResultPath": "$.pattern_result",
+                    "ResultSelector": {
+                      "Payload.$": "$.Payload"
+                    },
+                    "Retry": [
+                      {
+                        "ErrorEquals": ["States.ALL"],
+                        "IntervalSeconds": 2,
+                        "MaxAttempts": 2,
+                        "BackoffRate": 2.0
+                      }
+                    ],
+                    "Catch": [
+                      {
+                        "ErrorEquals": ["States.ALL"],
+                        "ResultPath": "$.error",
+                        "Next": "HandlePatternError"
+                      }
+                    ],
+                    "Next": "PatternWorkerDone"
+                  },
+                  "PatternWorkerDone": {
+                    "Type": "Pass",
+                    "Comment": "Pattern worker completed",
+                    "End": true
+                  },
+                  "HandlePatternError": {
+                    "Type": "Pass",
+                    "Comment": "Pattern detection error - log and continue",
+                    "Parameters": {
+                      "ticker.$": "$.ticker",
+                      "status": "failed",
+                      "error.$": "$.error.Cause"
+                    },
+                    "End": true
+                  }
+                }
+              },
+              "ResultPath": "$.pattern_results",
+              "End": true
+            }
           }
         }
-      },
-      "ResultPath": "$.fanout_results",
-      "Next": "FanOutToPatternWorkers"
-    },
-
-    "FanOutToPatternWorkers": {
-      "Type": "Map",
-      "Comment": "Precompute chart patterns for all tickers (runs after reports)",
-      "ItemsPath": "$.ticker_list.tickers",
-      "MaxConcurrency": 1,
-      "Parameters": {
-        "ticker.$": "$$.Map.Item.Value",
-        "execution_id.$": "$$.Execution.Name"
-      },
-      "Iterator": {
-        "StartAt": "InvokePatternWorker",
-        "States": {
-          "InvokePatternWorker": {
-            "Type": "Task",
-            "Resource": "arn:aws:states:::lambda:invoke",
-            "Parameters": {
-              "FunctionName": "${pattern_precompute_function_arn}",
-              "Payload": {
-                "ticker.$": "$.ticker",
-                "execution_id.$": "$.execution_id"
-              }
-            },
-            "ResultPath": "$.pattern_result",
-            "ResultSelector": {
-              "Payload.$": "$.Payload"
-            },
-            "Retry": [
-              {
-                "ErrorEquals": ["States.ALL"],
-                "IntervalSeconds": 2,
-                "MaxAttempts": 2,
-                "BackoffRate": 2.0
-              }
-            ],
-            "Catch": [
-              {
-                "ErrorEquals": ["States.ALL"],
-                "ResultPath": "$.error",
-                "Next": "HandlePatternError"
-              }
-            ],
-            "Next": "PatternWorkerDone"
-          },
-          "PatternWorkerDone": {
-            "Type": "Pass",
-            "Comment": "Pattern worker completed",
-            "End": true
-          },
-          "HandlePatternError": {
-            "Type": "Pass",
-            "Comment": "Pattern detection error - log and continue",
-            "Parameters": {
-              "ticker.$": "$.ticker",
-              "status": "failed",
-              "error.$": "$.error.Cause"
-            },
-            "End": true
-          }
-        }
-      },
-      "ResultPath": "$.pattern_results",
-      "Next": "RecordStartTime"
-    },
-
-    "RecordStartTime": {
-      "Type": "Pass",
-      "Result": {
-        "started_at.$": "$$.State.EnteredTime"
-      },
-      "ResultPath": "$.timing",
+      ],
+      "ResultPath": "$.parallel_results",
       "Next": "AggregateResults"
     },
 
     "AggregateResults": {
       "Type": "Pass",
-      "Comment": "Workflow completed. Reports and patterns precomputed for all tickers.",
+      "Comment": "Aggregate parallel results before static API generation.",
       "Parameters": {
         "status": "completed",
         "execution_id.$": "$$.Execution.Name",
         "total_tickers": 46,
-        "message": "Precompute workflow completed. Reports and chart patterns generated for all tickers.",
-        "report_results.$": "$.fanout_results",
-        "pattern_results.$": "$.pattern_results"
+        "message": "Precompute workflow completed. Reports and chart patterns generated for all tickers IN PARALLEL.",
+        "report_results.$": "$.parallel_results[0].report_results",
+        "pattern_results.$": "$.parallel_results[1].pattern_results"
+      },
+      "Next": "GenerateStaticAPI"
+    },
+
+    "GenerateStaticAPI": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Comment": "Generate static JSON files and upload to S3 for CloudFront CDN serving",
+      "Parameters": {
+        "FunctionName": "${static_api_function_arn}",
+        "Payload": {
+          "execution_id.$": "$.execution_id",
+          "total_tickers.$": "$.total_tickers"
+        }
+      },
+      "ResultPath": "$.static_api_result",
+      "ResultSelector": {
+        "Payload.$": "$.Payload"
+      },
+      "Retry": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 2,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.static_api_error",
+          "Next": "FinalResults"
+        }
+      ],
+      "Next": "FinalResults"
+    },
+
+    "FinalResults": {
+      "Type": "Pass",
+      "Comment": "Final workflow summary with static API generation status.",
+      "Parameters": {
+        "status": "completed",
+        "execution_id.$": "$.execution_id",
+        "total_tickers.$": "$.total_tickers",
+        "message": "Precompute workflow completed with static API generation.",
+        "static_api_status.$": "$.static_api_result.Payload.body.status"
       },
       "End": true
     }
