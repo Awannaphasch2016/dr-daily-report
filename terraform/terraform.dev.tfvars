@@ -18,6 +18,9 @@ lambda_timeout = 120  # Increased from 60s - report generation takes ~50-60s
 # CloudWatch Logs
 log_retention_days = 7
 
+# LINE Bot Beta User Limit (0 = unlimited, N = limit to next N users)
+beta_user_limit = 20
+
 # Sensitive variables - DO NOT set here!
 # These are injected via Doppler TF_VAR_* environment variables.
 # Run with: doppler run -- terraform plan

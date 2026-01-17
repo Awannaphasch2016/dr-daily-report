@@ -17,7 +17,8 @@ from src.formatters.pdf_storage import PDFStorage
 logger = logging.getLogger(__name__)
 
 # Beta testing configuration
-BETA_USER_LIMIT = 20
+# BETA_USER_LIMIT: 0 = unlimited, N = limit to N users (next N, not total)
+BETA_USER_LIMIT = int(os.getenv("BETA_USER_LIMIT", "0"))
 BETA_USERS_S3_KEY = "beta-users.json"
 
 class LineBot:
@@ -52,7 +53,8 @@ class LineBot:
             try:
                 self.s3_client = boto3.client('s3')
                 self.beta_users = self._load_beta_users()
-                logger.info(f"✅ Beta user management initialized ({len(self.beta_users)}/{BETA_USER_LIMIT} users)")
+                limit_str = str(BETA_USER_LIMIT) if BETA_USER_LIMIT > 0 else "unlimited"
+                logger.info(f"✅ Beta user management initialized ({len(self.beta_users)}/{limit_str} users)")
             except Exception as e:
                 logger.warning(f"Failed to initialize beta user management: {e}")
                 self.beta_enabled = False
@@ -99,17 +101,24 @@ class LineBot:
         return user_id in self.beta_users
 
     def _try_add_beta_user(self, user_id: str) -> bool:
-        """Try to add user to beta. Returns True if added/exists, False if full."""
+        """Try to add user to beta. Returns True if added/exists, False if full.
+
+        Note: BETA_USER_LIMIT=0 means unlimited (no restriction).
+        """
         if not self.beta_enabled:
-            return True  # Beta disabled = allow all
+            return True  # Beta management disabled = allow all
         if user_id in self.beta_users:
             return True  # Already a beta user
-        if len(self.beta_users) >= BETA_USER_LIMIT:
-            logger.info(f"❌ Beta full ({BETA_USER_LIMIT}/{BETA_USER_LIMIT}), rejecting user: {user_id[:10]}...")
+
+        # Check limit (0 = unlimited)
+        if BETA_USER_LIMIT > 0 and len(self.beta_users) >= BETA_USER_LIMIT:
+            logger.info(f"❌ Beta full ({len(self.beta_users)}/{BETA_USER_LIMIT}), rejecting user: {user_id[:10]}...")
             return False  # Beta full
+
         self.beta_users.add(user_id)
         self._save_beta_users()
-        logger.info(f"✅ Beta user added: {user_id[:10]}... ({len(self.beta_users)}/{BETA_USER_LIMIT})")
+        limit_str = f"/{BETA_USER_LIMIT}" if BETA_USER_LIMIT > 0 else " (unlimited)"
+        logger.info(f"✅ Beta user added: {user_id[:10]}... ({len(self.beta_users)}{limit_str})")
         return True
 
     def _get_beta_full_message(self) -> str:

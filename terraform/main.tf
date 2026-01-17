@@ -24,6 +24,10 @@ terraform {
       source  = "hashicorp/null"
       version = "~> 3.0"
     }
+    archive = {
+      source  = "hashicorp/archive"
+      version = "~> 2.0"
+    }
   }
 }
 
@@ -228,7 +232,9 @@ resource "aws_iam_role_policy" "lambda_custom" {
 ###############################################################################
 
 resource "aws_lambda_function" "line_bot" {
-  function_name = var.function_name
+  # Use standard naming pattern: {project}-line-bot-{env}
+  # Note: Legacy function_name variable preserved for backwards compatibility
+  function_name = "${var.project_name}-line-bot-${var.environment}"
   role          = aws_iam_role.lambda_role.arn
 
   # Container image deployment from ECR
@@ -261,7 +267,7 @@ resource "aws_lambda_function" "line_bot" {
       OPENROUTER_API_KEY        = var.OPENROUTER_API_KEY
 
       # Aurora database
-      AURORA_HOST               = aws_rds_cluster.aurora.endpoint
+      AURORA_HOST     = local.aurora_connection_endpoint
       AURORA_DATABASE           = "ticker_data"
       AURORA_USER               = var.aurora_master_username
       AURORA_PASSWORD           = var.AURORA_MASTER_PASSWORD
@@ -275,11 +281,14 @@ resource "aws_lambda_function" "line_bot" {
       # Application config
       ENVIRONMENT               = var.environment
       LOG_LEVEL                 = "INFO"
+
+      # Beta user limit (0 = unlimited, N = limit to next N users)
+      BETA_USER_LIMIT           = tostring(var.beta_user_limit)
     }
   }
 
   tags = merge(local.common_tags, {
-    Name      = var.function_name
+    Name      = "${var.project_name}-line-bot-${var.environment}"
     App       = "line-bot"
     Component = "webhook-handler"
     Interface = "function-url"

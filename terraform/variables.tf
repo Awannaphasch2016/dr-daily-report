@@ -7,13 +7,13 @@ variable "aws_region" {
 }
 
 variable "environment" {
-  description = "Environment name (dev, staging, prod)"
+  description = "Environment name (dev, staging, prod, or feature-*)"
   type        = string
   default     = "prod"
 
   validation {
-    condition     = contains(["dev", "staging", "prod"], var.environment)
-    error_message = "Environment must be dev, staging, or prod"
+    condition     = contains(["dev", "staging", "prod"], var.environment) || can(regex("^feature-", var.environment))
+    error_message = "Environment must be dev, staging, prod, or start with 'feature-'"
   }
 }
 
@@ -63,6 +63,12 @@ variable "log_retention_days" {
   description = "CloudWatch Logs retention period in days"
   type        = number
   default     = 7
+}
+
+variable "beta_user_limit" {
+  description = "Maximum number of beta users for LINE Bot (0 = unlimited, N = limit to next N users)"
+  type        = number
+  default     = 0
 }
 
 ###############################################################################
@@ -183,6 +189,17 @@ variable "LANGFUSE_HOST" {
 variable "LANGFUSE_TRACING_ENVIRONMENT" {
   description = "Langfuse environment for trace filtering (dev, stg, prd). Set via Doppler TF_VAR_LANGFUSE_TRACING_ENVIRONMENT"
   type        = string
+  default     = ""
+}
+
+###############################################################################
+# Slack Alerting Configuration
+###############################################################################
+
+variable "SLACK_WEBHOOK_URL" {
+  description = "Slack incoming webhook URL for CloudWatch alarm notifications"
+  type        = string
+  sensitive   = true
   default     = ""
 }
 
