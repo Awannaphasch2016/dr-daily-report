@@ -15,6 +15,8 @@ from src.data.aurora.precompute_service import PrecomputeService
 from src.formatters.pdf_storage import PDFStorage
 
 logger = logging.getLogger(__name__)
+# AWS Lambda pre-configures root logger at WARNING. Explicitly set INFO for this module.
+logger.setLevel(logging.INFO)
 
 # Beta testing configuration
 # BETA_USER_LIMIT: 0 = unlimited, N = limit to N users (next N, not total)
