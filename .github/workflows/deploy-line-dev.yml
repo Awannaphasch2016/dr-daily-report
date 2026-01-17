@@ -41,7 +41,7 @@ env:
   AWS_REGION: ap-southeast-1
   PYTHON_VERSION: '3.11'
   ECR_REGISTRY: 755283537543.dkr.ecr.ap-southeast-1.amazonaws.com
-  FUNCTION_NAME: line-bot-ticker-report
+  FUNCTION_NAME: dr-daily-report-line-bot-dev
 
 jobs:
   ###############################################################################
