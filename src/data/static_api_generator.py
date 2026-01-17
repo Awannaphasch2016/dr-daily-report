@@ -74,14 +74,23 @@ class StaticAPIGenerator:
         Returns:
             List of ticker info dicts with id, symbol, yahoo_symbol, name
         """
-        from src.data.aurora.repository import TickerRepository
-        from src.data.aurora.client import get_aurora_client
+        from src.data.aurora.ticker_resolver import get_ticker_resolver
 
-        client = get_aurora_client()
-        repo = TickerRepository(client=client)
+        resolver = get_ticker_resolver()
 
-        # Get all tickers from ticker_master
-        tickers = repo.get_all_tickers()
+        # Get all tickers from ticker_master via TickerResolver
+        ticker_infos = resolver.get_all_tickers()
+
+        # Convert TickerInfo objects to dicts
+        tickers = [
+            {
+                'id': t.ticker_id,
+                'symbol': t.dr_symbol,
+                'yahoo_symbol': t.yahoo_symbol,
+                'name': t.company_name,
+            }
+            for t in ticker_infos
+        ]
         logger.info(f"Fetched {len(tickers)} tickers from Aurora")
 
         return tickers
@@ -102,6 +111,7 @@ class StaticAPIGenerator:
         today = date.today()
 
         # Query comparative features for all tickers
+        # Note: COLLATE needed due to collation mismatch between tables
         query = f"""
             SELECT
                 cf.symbol,
@@ -112,7 +122,8 @@ class StaticAPIGenerator:
                 pr.report_json
             FROM {COMPARATIVE_FEATURES} cf
             LEFT JOIN {PRECOMPUTED_REPORTS} pr
-                ON cf.symbol = pr.symbol AND pr.report_date = %s
+                ON cf.symbol COLLATE utf8mb4_unicode_ci = pr.symbol COLLATE utf8mb4_unicode_ci
+                AND pr.report_date = %s
             WHERE cf.feature_date = %s
             ORDER BY cf.symbol
         """
@@ -219,18 +230,24 @@ class StaticAPIGenerator:
             Pattern data dict or None if not found
         """
         from src.data.aurora.client import get_aurora_client
+        from src.data.aurora.table_names import CHART_PATTERN_DATA
 
         client = get_aurora_client()
         today = date.today()
 
-        # Query chart patterns
-        query = """
-            SELECT pattern_type, pattern_data, detection_date, confidence_score
-            FROM chart_patterns
-            WHERE symbol = %s AND detection_date = %s
+        # Query chart patterns from chart_pattern_data table
+        query = f"""
+            SELECT pattern_type, pattern_data, pattern_date, confidence
+            FROM {CHART_PATTERN_DATA}
+            WHERE symbol = %s AND pattern_date = %s
         """
 
-        results = client.fetch_all(query, (symbol, today))
+        try:
+            results = client.fetch_all(query, (symbol, today))
+        except Exception as e:
+            # Table might not exist yet in some environments
+            logger.warning(f"Could not fetch patterns for {symbol}: {e}")
+            return None
 
         if not results:
             return None
@@ -246,15 +263,15 @@ class StaticAPIGenerator:
 
             patterns.append({
                 'pattern_type': row['pattern_type'],
-                'confidence_score': row.get('confidence_score', 0),
-                'detection_date': str(row.get('detection_date', today)),
+                'confidence_score': row.get('confidence', 0),
+                'pattern_date': str(row.get('pattern_date', today)),
                 'data': pattern_data,
             })
 
         return {
             'symbol': symbol,
             'patterns': patterns,
-            'detection_date': str(today),
+            'pattern_date': str(today),
         }
 
     # =========================================================================
