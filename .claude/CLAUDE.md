@@ -134,6 +134,14 @@ Before claiming "done", verify the **invariant envelope**:
 
 Use `/invariant "goal"` to identify what must hold, `/reconcile domain` to fix violations, then `/invariant` again to verify delta = 0.
 
+**Post-Deployment Invariant Verification (MANDATORY)**: After ANY deployment that modifies Lambda, Step Functions, or scheduled workflows:
+1. **Run `/invariant "affected workflow"`** - Don't assume "deploy succeeded" = "system works"
+2. **Verify Layer 4 (Ground Truth)** - Check Aurora has expected data, S3 has expected files
+3. **Check Lambda health independently** - Test Lambda import/startup separately from workflow
+4. **Verify next scheduled run will work** - Temporal invariant: "works today" ≠ "works tomorrow"
+
+**Anti-pattern that caused production failure**: Stopping at Step Functions "SUCCEEDED" status (Layer 1) without verifying Lambda logs (Layer 3) or Aurora data (Layer 4). The workflow "succeeded" but workers crashed on import → no data populated.
+
 **Cascade Violation Pattern**: A single visible symptom often masks multiple sequential dependencies. When one fix reveals another violation, you're in a cascade. **Pre-scan ALL levels (4→3→2→1→0) BEFORE fixing anything.** This prevents the "fix-reveal-fix" loop:
 ```
 ❌ Wrong: Fix L1 → Discover L2 broken → Fix L2 → Discover L3 broken...
@@ -214,17 +222,19 @@ Commands are not independent—they are **modes within Strategy**. Each mode def
 | `/consolidate` | converge | Synthesizes Constraints into decision |
 | `/analysis` | orchestrate | Tier-2: Chains `/explore` → `/what-if` → `/validate` → `/consolidate` |
 | `/trace` | causal | Adds causal chain to Constraints |
+| `/impact` | assess | Adds ripple effects and risk levels to Constraints |
 | `/decompose` | decompose | Breaks Invariant into sub-invariants |
 | `/feature` | define | Populates Constraints + Invariant from spec files |
 | `/invariant` | scan | Evaluates Check against specification |
-| `/reconcile` | fix | Executes Actions to satisfy Invariant |
+| `/reconcile` | fix | **Tier-1**: Specialization of `/merge` with `strategy=conform` |
 | `/deploy` | execute | Transforms code to runtime state; 5-phase deployment pipeline |
 | `/qna` | probe | Reveals Constraints (knowledge state) for user verification |
 | `/pay-debt` | analyze | Reveals Constraints (debt inventory) + defines Invariant (targets) |
-| `/move` | transform | **Executable Foundation**: Transform(X, A, B, Invariants) → X' |
+| `/merge` | combine | **Tier-0 Foundation**: Universal transformation primitive; all transforms derive from this |
+| `/move` | transform | **Tier-1**: Specialization of `/merge` with `strategy=preserve` |
 | `/transfer` | — | Theory documentation for Transform abstraction |
-| `/adapt` | transform | Specialization: code, external→internal, adapt |
-| `/provision-env` | transform | Specialization: infra, internal→internal, copy |
+| `/adapt` | transform | **Tier-1**: Specialization of `/merge` with `strategy=adapt` |
+| `/provision-env` | transform | **Tier-1**: Specialization of `/merge` with `strategy=copy` |
 | `/perf` | observe | Reveals performance Constraints from CloudWatch metrics |
 | `/optimize` | transform | Transforms Constraints while maintaining Invariant stability (Tier-2) |
 | `/evolve` | meta | Tier-2: Detects drift, proposes updates, verifies Agent Kernel compliance |
@@ -263,7 +273,7 @@ Tier-N: Higher composition (builds on lower tiers)
 |--------|--------|--------|---------|
 | Principles | Core (#1,2,18,20,23,25-28) | Domain clusters | Task-specific |
 | Skills | — | Modular (prompt-eng, testing) | Composed (report-workflow) |
-| Commands | Atomic (/explore, /validate) | — | Orchestrated (/optimize, /analysis) |
+| Commands | Foundation (/merge), Atomic (/explore, /validate) | Specialized (/move, /adapt, /reconcile) | Orchestrated (/optimize, /analysis) |
 | Invariants | Level 4 (config) | Levels 3-2 (infra, data) | Levels 1-0 (service, user) |
 | Tests | Tier-0 (unit) | Tier-1-2 (integration) | Tier-3-4 (e2e) |
 

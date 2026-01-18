@@ -25,6 +25,74 @@ composition:
 
 ---
 
+## Tuple Effects (Universal Kernel Integration)
+
+**Part of the Agent Kernel** - Analysis operation for change impact assessment.
+
+**Mode Type**: `assess`
+
+**Tier**: 0 (Atomic - single-purpose analysis command)
+
+| Tuple Component | Effect |
+|-----------------|--------|
+| **Constraints** | **EXPAND**: Adds affected components, dependencies, risk levels |
+| **Invariant** | **NONE**: Does not modify goal |
+| **Principles** | **NONE**: Does not modify principles |
+| **Strategy** | Consumes this mode; informs subsequent modes (e.g., `/design`, `EnterPlanMode`) |
+| **Check** | **ANNOTATE**: Reports risk assessment (🔴 High / 🟡 Medium / 🟢 Low) |
+
+**Constraint Expansion Examples**:
+```yaml
+before:
+  constraints:
+    change: "Rename ticker parameter to tickers array"
+    affected_components: []
+
+after:
+  constraints:
+    change: "Rename ticker parameter to tickers array"
+    affected_components:
+      - component: "Telegram Mini App"
+        location: "frontend/src/api/reports.ts:42"
+        risk: HIGH
+        reason: "Production frontend, all users affected"
+      - component: "LINE Bot"
+        location: "src/integrations/line_bot.py:67"
+        risk: HIGH
+        reason: "Production feature, separate deployment"
+      - component: "API Documentation"
+        location: "docs/api/openapi.yaml:145"
+        risk: MEDIUM
+        reason: "Documentation mismatch confuses integrators"
+    overall_risk: HIGH
+    recommendation: "Implement with backward compatibility and phased rollout"
+```
+
+---
+
+## Local Check (Mode Completion Criteria)
+
+The `/impact` mode is complete when ALL of the following hold:
+
+| Criterion | Verification |
+|-----------|--------------|
+| **Change Parsed** | Scope, type, and blast radius identified |
+| **Direct Impact Found** | All immediate dependencies documented |
+| **Indirect Impact Analyzed** | Cascading effects (tests, config, similar patterns) identified |
+| **Risk Levels Assigned** | Each component has 🔴/🟡/🟢 rating with reasoning |
+| **Mitigation Strategy** | Recommendations for each risk documented |
+| **Recommendation Given** | Clear "proceed/caution/reconsider" verdict |
+
+**Check Result Mapping**:
+- **PASS (🟢 Low overall)**: Safe to proceed → continue to implementation
+- **PARTIAL (🟡 Medium overall)**: Proceed with caution → apply mitigations first
+- **FAIL (🔴 High overall)**: Reconsider approach → explore alternatives with `/what-if`
+
+**Integration with Check Loop**:
+The risk assessment feeds into the tuple's Check component. If overall risk is HIGH, the Check Loop may recommend spinning a new tuple with `/what-if` to explore alternatives before proceeding.
+
+---
+
 ## Execution Flow
 
 ### Phase 1: Understand the Change
