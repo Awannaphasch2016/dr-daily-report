@@ -10,6 +10,8 @@ from src.analysis.semantic_state_generator import (
     RiskRegime,
     MomentumState,
     TrendState,
+    MarketRegime,
+    DivergenceSignal,
     SemanticStates
 )
 
@@ -400,11 +402,15 @@ class TestSemanticStatesIntegration:
         assert isinstance(states.risk, RiskRegime)
         assert isinstance(states.momentum, MomentumState)
         assert isinstance(states.trend, TrendState)
+        assert isinstance(states.market_regime, MarketRegime)
+        assert isinstance(states.divergence, DivergenceSignal)
 
         # Verify specific states
         assert states.risk.uncertainty_state == "moderate"
         assert states.momentum.rsi_zone == "approaching_overbought"
         assert states.trend.sma_alignment == "strong_uptrend"
+        assert states.market_regime.regime == "bull"  # Uptrend + non-weakening momentum
+        assert states.divergence.signal == "no_divergence"  # No history provided
 
     def test_semantic_states_to_dict(self):
         """Test conversion to nested dictionary for template injection"""
@@ -419,6 +425,8 @@ class TestSemanticStatesIntegration:
         assert 'risk' in result
         assert 'momentum' in result
         assert 'trend' in result
+        assert 'market_regime' in result
+        assert 'divergence' in result
 
         # Verify nested dicts
         assert isinstance(result['risk'], dict)
@@ -431,6 +439,12 @@ class TestSemanticStatesIntegration:
         assert isinstance(result['trend'], dict)
         assert 'sma_alignment' in result['trend']
 
+        assert isinstance(result['market_regime'], dict)
+        assert 'regime' in result['market_regime']
+
+        assert isinstance(result['divergence'], dict)
+        assert 'signal' in result['divergence']
+
     def test_empty_data_handling(self):
         """Test graceful handling of missing/empty data"""
         states = self.generator.generate_all_states({}, {})
@@ -441,6 +455,8 @@ class TestSemanticStatesIntegration:
         assert states.risk.volatility_regime == "low"  # 0 < 1.0
         assert states.momentum.rsi_zone == "neutral"  # Default RSI = 50
         assert states.trend.price_vs_sma == "at"  # Division by zero protection
+        assert states.market_regime.regime == "sideways"  # Default with no clear trend
+        assert states.divergence.signal == "no_divergence"  # No history = no divergence
 
 
 class TestRealWorldScenarios:
@@ -506,3 +522,164 @@ class TestRealWorldScenarios:
         assert states.momentum.rsi_zone == "approaching_oversold"
         assert states.momentum.macd_signal == "strong_bearish"
         assert states.trend.sma_alignment == "strong_downtrend"
+
+
+class TestMarketRegime:
+    """Test market regime classification (Tier-1 derived state)"""
+
+    def setup_method(self):
+        self.generator = SemanticStateGenerator()
+
+    def test_bull_regime_strong_uptrend(self):
+        """Test bull regime with strong uptrend and strengthening momentum"""
+        indicators = {
+            'rsi': 65,
+            'macd': 0.5,
+            'macd_signal': 0.3,  # Positive MACD above signal = strengthening
+            'current_price': 55,
+            'sma_20': 52,
+            'sma_50': 50,
+            'sma_200': 48  # Strong uptrend: SMA20 > SMA50 > SMA200
+        }
+        regime = self.generator.generate_market_regime(indicators)
+
+        assert regime.regime == "bull"
+
+    def test_bear_regime_strong_downtrend(self):
+        """Test bear regime with strong downtrend and weakening momentum"""
+        indicators = {
+            'rsi': 35,
+            'macd': -0.5,
+            'macd_signal': -0.3,  # Negative MACD below signal = weakening
+            'current_price': 40,
+            'sma_20': 45,
+            'sma_50': 48,
+            'sma_200': 50  # Strong downtrend: SMA20 < SMA50 < SMA200
+        }
+        regime = self.generator.generate_market_regime(indicators)
+
+        assert regime.regime == "bear"
+
+    def test_sideways_mixed_signals(self):
+        """Test sideways regime with mixed trend/momentum signals"""
+        indicators = {
+            'rsi': 50,
+            'macd': 0.1,
+            'macd_signal': 0.2,  # Positive but below signal = stable/not strengthening
+            'current_price': 50,
+            'sma_20': 50,
+            'sma_50': 50,
+            'sma_200': 50  # Sideways: SMAs equal
+        }
+        regime = self.generator.generate_market_regime(indicators)
+
+        assert regime.regime == "sideways"
+
+    def test_sideways_uptrend_with_weakening_momentum(self):
+        """Test that uptrend with weakening momentum becomes sideways"""
+        indicators = {
+            'rsi': 55,
+            'macd': -0.5,
+            'macd_signal': -0.3,  # Negative MACD below signal = weakening
+            'current_price': 55,
+            'sma_20': 52,
+            'sma_50': 50,
+            'sma_200': 48  # Uptrend but momentum weakening
+        }
+        regime = self.generator.generate_market_regime(indicators)
+
+        assert regime.regime == "sideways"  # Uptrend + weakening = sideways
+
+    def test_sideways_downtrend_with_strengthening_momentum(self):
+        """Test that downtrend with strengthening momentum becomes sideways"""
+        indicators = {
+            'rsi': 45,
+            'macd': 0.5,
+            'macd_signal': 0.3,  # Positive MACD above signal = strengthening
+            'current_price': 45,
+            'sma_20': 48,
+            'sma_50': 50,
+            'sma_200': 52  # Downtrend but momentum strengthening
+        }
+        regime = self.generator.generate_market_regime(indicators)
+
+        assert regime.regime == "sideways"  # Downtrend + strengthening = sideways
+
+    def test_market_regime_to_dict(self):
+        """Verify MarketRegime converts to dict correctly"""
+        regime = MarketRegime(regime="bull")
+        result = regime.to_dict()
+
+        assert isinstance(result, dict)
+        assert result['regime'] == "bull"
+
+
+class TestDivergenceSignal:
+    """Test RSI-price divergence detection"""
+
+    def setup_method(self):
+        self.generator = SemanticStateGenerator()
+
+    def test_bullish_divergence_price_down_rsi_up(self):
+        """Test bullish divergence: price falling but RSI rising"""
+        indicators = {'rsi': 45, 'macd': 0, 'macd_signal': 0, 'current_price': 92, 'sma_20': 95, 'sma_50': 98, 'sma_200': 100}
+        price_history = [100, 98, 95, 92]  # Price falling
+        rsi_history = [30, 35, 40, 45]     # RSI rising
+
+        divergence = self.generator.generate_divergence_signal(indicators, price_history, rsi_history)
+
+        assert divergence.signal == "bullish_divergence"
+
+    def test_bearish_divergence_price_up_rsi_down(self):
+        """Test bearish divergence: price rising but RSI falling"""
+        indicators = {'rsi': 55, 'macd': 0, 'macd_signal': 0, 'current_price': 98, 'sma_20': 95, 'sma_50': 92, 'sma_200': 90}
+        price_history = [90, 92, 95, 98]  # Price rising
+        rsi_history = [70, 65, 60, 55]    # RSI falling
+
+        divergence = self.generator.generate_divergence_signal(indicators, price_history, rsi_history)
+
+        assert divergence.signal == "bearish_divergence"
+
+    def test_no_divergence_both_rising(self):
+        """Test no divergence when both price and RSI rising"""
+        indicators = {'rsi': 65, 'macd': 0, 'macd_signal': 0, 'current_price': 105, 'sma_20': 100, 'sma_50': 95, 'sma_200': 90}
+        price_history = [95, 98, 102, 105]  # Price rising
+        rsi_history = [50, 55, 60, 65]      # RSI rising
+
+        divergence = self.generator.generate_divergence_signal(indicators, price_history, rsi_history)
+
+        assert divergence.signal == "no_divergence"
+
+    def test_no_divergence_both_falling(self):
+        """Test no divergence when both price and RSI falling"""
+        indicators = {'rsi': 35, 'macd': 0, 'macd_signal': 0, 'current_price': 90, 'sma_20': 95, 'sma_50': 98, 'sma_200': 100}
+        price_history = [105, 100, 95, 90]  # Price falling
+        rsi_history = [65, 55, 45, 35]      # RSI falling
+
+        divergence = self.generator.generate_divergence_signal(indicators, price_history, rsi_history)
+
+        assert divergence.signal == "no_divergence"
+
+    def test_no_history_defaults_to_no_divergence(self):
+        """Test that missing history returns no_divergence (conservative default)"""
+        indicators = {'rsi': 50, 'macd': 0, 'macd_signal': 0, 'current_price': 100}
+
+        # No history provided
+        divergence = self.generator.generate_divergence_signal(indicators)
+        assert divergence.signal == "no_divergence"
+
+        # Empty history
+        divergence = self.generator.generate_divergence_signal(indicators, [], [])
+        assert divergence.signal == "no_divergence"
+
+        # Insufficient history (need at least 2)
+        divergence = self.generator.generate_divergence_signal(indicators, [100], [50])
+        assert divergence.signal == "no_divergence"
+
+    def test_divergence_signal_to_dict(self):
+        """Verify DivergenceSignal converts to dict correctly"""
+        divergence = DivergenceSignal(signal="bullish_divergence")
+        result = divergence.to_dict()
+
+        assert isinstance(result, dict)
+        assert result['signal'] == "bullish_divergence"

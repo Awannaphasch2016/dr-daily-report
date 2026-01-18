@@ -242,6 +242,11 @@ Date: {ticker_data.get('date')}
 SEMANTIC STATES (Interpret these, use placeholders for numbers):
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+Market Regime: {semantic_states.market_regime.regime}
+  - bull: Sustained uptrend with supporting momentum
+  - bear: Sustained downtrend with confirming momentum
+  - sideways: Mixed signals, range-bound market
+
 Risk Regime:
   - Market State: {semantic_states.risk.uncertainty_state}
   - Volatility: {semantic_states.risk.volatility_regime}
@@ -256,6 +261,11 @@ Momentum State:
 Trend State:
   - SMA Alignment: {semantic_states.trend.sma_alignment}
   - Price Position: {semantic_states.trend.price_vs_sma}
+
+Divergence Signal: {semantic_states.divergence.signal}
+  - bullish_divergence: Price down but RSI rising (hidden strength)
+  - bearish_divergence: Price up but RSI falling (hidden weakness)
+  - no_divergence: Price and RSI moving together
 
 Constraint Satisfaction Rules:
 1. NARRATIVE MUST honor semantic states above (e.g., if risk=stable, don't write "risky")

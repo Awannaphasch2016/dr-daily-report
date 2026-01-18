@@ -13,7 +13,7 @@ Research basis:
 Core principle: Code decides what numbers MEAN, LLM decides how meanings COMBINE.
 """
 
-from typing import Dict, Literal
+from typing import Dict, Literal, Optional, List
 from dataclasses import dataclass, asdict
 
 
@@ -64,6 +64,41 @@ class TrendState:
 
 
 @dataclass
+class MarketRegime:
+    """Top-level market regime classification
+
+    Derived from SMA alignment + momentum direction for clearer LLM guidance.
+    Simplifies LLM's interpretive burden by providing explicit regime label.
+
+    States:
+    - bull: Sustained uptrend with supporting momentum
+    - bear: Sustained downtrend with confirming momentum
+    - sideways: Mixed signals, range-bound market
+    """
+    regime: Literal["bull", "bear", "sideways"]
+
+    def to_dict(self) -> Dict[str, str]:
+        """Convert to dictionary for template injection"""
+        return asdict(self)
+
+
+@dataclass
+class DivergenceSignal:
+    """RSI-Price divergence detection
+
+    Divergence is a leading indicator where price and RSI move in opposite directions.
+    - Bullish divergence: Price makes lower lows, RSI makes higher lows (hidden strength)
+    - Bearish divergence: Price makes higher highs, RSI makes lower highs (hidden weakness)
+    - No divergence: Price and RSI moving in same direction
+    """
+    signal: Literal["bullish_divergence", "bearish_divergence", "no_divergence"]
+
+    def to_dict(self) -> Dict[str, str]:
+        """Convert to dictionary for template injection"""
+        return asdict(self)
+
+
+@dataclass
 class SemanticStates:
     """Container for all semantic states
 
@@ -72,13 +107,17 @@ class SemanticStates:
     risk: RiskRegime
     momentum: MomentumState
     trend: TrendState
+    market_regime: MarketRegime
+    divergence: DivergenceSignal
 
     def to_dict(self) -> Dict[str, Dict[str, str]]:
         """Convert to nested dictionary for template injection"""
         return {
             'risk': self.risk.to_dict(),
             'momentum': self.momentum.to_dict(),
-            'trend': self.trend.to_dict()
+            'trend': self.trend.to_dict(),
+            'market_regime': self.market_regime.to_dict(),
+            'divergence': self.divergence.to_dict()
         }
 
 
@@ -99,13 +138,17 @@ class SemanticStateGenerator:
     def generate_all_states(
         self,
         ground_truth: Dict,
-        indicators: Dict
+        indicators: Dict,
+        price_history: list = None,
+        rsi_history: list = None
     ) -> SemanticStates:
         """Generate all semantic states from numeric data
 
         Args:
             ground_truth: Calculated market conditions (uncertainty, atr_pct, vwap_pct, volume_ratio)
             indicators: Technical indicators (rsi, macd, sma, etc.)
+            price_history: Optional list of recent prices for divergence detection
+            rsi_history: Optional list of recent RSI values for divergence detection
 
         Returns:
             SemanticStates: Complete semantic state classification
@@ -114,18 +157,28 @@ class SemanticStateGenerator:
             >>> generator = SemanticStateGenerator()
             >>> states = generator.generate_all_states(
             ...     ground_truth={'uncertainty_score': 35, 'atr_pct': 1.2, 'vwap_pct': 3.5, 'volume_ratio': 1.8},
-            ...     indicators={'rsi': 65, 'macd': 0.45, 'macd_signal': 0.3, 'current_price': 50, 'sma_20': 48}
+            ...     indicators={'rsi': 65, 'macd': 0.45, 'macd_signal': 0.3, 'current_price': 50, 'sma_20': 48, 'sma_50': 45, 'sma_200': 42}
             ... )
             >>> states.risk.uncertainty_state
             'moderate'
             >>> states.momentum.rsi_zone
             'approaching_overbought'
+            >>> states.market_regime.regime
+            'bull'
         """
         risk = self.generate_risk_regime(ground_truth)
         momentum = self.generate_momentum_state(indicators)
         trend = self.generate_trend_state(indicators)
+        market_regime = self.generate_market_regime(indicators)
+        divergence = self.generate_divergence_signal(indicators, price_history, rsi_history)
 
-        return SemanticStates(risk=risk, momentum=momentum, trend=trend)
+        return SemanticStates(
+            risk=risk,
+            momentum=momentum,
+            trend=trend,
+            market_regime=market_regime,
+            divergence=divergence
+        )
 
     def generate_risk_regime(self, ground_truth: Dict) -> RiskRegime:
         """Convert risk metrics to semantic states
@@ -323,3 +376,78 @@ class SemanticStateGenerator:
             sma_alignment=sma_alignment,
             price_vs_sma=price_vs_sma
         )
+
+    def generate_market_regime(self, indicators: Dict) -> MarketRegime:
+        """Top-level market regime classification
+
+        Derives from SMA alignment + momentum direction for clearer LLM guidance.
+        This is a higher-order semantic state that simplifies regime identification.
+
+        Classification Rules:
+        - bull: Uptrend alignment + non-weakening momentum
+        - bear: Downtrend alignment + non-strengthening momentum
+        - sideways: Mixed signals or transitional state
+
+        Args:
+            indicators: Dict with SMA and momentum data
+
+        Returns:
+            MarketRegime: Single regime classification
+        """
+        # Get component states
+        trend = self.generate_trend_state(indicators)
+        momentum = self.generate_momentum_state(indicators)
+
+        # Derive regime from components
+        if trend.sma_alignment in ("strong_uptrend", "uptrend") and momentum.momentum_direction != "weakening":
+            regime = "bull"
+        elif trend.sma_alignment in ("strong_downtrend", "downtrend") and momentum.momentum_direction != "strengthening":
+            regime = "bear"
+        else:
+            regime = "sideways"
+
+        return MarketRegime(regime=regime)
+
+    def generate_divergence_signal(
+        self,
+        indicators: Dict,
+        price_history: list = None,
+        rsi_history: list = None
+    ) -> DivergenceSignal:
+        """Detect RSI-price divergence patterns
+
+        Divergence detection requires historical data to compare trends.
+        If history not available, returns no_divergence (conservative default).
+
+        Divergence Types:
+        - Bullish divergence: Price down, RSI up (hidden strength)
+        - Bearish divergence: Price up, RSI down (hidden weakness)
+        - No divergence: Price and RSI moving in same direction
+
+        Args:
+            indicators: Dict with current rsi and price
+            price_history: Last N prices (optional, at least 2 needed)
+            rsi_history: Last N RSI values (optional, at least 2 needed)
+
+        Returns:
+            DivergenceSignal: Divergence classification
+        """
+        # Default to no divergence if history not available
+        if not price_history or not rsi_history or len(price_history) < 2 or len(rsi_history) < 2:
+            return DivergenceSignal(signal="no_divergence")
+
+        # Compare recent trends (last 2 data points)
+        price_rising = price_history[-1] > price_history[-2]
+        rsi_rising = rsi_history[-1] > rsi_history[-2]
+
+        # Divergence detection
+        if price_rising and not rsi_rising:
+            # Price up, RSI down = bearish divergence (weakness)
+            signal = "bearish_divergence"
+        elif not price_rising and rsi_rising:
+            # Price down, RSI up = bullish divergence (hidden strength)
+            signal = "bullish_divergence"
+        else:
+            signal = "no_divergence"
+
+        return DivergenceSignal(signal=signal)
