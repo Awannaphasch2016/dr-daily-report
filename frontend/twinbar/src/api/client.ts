@@ -14,6 +14,8 @@
 
 import {
   API_BASE_PATH,
+  STATIC_API_BASE_PATH,
+  isStaticApiEnabled,
   REQUEST_TIMEOUT,
   POLL_INTERVAL,
   MAX_POLL_ATTEMPTS,
@@ -195,6 +197,9 @@ class APIClient {
   /**
    * Get market rankings by category
    *
+   * Uses Static API (CloudFront CDN) for <50ms response time.
+   * Falls back to dynamic API (Lambda) if Static API unavailable.
+   *
    * @param category - Ranking category (top_gainers, top_losers, volume_surge, trending)
    * @returns List of ranked tickers
    *
@@ -205,6 +210,30 @@ class APIClient {
   async getRankings(
     category: 'top_gainers' | 'top_losers' | 'volume_surge' | 'trending' = 'top_gainers'
   ): Promise<RankingsResponse> {
+    // Try Static API first (CloudFront CDN, <50ms response)
+    if (isStaticApiEnabled()) {
+      try {
+        const staticUrl = `${STATIC_API_BASE_PATH}/api/v1/rankings.json`;
+        const response = await fetch(staticUrl);
+
+        if (response.ok) {
+          const data = await response.json();
+          const cacheStatus = response.headers.get('x-cache') || 'unknown';
+          console.log(`Rankings from Static API (cache: ${cacheStatus})`);
+
+          // Transform static API response to RankingsResponse format
+          return {
+            category,
+            as_of: data.generated_at,
+            tickers: data.rankings[category] || [],
+          };
+        }
+      } catch (error) {
+        console.warn('Static API failed, falling back to dynamic:', error);
+      }
+    }
+
+    // Fallback to dynamic API (Lambda + yfinance, 2-5s response)
     return this.request<RankingsResponse>(`/rankings?category=${category}`);
   }
 

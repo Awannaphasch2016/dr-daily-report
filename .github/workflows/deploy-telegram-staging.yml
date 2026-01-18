@@ -475,6 +475,7 @@ jobs:
         id: deploy
         env:
           API_URL: ${{ secrets.TELEGRAM_API_URL }}
+          STATIC_API_URL: ${{ vars.STATIC_API_URL }}
           TEST_DIST_ID: ${{ secrets.CLOUDFRONT_TEST_DISTRIBUTION_ID }}
         run: |
           # Ensure API URL has /api/v1 suffix
@@ -482,9 +483,16 @@ jobs:
             API_URL="${API_URL%/}/api/v1"
           fi
           echo "   Using API URL: ${API_URL}"
+          echo "   Using Static API URL: ${STATIC_API_URL:-not configured}"
 
-          # Inject API URL into built index.html
-          sed -i "s|</head>|<script>window.TELEGRAM_API_URL = '${API_URL}';</script></head>|g" frontend/twinbar/dist/index.html
+          # Inject API URLs into built index.html
+          # TELEGRAM_API_URL: Dynamic API (Lambda) for real-time data
+          # STATIC_API_URL: Static API (CloudFront CDN) for precomputed data (<50ms)
+          if [ -n "${STATIC_API_URL}" ]; then
+            sed -i "s|</head>|<script>window.TELEGRAM_API_URL = '${API_URL}'; window.STATIC_API_URL = '${STATIC_API_URL}';</script></head>|g" frontend/twinbar/dist/index.html
+          else
+            sed -i "s|</head>|<script>window.TELEGRAM_API_URL = '${API_URL}';</script></head>|g" frontend/twinbar/dist/index.html
+          fi
 
           aws s3 sync frontend/twinbar/dist/ s3://${{ secrets.WEBAPP_BUCKET_NAME }}/ --delete
           echo "✅ Staging frontend uploaded to S3"

@@ -108,7 +108,13 @@ class StaticAPIGenerator:
         from src.data.aurora.table_names import COMPARATIVE_FEATURES, PRECOMPUTED_REPORTS
 
         client = get_aurora_client()
-        today = date.today()
+
+        # Use most recent feature_date (handles weekends/holidays when no fresh data)
+        # First, find the latest available date
+        latest_date_query = f"SELECT MAX(feature_date) as latest FROM {COMPARATIVE_FEATURES}"
+        latest_result = client.fetch_all(latest_date_query)
+        latest_date = latest_result[0]['latest'] if latest_result and latest_result[0]['latest'] else date.today()
+        logger.info(f"Using feature_date: {latest_date} for rankings")
 
         # Query comparative features for all tickers
         # Note: COLLATE needed due to collation mismatch between tables
@@ -128,7 +134,7 @@ class StaticAPIGenerator:
             ORDER BY cf.symbol
         """
 
-        results = client.fetch_all(query, (today, today))
+        results = client.fetch_all(query, (latest_date, latest_date))
         logger.info(f"Fetched {len(results)} tickers for rankings")
 
         if not results:
