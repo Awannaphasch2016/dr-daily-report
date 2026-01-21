@@ -556,6 +556,157 @@ class TickerResolver:
         self._cache.clear()
         self._ensure_initialized()
 
+    # =========================================================================
+    # Auto-Registration API
+    # =========================================================================
+
+    def register_ticker(
+        self,
+        symbol: str,
+        company_name: Optional[str] = None,
+        symbol_type: Optional[str] = None,
+    ) -> Optional[int]:
+        """Register a new ticker if it doesn't exist.
+
+        Automatically infers metadata (exchange, currency) from symbol format.
+        Used by ETL pipelines to auto-register tickers from incoming data.
+
+        Args:
+            symbol: Ticker symbol (e.g., 'NVDA19', 'D05.SI', 'NVDA')
+            company_name: Company name (derived from symbol if not provided)
+            symbol_type: Symbol type ('dr', 'yahoo'). Auto-detected if not provided.
+
+        Returns:
+            ticker_id if registered or already exists, None if registration fails
+
+        Example:
+            >>> resolver = get_ticker_resolver()
+            >>> ticker_id = resolver.register_ticker('NEW19', 'New Company', 'dr')
+            >>> print(f"Registered with id={ticker_id}")
+        """
+        self._ensure_initialized()
+
+        # Check if already exists
+        existing = self.resolve(symbol)
+        if existing:
+            logger.debug(f"Ticker {symbol} already registered (id={existing.ticker_id})")
+            return existing.ticker_id
+
+        # Need client for registration
+        if self.client is None:
+            self.client = get_aurora_client()
+
+        # Infer metadata
+        exchange, currency = self._extract_exchange_info(symbol)
+
+        # Determine symbol type if not provided
+        if symbol_type is None:
+            symbol_upper = symbol.upper()
+            # DR symbols typically end with digits like '19'
+            is_dr = len(symbol) > 2 and symbol_upper[-2:].isdigit()
+            symbol_type = 'dr' if is_dr else 'yahoo'
+
+        # Derive company name if not provided
+        if company_name is None:
+            # Remove common suffixes for display name
+            clean_name = symbol.upper()
+            for suffix in ['.SI', '.HK', '.T', '.VN', '.TW', '.BK', '19']:
+                clean_name = clean_name.replace(suffix, '')
+            company_name = clean_name
+
+        try:
+            # Insert into ticker_master
+            insert_master = f"""
+                INSERT INTO {TICKER_MASTER}
+                    (company_name, exchange, currency, quote_type)
+                VALUES (%s, %s, %s, %s)
+            """
+            self.client.execute(
+                insert_master,
+                (company_name, exchange, currency, 'equity'),
+                commit=True
+            )
+
+            # Get the inserted ID
+            result = self.client.fetch_one("SELECT LAST_INSERT_ID() as id")
+            ticker_id = result['id']
+
+            # Insert alias
+            insert_alias = f"""
+                INSERT INTO {TICKER_ALIASES}
+                    (ticker_id, symbol, symbol_type, is_primary)
+                VALUES (%s, %s, %s, %s)
+                ON DUPLICATE KEY UPDATE ticker_id = VALUES(ticker_id)
+            """
+            self.client.execute(
+                insert_alias,
+                (ticker_id, symbol, symbol_type, True),
+                commit=True
+            )
+
+            # Update in-memory cache
+            info = TickerInfo(
+                ticker_id=ticker_id,
+                company_name=company_name,
+                exchange=exchange,
+                currency=currency,
+            )
+            setattr(info, f"{symbol_type}_symbol", symbol)
+            self._cache[symbol.upper()] = info
+
+            logger.info(
+                f"Auto-registered ticker: {symbol} "
+                f"(id={ticker_id}, type={symbol_type}, exchange={exchange})"
+            )
+            return ticker_id
+
+        except Exception as e:
+            logger.error(f"Failed to auto-register ticker {symbol}: {e}")
+            return None
+
+    def ensure_tickers_registered(self, symbols: List[str]) -> Dict[str, Optional[int]]:
+        """Ensure multiple tickers are registered.
+
+        Batch operation for ETL pipelines. Checks which symbols are missing
+        and registers them.
+
+        Args:
+            symbols: List of ticker symbols to ensure are registered
+
+        Returns:
+            Dict mapping symbol -> ticker_id (None if registration failed)
+
+        Example:
+            >>> resolver = get_ticker_resolver()
+            >>> results = resolver.ensure_tickers_registered(['NVDA19', 'NEW19', 'DBS19'])
+            >>> for symbol, tid in results.items():
+            ...     print(f"{symbol}: {tid}")
+        """
+        self._ensure_initialized()
+
+        results = {}
+        missing_symbols = []
+
+        # First pass: check which exist
+        for symbol in symbols:
+            existing = self.resolve(symbol)
+            if existing:
+                results[symbol] = existing.ticker_id
+            else:
+                missing_symbols.append(symbol)
+
+        if not missing_symbols:
+            logger.debug(f"All {len(symbols)} symbols already registered")
+            return results
+
+        # Register missing symbols
+        logger.info(f"Found {len(missing_symbols)} unregistered tickers, registering...")
+        for symbol in missing_symbols:
+            ticker_id = self.register_ticker(symbol)
+            results[symbol] = ticker_id
+
+        return results
+
 
 # =============================================================================
 # Singleton

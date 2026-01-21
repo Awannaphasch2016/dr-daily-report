@@ -21,13 +21,14 @@ Data Flow:
 
 import json
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import boto3
 from botocore.exceptions import ClientError
 
 from src.data.etl.fund_data_parser import get_fund_data_parser
 from src.data.aurora.fund_data_repository import get_fund_data_repository
+from src.data.aurora.ticker_resolver import get_ticker_resolver
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +52,9 @@ class FundDataSyncService:
         self,
         s3_client: Optional[Any] = None,
         parser: Optional[Any] = None,
-        repository: Optional[Any] = None
+        repository: Optional[Any] = None,
+        ticker_resolver: Optional[Any] = None,
+        auto_register_tickers: bool = True
     ):
         """Initialize ETL service.
 
@@ -59,10 +62,14 @@ class FundDataSyncService:
             s3_client: boto3 S3 client (uses default if not provided)
             parser: FundDataParser instance (uses singleton if not provided)
             repository: FundDataRepository instance (uses singleton if not provided)
+            ticker_resolver: TickerResolver instance (uses singleton if not provided)
+            auto_register_tickers: If True, auto-register new tickers found in data
         """
         self.s3_client = s3_client or boto3.client('s3')
         self.parser = parser or get_fund_data_parser()
         self.repo = repository or get_fund_data_repository()
+        self.ticker_resolver = ticker_resolver or get_ticker_resolver()
+        self.auto_register_tickers = auto_register_tickers
 
     # =========================================================================
     # Public API
@@ -111,6 +118,11 @@ class FundDataSyncService:
             records = self.parser.parse(csv_bytes, s3_key=key)
             logger.info(f"Parsed {len(records)} records from CSV")
 
+            # Step 2.5: Auto-register new tickers if enabled
+            registered_tickers = 0
+            if self.auto_register_tickers and records:
+                registered_tickers = self._ensure_tickers_registered(records)
+
             # Step 3: Batch upsert to Aurora
             rowcount = self.repo.batch_upsert(records)
             logger.info(f"Upserted {len(records)} records, affected {rowcount} rows")
@@ -119,6 +131,7 @@ class FundDataSyncService:
                 'success': True,
                 'records_processed': len(records),
                 'rows_affected': rowcount,
+                'tickers_registered': registered_tickers,
                 's3_source': f"s3://{bucket}/{key}",
                 'message': f"Successfully synced {len(records)} records"
             }
@@ -205,6 +218,43 @@ class FundDataSyncService:
     # =========================================================================
     # Internal Methods
     # =========================================================================
+
+    def _ensure_tickers_registered(self, records: List[Dict[str, Any]]) -> int:
+        """Ensure all tickers in records are registered in ticker_master.
+
+        Extracts unique tickers from records and registers any that are missing.
+
+        Args:
+            records: List of fund data records with 'ticker' field
+
+        Returns:
+            Number of newly registered tickers
+        """
+        # Extract unique tickers from records
+        unique_tickers = set()
+        for record in records:
+            ticker = record.get('ticker')
+            if ticker:
+                unique_tickers.add(ticker)
+
+        if not unique_tickers:
+            return 0
+
+        logger.info(f"Checking {len(unique_tickers)} unique tickers for registration")
+
+        # Use ticker resolver to ensure all are registered
+        results = self.ticker_resolver.ensure_tickers_registered(list(unique_tickers))
+
+        # Count newly registered (those that succeeded and weren't already cached)
+        registered_count = sum(1 for tid in results.values() if tid is not None)
+        new_count = len([s for s in unique_tickers if self.ticker_resolver.resolve(s)])
+
+        # Log results
+        failed = [s for s, tid in results.items() if tid is None]
+        if failed:
+            logger.warning(f"Failed to register {len(failed)} tickers: {failed[:5]}...")
+
+        return registered_count
 
     def _download_csv(self, bucket: str, key: str) -> bytes:
         """Download CSV file from S3.
