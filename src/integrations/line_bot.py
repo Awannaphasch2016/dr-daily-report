@@ -335,11 +335,11 @@ class LineBot:
             if message_type != "message":
                 return None
 
-            # Beta user check - reject non-beta users
+            # Beta user check - auto-add new users if within limit (BETA_USER_LIMIT=0 means unlimited)
             source = event.get("source", {})
             user_id = source.get("userId", "")
-            if user_id and not self._is_beta_user(user_id):
-                logger.info(f"🚫 Non-beta user message rejected: {user_id[:10]}...")
+            if user_id and not self._try_add_beta_user(user_id):
+                logger.info(f"🚫 Beta full, rejecting user: {user_id[:10]}...")
                 return self._get_beta_full_message()
 
             message = event.get("message", {})
