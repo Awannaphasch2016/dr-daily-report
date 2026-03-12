@@ -201,10 +201,18 @@ aws logs tail /aws/lambda/dr-telegram-api-{env} --since 5m
 ## Level 0: User Invariants
 
 ### Dashboard Experience
-- [ ] Dashboard loads within 3 seconds
+- [ ] Dashboard loads within 3 seconds (LCP < 2.5s)
 - [ ] Watchlist displays current prices
 - [ ] Can navigate between tickers
 - [ ] Refresh updates data
+
+### Performance SLAs (Core Web Vitals)
+- [ ] LCP (Largest Contentful Paint): < 2.5s (Good)
+- [ ] INP (Interaction to Next Paint): < 200ms (Good)
+- [ ] CLS (Cumulative Layout Shift): < 0.1 (Good)
+- [ ] TTFB (Time to First Byte): < 200ms target
+- [ ] Modal load after click: < 100ms (cache-first)
+- [ ] API response time: < 500ms (with cache hit < 50ms)
 
 ### Report Experience
 - [ ] Selecting ticker shows detailed report
@@ -326,5 +334,111 @@ requirements:
 
 ---
 
+## Test Coverage Invariants
+
+### Backend Tests
+
+| Test Area | Test File | Count | Status |
+|-----------|-----------|-------|--------|
+| API endpoints | `tests/api/test_async_report_migration.py` | 5 | ✅ |
+| Data layer | `tests/data/*.py` | 192 | ✅ |
+| Workflow | `tests/workflow/*.py` | 38 | ✅ |
+| Scheduler | `tests/scheduler/*.py` | 52 | ✅ |
+| Shared services | `tests/shared/*.py` | 168 | ✅ |
+| **Total Backend** | | **455+** | ✅ |
+
+### Frontend Tests
+
+| Test Area | Test File | Status |
+|-----------|-----------|--------|
+| State management | `stores/marketStore.test.ts` | ✅ Property-based tests |
+| Data monotonicity | `marketStore.test.ts` (price_history never shrinks) | ✅ 1000 runs |
+| Data monotonicity | `marketStore.test.ts` (projections never shrinks) | ✅ 500 runs |
+| Normalized state | `marketStore.test.ts` (selectedTicker integrity) | ✅ 1000 runs |
+
+### Test Coverage Gaps (Principle #10, #19)
+
+| Spec Flow | Expected Test | Status |
+|-----------|---------------|--------|
+| `/health` endpoint | `test_health_returns_200` | ❌ MISSING |
+| `/report/{ticker}` | `test_report_returns_valid_json` | ⚠️ Tests invoke, not content |
+| `/tickers` endpoint | `test_tickers_returns_list` | ❌ MISSING |
+| `/watchlist` endpoint | `test_watchlist_returns_user_list` | ❌ MISSING |
+| Invalid ticker | `test_invalid_ticker_returns_404` | ❌ MISSING |
+| Frontend render | `test_components_render_without_errors` | ❌ MISSING |
+| Chart rendering | `test_candlesticks_render_correctly` | ❌ MISSING |
+| Pattern overlay | `test_pattern_overlays_align_with_candles` | ❌ MISSING |
+| PDF generation | `test_pdf_downloads_correctly` | ❌ MISSING |
+| Telegram theme | `test_theme_matches_telegram_app` | ❌ MISSING |
+
+### Required Test Additions
+
+```python
+# tests/api/test_telegram_api.py
+
+def test_health_endpoint_returns_200():
+    """Tests acceptance: Telegram > API > /health returns 200"""
+
+def test_report_returns_valid_json():
+    """Tests acceptance: Telegram > API > /report/{ticker} returns valid JSON"""
+
+def test_tickers_returns_list():
+    """Tests acceptance: Telegram > API > /tickers returns all tickers"""
+
+def test_invalid_ticker_returns_404():
+    """Tests acceptance: Telegram > API > Invalid ticker returns 404"""
+```
+
+```typescript
+// frontend/twinbar/src/components/__tests__/Chart.test.tsx
+
+describe('Chart Component', () => {
+  test('renders candlesticks correctly', () => {
+    // Tests acceptance: Telegram > Chart > Candlesticks render
+  });
+
+  test('pattern overlays align with candles', () => {
+    // Tests acceptance: Telegram > Chart > Pattern overlays
+  });
+});
+```
+
+### Verification Commands
+
+```bash
+# Run backend tests
+pytest tests/api/ tests/data/ tests/workflow/ -v
+
+# Run frontend tests
+cd frontend/twinbar && npm run test
+
+# Check test counts
+grep -r "def test_" tests/ --include="*.py" | wc -l
+```
+
+---
+
+---
+
+## Performance Investigation
+
+For performance bottleneck identification and optimization:
+- [performance-investigation skill](../../skills/performance-investigation/SKILL.md)
+- [Metrics Glossary](../../skills/performance-investigation/METRICS-GLOSSARY.md)
+- [Optimization Patterns](../../skills/performance-investigation/OPTIMIZATION-PATTERNS.md)
+
+### Known Performance Patterns
+
+| Pattern | Current State | Recommendation |
+|---------|---------------|----------------|
+| Cache-first loading | ❌ Not implemented | Skip fetch if data exists in store |
+| React Query | ✅ Installed, ❌ Not used | Enable for automatic caching |
+| Code splitting | ❌ Not configured | Add Vite manual chunks |
+| Skeleton loading | ⚠️ Partial | Add to modal components |
+| Web Vitals monitoring | ❌ Not configured | Add web-vitals library |
+
+---
+
 *Objective: telegram*
 *Spec: .claude/specs/telegram/spec.yaml*
+*Last Updated: 2026-01-15*

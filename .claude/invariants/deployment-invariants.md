@@ -124,6 +124,7 @@ aws lambda get-function --function-name dr-daily-report-telegram-api-dev
 - [ ] No startup errors (check first invocation logs)
 - [ ] Cold start time acceptable (< 3s)
 - [ ] Warm response time acceptable (< 500ms)
+- [ ] **Worker Lambdas import successfully** (check logs for PermissionError, ImportError)
 
 ### Behavior
 - [ ] API contracts unchanged (unless versioned)
@@ -223,6 +224,55 @@ aws lambda wait function-updated \
 | Force push to main | Level 3 (artifact) | Use PR workflow |
 | Skip smoke test | Level 1 (service) | Always run post-deploy test |
 | Deploy Friday 5pm | Level 0 (user) | Deploy early in week |
+| **Victory declaration on Layer 1** | **All levels** | **Verify Layer 3-4 before claiming success** |
+| **File permissions 600** | **Level 1 (import crash)** | **Check permissions before commit** |
+| **Trust Step Functions "SUCCEEDED"** | **Level 2-4 (hidden crash)** | **Check worker Lambda logs independently** |
+
+---
+
+## Incident Anti-Pattern: Victory Declaration (2026-01-16)
+
+**What happened**:
+1. Deployed parallel workflow to Step Functions
+2. Test execution showed "SUCCEEDED"
+3. Declared task complete
+4. Next day: No data populated, users saw empty responses
+
+**Root cause**:
+- `report_worker` Lambda crashed on import (PermissionError: file permissions 600)
+- Step Functions reported "SUCCEEDED" because Catch handlers existed
+- Stopped at Layer 1 evidence (status code) without checking Layer 3 (logs) or Layer 4 (data)
+
+**Why this was missed**:
+- File permissions work differently in Docker COPY vs local execution
+- Local tests passed because Python could read its own files (owner = current user)
+- Lambda runtime uses different user, couldn't read 600 permission files
+
+**Lesson**: `"SUCCEEDED" ≠ "Workers ran correctly" ≠ "Data populated"`
+
+---
+
+## Pre-Deployment: File Permission Check
+
+Docker COPY preserves source file permissions. Files with 600 permissions (owner-only) cause Lambda runtime failures.
+
+```bash
+# Check for restrictive permissions BEFORE commit
+find src/ -name "*.py" -perm 600 -ls
+
+# Fix if found
+find src/ -name "*.py" -perm 600 -exec chmod 644 {} \;
+```
+
+**Add to pre-commit hook**:
+```bash
+# .git/hooks/pre-commit
+if find src/ -name "*.py" -perm 600 | grep -q .; then
+  echo "ERROR: Python files with 600 permissions found"
+  find src/ -name "*.py" -perm 600 -ls
+  exit 1
+fi
+```
 
 ---
 
@@ -249,4 +299,4 @@ aws lambda wait function-updated \
 ---
 
 *Domain: deployment*
-*Last updated: 2026-01-12*
+*Last updated: 2026-01-17*

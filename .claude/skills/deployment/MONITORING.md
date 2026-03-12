@@ -8,6 +8,17 @@
 
 **Before deploying, validate infrastructure-deployment contract:**
 
+0. **Check file permissions** (Docker COPY preserves permissions!)
+   ```bash
+   # Files with 600 permissions will crash Lambda
+   if find src/ -name "*.py" -perm 600 | grep -q .; then
+     echo "❌ Python files with 600 permissions found"
+     find src/ -name "*.py" -perm 600 -ls
+     echo "Fix with: find src/ -name '*.py' -perm 600 -exec chmod 644 {} \\;"
+     exit 1
+   fi
+   ```
+
 1. **Query AWS for actual resource IDs**
    ```bash
    # CloudFront distributions
@@ -74,7 +85,7 @@ fi
 **Passes if**: No errorMessage in response
 **Does NOT prove**: No errors logged during execution
 
-### Layer 3: CloudWatch Logs (Strongest)
+### Layer 3: CloudWatch Logs (Strong)
 ```bash
 # Were there ERROR-level logs?
 START_TIME=$(($(date +%s) - 120))000
@@ -97,7 +108,22 @@ fi
 ```
 
 **Passes if**: No ERROR-level logs
-**Proves**: Function actually executed successfully
+**Does NOT prove**: Data was actually populated
+
+### Layer 4: Ground Truth (Strongest)
+```bash
+# Did data actually get written?
+mysql -e "SELECT COUNT(*) FROM precomputed_reports WHERE DATE(computed_at) = CURDATE()"
+
+# Or for scheduled workflows
+/dev "SELECT symbol, computed_at FROM precomputed_reports ORDER BY computed_at DESC LIMIT 5"
+```
+
+**Passes if**: Expected data exists in Aurora
+**Proves**: Function actually executed AND produced correct output
+
+**CRITICAL**: Step Functions "SUCCEEDED" with Catch handlers does NOT prove workers ran correctly.
+Check worker Lambda logs independently of workflow status.
 
 ---
 

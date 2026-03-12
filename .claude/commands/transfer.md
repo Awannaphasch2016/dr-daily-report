@@ -14,14 +14,16 @@ arg_schema:
     description: "Target context (codebase, new environment)"
 ---
 
-# Transfer Command (Foundation Layer)
+# Transform Theory (Documentation)
 
 **Purpose**: Unified theory for invariant-preserving transformations across contexts.
 
-**This is the FOUNDATION LAYER** - all transformation commands are specializations:
-- `/adapt` - Code patterns (heterogeneous: external → internal)
-- `/provision-env` - Infrastructure (homogeneous: env → env)
-- `/step` - State transformation (current → goal)
+**This is THEORY DOCUMENTATION** - for the executable command, see [/move](move.md).
+
+**Architecture**:
+- `/move` - Executable foundation (Layer 1)
+- `/adapt`, `/provision-env`, `/step` - Domain specializations (Layer 0)
+- `/transfer` - This document (theory only)
 
 ---
 
@@ -435,32 +437,29 @@ mapping      patterns     patterns     No code
 
 ## Layered Architecture
 
-The foundation supports future shortcuts without modification:
-
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  Layer 3: Intent Verbs (Future, Ad-hoc)                     │
-│  /learn, /clone, /port, /converge                           │
-│  ↓ routes to                                                │
+│  Layer 2: Intent Verbs (Future shortcuts)                   │
+│  /learn → /move code external→internal                      │
+│  /clone → /move infra internal→internal                     │
+│  /port  → /move code internal→internal                      │
+│  /converge → /move state current→goal                       │
 ├─────────────────────────────────────────────────────────────┤
-│  Layer 2: Unified Command (Future, Optional)                │
-│  /move "X" to "Y" [with auto-detection]                     │
-│  ↓ routes to                                                │
+│  Layer 1: Executable Foundation                  ← /move    │
+│  /move {what} from {A} to {B} preserving {invariants}       │
+│  Implements: Transform(X, Context_A, Context_B, Invariants) │
 ├─────────────────────────────────────────────────────────────┤
-│  Layer 1: FOUNDATION (This Document)                        │
-│  Transform(X, Context_A, Context_B, Invariants) → X'        │
-│                                                             │
-│  Dimensions:                                                │
-│  • WHAT: code | infra | state                               │
-│  • WHERE: external→internal | internal→internal | current→goal │
-│  • HOW: copy | adapt | preserve                             │
+│  Layer 0: Specialization Commands (domain-optimized)        │
+│  /adapt    = /move code with adaptation workflow            │
+│  /provision-env = /move infra with env workflow             │
+│  /step     = /move state with tuple workflow                │
 ├─────────────────────────────────────────────────────────────┤
-│  Layer 0: Domain Commands (Current Implementation)          │
-│  /adapt, /provision-env, /step                              │
+│  Theory: /transfer.md (This Document)                       │
+│  Describes Transform() abstraction and theory               │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-**Adding shortcuts later**: When friction appears in usage, add intent verbs that route to existing commands. The foundation doesn't change.
+**Adding shortcuts**: When friction appears, add intent verbs (Layer 2) that route to `/move`. The theory doesn't change.
 
 ---
 
@@ -486,6 +485,9 @@ The foundation supports future shortcuts without modification:
 ---
 
 ## See Also
+
+### Executable Command
+- [/move](move.md) - **Executable foundation** (use this to transform)
 
 ### Specializations (Layer 0)
 - [/adapt](adapt.md) - Code transfer (heterogeneous)

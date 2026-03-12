@@ -149,11 +149,20 @@ grep -r "updatedAt\|lastFetched" frontend/twinbar/src/
 - [ ] Retry mechanisms for transient failures
 - [ ] User-friendly error messages
 
-### Performance
+### Performance (Core Web Vitals)
+- [ ] LCP (Largest Contentful Paint) < 2.5s
+- [ ] INP (Interaction to Next Paint) < 200ms
+- [ ] CLS (Cumulative Layout Shift) < 0.1
 - [ ] Initial load < 3s
-- [ ] Interaction response < 100ms
-- [ ] No jank during scrolling
+- [ ] Modal interaction response < 100ms
+- [ ] No jank during scrolling (60fps)
 - [ ] Images optimized and lazy-loaded
+
+### Performance Anti-Patterns (AVOID)
+- [ ] NO redundant API fetches (cache-first pattern required)
+- [ ] NO blocking main thread > 50ms (Long Tasks)
+- [ ] NO layout shifts from async content (use skeletons)
+- [ ] NO unnecessary re-renders (use memoization)
 
 ### Verification Commands
 ```bash
@@ -354,5 +363,17 @@ For each new component:
 
 ---
 
+---
+
+## Performance Investigation Skill
+
+For detailed performance investigation workflow, tools, and optimization patterns, see:
+- [performance-investigation skill](../skills/performance-investigation/SKILL.md)
+- [Metrics Glossary](../skills/performance-investigation/METRICS-GLOSSARY.md)
+- [Metrics Map](../skills/performance-investigation/METRICS-MAP.md)
+- [Optimization Patterns](../skills/performance-investigation/OPTIMIZATION-PATTERNS.md)
+
+---
+
 *Domain: frontend*
-*Last updated: 2026-01-12*
+*Last updated: 2026-01-15*

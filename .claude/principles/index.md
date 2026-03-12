@@ -46,9 +46,14 @@
 **Load**: `integration-principles.md`
 
 ### Meta Cluster
-**Keywords**: debug, stuck, loop, retry, feedback, analysis, OWL, relationship, venv, local
+**Keywords**: debug, stuck, loop, retry, feedback, analysis, OWL, relationship, venv, local, tier, compose, hierarchy, layer
 
 **Load**: `meta-principles.md`
+
+### Compositional Hierarchy (Core - Always Loaded)
+**Keywords**: tier, compose, composes, depends, invokes, grounds, relationship, layer, hierarchy, reference
+
+**Note**: This is a Tier-0 principle in CLAUDE.md. For detailed guide, see `compositional-hierarchy.md`.
 
 ---
 
@@ -77,6 +82,9 @@ These are in CLAUDE.md and always apply:
 | 20 | Execution Boundary | Reading code ≠ verifying it works |
 | 23 | Configuration Variation | Choose config mechanism by what varies |
 | 25 | Behavioral Invariant | State invariants before claiming done |
+| 26 | Thinking Tuple Protocol | Universal kernel for disciplined reasoning |
+| 27 | Commands as Strategy Modes | Commands are modes within Strategy |
+| 28 | Compositional Hierarchy | Make layers explicit, replace "references" |
 
 ---
 
@@ -104,4 +112,4 @@ Read: .claude/principles/meta-principles.md
 
 ---
 
-*Last updated: 2026-01-12*
+*Last updated: 2026-01-15*

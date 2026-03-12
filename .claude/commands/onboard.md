@@ -247,21 +247,35 @@ curl http://localhost:8000/health
 
 ---
 
-## Phase 3: Required Reading (30 min)
+## Phase 3: Required Reading (45 min)
 
 **Essential** (read in order):
 
-1. [ ] **`.claude/CLAUDE.md`** (15 min)
-   - Core principles (Defensive Programming, Multi-Layer Verification, Aurora-First)
-   - Read sections: Core Principles, Extension Points
-   - Why critical: Explains WHY we do things, not just HOW
+1. [ ] **`.claude/CLAUDE.md`** (20 min)
+   - **Tier-0 Principles** (8 non-negotiable principles for EVERY task):
+     - #1 Defensive Programming - Fail fast and visibly
+     - #2 Progressive Evidence - Layer 1→4 verification
+     - #18 Logging Discipline - Storytelling Pattern
+     - #20 Execution Boundary - Reading ≠ Verifying
+     - #23 Configuration Variation - Choose config by what varies
+     - #25 Behavioral Invariant - 5-level verification (L4→L0)
+     - #26 Thinking Tuple Protocol - Universal reasoning kernel
+     - #27 Commands as Strategy Modes - How commands compose
+   - Read sections: Tier-0 Principles, Principle Routing Index, Extension Points
+   - Why critical: The **ground truth contract** for how we work
 
-2. [ ] **`docs/PROJECT_CONVENTIONS.md`** (10 min)
+2. [ ] **`.claude/commands/README.md`** (10 min)
+   - Command taxonomy (Inspection, Analysis, Design, Protocol)
+   - Key commands: `/step`, `/invariant`, `/reconcile`, `/explore`
+   - Meta-operations: `/observe` → `/decompose` → `/abstract` → `/journal` → `/evolve`
+   - Why critical: Explicit control over Claude's behavior
+
+3. [ ] **`docs/PROJECT_CONVENTIONS.md`** (10 min)
    - Directory structure, naming patterns, CLI commands
    - Read sections: Directory Structure, CLI Commands, Extension Points
    - Why critical: Find files quickly, understand organization
 
-3. [ ] **`docs/README.md`** (5 min)
+4. [ ] **`docs/README.md`** (5 min)
    - Documentation index, quick links
    - Skim: Get overview of what docs exist
    - Why critical: Know where to look when stuck
@@ -556,59 +570,103 @@ ENV=dev doppler run -- aws logs tail /aws/lambda/report_worker --since 5m
 
 ---
 
-## Phase 6: Key Concepts to Internalize (15 min)
+## Phase 6: Key Concepts to Internalize (30 min)
 
-### Concept 1: Aurora-First Data Architecture
+### Concept 1: Thinking Tuple Protocol (Universal Kernel)
 
-**Principle**: Aurora is the source of truth, data precomputed nightly
+**Principle**: Every reasoning episode runs through a Thinking Tuple
 
-**Implications**:
-- APIs are read-only (no data fetching from external APIs)
-- If data missing in Aurora, API fails fast (HTTP 404)
-- No fallback to slow external APIs (ensures consistent performance)
-
-**Example**:
-```python
-# ❌ Bad: Fallback to external API
-def get_ticker_data(ticker: str):
-    data = aurora.query(ticker)
-    if not data:
-        data = yfinance_api.fetch(ticker)  # SLOW!
-    return data
-
-# ✅ Good: Fail fast
-def get_ticker_data(ticker: str):
-    data = aurora.query(ticker)
-    if not data:
-        raise HTTPException(404, f"Ticker {ticker} not found")
-    return data
 ```
+Tuple = (Constraints, Invariant, Principles, Strategy, Check)
+```
+
+| Component | Question | Source |
+|-----------|----------|--------|
+| **Constraints** | What do we have/know? | Current state, specs, context |
+| **Invariant** | What must be true at end? | Success criteria, `/invariant` |
+| **Principles** | What tradeoffs guide us? | Tier-0 + task-specific clusters |
+| **Strategy** | What modes to execute? | Pipeline of command-modes |
+| **Check** | Did we satisfy invariant? | Progressive Evidence (Layers 1-4) |
+
+**Usage**: Use `/step` to instantiate a tuple for complex tasks.
 
 ---
 
-### Concept 2: Multi-Layer Verification
+### Concept 2: 5-Level Behavioral Invariant Verification
+
+**Principle**: Before claiming "done", verify the **invariant envelope** from bottom to top:
+
+| Level | Type | What to Verify |
+|-------|------|----------------|
+| 4 | Configuration | Env vars, constants, Doppler |
+| 3 | Infrastructure | Lambda → Aurora, Lambda → S3 |
+| 2 | Data | Schema valid, data fresh |
+| 1 | Service | Lambda returns 200, API contract |
+| 0 | User | End-to-end flow succeeds |
+
+**The Invariant Feedback Loop**:
+```
+/invariant → /reconcile → /invariant
+  (detect)    (converge)   (verify)
+```
+
+Use `/invariant "goal"` to identify what must hold, `/reconcile domain` to fix violations, then `/invariant` again to verify delta = 0.
+
+---
+
+### Concept 3: Cascade Violation Pattern
+
+**Principle**: A single visible symptom often masks multiple sequential dependencies
+
+**Anti-Pattern**:
+```
+❌ Wrong: Fix L1 → Discover L2 broken → Fix L2 → Discover L3 broken...
+```
+
+**Correct Approach**:
+```
+✅ Right: Scan L4→L3→L2→L1→L0 → Build dependency graph → Fix in order
+```
+
+**Fix Order** (dependency-aware):
+1. **Config** (env vars, URLs, CORS) - foundation for everything
+2. **Schema** (tables, columns) - foundation for data
+3. **Data** (rows, relationships) - foundation for service
+4. **Cache** (rankings, computed values) - derived from data
+5. **Runtime** (verify user can X) - depends on all above
+
+---
+
+### Concept 4: Progressive Evidence Strengthening
 
 **Principle**: Execution success ≠ Operational success
 
-**Layers**:
-1. **HTTP Status Code** (weakest) - Request completed
-2. **Response Payload** (stronger) - Contains expected data
-3. **CloudWatch Logs** (strongest) - No errors during execution
+**Evidence Layers** (weakest to strongest):
+- **Layer 1 (Surface)**: Status codes, exit codes
+- **Layer 2 (Content)**: Payloads, data structures
+- **Layer 3 (Observability)**: Traces, logs
+- **Layer 4 (Ground truth)**: Actual state changes
 
 **Example**:
 ```bash
-# ❌ Bad: Only check status
-curl -I https://api.example.com/report/AAPL  # 200 OK (but might have failed internally!)
+# Layer 1: HTTP Status
+curl -I https://api.example.com/report/AAPL  # 200 OK
 
-# ✅ Good: All 3 layers
-curl -i https://api.example.com/report/AAPL  # 1. Status
-curl https://api.example.com/report/AAPL | jq '.report_data'  # 2. Payload
-aws logs tail /aws/lambda/report_worker --since 1m | grep ERROR  # 3. Logs
+# Layer 2: Response Payload
+curl https://api.example.com/report/AAPL | jq '.report_data'
+
+# Layer 3: CloudWatch Logs
+aws logs tail /aws/lambda/report_worker --since 1m | grep ERROR
+
+# Layer 4: Ground Truth
+SELECT * FROM reports WHERE ticker = 'AAPL' AND date = CURDATE();
 ```
+
+**Never stop at weak evidence—progress until ground truth verified.**
 
 ---
 
-### Concept 3: Defensive Programming
+### Concept 5: Defensive Programming
 
 **Principle**: Fail fast and visibly when something is wrong
 
@@ -634,32 +692,30 @@ def save_report(report_id, data):
 
 ---
 
-### Concept 4: Error Handling Duality
+### Concept 6: Aurora-First Data Architecture
 
-**Principle**: Different error handling for workflows vs utilities
+**Principle**: Aurora is the source of truth, data precomputed nightly
 
-**Patterns**:
-- **Workflow nodes**: State-based error propagation (collect all errors)
-- **Utility functions**: Raise descriptive exceptions (fail fast)
+**Implications**:
+- APIs are read-only (no data fetching from external APIs)
+- If data missing in Aurora, API fails fast (HTTP 404)
+- No fallback to slow external APIs (ensures consistent performance)
 
 **Example**:
 ```python
-# Workflow node (state-based)
-def process_tickers(state):
-    errors = []
-    for ticker in state["tickers"]:
-        try:
-            process_ticker(ticker)
-        except Exception as e:
-            errors.append(f"{ticker}: {e}")
-    state["errors"] = errors  # Collect all errors
-    return state
+# ❌ Bad: Fallback to external API
+def get_ticker_data(ticker: str):
+    data = aurora.query(ticker)
+    if not data:
+        data = yfinance_api.fetch(ticker)  # SLOW!
+    return data
 
-# Utility function (exceptions)
-def process_ticker(ticker):
-    if not ticker:
-        raise ValueError("Ticker cannot be empty")  # Fail fast
-    # ... process ticker
+# ✅ Good: Fail fast
+def get_ticker_data(ticker: str):
+    data = aurora.query(ticker)
+    if not data:
+        raise HTTPException(404, f"Ticker {ticker} not found")
+    return data
 ```
 
 ---
@@ -738,10 +794,18 @@ def process_ticker(ticker):
    - ADRs (`docs/adr/`) - Why we made certain decisions
    - Deployment guides (`docs/deployment/`)
 
-4. **Practice workflows**:
-   - Create observation: `/observe execution "completed task"`
-   - Journal decision: `/journal architecture "why I chose X"`
+4. **Practice verification workflows**:
+   - **Invariant verification**: `/invariant "goal"` → `/reconcile domain` → `/invariant` (delta = 0)
+   - **Thinking Tuple**: `/step "complex task"` for structured reasoning
+   - **Meta-operations**: `/observe execution "..."` → `/journal "..."` → `/evolve`
    - Use slash commands: `/list-commands` to see all available
+
+5. **Understand Principle Routing**:
+   When working on specific domains, load the relevant principle cluster:
+   - **Deploying**: Load [deployment-principles](.claude/principles/deployment-principles.md)
+   - **Testing**: Load [testing-principles](.claude/principles/testing-principles.md)
+   - **Aurora/data**: Load [data-principles](.claude/principles/data-principles.md)
+   - **Debugging**: Load [meta-principles](.claude/principles/meta-principles.md)
 
 ---
 
@@ -772,24 +836,52 @@ def process_ticker(ticker):
 1. Document what was unclear or confusing
 2. Suggest improvements to onboarding process
 3. Update this command with lessons learned
-4. Journal your experience: `/journal process "onboarding experience"`
+4. Journal your experience: `/journal meta "onboarding experience"`
 
-**Improvement process**:
+**Improvement process using meta-operations**:
 ```bash
+# Step 1: Capture observations (immutable facts)
 /observe behavior "onboarding experience - what was hard"
-/journal process "onboarding improvements needed"
+
+# Step 2: Document interpreted knowledge
+/journal meta "onboarding improvements needed"
+
+# Step 3: Detect drift and evolve documentation
 /evolve  # Detects drift, proposes updates to onboarding docs
+```
+
+**Invariant verification after onboarding**:
+```bash
+# Verify you can complete the developer workflow
+/invariant "new developer can run full dev cycle"
+
+# Expected invariants (delta should = 0):
+# L4: Doppler configured, AWS credentials valid
+# L3: Can connect to dev Aurora via SSM tunnel
+# L2: Tests pass locally
+# L1: Dev server responds to health check
+# L0: Can push code and trigger CI/CD
 ```
 
 ---
 
 ## See Also
 
+**Core Architecture**:
+- `.claude/CLAUDE.md` - Ground truth contract (Tier-0 principles)
+- `.claude/commands/README.md` - Command taxonomy and composition
+- `.claude/principles/` - Task-specific principle clusters
+
+**Key Commands**:
+- `/step` - Thinking Tuple Protocol for complex tasks
+- `/invariant` - Identify behavioral invariants
+- `/reconcile` - Converge violations to compliance
 - `/explore` - Discover tools and patterns in codebase
-- `/consolidate` - Understand specific concepts
-- `/runbook deployment` - Operational deployment procedure
+
+**Guides**:
+- `docs/guides/thinking-tuple-protocol.md` - Tuple architecture
+- `docs/guides/behavioral-invariant-verification.md` - 5-level verification
 - `docs/ARCHITECTURE_INVENTORY.md` - Complete tool inventory
-- `.claude/CLAUDE.md` - Core principles and patterns
 ```
 
 ---
@@ -804,13 +896,13 @@ def process_ticker(ticker):
 
 **Output**: Complete checklist covering all areas (backend, frontend, infrastructure, deployment, testing)
 
-**Duration**: 3-4 hours total
+**Duration**: 4-5 hours total
 - Phase 1: 30 min (prerequisites)
 - Phase 2: 1 hour (environment setup)
-- Phase 3: 30 min (reading)
+- Phase 3: 45 min (reading - includes commands architecture)
 - Phase 4: 15 min (pitfalls)
 - Phase 5: 30 min (hello world tasks)
-- Phase 6: 15 min (key concepts)
+- Phase 6: 30 min (key concepts - includes Thinking Tuple, Invariants)
 - Phase 7: 30 min+ (first real task)
 
 ---

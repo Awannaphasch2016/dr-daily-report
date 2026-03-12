@@ -14,15 +14,94 @@ arg_schema:
 
 # Provision Environment Command
 
-**Extends**: [/transfer](transfer.md) (Foundation Layer)
+**Purpose**: Create new isolated infrastructure environment by cloning existing environment.
+
+**Derives from**: [/merge](merge.md) with `strategy=copy`
+
+**Routes through**: [/move](move.md) (Executable interface)
+
+**Theory**: [/transfer](transfer.md) (Documentation)
+
 **Domain**: Infrastructure configuration
+
 **Transfer Type**: Homogeneous (source env = target env type)
 
 ---
 
-## Foundation Parameters
+## Relationship to /merge (Foundation)
 
-This command is a **specialization** of the [Transform Foundation](transfer.md):
+`/provision-env` is a **specialization** of the [/merge](merge.md) foundation with fixed invariant specification:
+
+```
+/provision-env Source Target = /merge Source Target --strategy=copy
+
+Where strategy=copy means:
+  preserve: [Source.config]    # Keep source's configuration
+  protect:  []                 # Target is new (nothing to protect)
+  discard:  []                 # Lose nothing
+  transform: [Source.identifiers]# Change identifiers for new context
+```
+
+**Semantic**: Copy source with identity transformation for new context. Resource names get environment suffix.
+
+**Equivalent calls**:
+```
+/provision-env staging from=dev
+  ≡
+/move infra from "dev" to "staging" preserving "isolation,functionality"
+  ≡
+/merge "dev-infra" "staging" --strategy=copy
+```
+
+---
+
+## Derivation Hierarchy
+
+```
+                    /merge (Tier-0 Foundation)
+                    Combine(A, B, Invariants)
+                             │
+         ┌───────────────────┼───────────────────┐
+         │                   │                   │
+         ▼                   ▼                   ▼
+      /move              /reconcile          /adapt
+   strategy=preserve   strategy=conform    strategy=adapt
+         │
+         ▼
+    /provision-env ← YOU ARE HERE
+    strategy=copy
+```
+
+---
+
+## Tuple Effects (Universal Kernel Integration)
+
+**Part of the Agent Kernel** - Infrastructure provisioning within the knowledge system.
+
+**Mode Type**: `transform`
+
+**Tier**: 1 (Specialization of `/merge` via `/move`)
+
+| Tuple Component | Effect |
+|-----------------|--------|
+| **Constraints** | **EXPAND**: Adds infrastructure inventory, resource mapping, cost estimates |
+| **Invariant** | **SET**: `strategy=copy` (preserve config, transform identifiers) |
+| **Principles** | **LOAD**: Deployment cluster (#6, #11, #15, #24) |
+| **Strategy** | 7-step process (Identify → Analyze → Map → Untangle → Rewire → Verify) |
+| **Check** | **EVALUATE**: Layer 4 ground truth (user experience works in new env) |
+
+**Local Check** (mode-specific completion):
+- Infrastructure inventory complete (Step 1)
+- Source environment analyzed (Step 2)
+- Target constraints understood (Step 3)
+- Resource mapping created (Step 4)
+- Portable vs context-bound separated (Step 5)
+- Infrastructure created with correct naming (Step 6)
+- E2E verification passed - Layer 4 (Step 7)
+
+---
+
+## Foundation Parameters (via /move)
 
 ```
 Transform(X, Context_A, Context_B, Invariants) → X'
@@ -543,8 +622,16 @@ Context-bound: LINE credentials, Aurora endpoint, resource names
 
 ## See Also
 
-- [/transfer](transfer.md) - Abstract transfer framework
-- [/adapt](adapt.md) - Code transfer (heterogeneous)
+### Foundation Hierarchy
+- [/merge](merge.md) - Tier-0 foundation (grandparent) with `strategy=copy`
+- [/move](move.md) - Executable interface (parent)
+- [/transfer](transfer.md) - Transform theory documentation
+
+### Sibling Specializations (from /merge)
+- [/adapt](adapt.md) - Code adaptation with `strategy=adapt`
+- [/reconcile](reconcile.md) - Compliance with `strategy=conform`
+
+### References
 - [Infrastructure Monitoring Exploration](../explorations/2026-01-14-infrastructure-monitoring-alerting.md) - Environment management pattern
 - [Credential Isolation Lessons](../reports/2026-01-11-line-staging-credential-isolation-lessons.md) - Real incident
 - [Deployment Skill](../skills/deployment/) - Deployment workflows

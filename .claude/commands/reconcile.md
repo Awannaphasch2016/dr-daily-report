@@ -1,6 +1,8 @@
 # Reconcile Command
 
-**Purpose**: Converge invariant violations back to compliance by generating specific fix actions
+**Purpose**: Converge invariant violations back to compliance by generating specific fix actions.
+
+**Derives from**: [/merge](merge.md) with `strategy=conform`
 
 **Core Principle**: Knowing delta is good, but converging delta to zero is essential. This command closes the feedback loop: **detect → fix → verify**.
 
@@ -12,9 +14,53 @@
 
 ---
 
+## Relationship to /merge (Foundation)
+
+`/reconcile` is a **specialization** of the [/merge](merge.md) foundation with fixed invariant specification:
+
+```
+/reconcile A Standard = /merge A Standard --strategy=conform
+
+Where strategy=conform means:
+  preserve: [Standard.*]  # Standard (B) wins
+  protect:  []            # A can change completely
+  discard:  [A - Standard]# Lose A's non-conforming parts
+  transform: [A ∩ Standard]# A's shared parts adapt to Standard
+```
+
+**Semantic**: Make A conform to Standard, losing non-conforming parts. The standard is the invariant.
+
+**Equivalent calls**:
+```
+/reconcile deployment
+  ≡
+/merge {members} {invariants} --strategy=conform
+```
+
+---
+
+## Derivation Hierarchy
+
+```
+                    /merge (Tier-0 Foundation)
+                    Combine(A, B, Invariants)
+                             │
+         ┌───────────────────┼───────────────────┐
+         │                   │                   │
+         ▼                   ▼                   ▼
+      /move              /reconcile ← HERE    /adapt
+   strategy=preserve   strategy=conform    strategy=adapt
+```
+
+---
+
 ## Tuple Effects (Universal Kernel Integration)
 
+**Part of the Agent Kernel** - Compliance convergence within the knowledge system.
+
 **Mode Type**: `fix`
+
+**Tier**: 1 (Specialization of Tier-0 `/merge`)
 
 When `/reconcile` executes as a mode within a Strategy pipeline:
 
@@ -193,6 +239,75 @@ The `/reconcile` mode is complete when ALL of the following hold:
      ↓
 /invariant "goal"     # 5. Verify delta = 0
 ```
+
+---
+
+## Critical Pre-Reconciliation Protocol
+
+**Lesson learned**: Single visible symptom often masks multiple sequential dependencies (Cascade Violation Pattern). Scanning Level 0 → Level 4 incrementally causes the "fix-reveal-fix" loop where each fix reveals a new violation.
+
+### Pre-Scan ALL Levels First
+
+**Before generating any fixes**, scan ALL levels (4→3→2→1→0) to build a complete violation map:
+
+```markdown
+## Pre-Scan Report
+
+### Level 4: Config
+- [ ] API URLs correct for environment
+- [ ] CORS origins include all domains
+- [ ] Environment variables set
+- [ ] Secrets available in Doppler
+
+### Level 3: Infrastructure
+- [ ] Lambda functions deployed
+- [ ] API Gateway routes configured
+- [ ] CloudFront distributions active
+- [ ] VPC connectivity working
+
+### Level 2: Data
+- [ ] Required tables exist
+- [ ] Schema matches expected
+- [ ] Seed data populated
+- [ ] Foreign keys valid
+
+### Level 1: Service
+- [ ] API endpoints responding
+- [ ] Cache populated (not stale)
+- [ ] Rankings computed
+- [ ] Response shapes correct
+
+### Level 0: User
+- [ ] UI displays expected data
+- [ ] No error states shown
+- [ ] Performance acceptable
+```
+
+### Build Dependency Graph
+
+After pre-scan, violations form a dependency graph. Fix in dependency order:
+
+```
+Config (L4) ───→ Schema (L2) ───→ Data (L2) ───→ Cache (L1) ───→ User (L0)
+     │                │               │              │
+     │                └── Data needs tables          │
+     │                                               │
+     └── Everything needs correct URLs/CORS     Cache derived from data
+```
+
+**Fix Order**:
+1. **Config** first (URLs, CORS, env vars)
+2. **Schema** second (tables, columns)
+3. **Data** third (rows, relationships)
+4. **Cache** fourth (force refresh after data)
+5. **User verification** last (screenshot/inspect)
+
+### Cache Invalidation Step
+
+**Critical**: After populating data, cache may still be stale. Always:
+1. Check cache TTL (is it using old data?)
+2. Force refresh if needed: `?force_refresh=true`
+3. Verify cache reflects new data before checking L0
 
 ---
 
@@ -956,8 +1071,19 @@ git commit -m "feat: add new API endpoint with invariant compliance"
 
 ## See Also
 
-- [/invariant](./invariant.md) - Identify invariants for a goal
+### Foundation Hierarchy
+- [/merge](merge.md) - Tier-0 foundation (parent) with `strategy=conform`
+
+### Sibling Specializations (from /merge)
+- [/move](move.md) - Transfer with `strategy=preserve`
+- [/adapt](adapt.md) - Code adaptation with `strategy=adapt`
+- [/provision-env](provision-env.md) - Infrastructure with `strategy=copy`
+
+### Key Integrations
+- [/invariant](./invariant.md) - Identify invariants for a goal (precedes /reconcile)
 - [/validate](./validate.md) - Check if claims hold
+
+### References
 - [Invariants Directory](../invariants/) - Domain-specific invariant files
 - [Behavioral Invariant Guide](../../docs/guides/behavioral-invariant-verification.md) - Detailed guide
 

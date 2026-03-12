@@ -84,6 +84,7 @@ Before deployment:
 - [ ] Migrations run BEFORE code deployment
 - [ ] Docker container import tests pass
 - [ ] State invariants documented
+- [ ] File permissions correct (644 for .py files) - `find src/ -name "*.py" -perm 600`
 
 After deployment:
 - [ ] AWS CLI waiter confirms function updated
@@ -91,7 +92,62 @@ After deployment:
 - [ ] CloudWatch logs show application logs (not just START/END)
 - [ ] Ground truth verified (actual user flow works)
 
+**Post-Deployment Invariant Verification (MANDATORY for workflows)**:
+- [ ] Run `/invariant "affected workflow"` immediately after deploy
+- [ ] Verify Lambda logs show successful imports (no PermissionError, ImportError)
+- [ ] Verify Aurora tables have expected data (Layer 4 ground truth)
+- [ ] Test each Lambda independently, not just via workflow orchestrator
+- [ ] Verify scheduled runs will work tomorrow (temporal invariant)
+
+---
+
+## Anti-Pattern: Victory Declaration on Weak Evidence
+
+**What happened** (2026-01-16 incident):
+- Deployed parallel workflow to Step Functions
+- Test execution showed "SUCCEEDED"
+- Declared task complete
+- Next day: No data populated, users saw empty responses
+
+**Root cause**:
+- report_worker Lambda crashed on import (PermissionError: file permissions 600)
+- Step Functions reported "SUCCEEDED" because Catch handlers existed
+- Stopped at Layer 1 evidence (status code) without checking Layer 3 (logs) or Layer 4 (data)
+
+**Lesson learned**:
+> "SUCCEEDED" status ≠ "Workers ran correctly" ≠ "Data populated"
+
+**Prevention**:
+1. After workflow deployment, always check worker Lambda logs independently
+2. Verify ground truth (Aurora data) before declaring success
+3. Run `/invariant` to systematically check all 5 levels
+
+---
+
+## Environment Parity Verification
+
+**File permissions**: Docker COPY preserves source file permissions. If files have 600 (owner-only) permissions locally, Lambda runtime cannot read them.
+
+**Check before deployment**:
+```bash
+# Find Python files with restrictive permissions
+find src/ -name "*.py" -perm 600 -ls
+
+# Fix if any found
+find src/ -name "*.py" -perm 600 -exec chmod 644 {} \;
+```
+
+**Add to pre-commit hook** (recommended):
+```bash
+# .git/hooks/pre-commit
+if find src/ -name "*.py" -perm 600 | grep -q .; then
+  echo "ERROR: Python files with 600 permissions found"
+  find src/ -name "*.py" -perm 600 -ls
+  exit 1
+fi
+```
+
 ---
 
 *Cluster: deployment-principles*
-*Last updated: 2026-01-12*
+*Last updated: 2026-01-17*

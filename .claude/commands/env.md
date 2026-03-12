@@ -67,9 +67,11 @@ dr-daily-report-{component}-feature-alerts
 | ECR | `dr-daily-report-lambda-{env}` |
 | Doppler | `{env}` config (if exists) |
 
-**Note**: Feature branches may share some resources with dev:
-- **Isolated**: Each feature branch has its own Lambda, logs
-- **Shared**: Aurora may be shared with dev (depends on provisioning)
+**Note**: Each environment has fully isolated infrastructure:
+- **Isolated**: Lambda, Aurora cluster, logs, API Gateway, DynamoDB
+- **Shared**: S3 buckets, ECR images, VPC/NAT Gateway
+
+**Cost**: Each environment with Aurora costs ~$43/month minimum.
 
 ---
 
@@ -416,7 +418,7 @@ You are executing the `/env` command targeting a **feature branch environment**.
    - Lambda: `dr-daily-report-{component}-{env}`
    - Log groups: `/aws/lambda/dr-daily-report-{component}-{env}`
    - S3: `dr-daily-report-data-lake-{env}`
-   - Aurora: `dr-daily-report-{env}` (or shared with dev)
+   - Aurora: `dr-daily-report-aurora-{env}` (isolated per environment)
 
 4. **Execute operation**: Use appropriate tools:
    - Logs: CloudWatch MCP tools

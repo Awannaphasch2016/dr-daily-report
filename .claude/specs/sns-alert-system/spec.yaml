@@ -1,0 +1,91 @@
+# SNS Alert System for Data Pipeline + App Health
+# Monitors scheduler, precompute, and app health with Slack notifications
+
+objective: sns-alert-system
+description: "CloudWatch alarms monitoring data pipeline and app health, with SNS→Slack notifications"
+owner: "terraform/monitoring.tf"
+created: 2026-01-14
+
+# Deployment targets
+environments:
+  - dev   # Development (primary testing)
+  - stg   # Staging
+  - prd   # Production
+
+# Dependencies on other specifications
+dependencies:
+  - shared/aurora          # Data freshness monitoring
+  - shared/deployment      # CloudWatch, SNS infrastructure
+  - telegram/api           # Telegram API health monitoring
+  - linebot/core           # LINE Bot health monitoring
+
+# AWS Resources
+resources:
+  sns:
+    topic: "dr-daily-report-telegram-alerts-{env}"
+    subscriptions:
+      - protocol: email
+        endpoint: var.alert_email
+      - protocol: https
+        endpoint: var.SLACK_WEBHOOK_URL
+
+  cloudwatch_alarms:
+    # Data Pipeline Alarms
+    - name: scheduler-errors
+      namespace: AWS/Lambda
+      metric: Errors
+      threshold: 0
+      severity: CRITICAL
+
+    - name: precompute-failed
+      namespace: AWS/States
+      metric: ExecutionsFailed
+      threshold: 0
+      severity: CRITICAL
+
+    # App Health Alarms
+    - name: telegram-api-errors
+      namespace: AWS/Lambda
+      metric: Errors
+      threshold: 5
+      severity: HIGH
+
+    - name: line-bot-errors
+      namespace: AWS/Lambda
+      metric: Errors
+      threshold: 5
+      severity: HIGH
+
+    - name: api-5xx-errors
+      namespace: AWS/ApiGateway
+      metric: 5xx
+      threshold: 10
+      severity: HIGH
+
+# Alert scenarios
+alert_scenarios:
+  - name: "Scheduler Failure"
+    trigger: "Lambda error during daily data fetch"
+    impact: "Data staleness - users see old data"
+    notification: "Immediate Slack alert"
+
+  - name: "Precompute Failure"
+    trigger: "Step Functions execution fails"
+    impact: "Rankings not updated"
+    notification: "Immediate Slack alert"
+
+  - name: "Telegram API Down"
+    trigger: ">5 Lambda errors in 5 minutes"
+    impact: "Telegram Mini App unusable"
+    notification: "Slack alert within 5 min"
+
+  - name: "LINE Bot Down"
+    trigger: ">5 Lambda errors in 5 minutes"
+    impact: "LINE users can't get reports"
+    notification: "Slack alert within 5 min"
+
+# Specification components
+components:
+  invariants: invariants.md
+  constraints: constraints.md
+  acceptance: acceptance.md

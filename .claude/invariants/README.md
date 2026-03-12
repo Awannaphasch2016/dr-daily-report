@@ -24,7 +24,10 @@ Invariant checklists make implicit assumptions explicit. Before claiming "implem
 ├── data-invariants.md           # Database, Aurora, migrations, timezone
 ├── api-invariants.md            # Endpoints, routes, handlers, contracts
 ├── langfuse-invariants.md       # LLM observability, tracing, scoring
-└── frontend-invariants.md       # React, Telegram Mini App, charts, state
+├── frontend-invariants.md       # React, Telegram Mini App, charts, state
+│
+│   # Feature-Specific Invariants
+└── chart-pattern-overlay-invariants.md  # Pattern detection & visualization
 ```
 
 ---
@@ -54,6 +57,7 @@ All invariants are organized by verification level:
 | API endpoints, handlers | [api-invariants.md](api-invariants.md) |
 | Langfuse, tracing, scores | [langfuse-invariants.md](langfuse-invariants.md) |
 | React, charts, Mini App | [frontend-invariants.md](frontend-invariants.md) |
+| Chart pattern overlays | [chart-pattern-overlay-invariants.md](chart-pattern-overlay-invariants.md) |
 | Any task | [system-invariants.md](system-invariants.md) (always) |
 
 ---

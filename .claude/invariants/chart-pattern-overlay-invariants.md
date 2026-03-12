@@ -245,7 +245,8 @@ All invariants satisfied. Pattern overlays render correctly.
 - Fixed migration FK type (BIGINT → INT to match ticker_master.id)
 - Swapped detector priority (custom=10, stock-pattern=5) for coordinate tuples
 - Deployed Lambda v165, cleared Aurora cache
-- Verified 10 `recharts-reference-area` elements on VNM19
+- 2026-01-14: Fixed Recharts 3.x hook compatibility (replaced Customized with useOffset/useChartWidth/useChartHeight)
+- Verified 10 `pattern-trendlines line` SVG elements on VNM19
 
 ---
 
@@ -253,21 +254,19 @@ All invariants satisfied. Pattern overlays render correctly.
 
 **IMPORTANT**: See `.claude/skills/visual-ta-validation/` for visual reference.
 
-Our pattern overlays render as **shaded rectangular regions** (bounding boxes), NOT:
-- Trendlines connecting points
-- Pattern shape outlines
-- Line drawings between A, B, C points
+Our pattern overlays render as **trendlines connecting pattern coordinate points**:
 
 ```
 ┌─────────────────────────────────────────────────────────┐
 │  What we render:                                        │
 │                                                         │
-│   ██    ┌─────────────────────────────┐                │
-│  ████   │      Shaded Region          │   ██           │
-│ ██████  │    (Pattern Overlay)        │  ████          │
-│  ████   │                             │ ██████         │
-│   ██    └─────────────────────────────┘  ████          │
-│              ↑ ReferenceArea component                  │
+│        A━━━━━━━━━━━━━━━━━━━━━C                         │
+│   ██    ╲                   ╱                          │
+│  ████    ╲  candlesticks  ╱                            │
+│ ██████    ╲              ╱     ██                      │
+│  ████      ╲            ╱     ████                     │
+│   ██   B━━━━━━━━━━━━━━━D     ██████                   │
+│            ↑ SVG <line> elements                       │
 └─────────────────────────────────────────────────────────┘
 ```
 

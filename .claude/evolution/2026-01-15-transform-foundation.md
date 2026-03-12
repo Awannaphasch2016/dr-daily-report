@@ -12,11 +12,14 @@
 
 **Impact**:
 - Unified theory: `Transform(X, Context_A, Context_B, Invariants) → X'`
-- All transformation commands now documented as specializations of foundation
+- **Executable foundation**: `/move` command implements Transform function
+- **Theory documentation**: `/transfer` provides theoretical grounding
+- All transformation commands now documented as specializations of `/move`
 - Three dimensions formalized: WHAT, WHERE, HOW
 - Future shortcuts can be added without foundation changes
 
-**Files Updated**: 5
+**Files Created**: 1 (move.md)
+**Files Updated**: 6
 **Principles Addressed**: #1, #9, #12, #20, #25, #26, #27
 
 ---
@@ -35,15 +38,21 @@ Transformation commands were documented independently:
 
 ### After
 
-Single foundation abstraction with clear specializations:
+Two-layer architecture with clear separation:
 
 ```
-Transform(X, Context_A, Context_B, Invariants) → X'
+Layer 1: EXECUTABLE FOUNDATION
+┌─────────────────────────────────────────────────────────────┐
+│  /move {what} from {A} to {B} preserving {invariants}       │
+│  Implements: Transform(X, Context_A, Context_B, Invariants) │
+└─────────────────────────────────────────────────────────────┘
 
-Specializations:
+Layer 0: SPECIALIZATIONS (domain-optimized)
 ├── /adapt         (code, external→internal, adapt)
 ├── /provision-env (infra, internal→internal, copy)
 └── /step          (state, current→goal, preserve)
+
+Theory: /transfer.md (documentation only)
 ```
 
 **Three Dimensions**:
@@ -55,10 +64,24 @@ Specializations:
 
 ## Files Modified
 
+### 0. `.claude/commands/move.md` (NEW - Executable Foundation)
+
+**Created**: New executable foundation command
+**Key sections**:
+- Quick Reference (explicit and natural language syntax)
+- Three Dimensions (WHAT, WHERE, HOW)
+- Auto-Detection Logic (routes to specializations)
+- Execution Flow (4-step process)
+- Valid Combinations Matrix
+- Thinking Tuple Integration
+- Failure Recovery (Principle #9)
+
+**Purpose**: The callable interface that implements `Transform(X, A, B, Invariants) → X'`
+
 ### 1. `.claude/commands/transfer.md` (Major rewrite)
 
 **Before**: Abstract framework with 7 steps
-**After**: Foundation Layer document with:
+**After**: Theory documentation (NOT executable) with:
 - Grand Unified Theory (`Transform(X, A, B, Invariants) → X'`)
 - Three dimensions (WHAT, WHERE, HOW)
 - Valid combinations matrix
@@ -70,38 +93,43 @@ Specializations:
 
 ### 2. `.claude/commands/adapt.md` (Updated references)
 
-**Added**:
-- Foundation Parameters section showing Transform instantiation
-- Updated "Relationship to Foundation Layer" section
-- References to foundation document
+**Changed**:
+- `**Extends**: /transfer` → `**Specializes**: /move`
+- Added `**Theory**: /transfer (Documentation)`
+- Foundation Parameters now shows `/move` equivalent syntax
+- "See Also" references `/move` as parent
 
 ### 3. `.claude/commands/provision-env.md` (Updated references)
 
-**Added**:
-- Foundation Parameters section showing Transform instantiation
-- Updated "Relationship to Foundation Layer" section
-- Portable vs Context-bound explicitly linked to Foundation Step 5
+**Changed**:
+- `**Extends**: /transfer` → `**Specializes**: /move`
+- Added `**Theory**: /transfer (Documentation)`
+- Foundation Parameters now shows `/move` equivalent syntax
+- "See Also" references `/move` as parent
 
 ### 4. `.claude/CLAUDE.md` (Command table updated)
 
 **Before**:
 ```markdown
-| `/adapt` | transfer | Heterogeneous transfer: maps source Constraints to target context |
+| `/transfer` | transform | **Foundation**: Transform(X, A, B, Invariants) → X' |
+| `/adapt` | transform | Specialization: code, external→internal, adapt |
 ```
 
 **After**:
 ```markdown
-| `/transfer` | transform | **Foundation**: Transform(X, A, B, Invariants) → X' |
+| `/move` | transform | **Executable Foundation**: Transform(X, A, B, Invariants) → X' |
+| `/transfer` | — | Theory documentation for Transform abstraction |
 | `/adapt` | transform | Specialization: code, external→internal, adapt |
 | `/provision-env` | transform | Specialization: infra, internal→internal, copy |
 ```
 
-### 5. `docs/guides/thinking-tuple-protocol.md` (Integration added)
+### 5. `docs/guides/thinking-tuple-protocol.md` (Integration updated)
 
-**Added**:
-- Transform commands in "Relationship to Other Commands" table
-- "Integration with Transform Foundation" section
-- Transform→Tuple mapping diagram
+**Changed**:
+- Command table now shows `/move` as executable foundation
+- `/transfer` shown as theory documentation
+- "Integration with Transform Foundation" section links to `/move`
+- "See Also" now lists both `/move` (executable) and `/transfer` (theory)
 
 ---
 
@@ -129,28 +157,32 @@ The foundation layer was designed with principle compliance audit first (see `/c
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  Layer 3: Intent Verbs (Future, Ad-hoc)                     │
-│  /learn, /clone, /port, /converge                           │
-│  ↓ routes to                                                │
+│  Layer 2: Intent Verbs (Future shortcuts)                   │
+│  /learn → /move code external→internal                      │
+│  /clone → /move infra internal→internal                     │
+│  /port  → /move code internal→internal                      │
+│  /converge → /move state current→goal                       │
 ├─────────────────────────────────────────────────────────────┤
-│  Layer 2: Unified Command (Future, Optional)                │
-│  /move "X" to "Y" [with auto-detection]                     │
-│  ↓ routes to                                                │
-├─────────────────────────────────────────────────────────────┤
-│  Layer 1: FOUNDATION (Implemented Now)                      │
-│  Transform(X, Context_A, Context_B, Invariants) → X'        │
+│  Layer 1: EXECUTABLE FOUNDATION                  ← /move    │
+│  /move {what} from {A} to {B} preserving {invariants}       │
+│  Implements: Transform(X, Context_A, Context_B, Invariants) │
 │                                                             │
 │  Dimensions:                                                │
 │  • WHAT: code | infra | state                               │
 │  • WHERE: external→internal | internal→internal | current→goal │
 │  • HOW: copy | adapt | preserve                             │
 ├─────────────────────────────────────────────────────────────┤
-│  Layer 0: Domain Commands (Existing)                        │
-│  /adapt, /provision-env, /step                              │
+│  Layer 0: Specialization Commands (domain-optimized)        │
+│  /adapt    = /move code with adaptation workflow            │
+│  /provision-env = /move infra with env workflow             │
+│  /step     = /move state with tuple workflow                │
+├─────────────────────────────────────────────────────────────┤
+│  Theory: /transfer.md (Documentation Only)                  │
+│  Describes Transform() abstraction and theory               │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-**Design Philosophy**: Foundation first, shortcuts later. When user friction appears with command selection, add intent verbs (Layer 3) that route to existing commands. Foundation doesn't change.
+**Design Philosophy**: Foundation first, shortcuts later. When user friction appears with command selection, add intent verbs (Layer 2) that route to `/move`. Foundation doesn't change.
 
 ---
 
@@ -160,14 +192,28 @@ The foundation layer was designed with principle compliance audit first (see `/c
 
 **Before**: "Should I use /adapt or /transfer or /provision-env?"
 **After**:
-1. Check valid combinations matrix
-2. Identify your WHAT, WHERE, HOW
-3. Use the matching specialization
+1. Use `/move` with natural language (auto-detects type)
+2. Or use specialization directly if you know the domain
+3. Read `/transfer` only for theoretical understanding
+
+**Example**:
+```bash
+# Natural language - auto-routes to /adapt
+/move "pandas rolling window technique" to "chart indicators"
+
+# Explicit - routes to /provision-env
+/move infra from "dev" to "staging"
+
+# Direct specialization
+/adapt "stock-pattern library" for "chart detection"
+```
 
 ### For Claude
 
 **Before**: Each command documented independently
 **After**:
+- `/move` is the callable entry point
+- `/transfer` provides theoretical grounding (read for understanding)
 - All transforms share same foundation process
 - `/qna` integrated at Step 2 (ANALYZE SOURCE)
 - `/invariant` integrated at Step 7 (VERIFY)
@@ -191,11 +237,12 @@ The foundation layer was designed with principle compliance audit first (see `/c
 ### Documentation Consistency
 
 All updated files reference each other correctly:
-- `transfer.md` → `adapt.md`, `provision-env.md`, `step.md`
-- `adapt.md` → `transfer.md` (Foundation Layer)
-- `provision-env.md` → `transfer.md` (Foundation Layer)
-- `CLAUDE.md` → Shows unified command table
-- `thinking-tuple-protocol.md` → References Transform Foundation
+- `move.md` (Executable Foundation) → references `transfer.md` (theory), specializations
+- `transfer.md` (Theory) → references `move.md` (executable), specializations
+- `adapt.md` → `**Specializes**: /move`, `**Theory**: /transfer`
+- `provision-env.md` → `**Specializes**: /move`, `**Theory**: /transfer`
+- `CLAUDE.md` → Shows `/move` as executable foundation, `/transfer` as theory
+- `thinking-tuple-protocol.md` → References `/move` as executable foundation
 
 ---
 
@@ -223,7 +270,8 @@ Add intent verbs when:
 
 ## References
 
-- [Transform Foundation](../commands/transfer.md) - The foundation document
+- [/move](../commands/move.md) - Executable foundation command
+- [/transfer](../commands/transfer.md) - Transform theory documentation
 - [/adapt](../commands/adapt.md) - Code transfer specialization
 - [/provision-env](../commands/provision-env.md) - Infrastructure transfer specialization
 - [Thinking Tuple Protocol](../../docs/guides/thinking-tuple-protocol.md) - Tuple integration

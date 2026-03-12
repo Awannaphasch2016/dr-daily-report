@@ -15,15 +15,89 @@ composition:
 
 # Adapt Command
 
-**Extends**: [/transfer](transfer.md) (Foundation Layer)
+**Purpose**: Adapt techniques and patterns from external sources while following local conventions.
+
+**Derives from**: [/merge](merge.md) with `strategy=adapt`
+
+**Routes through**: [/move](move.md) (Executable interface)
+
+**Theory**: [/transfer](transfer.md) (Documentation)
+
 **Domain**: Code patterns, algorithms, techniques
+
 **Transfer Type**: Heterogeneous (source type != target type)
 
 ---
 
-## Foundation Parameters
+## Relationship to /merge (Foundation)
 
-This command is a **specialization** of the [Transform Foundation](transfer.md):
+`/adapt` is a **specialization** of the [/merge](merge.md) foundation with fixed invariant specification:
+
+```
+/adapt A B = /merge A B --strategy=adapt
+
+Where strategy=adapt means:
+  preserve: [A.behavior]     # Keep A's algorithm essence
+  protect:  [B.conventions]  # Don't break B's conventions (CLAUDE.md)
+  discard:  []               # Lose nothing essential
+  transform: [A.surface]     # Adapt A's surface to B's style
+```
+
+**Semantic**: Keep the source's behavior/algorithm, adapt its surface to target's conventions.
+
+**Equivalent calls**:
+```
+/adapt "library-technique" for "feature"
+  ≡
+/move code from "library-technique" to "feature" preserving "algorithm-essence"
+  ≡
+/merge "library-technique" "feature" --strategy=adapt
+```
+
+---
+
+## Derivation Hierarchy
+
+```
+                    /merge (Tier-0 Foundation)
+                    Combine(A, B, Invariants)
+                             │
+         ┌───────────────────┼───────────────────┐
+         │                   │                   │
+         ▼                   ▼                   ▼
+      /move              /reconcile          /adapt ← YOU ARE HERE
+   strategy=preserve   strategy=conform    strategy=adapt
+```
+
+---
+
+## Tuple Effects (Universal Kernel Integration)
+
+**Part of the Agent Kernel** - Code adaptation within the knowledge system.
+
+**Mode Type**: `transform`
+
+**Tier**: 1 (Specialization of Tier-0 `/merge` via `/move`)
+
+| Tuple Component | Effect |
+|-----------------|--------|
+| **Constraints** | **EXPAND**: Adds source analysis, concept mapping, quality assessment |
+| **Invariant** | **SET**: `strategy=adapt` (keep behavior, adapt surface) |
+| **Principles** | **LOAD**: CLAUDE.md principles as target conventions |
+| **Strategy** | 6-phase workflow (Study → Map → Design → Implement → Verify → Document) |
+| **Check** | **EVALUATE**: Verifies behavior preserved AND conventions followed |
+
+**Local Check** (mode-specific completion):
+- Source techniques understood (Phase 1)
+- Concept mapping complete with `/qna` (Phase 2)
+- Local design follows CLAUDE.md (Phase 3)
+- Implementation uses local patterns (Phase 4)
+- Behavioral invariants verified via `/invariant` (Phase 5)
+- Learnings documented (Phase 6)
+
+---
+
+## Foundation Parameters (via /move)
 
 ```
 Transform(X, Context_A, Context_B, Invariants) → X'
@@ -691,9 +765,14 @@ See:
 
 ## See Also
 
-### Transfer Framework
-- [/transfer](transfer.md) - Abstract transfer framework (parent)
-- [/provision-env](provision-env.md) - Infrastructure transfer (sibling specialization)
+### Foundation Hierarchy
+- [/merge](merge.md) - Tier-0 foundation (grandparent)
+- [/move](move.md) - Executable interface (parent)
+- [/transfer](transfer.md) - Transform theory documentation
+
+### Sibling Specializations (from /merge)
+- [/reconcile](reconcile.md) - Compliance with `strategy=conform`
+- [/provision-env](provision-env.md) - Infrastructure with `strategy=copy`
 
 ### Key Integrations
 - [/qna](qna.md) - Surface assumptions in Phase 2 (Map to Local Context)

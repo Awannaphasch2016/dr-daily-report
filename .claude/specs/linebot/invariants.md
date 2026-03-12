@@ -251,5 +251,57 @@ requirements:
 
 ---
 
+## Test Coverage Invariants
+
+### Unit Tests Required
+| Flow | Test File | Status |
+|------|-----------|--------|
+| Webhook handler | `test_line_integration.py` | ✅ 10 tests |
+| Fuzzy matching | `test_fuzzy_matching.py` | ✅ 8 tests |
+| Aurora integration | `test_aurora_integration.py` | ✅ 3 tests |
+
+### Test Coverage Gaps (Principle #10, #19)
+| Spec Flow | Expected Test | Status |
+|-----------|---------------|--------|
+| `/report {TICKER}` | `test_report_returns_pdf_or_text` | ⚠️ Tests status code, not content |
+| `/report {TICKER}` | `test_report_contains_5_sections` | ❌ MISSING |
+| `/watchlist` | `test_watchlist_command_returns_portfolio` | ❌ MISSING |
+| `/help` | `test_help_command_returns_commands` | ❌ MISSING |
+| Invalid ticker | `test_invalid_ticker_returns_suggestions` | ❌ MISSING |
+| Report latency | `test_report_latency_under_30s` | ❌ MISSING |
+
+### Required Test Additions
+```python
+# tests/line_bot/test_line_integration.py
+
+def test_report_contains_5_sections():
+    """Tests acceptance: LINE Bot > Generate Report > Functional > Report contains 5 sections"""
+    # market, portfolio, news, sentiment, recommendation
+
+def test_watchlist_command_returns_portfolio():
+    """Tests acceptance: LINE Bot > View Watchlist > Functional > User sends /watchlist"""
+
+def test_help_command_returns_commands():
+    """Tests acceptance: LINE Bot > Help Commands > Functional > /help returns reference"""
+
+def test_invalid_ticker_returns_suggestions():
+    """Tests acceptance: LINE Bot > Generate Report > Functional > Invalid ticker returns suggestions"""
+```
+
+### Verification Commands
+```bash
+# Count LINE Bot tests
+rg -c "def test_" tests/line_bot/*.py
+
+# Run LINE Bot tests
+pytest tests/line_bot/ -v
+
+# Check coverage for line_bot module
+pytest tests/line_bot/ --cov=src/integrations/line_bot --cov-report=term-missing
+```
+
+---
+
 *Objective: linebot*
 *Spec: .claude/specs/linebot/spec.yaml*
+*Last Updated: 2026-01-14*
