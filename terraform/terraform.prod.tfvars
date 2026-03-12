@@ -11,12 +11,13 @@ cost_center  = "engineering"
 aws_region = "ap-southeast-1"
 
 # Lambda Configuration - Higher resources for production
-function_name  = "line-bot-ticker-report"
+function_name  = "line-bot-ticker-report"  # Legacy, now using standard naming in main.tf
 lambda_memory  = 1024  # More memory for production
 lambda_timeout = 300   # Longer timeout for production
+lambda_image_tag = "sha-29ee795-20260114-053331"  # Latest prod image
 
 # CloudWatch Logs - Longer retention for production
-log_retention_days = 30
+log_retention_days = 365
 
 # Sensitive variables - DO NOT set here!
 # These are injected via Doppler TF_VAR_* environment variables.

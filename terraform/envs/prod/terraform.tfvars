@@ -16,7 +16,7 @@ lambda_memory  = 1024  # More memory for production
 lambda_timeout = 120
 
 # CloudWatch Logs
-log_retention_days = 30  # Longest retention for production
+log_retention_days = 365  # 1 year retention for historical analysis
 
 # Telegram Mini App Configuration
 # Note: telegram_bot_token, telegram_app_id, telegram_app_hash come from Doppler

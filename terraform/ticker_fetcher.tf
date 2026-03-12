@@ -49,7 +49,7 @@ resource "aws_lambda_function" "ticker_fetcher" {
 
       # Aurora MySQL (for storing prices and ticker_info)
       # NOTE: Extract layer only WRITES raw data, does not need LLM API keys
-      AURORA_HOST     = aws_rds_cluster.aurora.endpoint
+      AURORA_HOST     = local.aurora_connection_endpoint
       AURORA_PORT     = "3306"
       AURORA_DATABASE = var.aurora_database_name
       AURORA_USER     = var.aurora_master_username

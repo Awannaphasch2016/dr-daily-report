@@ -100,7 +100,7 @@ resource "aws_lambda_function" "fund_data_sync" {
   environment {
     variables = {
       ENVIRONMENT          = var.environment
-      AURORA_HOST          = aws_rds_cluster.aurora.endpoint
+      AURORA_HOST     = local.aurora_connection_endpoint
       AURORA_USER          = var.aurora_master_username
       AURORA_DATABASE      = var.aurora_database_name
       AURORA_PASSWORD      = var.AURORA_MASTER_PASSWORD

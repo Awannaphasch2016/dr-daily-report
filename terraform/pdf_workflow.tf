@@ -191,7 +191,7 @@ resource "aws_lambda_function" "get_report_list" {
     variables = {
       ENVIRONMENT      = var.environment
       LOG_LEVEL        = "INFO"
-      AURORA_HOST      = aws_rds_cluster.aurora.endpoint
+      AURORA_HOST     = local.aurora_connection_endpoint
       AURORA_PORT      = "3306"
       AURORA_DATABASE  = var.aurora_database_name
       AURORA_USER      = var.aurora_master_username
@@ -283,7 +283,7 @@ resource "aws_lambda_function" "pdf_worker" {
     variables = {
       ENVIRONMENT          = var.environment
       LOG_LEVEL            = "INFO"
-      AURORA_HOST          = aws_rds_cluster.aurora.endpoint
+      AURORA_HOST     = local.aurora_connection_endpoint
       AURORA_PORT          = "3306"
       AURORA_DATABASE      = var.aurora_database_name
       AURORA_USER          = var.aurora_master_username

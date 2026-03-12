@@ -16,7 +16,7 @@ lambda_memory  = 512
 lambda_timeout = 120
 
 # CloudWatch Logs
-log_retention_days = 14
+log_retention_days = 365
 
 # Sensitive variables - DO NOT set here!
 # These are injected via Doppler TF_VAR_* environment variables.

@@ -181,7 +181,7 @@ resource "aws_lambda_function" "telegram_api" {
       LANGFUSE_TRACING_ENVIRONMENT   = var.LANGFUSE_TRACING_ENVIRONMENT
 
       # Aurora MySQL connection (for cache-first report lookup)
-      AURORA_HOST     = aws_rds_cluster.aurora.endpoint
+      AURORA_HOST     = local.aurora_connection_endpoint
       AURORA_PORT     = "3306"
       AURORA_DATABASE = var.aurora_database_name
       AURORA_USER     = var.aurora_master_username

@@ -49,7 +49,7 @@ resource "aws_lambda_function" "ticker_scheduler" {
       # Aurora MySQL (direct env vars - bypasses Secrets Manager for simplicity)
       # NOTE: Using direct env vars instead of AURORA_SECRET_ARN to avoid VPC endpoint requirement
       # TODO: Add VPC endpoint for Secrets Manager for production security
-      AURORA_HOST     = aws_rds_cluster.aurora.endpoint
+      AURORA_HOST     = local.aurora_connection_endpoint
       AURORA_PORT     = "3306"
       AURORA_DATABASE = var.aurora_database_name
       AURORA_USER     = var.aurora_master_username

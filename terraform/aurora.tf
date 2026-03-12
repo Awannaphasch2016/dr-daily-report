@@ -55,6 +55,12 @@ variable "aurora_database_name" {
   default     = "ticker_data"
 }
 
+variable "use_rds_proxy" {
+  description = "Whether to route database connections through RDS Proxy for connection pooling"
+  type        = bool
+  default     = false
+}
+
 ###############################################################################
 # Security Group for Aurora
 ###############################################################################
@@ -160,6 +166,11 @@ locals {
     "subnet-0ef493a1aae3b4af4", # ap-southeast-1c
     "subnet-012d60cbb95430cd6", # ap-southeast-1b
   ]
+
+  # Database endpoint for Lambda connections
+  # Use RDS Proxy endpoint when enabled for connection pooling/multiplexing
+  # Otherwise use direct Aurora cluster endpoint
+  aurora_connection_endpoint = var.use_rds_proxy ? aws_db_proxy.aurora.endpoint : aws_rds_cluster.aurora.endpoint
 }
 
 ###############################################################################

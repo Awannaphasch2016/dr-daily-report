@@ -16,7 +16,7 @@ lambda_memory  = 512
 lambda_timeout = 120  # Report generation takes ~50-60s
 
 # CloudWatch Logs
-log_retention_days = 7
+log_retention_days = 365
 
 # Telegram Mini App Configuration
 # Note: telegram_bot_token, telegram_app_id, telegram_app_hash come from Doppler

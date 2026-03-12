@@ -16,7 +16,7 @@ lambda_memory  = 512
 lambda_timeout = 120  # Increased from 60s - report generation takes ~50-60s
 
 # CloudWatch Logs
-log_retention_days = 7
+log_retention_days = 365
 
 # LINE Bot Beta User Limit (0 = unlimited, N = limit to next N users)
 beta_user_limit = 20
