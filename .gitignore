@@ -98,6 +98,7 @@ test_*.pdf
 # Terraform
 .terraform/
 *.tfplan
+terraform/tfplan*
 *.tfstate.backup
 terraform.tfstate.backup
 
@@ -109,3 +110,8 @@ terraform.tfstate.backup
 tests/e2e/screenshots/
 tests/output/
 tests/artifacts/
+
+# Generated data & scratch files
+frontend/pattern_detection_results.json
+frontend/twinbar/test-results/
+test_chart.html
