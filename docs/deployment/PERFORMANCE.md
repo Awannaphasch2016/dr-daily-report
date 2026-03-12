@@ -1,6 +1,6 @@
-# Lambda Performance Optimization
+# Performance Optimization
 
-Container reuse, cold start metrics, and optimization techniques.
+Backend (Lambda) and Frontend (Web Vitals) performance optimization techniques.
 
 ---
 
@@ -413,6 +413,107 @@ duration = (time.time() - start) * 1000
 
 publish_metric('ReportGenerationTime', duration)
 ```
+
+---
+
+## Frontend Performance (Core Web Vitals)
+
+### Key Metrics
+
+| Metric | Good | Needs Improvement | Poor |
+|--------|------|-------------------|------|
+| LCP (Largest Contentful Paint) | < 2.5s | 2.5s - 4.0s | > 4.0s |
+| INP (Interaction to Next Paint) | < 200ms | 200ms - 500ms | > 500ms |
+| CLS (Cumulative Layout Shift) | < 0.1 | 0.1 - 0.25 | > 0.25 |
+| TTFB (Time to First Byte) | < 200ms | 200ms - 500ms | > 500ms |
+
+### Frontend Optimization Patterns
+
+**1. Cache-First Loading**
+```typescript
+// App.tsx - Skip fetch if data exists
+const handleSelectMarket = (market: Market) => {
+  setSelectedTicker(market.id);
+  setIsModalOpen(true);
+
+  const hasCompleteData = market.report?.all_scores?.length > 0;
+  if (!hasCompleteData) {
+    fetchReport(market.id);  // Only fetch if needed
+  }
+};
+```
+
+**2. React Query for Automatic Caching**
+```typescript
+// Already installed but not used - enable for deduplication
+import { useQuery } from '@tanstack/react-query';
+
+const useReport = (ticker: string | null) => {
+  return useQuery({
+    queryKey: ['report', ticker],
+    queryFn: () => apiClient.getCachedReport(ticker),
+    staleTime: 5 * 60 * 1000,  // 5 min cache
+  });
+};
+```
+
+**3. Code Splitting**
+```typescript
+// vite.config.ts
+build: {
+  rollupOptions: {
+    output: {
+      manualChunks: {
+        'vendor-react': ['react', 'react-dom'],
+        'vendor-charts': ['recharts'],
+      },
+    },
+  },
+}
+```
+
+**4. Skeleton Loading**
+```typescript
+// Prevent CLS with fixed-dimension skeletons
+const ModalSkeleton = () => (
+  <div className="animate-pulse">
+    <div className="h-8 bg-gray-200 rounded w-3/4 mb-4" />
+    <div className="h-64 bg-gray-200 rounded mb-4" />
+  </div>
+);
+```
+
+### Performance Monitoring
+
+**Add Web Vitals to Frontend:**
+```typescript
+// main.tsx
+import { onLCP, onFID, onCLS, onINP, onTTFB } from 'web-vitals';
+
+onLCP(console.log);
+onINP(console.log);
+onCLS(console.log);
+onTTFB(console.log);
+```
+
+### Frontend Performance Checklist
+
+- [ ] LCP < 2.5s (Lighthouse audit)
+- [ ] INP < 200ms (user interactions)
+- [ ] CLS < 0.1 (layout stability)
+- [ ] Bundle size < 200KB (gzipped)
+- [ ] Images lazy loaded
+- [ ] Cache-first data loading
+- [ ] Skeleton loading states
+
+---
+
+## Performance Skills Reference
+
+For comprehensive performance investigation:
+- [Performance Investigation Skill](../../.claude/skills/performance-investigation/SKILL.md)
+- [Metrics → Code Mapping](../../.claude/skills/performance-investigation/METRICS-MAP.md)
+- [Optimization Patterns](../../.claude/skills/performance-investigation/OPTIMIZATION-PATTERNS.md)
 
 ---
 

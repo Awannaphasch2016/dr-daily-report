@@ -235,7 +235,11 @@ This document catalogs all remaining work items identified through:
 **Remaining (Future Enhancements):**
 1. ML models for pattern detection (CNN on candlestick images)
 2. Pattern success rate statistics from historical data
-3. Store patterns in dedicated Aurora table (migration 020 ready, integration pending)
+3. ✅ Store patterns in dedicated Aurora table (implemented 2026-01-15)
+   - Migration 020 ready to apply
+   - `PatternPrecomputeHandler` Lambda created
+   - `ResponseTransformer` uses cached patterns with ad-hoc fallback
+   - Step Functions workflow updated to include pattern precomputation
 
 **Specification:** `.claude/specs/shared/chart_pattern_data.md`
 **Visual Reference:** `.claude/skills/visual-ta-validation/patterns.md`
