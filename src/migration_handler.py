@@ -290,6 +290,76 @@ def run_add_pdf_columns_migration():
         }
 
 
+def run_sql_migration(migration_name: str, sql_file: str):
+    """Run an idempotent SQL migration from db/migrations/.
+
+    Uses CREATE TABLE IF NOT EXISTS / CREATE INDEX IF NOT EXISTS
+    so safe to re-run.
+
+    Args:
+        migration_name: Human label for logging
+        sql_file: Filename under db/migrations/
+    """
+    import os
+    from src.data.aurora.client import get_aurora_client
+
+    logger.info("=" * 80)
+    logger.info(f"Migration: {migration_name}")
+    logger.info("=" * 80)
+
+    client = get_aurora_client()
+
+    sql_path = os.path.join(os.path.dirname(__file__), '..', 'db', 'migrations', sql_file)
+    sql_path = os.path.normpath(sql_path)
+
+    with open(sql_path, 'r') as f:
+        sql = f.read()
+
+    # Strip comments for cleaner logging
+    statements = [s.strip() for s in sql.split(';') if s.strip() and not s.strip().startswith('--')]
+
+    try:
+        for stmt in statements:
+            logger.info(f"Executing: {stmt[:120]}...")
+            client.execute(stmt, commit=True)
+
+        logger.info(f"✅ Migration '{migration_name}' completed successfully")
+
+        # Verify table exists by extracting table name from CREATE TABLE
+        import re
+        match = re.search(r'CREATE TABLE IF NOT EXISTS\s+(\w+)', sql)
+        if match:
+            table_name = match.group(1)
+            verify = client.fetch_one(
+                "SELECT COUNT(*) as cnt FROM information_schema.tables "
+                "WHERE table_schema = DATABASE() AND table_name = %s",
+                (table_name,)
+            )
+            if verify and verify.get('cnt', 0) > 0:
+                logger.info(f"✅ Verification passed: table '{table_name}' exists")
+            else:
+                logger.error(f"❌ Verification failed: table '{table_name}' not found")
+                return {
+                    'status': 'error',
+                    'message': f'Table {table_name} not found after migration',
+                    'migration_applied': False
+                }
+
+        return {
+            'status': 'success',
+            'message': f'Migration {migration_name} applied successfully',
+            'migration_applied': True
+        }
+
+    except Exception as e:
+        logger.error(f"❌ Migration failed: {e}", exc_info=True)
+        return {
+            'status': 'error',
+            'message': f'Migration failed: {str(e)}',
+            'migration_applied': False
+        }
+
+
 def lambda_handler(event: dict, context: Any) -> dict:
     """Lambda handler for database migrations
 
@@ -306,6 +376,8 @@ def lambda_handler(event: dict, context: Any) -> dict:
         >>> lambda_handler({'migration': 'make_ticker_id_required'}, None)
         {'statusCode': 200, 'body': {...}}
         >>> lambda_handler({'migration': 'add_pdf_columns'}, None)
+        {'statusCode': 200, 'body': {...}}
+        >>> lambda_handler({'migration': 'create_sgx_tables'}, None)  # runs 021 + 022
         {'statusCode': 200, 'body': {...}}
     """
     logger.info(f"Migration handler invoked with event: {json.dumps(event)}")
@@ -330,12 +402,67 @@ def lambda_handler(event: dict, context: Any) -> dict:
             'statusCode': 200 if result['status'] == 'success' else 500,
             'body': json.dumps(result)
         }
+    elif migration == 'create_data_acquisitions':
+        result = run_sql_migration(
+            'Create data_acquisitions table (021)',
+            '021_create_data_acquisitions.sql'
+        )
+        return {
+            'statusCode': 200 if result['status'] == 'success' else 500,
+            'body': json.dumps(result)
+        }
+    elif migration == 'create_sgx_filings':
+        result = run_sql_migration(
+            'Create sgx_filings table (022)',
+            '022_create_sgx_filings.sql'
+        )
+        return {
+            'statusCode': 200 if result['status'] == 'success' else 500,
+            'body': json.dumps(result)
+        }
+    elif migration == 'create_sgx_tables':
+        # Convenience: run both 021 + 022 in order (FK dependency)
+        result_021 = run_sql_migration(
+            'Create data_acquisitions table (021)',
+            '021_create_data_acquisitions.sql'
+        )
+        if result_021['status'] != 'success':
+            return {
+                'statusCode': 500,
+                'body': json.dumps({
+                    'status': 'error',
+                    'message': f'Migration 021 failed: {result_021["message"]}',
+                    'migration_applied': False
+                })
+            }
+
+        result_022 = run_sql_migration(
+            'Create sgx_filings table (022)',
+            '022_create_sgx_filings.sql'
+        )
+        combined = {
+            'status': result_022['status'],
+            'message': 'Both tables created successfully' if result_022['status'] == 'success'
+                else f'Migration 022 failed: {result_022["message"]}',
+            'migration_applied': result_022['status'] == 'success',
+            'details': {
+                '021_data_acquisitions': result_021,
+                '022_sgx_filings': result_022
+            }
+        }
+        return {
+            'statusCode': 200 if combined['status'] == 'success' else 500,
+            'body': json.dumps(combined)
+        }
     else:
         return {
             'statusCode': 400,
             'body': json.dumps({
                 'status': 'error',
                 'message': f'Unknown migration: {migration}',
-                'available_migrations': ['add_strategy_column', 'make_ticker_id_required', 'add_pdf_columns']
+                'available_migrations': [
+                    'add_strategy_column', 'make_ticker_id_required', 'add_pdf_columns',
+                    'create_data_acquisitions', 'create_sgx_filings', 'create_sgx_tables'
+                ]
             })
         }

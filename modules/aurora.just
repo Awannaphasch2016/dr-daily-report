@@ -196,6 +196,49 @@ count-ticker-info DATE="":
         WHERE DATE(created_at) = '$QUERY_DATE' OR DATE(updated_at) = '$QUERY_DATE'
         " 2>/dev/null | grep -v "insecure"
 
+# === MIGRATIONS ===
+
+# Run Aurora database migration via Lambda
+#
+# Examples:
+#   just aurora::migrate create_sgx_tables
+#   just aurora::migrate create_data_acquisitions
+#   just aurora::migrate create_sgx_filings
+#   just aurora::migrate create_sgx_tables stg
+migrate MIGRATION="create_sgx_tables" ENV="dev":
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    FUNCTION="dr-daily-report-report-worker-{{ENV}}"
+    echo "Running migration '{{MIGRATION}}' via Lambda: $FUNCTION"
+
+    aws lambda invoke \
+      --function-name "$FUNCTION" \
+      --payload "{\"migration\": \"{{MIGRATION}}\"}" \
+      --cli-binary-format raw-in-base64-out \
+      /tmp/migration-result.json
+
+    echo ""
+    echo "Result:"
+    python3 -m json.tool /tmp/migration-result.json
+
+    # Check status from response body
+    STATUS=$(python3 -c "
+import json
+with open('/tmp/migration-result.json') as f:
+    resp = json.load(f)
+body = json.loads(resp.get('body', '{}')) if isinstance(resp.get('body'), str) else resp.get('body', {})
+print(body.get('status', 'unknown'))
+")
+    if [ "$STATUS" = "success" ]; then
+        echo ""
+        echo "Migration succeeded!"
+    else
+        echo ""
+        echo "Migration status: $STATUS — check CloudWatch logs"
+        exit 1
+    fi
+
 # === HELP ===
 
 # Show Aurora commands and usage
@@ -219,6 +262,10 @@ help:
     @echo "  just aurora::query '...' --output vd    # Open in VisiData"
     @echo "  just aurora::list-tickers               # Show cached tickers"
     @echo "  just aurora::count-ticker-info 2025-12-30  # Count rows for date"
+    @echo ""
+    @echo "Migrations:"
+    @echo "  just aurora::migrate create_sgx_tables   # Run both SGX migrations"
+    @echo "  just aurora::migrate create_sgx_tables stg  # Run on staging"
     @echo ""
     @echo "Workflow:"
     @echo "  1. Start tunnel:  just aurora::tunnel (in separate terminal)"

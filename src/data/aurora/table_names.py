@@ -64,6 +64,21 @@ TICKER_ALIASES = "ticker_aliases"
 CHART_PATTERN_DATA = "chart_pattern_data"
 """Detected chart patterns with implementation provenance tracking"""
 
+BACKTEST_RESULTS = "backtest_results"
+"""Strategy backtesting results precomputed daily"""
+
+DATA_ACQUISITIONS = "data_acquisitions"
+"""Shared data acquisition provenance — tracks how data in other tables was obtained"""
+
+SGX_FILINGS = "sgx_filings"
+"""SGX exchange filings linked to shared acquisition provenance"""
+
+USERS = "users"
+"""Users across LINE and Telegram platforms"""
+
+USER_REQUESTS = "user_requests"
+"""Per-request log of user ticker requests with timing and result"""
+
 
 # ============================================================================
 # Deprecated Tables (Scheduled for Removal)
@@ -95,6 +110,11 @@ class TABLES:
     TICKER_MASTER = TICKER_MASTER
     TICKER_ALIASES = TICKER_ALIASES
     CHART_PATTERN_DATA = CHART_PATTERN_DATA
+    BACKTEST_RESULTS = BACKTEST_RESULTS
+    DATA_ACQUISITIONS = DATA_ACQUISITIONS
+    SGX_FILINGS = SGX_FILINGS
+    USERS = USERS
+    USER_REQUESTS = USER_REQUESTS
 
 
 # ============================================================================
@@ -142,6 +162,11 @@ __all__ = [
     'TICKER_MASTER',
     'TICKER_ALIASES',
     'CHART_PATTERN_DATA',
+    'BACKTEST_RESULTS',
+    'DATA_ACQUISITIONS',
+    'SGX_FILINGS',
+    'USERS',
+    'USER_REQUESTS',
 
     # Convenience namespace
     'TABLES',
