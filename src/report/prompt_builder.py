@@ -227,20 +227,20 @@ class PromptBuilder:
             value = comparative_insights.get(key) if comparative_insights else None
             return value is not None and value != 'N/A'
 
-        # Strategy (from strategy_performance)
+        # Strategy (from strategy_performance — uses best_supporting shape)
         if placeholder_name.startswith('STRATEGY_'):
             if not strategy_performance:
                 return False
 
-            # Map placeholder to strategy data path
+            best_supporting = strategy_performance.get('best_supporting', {})
+            if not best_supporting:
+                return False
+
+            # Map placeholder to best supporting strategy data path
             if 'BUY' in placeholder_name:
-                data = strategy_performance.get('buy_only', {})
+                data = best_supporting.get('buy_only', {})
             elif 'SELL' in placeholder_name:
-                data = strategy_performance.get('sell_only', {})
-            elif 'LAST_BUY' in placeholder_name:
-                data = strategy_performance.get('last_buy_signal', {})
-            elif 'LAST_SELL' in placeholder_name:
-                data = strategy_performance.get('last_sell_signal', {})
+                data = best_supporting.get('sell_only', {})
             else:
                 return False
 

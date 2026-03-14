@@ -81,57 +81,66 @@ class StrategySectionFormatter(SectionFormatter):
         return self._format_strategy_section(data)
     
     def _format_strategy_section(self, strategy_performance: dict) -> str:
-        """Format strategy performance data for LLM context"""
-        section = """
+        """Format supporting strategy data for LLM context.
+
+        Expects the filtered 'supporting' dict shape from filter_supporting_strategies():
+            {
+                'supporting_strategies': {name: {buy_only: {...}, sell_only: {...}}, ...},
+                'best_supporting': {'name': str, 'buy_only': {...}, 'sell_only': {...}},
+                'support_count': int,
+                'total_count': int,
+            }
+        """
+        support_count = strategy_performance.get('support_count', 0)
+        total_count = strategy_performance.get('total_count', 0)
+        supporting_strategies = strategy_performance.get('supporting_strategies', {})
+        best_supporting = strategy_performance.get('best_supporting', {})
+
+        section = f"""
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🎯 STRATEGY PERFORMANCE (Historical Backtesting)
+🎯 SUPPORTING STRATEGY PERFORMANCE ({support_count}/{total_count} strategies support recommendation)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 USE PLACEHOLDERS FOR ALL NUMBERS - DO NOT WRITE ACTUAL VALUES IN YOUR NARRATIVE
 
-Buy-Only Strategy (Historical Performance):
 """
-        
-        buy_only = strategy_performance.get('buy_only', {})
-        if buy_only:
-            section += f"""  - Total Return: Use {{{{STRATEGY_BUY_RETURN}}}}% placeholder (current: {buy_only.get('total_return_pct', 0):.2f}%)
+        # Supporting strategies breakdown
+        if supporting_strategies:
+            section += "Supporting Strategies:\n"
+            section += "  Strategy             | Buy Return | Sell Return\n"
+            section += "  " + "-" * 55 + "\n"
+            for name, dirs in supporting_strategies.items():
+                buy_ret = dirs.get('buy_only', {}).get('total_return_pct', 0)
+                sell_ret = dirs.get('sell_only', {}).get('total_return_pct', 0)
+                section += f"  {name:<22}| {buy_ret:>9.2f}% | {sell_ret:>10.2f}%\n"
+
+        # Best supporting strategy details
+        if best_supporting:
+            best_name = best_supporting.get('name', 'N/A')
+            buy_only = best_supporting.get('buy_only', {})
+            sell_only = best_supporting.get('sell_only', {})
+
+            section += f"\nBest Supporting Strategy: {best_name}\n"
+
+            section += "\n  Buy-Only Performance:\n"
+            if buy_only:
+                section += f"""  - Total Return: Use {{{{STRATEGY_BUY_RETURN}}}}% placeholder (current: {buy_only.get('total_return_pct', 0):.2f}%)
   - Sharpe Ratio: Use {{{{STRATEGY_BUY_SHARPE}}}} placeholder (current: {buy_only.get('sharpe_ratio', 0):.2f})
   - Win Rate: Use {{{{STRATEGY_BUY_WIN_RATE}}}}% placeholder (current: {buy_only.get('win_rate', 0):.1f}%)
   - Max Drawdown: Use {{{{STRATEGY_BUY_DRAWDOWN}}}}% placeholder (current: {buy_only.get('max_drawdown_pct', 0):.2f}%)
-  - Number of Signals: {buy_only.get('num_signals', 0)}
 """
-        
-        section += "\nSell-Only Strategy (Historical Performance):\n"
-        sell_only = strategy_performance.get('sell_only', {})
-        if sell_only:
-            section += f"""  - Total Return: Use {{{{STRATEGY_SELL_RETURN}}}}% placeholder (current: {sell_only.get('total_return_pct', 0):.2f}%)
+
+            section += "\n  Sell-Only Performance:\n"
+            if sell_only:
+                section += f"""  - Total Return: Use {{{{STRATEGY_SELL_RETURN}}}}% placeholder (current: {sell_only.get('total_return_pct', 0):.2f}%)
   - Sharpe Ratio: Use {{{{STRATEGY_SELL_SHARPE}}}} placeholder (current: {sell_only.get('sharpe_ratio', 0):.2f})
   - Win Rate: Use {{{{STRATEGY_SELL_WIN_RATE}}}}% placeholder (current: {sell_only.get('win_rate', 0):.1f}%)
   - Max Drawdown: Use {{{{STRATEGY_SELL_DRAWDOWN}}}}% placeholder (current: {sell_only.get('max_drawdown_pct', 0):.2f}%)
-  - Number of Signals: {sell_only.get('num_signals', 0)}
 """
-        
-        # Last signals
-        last_buy_signal = strategy_performance.get('last_buy_signal')
-        last_sell_signal = strategy_performance.get('last_sell_signal')
-        
-        if last_buy_signal:
-            buy_price = last_buy_signal.get('price', 0) if isinstance(last_buy_signal, dict) else 0
-            section += f"\nLast Buy Signal:\n"
-            section += f"  - Price: Use {{{{STRATEGY_LAST_BUY_PRICE}}}} placeholder (current: ${buy_price:.2f})\n"
-            if isinstance(last_buy_signal, dict) and last_buy_signal.get('date'):
-                section += f"  - Date: {last_buy_signal.get('date')}\n"
-        
-        if last_sell_signal:
-            sell_price = last_sell_signal.get('price', 0) if isinstance(last_sell_signal, dict) else 0
-            section += f"\nLast Sell Signal:\n"
-            section += f"  - Price: Use {{{{STRATEGY_LAST_SELL_PRICE}}}} placeholder (current: ${sell_price:.2f})\n"
-            if isinstance(last_sell_signal, dict) and last_sell_signal.get('date'):
-                section += f"  - Date: {last_sell_signal.get('date')}\n"
-        
+
         section += "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
         section += "\nREMEMBER: Use placeholders like {{{{STRATEGY_BUY_RETURN}}}}% NOT actual numbers like \"15.2%\"\n"
-        
+
         return section
     
     def has_data(self, data: Any) -> bool:

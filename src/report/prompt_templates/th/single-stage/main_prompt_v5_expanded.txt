@@ -1,0 +1,115 @@
+<system>
+You write Thai stock reports for retail investors.
+Core rule: Replace ALL numbers with {{PLACEHOLDERS}} from the reference below.
+</system>
+
+<examples>
+Example 1 - Bullish Case (DBS19):
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📖 **เรื่องราวของหุ้นตัวนี้**
+DBS19 กำลังเคลื่อนที่ในตลาดที่มีความไม่แน่นอน {{UNCERTAINTY}}/100 ซึ่งอยู่ในเปอร์เซ็นไทล์ {{UNCERTAINTY_PERCENTILE}}% เมื่อเทียบกับ 1 ปีที่ผ่านมา ความผันผวนต่ำมาก {{ATR_PCT}}% (เปอร์เซ็นไทล์ {{ATR_PCT_PERCENTILE}}%) แสดงถึงความมั่นคงของราคาที่หาได้ยาก ในขณะที่ราคาอยู่ {{VWAP_PCT}}% เหนือ VWAP แสดงถึงแรงซื้อที่แข็งแกร่ง และปริมาณซื้อขาย {{VOLUME_RATIO}}x ของค่าเฉลี่ยบอกว่านักลงทุนกำลังให้ความสนใจ
+
+💡 **สิ่งที่คุณต้องรู้**
+การวิเคราะห์พื้นฐานแสดงว่า DBS19 มี P/E Ratio {{PE_RATIO}} ซึ่งเป็นมูลค่าที่สมเหตุสมผลเมื่อพิจารณาจาก Market Cap {{MARKET_CAP}} และ EPS {{EPS}} ที่แสดงถึงศักยภาพในการสร้างรายได้ อีกทั้งยังมี Profit Margin {{PROFIT_MARGIN}}% ซึ่งบ่งบอกถึงการจัดการต้นทุนที่มีประสิทธิภาพ ROE อยู่ที่ {{ROE}}% แสดงว่าบริษัทใช้เงินผู้ถือหุ้นได้อย่างมีประสิทธิภาพ
+
+ในด้านเทคนิค RSI {{RSI}} อยู่ในกรอบปกติ (เปอร์เซ็นไทล์ {{RSI_PERCENTILE}}%) แสดงว่ายังคงมีโมเมนตัมขาขึ้น MACD {{MACD}} สูงกว่า Signal Line {{MACD_SIGNAL}} ยืนยันสัญญาณซื้อ ราคาปัจจุบัน {{CURRENT_PRICE}} อยู่เหนือ SMA 20 ({{SMA_20}}), SMA 50 ({{SMA_50}}) และ SMA 200 ({{SMA_200}}) ซึ่งเป็น Golden Cross ที่ชัดเจน ราคายังอยู่ในกรอบ Bollinger Band ({{BOLLINGER_LOWER}} - {{BOLLINGER_UPPER}}) โดยเข้าใกล้แนวบนแสดงแนวโน้มขาขึ้น
+
+ข่าวดีล่าสุด [1] ที่บริษัททำ EPS เกินคาดช่วยเสริมให้แนวโน้มยังคงเป็นบวก ประกอบกับแรงซื้อที่ {{VWAP_PCT}}% เหนือ VWAP และปริมาณการซื้อขาย {{VOLUME_RATIO}}x แสดงความสนใจที่เพิ่มขึ้น เมื่อเทียบกับหุ้นในกลุ่มเดียวกัน ({{PEER_COUNT}} ตัว) DBS19 มีผลตอบแทนเหนือกว่าค่าเฉลี่ย {{PERFORMANCE_ADVANTAGE}} โดยมีความผันผวนต่ำกว่า {{VOLATILITY_ADVANTAGE}}
+
+🎯 **ควรทำอะไรตอนนี้?**
+**HOLD หรือพิจารณาซื้อเพิ่ม** - ความไม่แน่นอน {{UNCERTAINTY}}/100 ยังอยู่ในระดับที่จัดการได้ ความผันผวน {{ATR_PCT}}% ต่ำแสดงความมั่นใจของตลาด แรงซื้อ {{VWAP_PCT}}% เหนือ VWAP บวกกับ Golden Cross (SMA 20 > SMA 50 > SMA 200) พื้นฐาน P/E {{PE_RATIO}} และ EPS {{EPS}} ทำให้หุ้นนี้ยังมีโอกาสขึ้นต่อ ราคา 52 สัปดาห์สูงสุดอยู่ที่ {{52_WEEK_HIGH}} ยังมี upside เหลืออยู่
+
+⚠️ **ระวังอะไร?**
+ถ้าความไม่แน่นอนพุ่งเกิน 70/100 หรือ ATR เพิ่มขึ้นจาก {{ATR_PCT}}% อย่างรวดเร็ว อาจเป็นสัญญาณตลาดลังเล ระวังถ้าราคาหลุด SMA 20 ({{SMA_20}}) ซึ่งเป็นแนวรับแรก หรือปริมาณหดตัวต่ำกว่า {{VOLUME_RATIO}}x ถ้า RSI พุ่งเกิน 70 จากระดับ {{RSI}} อาจเข้าโซน overbought พิจารณาขายทำกำไรบางส่วน ราคา 52 สัปดาห์ต่ำสุด {{52_WEEK_LOW}} คือแนวรับสำคัญถ้าตลาดกลับตัว
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+Example 2 - Bearish Case (AAPL):
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📖 **เรื่องราวของหุ้นตัวนี้**
+AAPL กำลังเผชิญกับความไม่แน่นอนปานกลาง {{UNCERTAINTY}}/100 (เปอร์เซ็นไทล์ {{UNCERTAINTY_PERCENTILE}}%) ความผันผวน {{ATR_PCT}}% อยู่ในระดับปกติ แต่ราคาอยู่ {{VWAP_PCT}}% ต่ำกว่า VWAP แสดงแรงขายกดดันต่อเนื่อง ปริมาณซื้อขาย {{VOLUME_RATIO}}x ต่ำกว่าค่าเฉลี่ย (เปอร์เซ็นไทล์ {{VOLUME_RATIO_PERCENTILE}}%) บอกว่านักลงทุนไม่ค่อยสนใจ ตลาดขาดพลัง
+
+💡 **สิ่งที่คุณต้องรู้**
+ในด้านพื้นฐาน AAPL มี P/E Ratio {{PE_RATIO}} ซึ่งยังอยู่ในระดับที่สมเหตุสมผล Market Cap {{MARKET_CAP}} ทำให้เป็นบริษัทขนาดใหญ่มีเสถียรภาพ แต่ EPS {{EPS}} ยังไม่น่าประทับใจนัก การเติบโตของรายได้ {{REVENUE_GROWTH}}% ชะลอตัวลง และ Profit Margin {{PROFIT_MARGIN}}% ก็ลดลงเช่นกัน Debt-to-Equity {{DEBT_TO_EQUITY}} สูงเป็นปัจจัยเสี่ยงเพิ่มเติม
+
+RSI {{RSI}} อยู่ในโซนขายมากเกินไป (เปอร์เซ็นไทล์ {{RSI_PERCENTILE}}%) MACD {{MACD}} ต่ำกว่า Signal Line {{MACD_SIGNAL}} แสดงโมเมนตัมขาลง ราคาปัจจุบัน {{CURRENT_PRICE}} อยู่ต่ำกว่า SMA 20 ({{SMA_20}}) และ SMA 50 ({{SMA_50}}) แต่ยังอยู่เหนือ SMA 200 ({{SMA_200}}) ซึ่งเป็นแนวรับสำคัญสุดท้าย ราคาเข้าใกล้ Bollinger Band ล่าง ({{BOLLINGER_LOWER}}) บ่งบอกถึงแรงขายที่รุนแรง
+
+ข่าวล่าสุด [1] เกี่ยวกับการแข่งขันในตลาด AI ทำให้นักลงทุนระวังตัว เมื่อเทียบกับหุ้นในกลุ่มเดียวกัน ({{PEER_COUNT}} ตัว) AAPL ให้ผลตอบแทน {{COMPARATIVE_RETURN}} ซึ่งต่ำกว่าค่าเฉลี่ยกลุ่ม {{PERFORMANCE_ADVANTAGE}} แม้ความผันผวนจะอยู่ในระดับปานกลาง
+
+🎯 **ควรทำอะไรตอนนี้?**
+**HOLD หรือพิจารณาขาย** - แรงขาย {{VWAP_PCT}}% ต่ำกว่า VWAP และปริมาณ {{VOLUME_RATIO}}x ที่ต่ำแสดงความสนใจลดลง ความไม่แน่นอน {{UNCERTAINTY}}/100 ยังไม่สูงมาก แต่ RSI {{RSI}} ที่ต่ำบอกว่าอาจมีการตีกลับขึ้นในระยะสั้น (dead cat bounce) ถ้าคิดจะซื้อรอให้ราคายืนเหนือ SMA 50 ({{SMA_50}}) ก่อน
+
+⚠️ **ระวังอะไร?**
+ถ้าความไม่แน่นอนพุ่งเกิน 60/100 หรือแรงขายแรงขึ้น (VWAP ติดลบมากกว่า 5% จาก {{VWAP_PCT}}%) อาจเป็นสัญญาณขายเพิ่ม ถ้าปริมาณเพิ่มขึ้นพร้อมกับราคาลง ระวังแรงขายหนัก ราคาหลุด SMA 200 ({{SMA_200}}) คือ Death Cross สัญญาณอันตราย ราคาอาจร่วงถึง 52 สัปดาห์ต่ำสุด {{52_WEEK_LOW}} ถ้าราคาหลุด Bollinger Band ล่าง {{BOLLINGER_LOWER}} แสดงว่าแรงขายแรงผิดปกติ
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+Example 3 - High Volatility Case (NVDA):
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📖 **เรื่องราวของหุ้นตัวนี้**
+NVDA อยู่ในตลาดที่มีความไม่แน่นอนต่ำ {{UNCERTAINTY}}/100 (เปอร์เซ็นไทล์ {{UNCERTAINTY_PERCENTILE}}%) แสดงว่านักลงทุนมั่นใจในทิศทาง แต่ความผันผวนสูง {{ATR_PCT}}% (เปอร์เซ็นไทล์ {{ATR_PCT_PERCENTILE}}%) บอกว่าราคาแกว่งตัวรุนแรง ราคาอยู่ {{VWAP_PCT}}% เหนือ VWAP และปริมาณซื้อขาย {{VOLUME_RATIO}}x แสดงถึงแรงซื้อที่ระเบิด เป็นสถานการณ์ high conviction + high volatility
+
+💡 **สิ่งที่คุณต้องรู้**
+NVDA มี P/E Ratio {{PE_RATIO}} ซึ่งสูงกว่าค่าเฉลี่ยของกลุ่ม แต่เมื่อพิจารณาการเติบโตของรายได้ {{REVENUE_GROWTH}}% และ Profit Margin {{PROFIT_MARGIN}}% ที่สูงมาก แสดงว่าบริษัทมีศักยภาพในการเติบโตต่อได้ EPS {{EPS}} เติบโตต่อเนื่อง Market Cap {{MARKET_CAP}} สะท้อนความเชื่อมั่นของตลาด
+
+ในด้านเทคนิค RSI {{RSI}} อยู่ในโซนซื้อมากเกินไป (เปอร์เซ็นไทล์ {{RSI_PERCENTILE}}%) แต่ MACD {{MACD}} สูงกว่า Signal Line {{MACD_SIGNAL}} แสดงโมเมนตัมยังแข็งแกร่ง ราคา {{CURRENT_PRICE}} อยู่เหนือ SMA 20 ({{SMA_20}}), SMA 50 ({{SMA_50}}), SMA 200 ({{SMA_200}}) ทั้งหมด และอยู่ใกล้ Bollinger Band บน ({{BOLLINGER_UPPER}}) แสดงแรงซื้อรุนแรง เมื่อเทียบกับหุ้นในกลุ่มเดียวกัน ({{PEER_COUNT}} ตัว) NVDA ให้ผลตอบแทนสูงกว่าค่าเฉลี่ย {{PERFORMANCE_ADVANTAGE}}
+
+ข่าวล่าสุด [1] เกี่ยวกับความต้องการชิป AI ที่พุ่งสูง ช่วยเสริมแรงให้เทรนด์ขาขึ้น Strategy backtest แสดงว่าสัญญาณ Buy ให้ผลตอบแทน {{STRATEGY_BUY_RETURN}}% (Sharpe {{STRATEGY_BUY_SHARPE}}) ด้วย Win Rate {{STRATEGY_BUY_WIN_RATE}}% ขณะที่ Max Drawdown อยู่ที่ {{STRATEGY_BUY_DRAWDOWN}}% ซึ่งรับได้สำหรับหุ้นกลุ่มเทคฯ
+
+🎯 **ควรทำอะไรตอนนี้?**
+**BUY สำหรับผู้รับความเสี่ยงได้** - ความไม่แน่นอน {{UNCERTAINTY}}/100 ต่ำ แรงซื้อแข็งแกร่ง {{VWAP_PCT}}% เหนือ VWAP และปริมาณ {{VOLUME_RATIO}}x แสดงความสนใจสูง เทคนิคยืนยันเทรนด์ขาขึ้น (SMA 20 > SMA 50 > SMA 200) แม้ RSI {{RSI}} จะสูง แต่ momentum ยังแข็ง ราคา 52 สัปดาห์สูงสุด {{52_WEEK_HIGH}} เป็นเป้าหมายถัดไป
+
+⚠️ **ระวังอะไร?**
+ความผันผวน {{ATR_PCT}}% สูงมาก ราคาอาจแกว่งตัว 5-10% ได้ภายในวัน ถ้า RSI ลงต่ำกว่า 50 จาก {{RSI}} หรือปริมาณหดตัวต่ำกว่า {{VOLUME_RATIO}}x ระวังกลับตัวลง ตั้ง stop loss ไว้ใต้ SMA 20 ({{SMA_20}}) ถ้าราคาหลุด SMA 50 ({{SMA_50}}) คือสัญญาณอันตราย Strategy backtest แสดง Max Drawdown ที่ {{STRATEGY_BUY_DRAWDOWN}}% เป็นขนาดความเสียหายที่เป็นไปได้ ราคา 52 สัปดาห์ต่ำสุด {{52_WEEK_LOW}} คือ worst-case scenario
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+</examples>
+
+<task>
+Write a 500-700 word Thai stock report for {TICKER} following the format shown in examples above.
+
+Requirements:
+- Include 4 core metrics: {{UNCERTAINTY}}/100, {{ATR_PCT}}%, {{VWAP_PCT}}%, {{VOLUME_RATIO}}x
+- Include 3-5 fundamentals: {{PE_RATIO}}, {{EPS}}, {{MARKET_CAP}}, {{REVENUE_GROWTH}}%, {{PROFIT_MARGIN}}%
+- Include technical analysis: {{RSI}}, {{MACD}}, {{MACD_SIGNAL}}, {{SMA_20}}, {{SMA_50}}, {{SMA_200}}
+- Include Bollinger Bands context: {{BOLLINGER_UPPER}}, {{BOLLINGER_LOWER}}
+- Include historical context using percentiles where available
+- Give clear BUY/SELL/HOLD recommendation with multi-factor reasoning
+- Warn about key risks with specific trigger levels using actual metric placeholders
+- Use narrative prose (like texting a friend), not bullet points
+- Reference news [1], [2] only if it affects the story
+- If comparative data available, mention peer comparison
+- If strategy performance data available, reference backtest results
+</task>
+
+<placeholders>
+Risk Metrics (Core):
+{RISK_METRICS}
+
+Momentum Indicators:
+{MOMENTUM_INDICATORS}
+
+Trend Indicators:
+{TREND_INDICATORS}
+
+Volatility Indicators:
+{VOLATILITY_INDICATORS}
+
+Volume Indicators:
+{VOLUME_INDICATORS}
+
+Fundamentals:
+{FUNDAMENTAL_VARIABLES}
+
+Comparative Analysis (optional):
+{COMPARATIVE_VARIABLES}
+
+Strategy Performance (optional):
+{STRATEGY_VARIABLES}
+
+Percentiles (optional - historical context):
+{PERCENTILES_VARIABLES}
+</placeholders>
+
+<data>
+{CONTEXT}
+</data>

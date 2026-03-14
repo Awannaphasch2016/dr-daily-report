@@ -30,7 +30,6 @@ class WorkflowNodes:
         technical_analyzer,
         news_fetcher,
         chart_generator,
-        strategy_backtester,
         strategy_analyzer,
         comparative_analyzer,
         llm,
@@ -58,7 +57,6 @@ class WorkflowNodes:
         self.technical_analyzer = technical_analyzer
         self.news_fetcher = news_fetcher
         self.chart_generator = chart_generator
-        self.strategy_backtester = strategy_backtester
         self.strategy_analyzer = strategy_analyzer
         self.comparative_analyzer = comparative_analyzer
         self.llm = llm
@@ -426,23 +424,20 @@ class WorkflowNodes:
         chart_patterns = result.get('chart_patterns', [])
         pattern_statistics = result.get('pattern_statistics', {})
 
-        # Calculate strategy performance
+        # Read precomputed strategy performance from Aurora
         strategy_performance = {}
-        if self.strategy_backtester:
-            try:
-                buy_results = self.strategy_backtester.backtest_buy_only(hist_data)
-                sell_results = self.strategy_backtester.backtest_sell_only(hist_data)
-
-                if buy_results and sell_results:
-                    strategy_performance = {
-                        'buy_only': buy_results,
-                        'sell_only': sell_results,
-                        'last_buy_signal': self.strategy_analyzer.get_last_buy_signal(hist_data),
-                        'last_sell_signal': self.strategy_analyzer.get_last_sell_signal(hist_data)
-                    }
-            except Exception as e:
-                logger.warning(f"   ⚠️  Error calculating strategy performance: {str(e)}")
-                strategy_performance = {}
+        try:
+            from src.data.aurora.backtest_repository import get_backtest_repository
+            bt_repo = get_backtest_repository()
+            ticker = state.get('ticker', '')
+            strategy_performance = bt_repo.get_latest(symbol=ticker) or {}
+            if strategy_performance:
+                logger.info(f"   📊 Loaded precomputed backtest results for {ticker}")
+            else:
+                logger.info(f"   ℹ️  No precomputed backtest results for {ticker}")
+        except Exception as e:
+            logger.warning(f"   ⚠️  Error reading backtest results: {str(e)}")
+            strategy_performance = {}
 
         # Validate output
         elapsed = time.perf_counter() - start_time
@@ -614,8 +609,130 @@ class WorkflowNodes:
             self._log_node_error("generate_report", state, error_msg)
             return state
 
-        # Generate report using Semantic Layer Architecture (single-stage only)
-        return self._generate_report_singlestage(state)
+        # Route based on REPORT_GENERATION_MODE feature flag
+        generation_mode = os.environ.get('REPORT_GENERATION_MODE', 'single_pass')
+
+        if generation_mode == 'quant_agent':
+            return self._generate_report_via_quant_agent(state)
+        else:
+            return self._generate_report_singlestage(state)
+
+    def _generate_report_via_quant_agent(self, state: AgentState) -> AgentState:
+        """Delegate report generation to quant_agent Lambda (multi-agent inner loop).
+
+        Serializes raw_data from state, invokes the quant_agent Lambda synchronously,
+        and merges the returned report + quality scores back into AgentState.
+        Falls back to single-pass if invocation fails.
+        """
+        import boto3
+        from src.types import extract_raw_data_for_storage
+        from src.utils.serialization import make_json_serializable
+
+        ticker = state["ticker"]
+        quant_agent_fn = os.environ.get('QUANT_AGENT_FUNCTION_NAME')
+
+        if not quant_agent_fn:
+            logger.error(
+                f"QUANT_AGENT_FUNCTION_NAME not set, falling back to single_pass | "
+                f"ticker={ticker}"
+            )
+            return self._generate_report_singlestage(state)
+
+        logger.info(
+            f"   📝 Delegating report generation to QuantAgent | "
+            f"ticker={ticker} | function={quant_agent_fn}"
+        )
+
+        try:
+            # Serialize state data for Lambda payload
+            raw_data = make_json_serializable(extract_raw_data_for_storage(state))
+            payload = {
+                "raw_data": raw_data,
+                "ticker": ticker,
+                "source": "report_worker",
+            }
+
+            client = boto3.client('lambda')
+            invoke_start = time.perf_counter()
+
+            response = client.invoke(
+                FunctionName=quant_agent_fn,
+                InvocationType='RequestResponse',
+                Payload=json.dumps(payload),
+            )
+
+            invoke_elapsed = time.perf_counter() - invoke_start
+            result_payload = json.loads(response['Payload'].read())
+
+            # Check for Lambda-level errors (function error, not application error)
+            if 'FunctionError' in response:
+                error_msg = result_payload.get('errorMessage', 'Unknown Lambda error')
+                logger.error(
+                    f"QuantAgent Lambda error | ticker={ticker} | "
+                    f"error={error_msg} | falling back to single_pass"
+                )
+                return self._generate_report_singlestage(state)
+
+            # Check for application-level failure
+            if result_payload.get('status') != 'success':
+                error_msg = result_payload.get('error', 'Unknown error')
+                logger.error(
+                    f"QuantAgent returned failure | ticker={ticker} | "
+                    f"error={error_msg} | falling back to single_pass"
+                )
+                return self._generate_report_singlestage(state)
+
+            # Extract report from result
+            report = result_payload.get('report', '')
+            if not report:
+                logger.error(
+                    f"QuantAgent returned empty report | ticker={ticker} | "
+                    f"falling back to single_pass"
+                )
+                return self._generate_report_singlestage(state)
+
+            # Post-process: add news references + transparency footer
+            # (QuantAgent inner loop already did number injection)
+            indicators = state["indicators"]
+            news = state.get('news', [])
+            if news:
+                news_references = self.news_fetcher.get_news_references(news)
+                report += f"\n\n{news_references}"
+
+            from src.report import TransparencyFooter
+            transparency = TransparencyFooter()
+            footnote = transparency.generate_data_usage_footnote(state)
+            report += footnote
+
+            # Merge results into state
+            iterations_used = result_payload.get('iterations_used', 1)
+            aggregate_score = result_payload.get('aggregate_score', 0)
+
+            logger.info(
+                f"   ✅ QuantAgent report complete | ticker={ticker} | "
+                f"score={aggregate_score:.1f} | iterations={iterations_used} | "
+                f"invoke_time={invoke_elapsed:.1f}s"
+            )
+
+            return {
+                "report": report,
+                "quality_scores": result_payload.get('quality_scores', {}),
+                "api_costs": {
+                    **state.get("api_costs", {}),
+                    "quant_agent_input_tokens": result_payload.get('total_input_tokens', 0),
+                    "quant_agent_output_tokens": result_payload.get('total_output_tokens', 0),
+                    "quant_agent_iterations": iterations_used,
+                    "quant_agent_score": aggregate_score,
+                },
+            }
+
+        except Exception as e:
+            logger.error(
+                f"QuantAgent invocation failed | ticker={ticker} | "
+                f"error={e} | falling back to single_pass",
+                exc_info=True,
+            )
+            return self._generate_report_singlestage(state)
 
     def _post_process_report_workflow(
         self,
@@ -772,15 +889,19 @@ class WorkflowNodes:
         # Extract recommendation from initial report
         recommendation = self.strategy_analyzer.extract_recommendation(initial_report)
 
-        # Check if strategy performance aligns with recommendation
-        include_strategy = self.strategy_analyzer.check_strategy_alignment(recommendation, strategy_performance)
+        # Filter strategies that support the recommendation
+        supporting = self.strategy_analyzer.filter_supporting_strategies(recommendation, strategy_performance)
+        include_strategy = supporting['support_count'] > 0
 
-        # Second pass: If aligned, regenerate with strategy data
-        if include_strategy and strategy_performance:
+        # Second pass: If supporting strategies found, regenerate with their data
+        if include_strategy:
+            # Overwrite strategy_performance with filtered supporting data for injection
+            strategy_performance = supporting
+
             context_with_strategy = self.context_builder.prepare_context(
                 ticker, ticker_data, indicators, percentiles, news, news_summary,
                 ground_truth=ground_truth,
-                strategy_performance=strategy_performance,
+                strategy_performance=supporting,
                 comparative_insights=comparative_insights,
                 sec_filing_data=sec_filing_data,
                 financial_markets_data=financial_markets_data,
@@ -794,7 +915,7 @@ class WorkflowNodes:
                 indicators=indicators,
                 percentiles=percentiles,
                 ticker_data=ticker_data,
-                strategy_performance=strategy_performance,
+                strategy_performance=supporting,
                 comparative_insights=comparative_insights,
                 sec_filing_data=sec_filing_data,
                 financial_markets_data=financial_markets_data,
@@ -816,6 +937,10 @@ class WorkflowNodes:
                 total_output_tokens += len(report) // 4
         else:
             report = initial_report
+
+        # Update state with filtered supporting data for number injection
+        if include_strategy:
+            state['strategy_performance'] = supporting
 
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         # INJECT DETERMINISTIC NUMBERS (Damodaran "narrative + number" approach)

@@ -1,5 +1,5 @@
 {
-  "Comment": "Precompute workflow - PARALLEL report and pattern generation",
+  "Comment": "Precompute workflow - PARALLEL report, pattern, and backtest generation",
   "StartAt": "PrepareTickerList",
   "States": {
     "PrepareTickerList": {
@@ -20,7 +20,7 @@
 
     "ParallelProcessing": {
       "Type": "Parallel",
-      "Comment": "Run report generation and pattern detection in PARALLEL (both read from ticker_data, write to different tables)",
+      "Comment": "Run report generation, pattern detection, and backtesting in PARALLEL (all read from ticker_data, write to different tables)",
       "Branches": [
         {
           "StartAt": "FanOutToWorkers",
@@ -179,6 +179,74 @@
               "End": true
             }
           }
+        },
+        {
+          "StartAt": "FanOutToBacktestWorkers",
+          "States": {
+            "FanOutToBacktestWorkers": {
+              "Type": "Map",
+              "Comment": "Precompute backtesting results for all tickers (46 parallel)",
+              "ItemsPath": "$.ticker_list.tickers",
+              "MaxConcurrency": 46,
+              "Parameters": {
+                "ticker.$": "$$.Map.Item.Value",
+                "execution_id.$": "$$.Execution.Name"
+              },
+              "Iterator": {
+                "StartAt": "InvokeBacktestWorker",
+                "States": {
+                  "InvokeBacktestWorker": {
+                    "Type": "Task",
+                    "Resource": "arn:aws:states:::lambda:invoke",
+                    "Parameters": {
+                      "FunctionName": "${backtest_precompute_function_arn}",
+                      "Payload": {
+                        "ticker.$": "$.ticker",
+                        "execution_id.$": "$.execution_id"
+                      }
+                    },
+                    "ResultPath": "$.backtest_result",
+                    "ResultSelector": {
+                      "Payload.$": "$.Payload"
+                    },
+                    "Retry": [
+                      {
+                        "ErrorEquals": ["States.ALL"],
+                        "IntervalSeconds": 2,
+                        "MaxAttempts": 2,
+                        "BackoffRate": 2.0
+                      }
+                    ],
+                    "Catch": [
+                      {
+                        "ErrorEquals": ["States.ALL"],
+                        "ResultPath": "$.error",
+                        "Next": "HandleBacktestError"
+                      }
+                    ],
+                    "Next": "BacktestWorkerDone"
+                  },
+                  "BacktestWorkerDone": {
+                    "Type": "Pass",
+                    "Comment": "Backtest worker completed",
+                    "End": true
+                  },
+                  "HandleBacktestError": {
+                    "Type": "Pass",
+                    "Comment": "Backtest error - log and continue",
+                    "Parameters": {
+                      "ticker.$": "$.ticker",
+                      "status": "failed",
+                      "error.$": "$.error.Cause"
+                    },
+                    "End": true
+                  }
+                }
+              },
+              "ResultPath": "$.backtest_results",
+              "End": true
+            }
+          }
         }
       ],
       "ResultPath": "$.parallel_results",
@@ -192,9 +260,10 @@
         "status": "completed",
         "execution_id.$": "$$.Execution.Name",
         "total_tickers": 46,
-        "message": "Precompute workflow completed. Reports and chart patterns generated for all tickers IN PARALLEL.",
+        "message": "Precompute workflow completed. Reports, chart patterns, and backtest results generated for all tickers IN PARALLEL.",
         "report_results.$": "$.parallel_results[0].report_results",
-        "pattern_results.$": "$.parallel_results[1].pattern_results"
+        "pattern_results.$": "$.parallel_results[1].pattern_results",
+        "backtest_results.$": "$.parallel_results[2].backtest_results"
       },
       "Next": "GenerateStaticAPI"
     },

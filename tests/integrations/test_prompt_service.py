@@ -48,7 +48,7 @@ class TestPromptServiceFileFallback:
         # Create temp prompt file
         prompt_dir = tmp_path / "prompt_templates" / "th" / "single-stage"
         prompt_dir.mkdir(parents=True)
-        prompt_file = prompt_dir / "main_prompt_v4_minimal.txt"
+        prompt_file = prompt_dir / "main_prompt_v5_expanded.txt"
         prompt_file.write_text("Test prompt for {TICKER}")
 
         with patch.dict("os.environ", {"LANGFUSE_PROMPTS_ENABLED": "false"}):
@@ -101,7 +101,7 @@ class TestPromptServiceLangfuseIntegration:
         # Create fallback file
         prompt_dir = tmp_path / "prompt_templates" / "th" / "single-stage"
         prompt_dir.mkdir(parents=True)
-        (prompt_dir / "main_prompt_v4_minimal.txt").write_text("Fallback")
+        (prompt_dir / "main_prompt_v5_expanded.txt").write_text("Fallback")
 
         with patch.dict("os.environ", {"LANGFUSE_PROMPTS_ENABLED": "true", "ENVIRONMENT": "dev"}):
             with patch("src.integrations.prompt_service.get_langfuse_client", return_value=mock_client):
@@ -117,7 +117,7 @@ class TestPromptServiceLangfuseIntegration:
         # Create fallback file
         prompt_dir = tmp_path / "prompt_templates" / "th" / "single-stage"
         prompt_dir.mkdir(parents=True)
-        (prompt_dir / "main_prompt_v4_minimal.txt").write_text("Fallback prompt")
+        (prompt_dir / "main_prompt_v5_expanded.txt").write_text("Fallback prompt")
 
         mock_client = MagicMock()
         mock_client.get_prompt.side_effect = Exception("Langfuse API error")
@@ -135,7 +135,7 @@ class TestPromptServiceLangfuseIntegration:
         # Create fallback file
         prompt_dir = tmp_path / "prompt_templates" / "th" / "single-stage"
         prompt_dir.mkdir(parents=True)
-        (prompt_dir / "main_prompt_v4_minimal.txt").write_text("Fallback")
+        (prompt_dir / "main_prompt_v5_expanded.txt").write_text("Fallback")
 
         with patch.dict("os.environ", {"LANGFUSE_PROMPTS_ENABLED": "true"}):
             with patch("src.integrations.prompt_service.get_langfuse_client", return_value=None):
@@ -155,7 +155,7 @@ class TestPromptServiceVersionTracking:
         """File-based prompts have version='file'."""
         prompt_dir = tmp_path / "prompt_templates" / "th" / "single-stage"
         prompt_dir.mkdir(parents=True)
-        (prompt_dir / "main_prompt_v4_minimal.txt").write_text("Test")
+        (prompt_dir / "main_prompt_v5_expanded.txt").write_text("Test")
 
         with patch.dict("os.environ", {"LANGFUSE_PROMPTS_ENABLED": "false"}):
             service = PromptService(prompts_base_path=tmp_path)
@@ -176,7 +176,7 @@ class TestPromptServiceVersionTracking:
         # Create fallback
         prompt_dir = tmp_path / "prompt_templates" / "th" / "single-stage"
         prompt_dir.mkdir(parents=True)
-        (prompt_dir / "main_prompt_v4_minimal.txt").write_text("Fallback")
+        (prompt_dir / "main_prompt_v5_expanded.txt").write_text("Fallback")
 
         with patch.dict("os.environ", {"LANGFUSE_PROMPTS_ENABLED": "true"}):
             with patch("src.integrations.prompt_service.get_langfuse_client", return_value=mock_client):
@@ -194,7 +194,7 @@ class TestPromptServiceCompilation:
         """Create PromptService with test prompt."""
         prompt_dir = tmp_path / "prompt_templates" / "th" / "single-stage"
         prompt_dir.mkdir(parents=True)
-        (prompt_dir / "main_prompt_v4_minimal.txt").write_text(
+        (prompt_dir / "main_prompt_v5_expanded.txt").write_text(
             "Report for {TICKER}\nContext: {CONTEXT}"
         )
 
@@ -241,7 +241,7 @@ class TestPromptServiceEnvironmentMapping:
         """Setup for testing environment mapping."""
         prompt_dir = tmp_path / "prompt_templates" / "th" / "single-stage"
         prompt_dir.mkdir(parents=True)
-        (prompt_dir / "main_prompt_v4_minimal.txt").write_text("Test")
+        (prompt_dir / "main_prompt_v5_expanded.txt").write_text("Test")
 
         mock_prompt = MagicMock()
         mock_prompt.prompt = "Content"
@@ -313,4 +313,4 @@ class TestPromptFileMappingConfig:
     def test_report_generation_prompt_mapped(self):
         """report-generation prompt is mapped to file."""
         assert "report-generation" in PROMPT_FILE_MAPPING
-        assert "main_prompt_v4_minimal.txt" in PROMPT_FILE_MAPPING["report-generation"]
+        assert "main_prompt_v5_expanded.txt" in PROMPT_FILE_MAPPING["report-generation"]

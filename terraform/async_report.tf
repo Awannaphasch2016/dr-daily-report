@@ -182,6 +182,10 @@ resource "aws_lambda_function" "report_worker" {
       AURORA_DATABASE = var.aurora_database_name
       AURORA_USER     = var.aurora_master_username
       AURORA_PASSWORD = var.AURORA_MASTER_PASSWORD
+
+      # QuantAgent routing (feature flag)
+      REPORT_GENERATION_MODE    = var.report_generation_mode
+      QUANT_AGENT_FUNCTION_NAME = aws_lambda_function.quant_agent_report.function_name
     }
   }
 

@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 
 # Prompt name to file path mapping (single source of truth)
 PROMPT_FILE_MAPPING = {
-    "report-generation": "prompt_templates/th/single-stage/main_prompt_v4_minimal.txt",
+    "report-generation": "prompt_templates/th/single-stage/main_prompt_v5_expanded.txt",
 }
 
 # Cache TTL for Langfuse prompts (seconds)

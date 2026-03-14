@@ -50,3 +50,6 @@ aurora_max_acu = 2
 aurora_database_name = "ticker_data"
 aurora_master_username = "admin"
 lambda_image_tag = "pdf-timeout-fix-20260105-061221"
+
+# QuantAgent Configuration
+report_generation_mode = "single_pass"  # "single_pass" or "quant_agent"

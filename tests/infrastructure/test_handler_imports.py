@@ -18,6 +18,7 @@ class TestHandlerImports:
     """Validate handler module structure before deployment."""
 
     @pytest.mark.parametrize("handler_module", [
+        "src.request_interceptor",
         "src.report_worker_handler",
         "src.telegram_lambda_handler",
         "src.lambda_handler",
@@ -37,6 +38,7 @@ class TestHandlerImports:
             pytest.fail(f"Failed to import {handler_module}: {e}")
 
     @pytest.mark.parametrize("handler_module,function_name", [
+        ("src.request_interceptor", "handler"),
         ("src.report_worker_handler", "handler"),
         ("src.telegram_lambda_handler", "handler"),
         ("src.lambda_handler", "lambda_handler"),
@@ -77,6 +79,7 @@ class TestHandlerImports:
         THEN all handler files should exist
         """
         handlers = [
+            "src/request_interceptor.py",
             "src/report_worker_handler.py",
             "src/telegram_lambda_handler.py",
             "src/lambda_handler.py",

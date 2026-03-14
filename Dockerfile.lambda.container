@@ -25,6 +25,8 @@ COPY db/migrations/ ${LAMBDA_TASK_ROOT}/db/migrations/
 COPY src/lambda_handler.py ${LAMBDA_TASK_ROOT}/lambda_handler.py
 COPY src/telegram_lambda_handler.py ${LAMBDA_TASK_ROOT}/telegram_lambda_handler.py
 COPY src/report_worker_handler.py ${LAMBDA_TASK_ROOT}/report_worker_handler.py
+COPY src/quant_agent_handler.py ${LAMBDA_TASK_ROOT}/quant_agent_handler.py
+COPY src/request_interceptor.py ${LAMBDA_TASK_ROOT}/request_interceptor.py
 
 # Copy MCP server handlers
 COPY src/mcp_servers/ ${LAMBDA_TASK_ROOT}/src/mcp_servers/

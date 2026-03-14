@@ -148,9 +148,13 @@ class ConsistencyScorer:
                 "market_conditions": market_conditions
             }
             if ticker_data:
-                context["ticker_data"] = ticker_data
+                # Exclude non-serializable fields (e.g., DataFrame 'history')
+                context["ticker_data"] = {
+                    k: v for k, v in ticker_data.items()
+                    if not hasattr(v, 'to_dict')  # skip DataFrames
+                }
 
-            context_json = json.dumps(context, indent=2, ensure_ascii=False)
+            context_json = json.dumps(context, indent=2, ensure_ascii=False, default=str)
 
             # Build prompt
             user_prompt = f"""**รายงานที่ต้องตรวจสอบ:**

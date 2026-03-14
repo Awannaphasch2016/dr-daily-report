@@ -457,6 +457,7 @@ class LineBot:
                     print(f"response_text: {response_text}")
                     responses.append(response_text)
                 else:
+                    responses.append(response_text)
                     try:
                         # Send template message first if available, then text message
                         # Note: LINE reply token can only be used once, so send both in one call
@@ -487,20 +488,13 @@ class LineBot:
                 if signature == 'test_signature':
                     print(f"DEBUG: No response_text or reply_token. response_text={response_text}, reply_token={reply_token}")
 
-        # Return response
-        if signature == 'test_signature' and responses:
-            # In test mode, return the actual response text
-            return {
-                "statusCode": 200,
-                "body": json.dumps({
-                    "message": "OK",
-                    "responses": responses
-                })
-            }
-        
+        # Return response — always include responses so interceptor can capture them
+        result_body = {"message": "OK"}
+        if responses:
+            result_body["responses"] = responses
         return {
             "statusCode": 200,
-            "body": json.dumps({"message": "OK"})
+            "body": json.dumps(result_body, ensure_ascii=False)
         }
 
 

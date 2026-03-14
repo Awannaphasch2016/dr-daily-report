@@ -384,8 +384,8 @@ def reset_api_singletons():
             if hasattr(module, attr_name):
                 original_values[(module_name, attr_name)] = getattr(module, attr_name)
                 setattr(module, attr_name, None)
-        except ImportError:
-            # Module not available, skip
+        except (ImportError, OSError):
+            # Module not available or native lib missing (e.g. torch), skip
             pass
 
     yield

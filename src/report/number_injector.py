@@ -72,7 +72,7 @@ class NumberInjector:
                 ('COMPARATIVE_RETURN', ''),
                 ('PEER_COUNT', ''),
             ],
-            'strategy': [  # Unchanged
+            'strategy': [
                 ('STRATEGY_BUY_RETURN', ''),
                 ('STRATEGY_BUY_SHARPE', ''),
                 ('STRATEGY_BUY_WIN_RATE', ''),
@@ -81,8 +81,6 @@ class NumberInjector:
                 ('STRATEGY_SELL_SHARPE', ''),
                 ('STRATEGY_SELL_WIN_RATE', ''),
                 ('STRATEGY_SELL_DRAWDOWN', ''),
-                ('STRATEGY_LAST_BUY_PRICE', ''),
-                ('STRATEGY_LAST_SELL_PRICE', ''),
             ],
             'percentiles': [
                 # Risk metrics percentiles (standardized names)
@@ -225,34 +223,25 @@ class NumberInjector:
         }
         
         # Add strategy performance replacements if available
+        # Expects the 'supporting' dict shape from filter_supporting_strategies()
         if strategy_performance:
-            buy_only = strategy_performance.get('buy_only', {})
-            sell_only = strategy_performance.get('sell_only', {})
-            last_buy_signal = strategy_performance.get('last_buy_signal', {})
-            last_sell_signal = strategy_performance.get('last_sell_signal', {})
-            
-            # Buy-only strategy placeholders (v4 uses single braces)
+            best_supporting = strategy_performance.get('best_supporting', {})
+            buy_only = best_supporting.get('buy_only', {})
+            sell_only = best_supporting.get('sell_only', {})
+
+            # Buy-only strategy placeholders from best supporting strategy
             if buy_only:
                 replacements['{STRATEGY_BUY_RETURN}'] = f"{buy_only.get('total_return_pct', 0):.2f}"
                 replacements['{STRATEGY_BUY_SHARPE}'] = f"{buy_only.get('sharpe_ratio', 0):.2f}"
                 replacements['{STRATEGY_BUY_WIN_RATE}'] = f"{buy_only.get('win_rate', 0):.1f}"
                 replacements['{STRATEGY_BUY_DRAWDOWN}'] = f"{abs(buy_only.get('max_drawdown_pct', 0)):.2f}"
 
-            # Sell-only strategy placeholders (v4 uses single braces)
+            # Sell-only strategy placeholders from best supporting strategy
             if sell_only:
                 replacements['{STRATEGY_SELL_RETURN}'] = f"{sell_only.get('total_return_pct', 0):.2f}"
                 replacements['{STRATEGY_SELL_SHARPE}'] = f"{sell_only.get('sharpe_ratio', 0):.2f}"
                 replacements['{STRATEGY_SELL_WIN_RATE}'] = f"{sell_only.get('win_rate', 0):.1f}"
                 replacements['{STRATEGY_SELL_DRAWDOWN}'] = f"{abs(sell_only.get('max_drawdown_pct', 0)):.2f}"
-
-            # Last signal placeholders (v4 uses single braces)
-            if last_buy_signal:
-                buy_price = last_buy_signal.get('price', 0) if isinstance(last_buy_signal, dict) else last_buy_signal
-                replacements['{STRATEGY_LAST_BUY_PRICE}'] = f"{buy_price:.2f}"
-
-            if last_sell_signal:
-                sell_price = last_sell_signal.get('price', 0) if isinstance(last_sell_signal, dict) else last_sell_signal
-                replacements['{STRATEGY_LAST_SELL_PRICE}'] = f"{sell_price:.2f}"
 
         # Add percentile replacements with standardized naming (v4 uses single braces)
         for key, value in percentiles.items():

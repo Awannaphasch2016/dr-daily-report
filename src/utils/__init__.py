@@ -1,5 +1,5 @@
 """Utils layer - Shared utilities"""
-from .strategy import SMAStrategyBacktester
+from src.backtesting.adapters import SMAStrategyBacktester
 from .vector_store import VectorStore
 
 __all__ = [

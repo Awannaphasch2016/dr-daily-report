@@ -32,7 +32,6 @@ from src.scoring.reasoning_quality_scorer import ReasoningQualityScorer
 from src.scoring.compliance_scorer import ComplianceScorer
 from src.scoring.qos_scorer import QoSScorer
 from src.scoring.cost_scorer import CostScorer
-from src.utils.strategy import SMAStrategyBacktester
 from src.analysis.comparative_analysis import ComparativeAnalyzer
 from src.scoring.scoring_service import ScoringService, ScoringContext
 from src.formatters import DataFormatter
@@ -70,10 +69,9 @@ class TickerAnalysisAgent:
         self.cost_scorer = CostScorer()
         self.scoring_service = ScoringService()
         self.data_formatter = DataFormatter()
-        self.strategy_backtester = SMAStrategyBacktester(fast_period=20, slow_period=50)
         self.comparative_analyzer = ComparativeAnalyzer()
         self.market_analyzer = MarketAnalyzer()
-        self.strategy_analyzer = StrategyAnalyzer(self.strategy_backtester)
+        self.strategy_analyzer = StrategyAnalyzer()
         self.context_builder = ContextBuilder(self.market_analyzer, self.data_formatter, self.technical_analyzer)
         self.prompt_builder = PromptBuilder(context_builder=self.context_builder)
         self.number_injector = NumberInjector()
@@ -88,7 +86,6 @@ class TickerAnalysisAgent:
             technical_analyzer=self.technical_analyzer,
             news_fetcher=self.news_fetcher,
             chart_generator=self.chart_generator,
-            strategy_backtester=self.strategy_backtester,
             strategy_analyzer=self.strategy_analyzer,
             comparative_analyzer=self.comparative_analyzer,
             llm=self.llm,

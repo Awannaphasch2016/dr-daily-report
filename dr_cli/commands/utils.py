@@ -167,6 +167,43 @@ def report_cached(ctx, ticker, date):
 
 
 @utils.command()
+@click.argument('ticker')
+@click.option('--from-file', type=click.Path(exists=True), default=None,
+              help='Load raw_data from JSON file (skip data pipeline)')
+@click.option('--save-data', type=click.Path(), default=None,
+              help='Save raw_data to JSON file for reuse')
+@click.pass_context
+def report_quant(ctx, ticker, from_file, save_data):
+    """Generate report using QuantAgent multi-agent loop
+
+    Runs Writer/Judge inner loop locally (no Lambda deployment needed).
+    First run collects live data (API calls), use --save-data/--from-file for fast reruns.
+
+    Examples:
+      dr util report-quant D05.SI                          # Live data + QuantAgent
+      dr util report-quant D05.SI --save-data /tmp/d05.json  # Save data for reuse
+      dr util report-quant D05.SI --from-file /tmp/d05.json  # Reuse saved data (fast)
+    """
+    script_path = PROJECT_ROOT / "scripts" / "run_quant_agent.py"
+
+    cmd = [sys.executable, str(script_path), ticker]
+    if from_file:
+        cmd.extend(["--from-file", from_file])
+    if save_data:
+        cmd.extend(["--save-data", save_data])
+
+    env = {**os.environ, "PYTHONPATH": str(PROJECT_ROOT)}
+
+    click.echo(f"🔄 QuantAgent report for {ticker}...")
+    result = subprocess.run(cmd, cwd=PROJECT_ROOT, env=env)
+
+    if result.returncode != 0:
+        click.echo(f"\n💡 Tip: Use --save-data first, then --from-file for fast reruns")
+
+    sys.exit(result.returncode)
+
+
+@utils.command()
 @click.pass_context
 def report_all(ctx):
     """Generate all reports

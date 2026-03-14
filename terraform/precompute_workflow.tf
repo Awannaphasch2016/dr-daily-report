@@ -87,7 +87,8 @@ resource "aws_iam_role_policy" "precompute_workflow_policy" {
 
 # Pattern precompute function name (used before the resource is created)
 locals {
-  pattern_precompute_function_name = "${var.project_name}-pattern-precompute-${var.environment}"
+  pattern_precompute_function_name  = "${var.project_name}-pattern-precompute-${var.environment}"
+  backtest_precompute_function_name = "${var.project_name}-backtest-precompute-${var.environment}"
 }
 
 # Read state machine definition template and substitute variables
@@ -98,8 +99,9 @@ locals {
     get_ticker_list_function_name   = aws_lambda_function.get_ticker_list.function_name
     report_worker_function_arn      = aws_lambda_function.report_worker.arn
     # Construct ARNs from known values to avoid circular dependency
-    pattern_precompute_function_arn = "arn:aws:lambda:${var.aws_region}:${data.aws_caller_identity.current.account_id}:function:${local.pattern_precompute_function_name}"
-    static_api_function_arn         = var.static_api_enabled ? "arn:aws:lambda:${var.aws_region}:${data.aws_caller_identity.current.account_id}:function:${local.static_api_function_name}" : ""
+    pattern_precompute_function_arn  = "arn:aws:lambda:${var.aws_region}:${data.aws_caller_identity.current.account_id}:function:${local.pattern_precompute_function_name}"
+    backtest_precompute_function_arn = "arn:aws:lambda:${var.aws_region}:${data.aws_caller_identity.current.account_id}:function:${local.backtest_precompute_function_name}"
+    static_api_function_arn          = var.static_api_enabled ? "arn:aws:lambda:${var.aws_region}:${data.aws_caller_identity.current.account_id}:function:${local.static_api_function_name}" : ""
   })
 }
 
@@ -457,6 +459,108 @@ output "pattern_precompute_function_name" {
 output "pattern_precompute_function_arn" {
   value       = aws_lambda_function.pattern_precompute.arn
   description = "ARN of the pattern precompute Lambda function"
+}
+
+###############################################################################
+# Backtest Precompute Lambda
+# Purpose: Precompute backtesting results for a single ticker (called by Step Functions)
+###############################################################################
+
+resource "aws_lambda_function" "backtest_precompute" {
+  function_name = local.backtest_precompute_function_name
+  role          = aws_iam_role.telegram_lambda_role.arn
+
+  # Container image deployment from ECR (same image as other Lambdas)
+  package_type = "Image"
+  image_uri    = "${aws_ecr_repository.lambda.repository_url}:${var.lambda_image_tag}"
+
+  image_config {
+    command = ["src.scheduler.backtest_precompute_handler.lambda_handler"]
+  }
+
+  # Backtesting 4 strategies is heavier than pattern detection
+  timeout     = 120
+  memory_size = 512
+
+  environment {
+    variables = {
+      ENVIRONMENT     = var.environment
+      LOG_LEVEL       = "INFO"
+      TZ              = "Asia/Bangkok"
+      AURORA_HOST     = local.aurora_connection_endpoint
+      AURORA_PORT     = "3306"
+      AURORA_DATABASE = var.aurora_database_name
+      AURORA_USER     = var.aurora_master_username
+      AURORA_PASSWORD = var.AURORA_MASTER_PASSWORD
+    }
+  }
+
+  vpc_config {
+    subnet_ids         = local.private_subnets_with_nat
+    security_group_ids = [aws_security_group.lambda_aurora.id]
+  }
+
+  tags = merge(local.common_tags, {
+    Name      = "${var.project_name}-backtest-precompute-${var.environment}"
+    App       = "telegram-api"
+    Component = "backtest-precompute"
+    Layer     = "scheduler"
+  })
+
+  depends_on = [
+    aws_ecr_repository.lambda,
+    aws_rds_cluster.aurora
+  ]
+}
+
+# CloudWatch Log Group for Backtest Precompute Lambda
+resource "aws_cloudwatch_log_group" "backtest_precompute_logs" {
+  name              = "/aws/lambda/${aws_lambda_function.backtest_precompute.function_name}"
+  retention_in_days = var.log_retention_days
+
+  tags = merge(local.common_tags, {
+    Name      = "${var.project_name}-backtest-precompute-logs-${var.environment}"
+    App       = "telegram-api"
+    Component = "backtest-precompute-logging"
+  })
+}
+
+# Lambda permission for Step Functions to invoke backtest precompute
+resource "aws_lambda_permission" "backtest_precompute_sfn_invoke" {
+  statement_id  = "AllowStepFunctionsInvoke"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.backtest_precompute.function_name
+  principal     = "states.amazonaws.com"
+  source_arn    = aws_sfn_state_machine.precompute_workflow.arn
+}
+
+# Add backtest precompute Lambda to Step Functions IAM policy
+resource "aws_iam_role_policy" "precompute_workflow_backtest_policy" {
+  name = "${var.project_name}-precompute-workflow-backtest-${var.environment}"
+  role = aws_iam_role.precompute_workflow_role.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "lambda:InvokeFunction"
+        ]
+        Resource = aws_lambda_function.backtest_precompute.arn
+      }
+    ]
+  })
+}
+
+output "backtest_precompute_function_name" {
+  value       = aws_lambda_function.backtest_precompute.function_name
+  description = "Name of the backtest precompute Lambda function"
+}
+
+output "backtest_precompute_function_arn" {
+  value       = aws_lambda_function.backtest_precompute.arn
+  description = "ARN of the backtest precompute Lambda function"
 }
 
 ###############################################################################
