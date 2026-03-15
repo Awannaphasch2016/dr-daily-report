@@ -3,6 +3,8 @@
 -- Generated: 2026-03-16
 -- Dependencies: None
 
+DROP TABLE IF EXISTS metric_config;
+
 CREATE TABLE IF NOT EXISTS metric_config (
     metric_id    VARCHAR(50) PRIMARY KEY,
     status       VARCHAR(20) NOT NULL,
