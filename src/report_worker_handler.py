@@ -110,6 +110,17 @@ def handler(event: dict, context: Any) -> dict:
     # Defensive programming: catch missing env vars before wasting compute
     _validate_required_config()
 
+    # Initialize MetricRegistry from DB (sole source of truth for which metrics are active)
+    # This runs once per cold start; cached via singleton for subsequent warm invocations
+    from src.data.aurora.metric_config_repository import get_metric_config_repository
+    from src.report.metric_registry import get_metric_registry
+    try:
+        db_statuses = get_metric_config_repository().get_all_statuses()
+        get_metric_registry(db_statuses)
+        logger.info(f"MetricRegistry initialized: {len(db_statuses)} metrics from DB")
+    except Exception as e:
+        logger.warning(f"Could not load metric_config from DB: {e}. MetricRegistry may not be available.")
+
     # Direct invocation mode (NEW - replaces SQS pattern)
     # Event structure: {'job_id': 'xxx', 'ticker': 'YYY', 'source': 'telegram_api'}
     if 'job_id' in event and 'ticker' in event:
