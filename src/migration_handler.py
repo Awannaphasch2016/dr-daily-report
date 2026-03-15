@@ -517,6 +517,46 @@ def lambda_handler(event: dict, context: Any) -> dict:
             'statusCode': 200 if result['status'] == 'success' else 500,
             'body': json.dumps(result)
         }
+    elif migration == 'inspect_reports_uncertainty':
+        from src.data.aurora.client import get_aurora_client
+        client = get_aurora_client()
+        rows = client.fetch_all("""
+            SELECT
+                pr.ticker_id,
+                tm.symbol,
+                CASE
+                    WHEN pr.report_text LIKE '%ความไม่แน่นอน%'
+                      OR pr.report_text LIKE '%uncertainty%'
+                      OR pr.report_text LIKE '%UNCERTAINTY%'
+                    THEN 'HAS_UNCERTAINTY'
+                    ELSE 'CLEAN'
+                END as uncertainty_status,
+                LEFT(pr.computed_at, 19) as computed_at,
+                LENGTH(pr.report_text) as report_length
+            FROM precomputed_reports pr
+            LEFT JOIN ticker_master tm ON pr.ticker_id = tm.id
+            WHERE pr.report_text IS NOT NULL
+              AND LENGTH(pr.report_text) > 10
+            ORDER BY tm.symbol
+        """)
+        summary = {'HAS_UNCERTAINTY': [], 'CLEAN': []}
+        for row in rows:
+            status = row['uncertainty_status']
+            summary[status].append({
+                'symbol': row.get('symbol', f"id:{row['ticker_id']}"),
+                'computed_at': str(row.get('computed_at', 'N/A')),
+                'report_length': row.get('report_length', 0),
+            })
+        return {
+            'statusCode': 200,
+            'body': json.dumps({
+                'total_reports': len(rows),
+                'clean_count': len(summary['CLEAN']),
+                'has_uncertainty_count': len(summary['HAS_UNCERTAINTY']),
+                'clean': summary['CLEAN'],
+                'has_uncertainty': summary['HAS_UNCERTAINTY'],
+            }, ensure_ascii=False)
+        }
     else:
         return {
             'statusCode': 400,
