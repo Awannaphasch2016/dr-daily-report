@@ -124,7 +124,9 @@ class TestComplianceScorer:
         )
         
         assert score.dimension_scores['content_compliance'] < 100
-        assert any('uncertainty' in violation.lower() for violation in score.violations)
+        # Uncertainty is deprecated, so check for other required metrics (ATR, VWAP, volume)
+        assert any('atr' in violation.lower() or 'vwap' in violation.lower() or 'volume' in violation.lower()
+                    for violation in score.violations)
     
     def test_format_compliance_good(self):
         """Test format compliance with proper format"""
