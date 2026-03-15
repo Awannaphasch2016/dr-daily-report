@@ -3,7 +3,7 @@
 
 Code defines WHAT each metric IS (placeholder, format, source mapping).
 DB (metric_config table) defines WHETHER it's active.
-Version: 1.0.1 (2026-03-16)
+Version: 1.0.2 (2026-03-16)
 
 Usage:
     from src.data.aurora.metric_config_repository import get_metric_config_repository
