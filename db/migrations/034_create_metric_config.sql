@@ -5,46 +5,34 @@
 
 CREATE TABLE IF NOT EXISTS metric_config (
     metric_id    VARCHAR(50) PRIMARY KEY,
-    status       VARCHAR(20) NOT NULL
-                 COMMENT 'draft, computing, ready, or deprecated',
-    category     VARCHAR(50) NOT NULL
-                 COMMENT 'Metric category: risk_metrics, momentum, trend, etc.',
-    reason       TEXT
-                 COMMENT 'Why this metric has its current status',
+    status       VARCHAR(20) NOT NULL,
+    category     VARCHAR(50) NOT NULL,
+    reason       TEXT,
     updated_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    updated_by   VARCHAR(100)
-                 COMMENT 'Who last changed this status',
+    updated_by   VARCHAR(100),
     INDEX idx_status (status),
     INDEX idx_category (category)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-COMMENT='Ground truth for which metrics are active in reports. DB is the sole source of truth for status.';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Seed all current metrics. uncertainty is deprecated from day 1.
 INSERT IGNORE INTO metric_config (metric_id, status, category, reason) VALUES
--- Risk metrics
-('uncertainty',     'deprecated', 'risk_metrics',       'Redundant with ATR+VWAP+VOL — just a product of existing metrics'),
+('uncertainty',     'deprecated', 'risk_metrics',       'Redundant with ATR+VWAP+VOL'),
 ('atr_pct',         'ready',      'risk_metrics',       NULL),
 ('vwap_pct',        'ready',      'risk_metrics',       NULL),
 ('volume_ratio',    'ready',      'risk_metrics',       NULL),
 ('current_price',   'ready',      'risk_metrics',       NULL),
--- Momentum
 ('rsi',             'ready',      'momentum_indicators', NULL),
 ('macd',            'ready',      'momentum_indicators', NULL),
 ('macd_signal',     'ready',      'momentum_indicators', NULL),
--- Trend
 ('sma_20',          'ready',      'trend_indicators',    NULL),
 ('sma_50',          'ready',      'trend_indicators',    NULL),
 ('sma_200',         'ready',      'trend_indicators',    NULL),
 ('ema_12',          'ready',      'trend_indicators',    NULL),
 ('ema_26',          'ready',      'trend_indicators',    NULL),
--- Volatility
 ('atr',             'ready',      'volatility_indicators', NULL),
 ('bollinger_upper', 'ready',      'volatility_indicators', NULL),
 ('bollinger_lower', 'ready',      'volatility_indicators', NULL),
 ('bollinger_middle','ready',      'volatility_indicators', NULL),
--- Volume
 ('vwap',            'ready',      'volume_indicators',   NULL),
--- Fundamentals
 ('pe_ratio',        'ready',      'fundamentals',        NULL),
 ('eps',             'ready',      'fundamentals',        NULL),
 ('market_cap',      'ready',      'fundamentals',        NULL),
@@ -59,12 +47,10 @@ INSERT IGNORE INTO metric_config (metric_id, status, category, reason) VALUES
 ('52_week_low',     'ready',      'fundamentals',        NULL),
 ('target_price',    'ready',      'fundamentals',        NULL),
 ('beta',            'ready',      'fundamentals',        NULL),
--- Comparative
 ('performance_advantage', 'ready', 'comparative',        NULL),
 ('volatility_advantage',  'ready', 'comparative',        NULL),
 ('comparative_return',    'ready', 'comparative',        NULL),
 ('peer_count',            'ready', 'comparative',        NULL),
--- Strategy
 ('strategy_buy_return',   'ready', 'strategy',           NULL),
 ('strategy_buy_sharpe',   'ready', 'strategy',           NULL),
 ('strategy_buy_win_rate', 'ready', 'strategy',           NULL),
@@ -73,7 +59,6 @@ INSERT IGNORE INTO metric_config (metric_id, status, category, reason) VALUES
 ('strategy_sell_sharpe',  'ready', 'strategy',           NULL),
 ('strategy_sell_win_rate','ready', 'strategy',           NULL),
 ('strategy_sell_drawdown','ready', 'strategy',           NULL),
--- Percentiles (for metrics that have them)
 ('uncertainty_percentile',      'deprecated', 'percentiles', 'Parent metric deprecated'),
 ('atr_pct_percentile',          'ready',      'percentiles', NULL),
 ('vwap_pct_percentile',         'ready',      'percentiles', NULL),
