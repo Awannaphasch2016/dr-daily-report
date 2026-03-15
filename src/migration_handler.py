@@ -454,6 +454,33 @@ def lambda_handler(event: dict, context: Any) -> dict:
             'statusCode': 200 if combined['status'] == 'success' else 500,
             'body': json.dumps(combined)
         }
+    elif migration == 'make_sgx_ticker_nullable':
+        result = run_sql_migration(
+            'Make sgx_filings.ticker_id nullable + add attachment_s3_key (028)',
+            '028_make_sgx_ticker_id_nullable.sql'
+        )
+        return {
+            'statusCode': 200 if result['status'] == 'success' else 500,
+            'body': json.dumps(result)
+        }
+    elif migration == 'create_edinet_filings':
+        result = run_sql_migration(
+            'Create edinet_filings table (029)',
+            '029_create_edinet_filings.sql'
+        )
+        return {
+            'statusCode': 200 if result['status'] == 'success' else 500,
+            'body': json.dumps(result)
+        }
+    elif migration == 'create_webhook_health_checks':
+        result = run_sql_migration(
+            'Create webhook_health_checks table (030)',
+            '030_create_webhook_health_checks.sql'
+        )
+        return {
+            'statusCode': 200 if result['status'] == 'success' else 500,
+            'body': json.dumps(result)
+        }
     else:
         return {
             'statusCode': 400,
@@ -462,7 +489,9 @@ def lambda_handler(event: dict, context: Any) -> dict:
                 'message': f'Unknown migration: {migration}',
                 'available_migrations': [
                     'add_strategy_column', 'make_ticker_id_required', 'add_pdf_columns',
-                    'create_data_acquisitions', 'create_sgx_filings', 'create_sgx_tables'
+                    'create_data_acquisitions', 'create_sgx_filings', 'create_sgx_tables',
+                    'make_sgx_ticker_nullable', 'create_edinet_filings',
+                    'create_webhook_health_checks'
                 ]
             })
         }

@@ -73,6 +73,12 @@ DATA_ACQUISITIONS = "data_acquisitions"
 SGX_FILINGS = "sgx_filings"
 """SGX exchange filings linked to shared acquisition provenance"""
 
+EDINET_FILINGS = "edinet_filings"
+"""EDINET (Japan FSA) filings linked to shared acquisition provenance"""
+
+WEBHOOK_HEALTH_CHECKS = "webhook_health_checks"
+"""Daily webhook endpoint health check results"""
+
 USERS = "users"
 """Users across LINE and Telegram platforms"""
 
@@ -113,6 +119,8 @@ class TABLES:
     BACKTEST_RESULTS = BACKTEST_RESULTS
     DATA_ACQUISITIONS = DATA_ACQUISITIONS
     SGX_FILINGS = SGX_FILINGS
+    EDINET_FILINGS = EDINET_FILINGS
+    WEBHOOK_HEALTH_CHECKS = WEBHOOK_HEALTH_CHECKS
     USERS = USERS
     USER_REQUESTS = USER_REQUESTS
 
@@ -165,6 +173,8 @@ __all__ = [
     'BACKTEST_RESULTS',
     'DATA_ACQUISITIONS',
     'SGX_FILINGS',
+    'EDINET_FILINGS',
+    'WEBHOOK_HEALTH_CHECKS',
     'USERS',
     'USER_REQUESTS',
 
