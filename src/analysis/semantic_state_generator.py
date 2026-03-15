@@ -24,10 +24,10 @@ class RiskRegime:
     Represents market risk conditions using categorical labels instead of numeric thresholds.
     These states constrain LLM narrative generation.
     """
-    uncertainty_state: Literal["stable", "moderate", "high_risk", "extreme"]
     volatility_regime: Literal["low", "moderate", "high", "extreme"]
     pressure_direction: Literal["strong_buying", "buying", "neutral", "selling", "strong_selling"]
     volume_confidence: Literal["very_low", "low", "normal", "high", "very_high"]
+    uncertainty_state: Optional[Literal["stable", "moderate", "high_risk", "extreme"]] = None
 
     def to_dict(self) -> Dict[str, str]:
         """Convert to dictionary for template injection"""
@@ -180,7 +180,7 @@ class SemanticStateGenerator:
             divergence=divergence
         )
 
-    def generate_risk_regime(self, ground_truth: Dict) -> RiskRegime:
+    def generate_risk_regime(self, ground_truth: Dict, active_metrics: set = None) -> RiskRegime:
         """Convert risk metrics to semantic states
 
         Research basis: Directional constraints instead of numeric constraints
@@ -193,25 +193,29 @@ class SemanticStateGenerator:
 
         Args:
             ground_truth: Dict with keys: uncertainty_score, atr_pct, vwap_pct, volume_ratio
+            active_metrics: Optional set of active metric IDs. If provided, only
+                           metrics in this set are classified. If None, all are classified.
 
         Returns:
             RiskRegime: Categorical risk assessment
         """
-        uncertainty = ground_truth.get('uncertainty_score', 0)
         atr_pct = ground_truth.get('atr_pct', 0)
         vwap_pct = ground_truth.get('vwap_pct', 0)
         volume_ratio = ground_truth.get('volume_ratio', 0)
 
         # Uncertainty state (0-100 scale)
-        # Based on percentile thresholds: 25th, 50th, 75th percentiles
-        if uncertainty < 25:
-            uncertainty_state = "stable"
-        elif uncertainty < 50:
-            uncertainty_state = "moderate"
-        elif uncertainty < 75:
-            uncertainty_state = "high_risk"
-        else:
-            uncertainty_state = "extreme"
+        # Only classified if active_metrics is None or 'uncertainty' is in the set
+        uncertainty_state = None
+        if active_metrics is None or 'uncertainty' in active_metrics:
+            uncertainty = ground_truth.get('uncertainty_score', 0)
+            if uncertainty < 25:
+                uncertainty_state = "stable"
+            elif uncertainty < 50:
+                uncertainty_state = "moderate"
+            elif uncertainty < 75:
+                uncertainty_state = "high_risk"
+            else:
+                uncertainty_state = "extreme"
 
         # Volatility regime (ATR as % of price)
         # Thresholds based on SET market volatility distribution

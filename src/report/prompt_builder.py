@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Dict, Optional, Tuple, Any
 
 from src.report.number_injector import NumberInjector
+from src.report.metric_registry import MetricRegistry, get_metric_registry
 from src.integrations.prompt_service import get_prompt_service, PromptResult
 
 # Setup logger
@@ -16,16 +17,18 @@ logger.setLevel(logging.INFO)
 class PromptBuilder:
     """Builds prompts for LLM report generation"""
 
-    def __init__(self, context_builder=None):
+    def __init__(self, context_builder=None, registry: Optional[MetricRegistry] = None):
         """Initialize PromptBuilder
 
         Args:
             context_builder: Optional ContextBuilder instance for section presence detection
+            registry: Optional MetricRegistry instance (uses singleton if not provided)
         """
         self._prompt_service = get_prompt_service()
         self._prompt_result: Optional[PromptResult] = None
         self.main_prompt_template = self._load_main_prompt_template()
         self.context_builder = context_builder
+        self._registry = registry
 
     def _load_main_prompt_template(self) -> str:
         """
@@ -63,6 +66,12 @@ class PromptBuilder:
             "prompt_version": "unknown",
             "prompt_source": "unknown",
         }
+
+    @property
+    def registry(self) -> MetricRegistry:
+        if self._registry is not None:
+            return self._registry
+        return get_metric_registry()
 
     def _build_placeholder_list(self, placeholders, ground_truth=None, indicators=None,
                                 percentiles=None, ticker_data=None,
@@ -139,133 +148,35 @@ class PromptBuilder:
     def _has_value(self, placeholder_name: str, ground_truth: dict, indicators: dict,
                    percentiles: dict, ticker_data: dict, comparative_insights: dict,
                    strategy_performance: dict) -> bool:
-        """Check if placeholder has actual non-empty data
+        """Check if placeholder has actual non-empty data.
+
+        Delegates to MetricRegistry.has_value() which uses metric definitions
+        to determine the data source and validation logic.
 
         Args:
-            placeholder_name: Name of placeholder to check (e.g., 'UNCERTAINTY', 'RSI')
-            ground_truth: Ground truth data (uncertainty, atr_pct, vwap_pct, volume_ratio)
-            indicators: Technical indicators (rsi, macd, sma_20, etc.)
+            placeholder_name: Name of placeholder to check (e.g., 'ATR_PCT', 'RSI')
+            ground_truth: Ground truth data
+            indicators: Technical indicators
             percentiles: Percentile data
-            ticker_data: Fundamental data (pe_ratio, eps, market_cap, etc.)
+            ticker_data: Fundamental data
             comparative_insights: Comparative analysis data
             strategy_performance: Strategy performance data
 
         Returns:
-            True if value exists and is meaningful (not None, not 0 for prices, not empty string)
+            True if value exists and is meaningful
         """
-        # Risk metrics (from ground_truth)
-        if placeholder_name in ['UNCERTAINTY', 'ATR_PCT', 'VWAP_PCT', 'VOLUME_RATIO']:
-            key_map = {
-                'UNCERTAINTY': 'uncertainty_score',
-                'ATR_PCT': 'atr_pct',
-                'VWAP_PCT': 'vwap_pct',
-                'VOLUME_RATIO': 'volume_ratio'
-            }
-            value = ground_truth.get(key_map[placeholder_name])
-            return value is not None and value != 0
+        # Map placeholder name to metric_id (lowercase, no special chars)
+        metric_id = placeholder_name.lower()
 
-        # Current price (from indicators)
-        if placeholder_name == 'CURRENT_PRICE':
-            value = indicators.get('current_price')
-            return value is not None and value > 0
-
-        # Momentum indicators (from indicators)
-        if placeholder_name in ['RSI', 'MACD', 'MACD_SIGNAL']:
-            key_map = {
-                'RSI': 'rsi',
-                'MACD': 'macd',
-                'MACD_SIGNAL': 'macd_signal'
-            }
-            value = indicators.get(key_map[placeholder_name])
-            return value is not None
-
-        # Trend indicators (from indicators)
-        if placeholder_name in ['SMA_20', 'SMA_50', 'SMA_200', 'EMA_12', 'EMA_26']:
-            key = placeholder_name.lower()
-            value = indicators.get(key)
-            return value is not None and value > 0
-
-        # Volatility indicators (from indicators)
-        if placeholder_name in ['ATR', 'BOLLINGER_UPPER', 'BOLLINGER_LOWER', 'BOLLINGER_MIDDLE']:
-            key = placeholder_name.lower()
-            value = indicators.get(key)
-            return value is not None and value > 0
-
-        # Volume indicators (from indicators)
-        if placeholder_name == 'VWAP':
-            value = indicators.get('vwap')
-            return value is not None and value > 0
-
-        # Fundamentals (from ticker_data)
-        if placeholder_name in ['PE_RATIO', 'EPS', 'MARKET_CAP', 'REVENUE_GROWTH',
-                                'PROFIT_MARGIN', 'DIVIDEND_YIELD', 'ROE', 'DEBT_TO_EQUITY',
-                                'CURRENT_RATIO', 'BOOK_VALUE', '52_WEEK_HIGH', '52_WEEK_LOW',
-                                'TARGET_PRICE', 'BETA']:
-            key_map = {
-                'PE_RATIO': 'pe_ratio',
-                'EPS': 'eps',
-                'MARKET_CAP': 'market_cap',
-                'REVENUE_GROWTH': 'revenue_growth',
-                'PROFIT_MARGIN': 'profit_margin',
-                'DIVIDEND_YIELD': 'dividend_yield',
-                'ROE': 'return_on_equity',
-                'DEBT_TO_EQUITY': 'debt_to_equity',
-                'CURRENT_RATIO': 'current_ratio',
-                'BOOK_VALUE': 'book_value',
-                '52_WEEK_HIGH': 'fifty_two_week_high',
-                '52_WEEK_LOW': 'fifty_two_week_low',
-                'TARGET_PRICE': 'target_mean_price',
-                'BETA': 'beta',
-            }
-            value = ticker_data.get(key_map.get(placeholder_name, ''))
-            return value is not None and value != 'N/A' and value != ''
-
-        # Comparative (from comparative_insights)
-        if placeholder_name in ['PERFORMANCE_ADVANTAGE', 'VOLATILITY_ADVANTAGE',
-                                'COMPARATIVE_RETURN', 'PEER_COUNT']:
-            key = placeholder_name.lower()
-            value = comparative_insights.get(key) if comparative_insights else None
-            return value is not None and value != 'N/A'
-
-        # Strategy (from strategy_performance — uses best_supporting shape)
-        if placeholder_name.startswith('STRATEGY_'):
-            if not strategy_performance:
-                return False
-
-            best_supporting = strategy_performance.get('best_supporting', {})
-            if not best_supporting:
-                return False
-
-            # Map placeholder to best supporting strategy data path
-            if 'BUY' in placeholder_name:
-                data = best_supporting.get('buy_only', {})
-            elif 'SELL' in placeholder_name:
-                data = best_supporting.get('sell_only', {})
-            else:
-                return False
-
-            return bool(data)  # True if dict is non-empty
-
-        # Percentiles (from percentiles)
-        if placeholder_name.endswith('_PERCENTILE'):
-            # Remove _PERCENTILE suffix and map to percentile key
-            base_name = placeholder_name.replace('_PERCENTILE', '').lower()
-
-            # Handle name standardization (reverse mapping)
-            key_map = {
-                'uncertainty': 'uncertainty_score',
-                'atr_pct': 'atr_percent',
-            }
-            key = key_map.get(base_name, base_name)
-
-            value = percentiles.get(key) if percentiles else None
-            if isinstance(value, dict):
-                percentile_val = value.get('percentile')
-                return percentile_val is not None
-            return value is not None
-
-        # Default: assume not available
-        return False
+        return self.registry.has_value(
+            metric_id=metric_id,
+            ground_truth=ground_truth or {},
+            indicators=indicators or {},
+            percentiles=percentiles or {},
+            ticker_data=ticker_data or {},
+            comparative_insights=comparative_insights or {},
+            strategy_performance=strategy_performance or {},
+        )
 
     def _load_section_template(self, template_name: str) -> str:
         """Load a section template from disk
@@ -345,53 +256,54 @@ class PromptBuilder:
 
         logger.info(f"      - Strategy performance included: {has_strategy}")
 
-        # Get placeholder definitions from NumberInjector (single source of truth)
-        placeholder_defs = NumberInjector.get_placeholder_definitions()
+        # Get placeholder definitions from MetricRegistry (single source of truth)
+        # Only READY metrics are included (DB-driven)
+        placeholder_defs = self.registry.get_placeholder_definitions()
 
         # Build filtered placeholder lists (only include available data)
         risk_vars = self._build_placeholder_list(
-            placeholder_defs['risk_metrics'],
+            placeholder_defs.get('risk_metrics', []),
             ground_truth=ground_truth,
             indicators=indicators
         )
 
         momentum_vars = self._build_placeholder_list(
-            placeholder_defs['momentum_indicators'],
+            placeholder_defs.get('momentum_indicators', []),
             indicators=indicators
         )
 
         trend_vars = self._build_placeholder_list(
-            placeholder_defs['trend_indicators'],
+            placeholder_defs.get('trend_indicators', []),
             indicators=indicators
         )
 
         volatility_vars = self._build_placeholder_list(
-            placeholder_defs['volatility_indicators'],
+            placeholder_defs.get('volatility_indicators', []),
             indicators=indicators
         )
 
         volume_vars = self._build_placeholder_list(
-            placeholder_defs['volume_indicators'],
+            placeholder_defs.get('volume_indicators', []),
             indicators=indicators
         )
 
         fundamental_vars = self._build_placeholder_list(
-            placeholder_defs['fundamentals'],
+            placeholder_defs.get('fundamentals', []),
             ticker_data=ticker_data
         )
 
         comparative_vars = self._build_placeholder_list(
-            placeholder_defs['comparative'],
+            placeholder_defs.get('comparative', []),
             comparative_insights=comparative_insights
         )
 
         strategy_vars = self._build_placeholder_list(
-            placeholder_defs['strategy'],
+            placeholder_defs.get('strategy', []),
             strategy_performance=strategy_performance
         )
 
         percentiles_vars = self._build_placeholder_list(
-            placeholder_defs['percentiles'],
+            placeholder_defs.get('percentiles', []),
             percentiles=percentiles
         )
 

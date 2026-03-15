@@ -481,6 +481,42 @@ def lambda_handler(event: dict, context: Any) -> dict:
             'statusCode': 200 if result['status'] == 'success' else 500,
             'body': json.dumps(result)
         }
+    elif migration == 'create_ingestion_methods':
+        result = run_sql_migration(
+            'Create ingestion_methods table + FK on data_acquisitions (031)',
+            '031_create_ingestion_methods.sql'
+        )
+        return {
+            'statusCode': 200 if result['status'] == 'success' else 500,
+            'body': json.dumps(result)
+        }
+    elif migration == 'create_sec_edgar_filings':
+        result = run_sql_migration(
+            'Create sec_edgar_filings table (032)',
+            '032_create_sec_edgar_filings.sql'
+        )
+        return {
+            'statusCode': 200 if result['status'] == 'success' else 500,
+            'body': json.dumps(result)
+        }
+    elif migration == 'create_hkex_filings':
+        result = run_sql_migration(
+            'Create hkex_filings table (033)',
+            '033_create_hkex_filings.sql'
+        )
+        return {
+            'statusCode': 200 if result['status'] == 'success' else 500,
+            'body': json.dumps(result)
+        }
+    elif migration == 'create_metric_config':
+        result = run_sql_migration(
+            'Create metric_config table (034)',
+            '034_create_metric_config.sql'
+        )
+        return {
+            'statusCode': 200 if result['status'] == 'success' else 500,
+            'body': json.dumps(result)
+        }
     else:
         return {
             'statusCode': 400,
@@ -491,7 +527,9 @@ def lambda_handler(event: dict, context: Any) -> dict:
                     'add_strategy_column', 'make_ticker_id_required', 'add_pdf_columns',
                     'create_data_acquisitions', 'create_sgx_filings', 'create_sgx_tables',
                     'make_sgx_ticker_nullable', 'create_edinet_filings',
-                    'create_webhook_health_checks'
+                    'create_webhook_health_checks', 'create_ingestion_methods',
+                    'create_sec_edgar_filings', 'create_hkex_filings',
+                    'create_metric_config'
                 ]
             })
         }

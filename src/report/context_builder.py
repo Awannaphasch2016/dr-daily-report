@@ -16,6 +16,7 @@ from src.formatters import DataFormatter
 from src.analysis.technical_analysis import TechnicalAnalyzer
 from src.analysis.semantic_state_generator import SemanticStateGenerator
 from src.report.section_formatters import SectionRegistry
+from src.report.metric_registry import MetricRegistry, get_metric_registry
 
 # Setup logger
 logger = logging.getLogger(__name__)
@@ -63,23 +64,31 @@ class ContextBuilder:
     """
 
     def __init__(self, market_analyzer: MarketAnalyzer, data_formatter: DataFormatter,
-                 technical_analyzer: TechnicalAnalyzer):
+                 technical_analyzer: TechnicalAnalyzer, registry: Optional[MetricRegistry] = None):
         """Initialize with required dependencies
 
         Args:
             market_analyzer: Market analysis service (for condition calculation)
             data_formatter: Data formatting service
             technical_analyzer: Technical analysis service
+            registry: Optional MetricRegistry instance (falls back to singleton)
         """
         self.market_analyzer = market_analyzer
         self.data_formatter = data_formatter
         self.technical_analyzer = technical_analyzer
+        self.registry = registry
         self.semantic_generator = SemanticStateGenerator()  # NEW: Semantic state generator
         self.labels = CONTEXT_LABELS
 
         # Initialize section registry for unified section handling
         self.section_registry = SectionRegistry(data_formatter)
-    
+
+    @property
+    def _registry(self) -> MetricRegistry:
+        if self.registry is not None:
+            return self.registry
+        return get_metric_registry()
+
     def prepare_context(self, ticker: str, ticker_data: dict, indicators: dict, percentiles: dict, news: list, news_summary: dict, ground_truth: dict = None, strategy_performance: dict = None, comparative_insights: dict = None, sec_filing_data: dict = None, financial_markets_data: dict = None, portfolio_insights: dict = None, alpaca_data: dict = None) -> str:
         """Prepare semantic context for LLM (Layer 2 output)
 
@@ -208,18 +217,28 @@ class ContextBuilder:
         # Build context with Thai labels
         no_comparative_data_msg = "- ไม่มีข้อมูลเปรียบเทียบ (ใช้ข้อมูลเดียวกับหุ้นตัวนี้เท่านั้น)"
 
+        # Build market conditions block dynamically from registry
+        market_condition_lines = "Market Conditions (interpret context, use placeholders):"
+        for category in ['risk_metrics', 'momentum_indicators']:
+            for metric in self._registry.get_ready_metrics(category=category):
+                # Use quadruple braces because this goes through .format() later
+                market_condition_lines += f"\n  {{{{{{{{{metric.placeholder}}}}}}}}}{metric.suffix} - {metric.description}"
+
+        # Build risk state lines with conditional uncertainty_state
+        risk_state_lines = f"""Risk Regime:"""
+        if self._registry.is_ready('uncertainty'):
+            risk_state_lines += f"\n  - Market State: {semantic_states.risk.uncertainty_state}"
+        risk_state_lines += f"""
+  - Volatility: {semantic_states.risk.volatility_regime}
+  - Pressure: {semantic_states.risk.pressure_direction}
+  - Volume Confidence: {semantic_states.risk.volume_confidence}"""
+
         context = f"""
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 📊 MARKET DATA FOR {ticker} (use placeholders below - NO raw numbers)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Market Conditions (interpret context, use placeholders):
-  {{{{UNCERTAINTY}}}}/100 - Market uncertainty (0-25=stable, 50-75=high risk, 75+=extreme)
-  {{{{ATR_PCT}}}}% - Price volatility (<1%=low, 1-2%=moderate, >3%=high)
-  {{{{VWAP_PCT}}}}% - Buy/sell pressure (+positive=buyers winning, -negative=sellers winning)
-  {{{{VOLUME_RATIO}}}}x - Trading volume vs average (>1.5x=high interest, <0.8x=low interest)
-  {{{{RSI}}}} - Momentum indicator (0-30=oversold, 70-100=overbought)
-  {{{{MACD}}}} - Trend strength (positive=bullish, negative=bearish)
+{market_condition_lines}
 
 Percentiles (historical context - optional to use):"""
 
@@ -247,11 +266,7 @@ Market Regime: {semantic_states.market_regime.regime}
   - bear: Sustained downtrend with confirming momentum
   - sideways: Mixed signals, range-bound market
 
-Risk Regime:
-  - Market State: {semantic_states.risk.uncertainty_state}
-  - Volatility: {semantic_states.risk.volatility_regime}
-  - Pressure: {semantic_states.risk.pressure_direction}
-  - Volume Confidence: {semantic_states.risk.volume_confidence}
+{risk_state_lines}
 
 Momentum State:
   - RSI Zone: {semantic_states.momentum.rsi_zone}

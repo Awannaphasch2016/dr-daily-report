@@ -10,6 +10,8 @@ import re
 from typing import Dict, List, Tuple, Optional
 from dataclasses import dataclass
 
+from src.report.metric_registry import get_metric_registry
+
 
 @dataclass
 class FaithfulnessScore:
@@ -138,14 +140,22 @@ class FaithfulnessScorer:
         verified = []
 
         # Extract key metrics from ground truth
-        expected_values = {
-            'uncertainty': ground_truth.get('uncertainty_score', 0),
+        uncertainty_ready = False
+        try:
+            uncertainty_ready = get_metric_registry().is_ready('uncertainty')
+        except ValueError:
+            pass
+
+        expected_values = {}
+        if uncertainty_ready:
+            expected_values['uncertainty'] = ground_truth.get('uncertainty_score', 0)
+        expected_values.update({
             'atr_pct': ground_truth.get('atr_pct', 0),
             'vwap_pct': ground_truth.get('vwap_pct', 0),
             'volume_ratio': ground_truth.get('volume_ratio', 0),
             'rsi': indicators.get('rsi', 0),
             'current_price': indicators.get('current_price', 0)
-        }
+        })
 
         # Check each metric
         for metric, expected_value in expected_values.items():

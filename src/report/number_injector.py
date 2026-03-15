@@ -1,116 +1,41 @@
 """Number injection utilities for deterministic value replacement"""
 
-from typing import Dict
+import logging
+from typing import Dict, Optional
 import re
+
+from src.report.metric_registry import MetricRegistry, get_metric_registry
+
+logger = logging.getLogger(__name__)
 
 
 class NumberInjector:
-    """Injects deterministic numbers into narrative placeholders"""
+    """Injects deterministic numbers into narrative placeholders.
+
+    Delegates metric definitions and replacement dict building to MetricRegistry.
+    Keeps post-processing (malformed placeholder cleanup, validation) here.
+    """
+
+    def __init__(self, registry: Optional[MetricRegistry] = None):
+        self._registry = registry
+
+    @property
+    def registry(self) -> MetricRegistry:
+        if self._registry is not None:
+            return self._registry
+        return get_metric_registry()
 
     @staticmethod
-    def get_placeholder_definitions():
-        """Return available placeholders grouped by category with display syntax
+    def get_placeholder_definitions(registry: Optional[MetricRegistry] = None):
+        """Return available placeholders grouped by category with display syntax.
 
-        This is the single source of truth for what placeholders exist.
-        Used by PromptBuilder to dynamically generate the <placeholders> section.
+        Delegates to MetricRegistry. Only READY metrics are included.
 
         Returns:
             Dict with categories containing (placeholder_name, suffix) tuples
-
-        Example:
-            ('UNCERTAINTY', '/100') → renders as {UNCERTAINTY}/100
-            ('ATR_PCT', '%') → renders as {ATR_PCT}%
         """
-        return {
-            'risk_metrics': [  # Renamed from 'market_conditions'
-                ('UNCERTAINTY', '/100'),
-                ('ATR_PCT', '%'),
-                ('VWAP_PCT', '%'),
-                ('VOLUME_RATIO', 'x'),
-                ('CURRENT_PRICE', ''),
-            ],
-            'momentum_indicators': [  # Extracted from old 'market_conditions'
-                ('RSI', ''),
-                ('MACD', ''),
-                ('MACD_SIGNAL', ''),
-            ],
-            'trend_indicators': [  # Split from 'technical_indicators'
-                ('SMA_20', ''),
-                ('SMA_50', ''),
-                ('SMA_200', ''),
-                ('EMA_12', ''),
-                ('EMA_26', ''),
-            ],
-            'volatility_indicators': [  # New category
-                ('ATR', ''),  # Raw form (different from ATR_PCT)
-                ('BOLLINGER_UPPER', ''),
-                ('BOLLINGER_LOWER', ''),
-                ('BOLLINGER_MIDDLE', ''),
-            ],
-            'volume_indicators': [  # New category
-                ('VWAP', ''),  # Raw form (different from VWAP_PCT)
-            ],
-            'fundamentals': [  # Unchanged
-                ('PE_RATIO', ''),
-                ('EPS', ''),
-                ('MARKET_CAP', ''),
-                ('REVENUE_GROWTH', '%'),
-                ('PROFIT_MARGIN', '%'),
-                ('DIVIDEND_YIELD', '%'),
-                ('ROE', '%'),
-                ('DEBT_TO_EQUITY', ''),
-                ('CURRENT_RATIO', ''),
-                ('BOOK_VALUE', ''),
-                ('52_WEEK_HIGH', ''),
-                ('52_WEEK_LOW', ''),
-                ('TARGET_PRICE', ''),
-                ('BETA', ''),
-            ],
-            'comparative': [  # Unchanged
-                ('PERFORMANCE_ADVANTAGE', ''),
-                ('VOLATILITY_ADVANTAGE', ''),
-                ('COMPARATIVE_RETURN', ''),
-                ('PEER_COUNT', ''),
-            ],
-            'strategy': [
-                ('STRATEGY_BUY_RETURN', ''),
-                ('STRATEGY_BUY_SHARPE', ''),
-                ('STRATEGY_BUY_WIN_RATE', ''),
-                ('STRATEGY_BUY_DRAWDOWN', ''),
-                ('STRATEGY_SELL_RETURN', ''),
-                ('STRATEGY_SELL_SHARPE', ''),
-                ('STRATEGY_SELL_WIN_RATE', ''),
-                ('STRATEGY_SELL_DRAWDOWN', ''),
-            ],
-            'percentiles': [
-                # Risk metrics percentiles (standardized names)
-                ('UNCERTAINTY_PERCENTILE', '%'),      # Was: UNCERTAINTY_SCORE_PERCENTILE
-                ('ATR_PCT_PERCENTILE', '%'),          # Was: ATR_PERCENT_PERCENTILE
-                ('VWAP_PCT_PERCENTILE', '%'),         # NEW - added for completeness
-                ('VOLUME_RATIO_PERCENTILE', '%'),     # Unchanged
-
-                # Momentum indicators percentiles
-                ('RSI_PERCENTILE', '%'),              # Unchanged
-                ('MACD_PERCENTILE', '%'),             # NEW
-                ('MACD_SIGNAL_PERCENTILE', '%'),      # NEW
-
-                # Trend indicators percentiles
-                ('SMA_20_PERCENTILE', '%'),           # NEW
-                ('SMA_50_PERCENTILE', '%'),           # NEW
-                ('SMA_200_PERCENTILE', '%'),          # NEW
-                ('EMA_12_PERCENTILE', '%'),           # NEW
-                ('EMA_26_PERCENTILE', '%'),           # NEW
-
-                # Volatility indicators percentiles
-                ('ATR_PERCENTILE', '%'),              # NEW (raw ATR, different from ATR_PCT)
-                ('BOLLINGER_UPPER_PERCENTILE', '%'),  # NEW
-                ('BOLLINGER_LOWER_PERCENTILE', '%'),  # NEW
-                ('BOLLINGER_MIDDLE_PERCENTILE', '%'), # NEW
-
-                # Volume indicators percentiles
-                ('VWAP_PERCENTILE', '%'),             # NEW (raw VWAP, different from VWAP_PCT)
-            ]
-        }
+        reg = registry or get_metric_registry()
+        return reg.get_placeholder_definitions()
 
     def inject_deterministic_numbers(
         self,
@@ -129,10 +54,8 @@ class NumberInjector:
         - Numbers are deterministic (exact values from ground truth)
         - Narrative is LLM-generated (natural storytelling)
 
-        Design: All parameters are required. Pass empty dict {} if data unavailable.
-        The string.replace() method is selective - only replaces placeholders that
-        exist in the narrative, so it's safe to build the full replacement dict
-        regardless of what placeholders are actually used.
+        Delegates replacement dict building to MetricRegistry (only READY metrics).
+        Keeps post-processing (malformed placeholder cleanup, validation) here.
 
         Args:
             narrative: LLM-generated text with {{PLACEHOLDERS}}
@@ -141,124 +64,20 @@ class NumberInjector:
             percentiles: Percentile data for historical context (pass {} if unavailable)
             ticker_data: Fundamental data - P/E, EPS, market cap, etc. (pass {} if unavailable)
             comparative_insights: Peer comparison metrics (pass {} if unavailable)
+            strategy_performance: Strategy backtest data (pass {} or None if unavailable)
 
         Returns:
             Narrative with all placeholders replaced by exact values
         """
-        # Helper functions for formatting
-        def format_large_number(value):
-            """Format large numbers with K/M/B/T suffixes"""
-            if value is None or value == 'N/A':
-                return 'N/A'
-            try:
-                val = float(value)
-                if val >= 1e12:
-                    return f"{val/1e12:.2f}T"
-                elif val >= 1e9:
-                    return f"{val/1e9:.2f}B"
-                elif val >= 1e6:
-                    return f"{val/1e6:.2f}M"
-                else:
-                    return f"{val:,.0f}"
-            except (ValueError, TypeError):
-                return str(value)
-
-        def format_percentage(value):
-            """Format percentage values (handles both 0.05 and 5.0 formats)"""
-            if value is None or value == 'N/A':
-                return 'N/A'
-            try:
-                val = float(value)
-                return f"{val*100:.2f}" if val < 1 else f"{val:.2f}"
-            except (ValueError, TypeError):
-                return str(value)
-
-        # Build COMPLETE replacement dictionary
-        # Note: It's safe to always build all placeholders because string.replace()
-        # only replaces what exists in the narrative
-        replacements = {
-            # TECHNICAL INDICATORS (v4 uses single braces)
-            '{UNCERTAINTY}': f"{ground_truth.get('uncertainty_score', 0):.1f}",
-            '{ATR_PCT}': f"{ground_truth.get('atr_pct', 0):.2f}",
-            '{VWAP_PCT}': f"{abs(ground_truth.get('vwap_pct', 0)):.2f}",
-            '{VOLUME_RATIO}': f"{ground_truth.get('volume_ratio', 0):.2f}",
-            '{RSI}': f"{indicators.get('rsi', 0):.2f}",
-            '{MACD}': f"{indicators.get('macd', 0):.4f}",
-            '{MACD_SIGNAL}': f"{indicators.get('macd_signal', 0):.4f}",
-            '{CURRENT_PRICE}': f"{indicators.get('current_price', 0):.2f}",
-            '{SMA_20}': f"{indicators.get('sma_20', 0):.2f}",
-            '{SMA_50}': f"{indicators.get('sma_50', 0):.2f}",
-            '{SMA_200}': f"{indicators.get('sma_200', 0):.2f}",
-            '{EMA_12}': f"{indicators.get('ema_12', 0):.2f}",
-            '{EMA_26}': f"{indicators.get('ema_26', 0):.2f}",
-            '{BOLLINGER_UPPER}': f"{indicators.get('bollinger_upper', 0):.2f}",
-            '{BOLLINGER_LOWER}': f"{indicators.get('bollinger_lower', 0):.2f}",
-            '{BOLLINGER_MIDDLE}': f"{indicators.get('bollinger_middle', 0):.2f}",
-            '{ATR}': f"{indicators.get('atr', 0):.2f}",
-            '{VWAP}': f"{indicators.get('vwap', 0):.2f}",
-
-            # FUNDAMENTAL DATA (safe even if ticker_data = {})
-            '{PE_RATIO}': f"{ticker_data.get('pe_ratio', 'N/A')}",
-            '{EPS}': f"{ticker_data.get('eps', 'N/A')}",
-            '{MARKET_CAP}': format_large_number(ticker_data.get('market_cap')),
-            '{DIVIDEND_YIELD}': format_percentage(ticker_data.get('dividend_yield')),
-            '{PROFIT_MARGIN}': format_percentage(ticker_data.get('profit_margin')),
-            '{REVENUE_GROWTH}': format_percentage(ticker_data.get('revenue_growth')),
-            '{OPERATING_MARGIN}': format_percentage(ticker_data.get('operating_margin')),
-            '{ROE}': format_percentage(ticker_data.get('return_on_equity')),
-            '{ROA}': format_percentage(ticker_data.get('return_on_assets')),
-            '{DEBT_TO_EQUITY}': f"{ticker_data.get('debt_to_equity', 'N/A')}",
-            '{CURRENT_RATIO}': f"{ticker_data.get('current_ratio', 'N/A')}",
-            '{BOOK_VALUE}': f"{ticker_data.get('book_value', 'N/A')}",
-            '{52_WEEK_HIGH}': f"{ticker_data.get('fifty_two_week_high', 'N/A')}",
-            '{52_WEEK_LOW}': f"{ticker_data.get('fifty_two_week_low', 'N/A')}",
-            '{TARGET_PRICE}': f"{ticker_data.get('target_mean_price', 'N/A')}",
-            '{BETA}': f"{ticker_data.get('beta', 'N/A')}",
-
-            # COMPARATIVE DATA (safe even if comparative_insights = {})
-            '{PERFORMANCE_ADVANTAGE}': f"{comparative_insights.get('performance_advantage', 'N/A')}",
-            '{VOLATILITY_ADVANTAGE}': f"{comparative_insights.get('volatility_advantage', 'N/A')}",
-            '{COMPARATIVE_RETURN}': f"{comparative_insights.get('comparative_return', 'N/A')}",
-            '{PEER_COUNT}': f"{comparative_insights.get('peer_count', 'N/A')}",
-        }
-        
-        # Add strategy performance replacements if available
-        # Expects the 'supporting' dict shape from filter_supporting_strategies()
-        if strategy_performance:
-            best_supporting = strategy_performance.get('best_supporting', {})
-            buy_only = best_supporting.get('buy_only', {})
-            sell_only = best_supporting.get('sell_only', {})
-
-            # Buy-only strategy placeholders from best supporting strategy
-            if buy_only:
-                replacements['{STRATEGY_BUY_RETURN}'] = f"{buy_only.get('total_return_pct', 0):.2f}"
-                replacements['{STRATEGY_BUY_SHARPE}'] = f"{buy_only.get('sharpe_ratio', 0):.2f}"
-                replacements['{STRATEGY_BUY_WIN_RATE}'] = f"{buy_only.get('win_rate', 0):.1f}"
-                replacements['{STRATEGY_BUY_DRAWDOWN}'] = f"{abs(buy_only.get('max_drawdown_pct', 0)):.2f}"
-
-            # Sell-only strategy placeholders from best supporting strategy
-            if sell_only:
-                replacements['{STRATEGY_SELL_RETURN}'] = f"{sell_only.get('total_return_pct', 0):.2f}"
-                replacements['{STRATEGY_SELL_SHARPE}'] = f"{sell_only.get('sharpe_ratio', 0):.2f}"
-                replacements['{STRATEGY_SELL_WIN_RATE}'] = f"{sell_only.get('win_rate', 0):.1f}"
-                replacements['{STRATEGY_SELL_DRAWDOWN}'] = f"{abs(sell_only.get('max_drawdown_pct', 0)):.2f}"
-
-        # Add percentile replacements with standardized naming (v4 uses single braces)
-        for key, value in percentiles.items():
-            percentile_val = value.get('percentile', 0) if isinstance(value, dict) else value
-
-            # Standardize key names to match placeholder definitions
-            standardized_key = key.upper()
-
-            # Map old names to new standardized names
-            name_mapping = {
-                'UNCERTAINTY_SCORE': 'UNCERTAINTY',
-                'ATR_PERCENT': 'ATR_PCT',
-            }
-            standardized_key = name_mapping.get(standardized_key, standardized_key)
-
-            placeholder = f"{{{standardized_key}_PERCENTILE}}"
-            replacements[placeholder] = f"{percentile_val:.1f}"
+        # Build replacement dict from registry (only READY metrics)
+        replacements = self.registry.build_replacement_dict(
+            ground_truth=ground_truth,
+            indicators=indicators,
+            percentiles=percentiles,
+            ticker_data=ticker_data,
+            comparative_insights=comparative_insights,
+            strategy_performance=strategy_performance,
+        )
 
         # Check if LLM produced any placeholders at all (v4 uses single braces)
         all_placeholders = re.findall(r'\{[A-Z_0-9]+\}', narrative)

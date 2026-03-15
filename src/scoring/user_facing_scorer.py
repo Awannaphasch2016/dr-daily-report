@@ -13,7 +13,20 @@ Calculates 6 investment decision scores (0-10 scale) for non-technical users:
 import logging
 from typing import Dict, Any, Optional
 
+from src.report.metric_registry import get_metric_registry
+
 logger = logging.getLogger(__name__)
+
+
+def _is_uncertainty_ready() -> bool:
+    """Check if uncertainty metric is ready in the registry.
+
+    Returns False if the registry is not initialized or uncertainty is not ready.
+    """
+    try:
+        return get_metric_registry().is_ready('uncertainty')
+    except ValueError:
+        return False
 
 
 class UserFacingScorer:
@@ -434,11 +447,13 @@ class UserFacingScorer:
             logger.warning(f"Failed to calculate selling pressure score: {e}")
             scores['Selling Pressure'] = {'score': 5.0, 'category': 'Selling Pressure', 'rationale': 'Calculation error'}
 
-        try:
-            scores['Uncertainty'] = self.calculate_uncertainty_score(indicators)
-        except Exception as e:
-            logger.warning(f"Failed to calculate uncertainty score: {e}")
-            scores['Uncertainty'] = {'score': 5.0, 'category': 'Uncertainty', 'rationale': 'Calculation error'}
+        if _is_uncertainty_ready():
+            try:
+                scores['Uncertainty'] = self.calculate_uncertainty_score(indicators)
+            except Exception as e:
+                logger.warning(f"Failed to calculate uncertainty score: {e}")
+                scores['Uncertainty'] = {'score': 5.0, 'category': 'Uncertainty', 'rationale': 'Calculation error'}
 
-        logger.info(f"✅ Calculated all 6 user-facing scores")
+        score_count = len(scores)
+        logger.info(f"Calculated all {score_count} user-facing scores")
         return scores

@@ -10,6 +10,8 @@ import re
 from typing import Dict, List, Tuple, Optional
 from dataclasses import dataclass
 
+from src.report.metric_registry import get_metric_registry
+
 
 @dataclass
 class ComplianceScore:
@@ -270,24 +272,30 @@ class ComplianceScorer:
         
         narrative_lower = narrative.lower()
         
-        # Check for 4 market condition metrics
-        required_metrics = {
-            'uncertainty': {
+        # Check for market condition metrics (uncertainty is conditional on registry)
+        uncertainty_ready = False
+        try:
+            uncertainty_ready = get_metric_registry().is_ready('uncertainty')
+        except ValueError:
+            pass
+
+        required_metrics = {}
+        if uncertainty_ready:
+            required_metrics['uncertainty'] = {
                 'keywords': ['uncertainty', 'ความไม่แน่นอน', 'uncertainty score'],
                 'required': True
-            },
-            'atr': {
-                'keywords': ['atr', 'atr%', 'ความผันผวน'],
-                'required': True
-            },
-            'vwap': {
-                'keywords': ['vwap', 'price vs vwap', 'แรงซื้อ', 'แรงขาย'],
-                'required': True
-            },
-            'volume': {
-                'keywords': ['volume', 'volume ratio', 'ปริมาณ', 'volume_sma'],
-                'required': True
             }
+        required_metrics['atr'] = {
+            'keywords': ['atr', 'atr%', 'ความผันผวน'],
+            'required': True
+        }
+        required_metrics['vwap'] = {
+            'keywords': ['vwap', 'price vs vwap', 'แรงซื้อ', 'แรงขาย'],
+            'required': True
+        }
+        required_metrics['volume'] = {
+            'keywords': ['volume', 'volume ratio', 'ปริมาณ', 'volume_sma'],
+            'required': True
         }
         
         found_metrics = {}

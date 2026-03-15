@@ -9,6 +9,8 @@ Provides explainability and builds user trust by clearly stating data availabili
 import logging
 from typing import Dict, List, Any
 
+from src.report.metric_registry import get_metric_registry
+
 logger = logging.getLogger(__name__)
 
 
@@ -63,12 +65,21 @@ class TransparencyFooter:
             not_used.append("Fundamental Analysis: Yahoo Finance ไม่มีข้อมูล fundamental (P/E, EPS)")
 
         # Check Market Conditions
+        uncertainty_ready = False
+        try:
+            uncertainty_ready = get_metric_registry().is_ready('uncertainty')
+        except ValueError:
+            pass
+
         uncertainty = indicators.get('uncertainty_score')
-        if uncertainty is not None:
-            atr_pct = (indicators.get('atr', 0) / indicators.get('current_price', 1) * 100) if indicators.get('current_price') else 0
+        atr_pct = (indicators.get('atr', 0) / indicators.get('current_price', 1) * 100) if indicators.get('current_price') else 0
+
+        if uncertainty_ready and uncertainty is not None:
             used.append(f"Market Conditions (uncertainty {uncertainty:.1f}, volatility {atr_pct:.2f}%): คำนวณจากราคาและ volume - พร้อมใช้งาน")
+        elif atr_pct > 0:
+            used.append(f"Market Conditions (volatility {atr_pct:.2f}%): คำนวณจากราคาและ volume - พร้อมใช้งาน")
         else:
-            not_used.append("Market Conditions: ไม่สามารถคำนวณ uncertainty score ได้")
+            not_used.append("Market Conditions: ไม่สามารถคำนวณ market conditions ได้")
 
         # Check Statistical Context (Percentiles)
         percentiles = state.get('percentiles', {})

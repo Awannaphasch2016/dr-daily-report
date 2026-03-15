@@ -57,11 +57,10 @@ ANALYSIS_DIMENSIONS = {
         'required': True
     },
     'volatility': {
-        'keywords': ['uncertainty', 'ความไม่แน่นอน', 'uncertainty score',
-                    'volatility', 'ความผันผวน', 'atr', 'volatile'],
+        'keywords': ['volatility', 'ความผันผวน', 'atr', 'volatile'],
         'regex': r'atr[^0-9]*?\d+\.?\d*',
         'covered_msg': "Volatility/risk assessment mentioned",
-        'missing_msg': "❌ Volatility/risk assessment (uncertainty score or ATR) not mentioned",
+        'missing_msg': "❌ Volatility/risk assessment (ATR or volatility) not mentioned",
         'required': True
     },
     'sentiment': {

@@ -70,11 +70,20 @@ BACKTEST_RESULTS = "backtest_results"
 DATA_ACQUISITIONS = "data_acquisitions"
 """Shared data acquisition provenance — tracks how data in other tables was obtained"""
 
+INGESTION_METHODS = "ingestion_methods"
+"""Registry of ingestion methods/approaches for data acquisition provenance"""
+
 SGX_FILINGS = "sgx_filings"
 """SGX exchange filings linked to shared acquisition provenance"""
 
 EDINET_FILINGS = "edinet_filings"
 """EDINET (Japan FSA) filings linked to shared acquisition provenance"""
+
+SEC_EDGAR_FILINGS = "sec_edgar_filings"
+"""SEC EDGAR (US) filings linked to shared acquisition provenance"""
+
+HKEX_FILINGS = "hkex_filings"
+"""HKEX (Hong Kong Exchange) filings linked to shared acquisition provenance"""
 
 WEBHOOK_HEALTH_CHECKS = "webhook_health_checks"
 """Daily webhook endpoint health check results"""
@@ -84,6 +93,9 @@ USERS = "users"
 
 USER_REQUESTS = "user_requests"
 """Per-request log of user ticker requests with timing and result"""
+
+METRIC_CONFIG = "metric_config"
+"""Ground truth for which metrics are active in reports"""
 
 
 # ============================================================================
@@ -118,11 +130,15 @@ class TABLES:
     CHART_PATTERN_DATA = CHART_PATTERN_DATA
     BACKTEST_RESULTS = BACKTEST_RESULTS
     DATA_ACQUISITIONS = DATA_ACQUISITIONS
+    INGESTION_METHODS = INGESTION_METHODS
     SGX_FILINGS = SGX_FILINGS
     EDINET_FILINGS = EDINET_FILINGS
+    SEC_EDGAR_FILINGS = SEC_EDGAR_FILINGS
+    HKEX_FILINGS = HKEX_FILINGS
     WEBHOOK_HEALTH_CHECKS = WEBHOOK_HEALTH_CHECKS
     USERS = USERS
     USER_REQUESTS = USER_REQUESTS
+    METRIC_CONFIG = METRIC_CONFIG
 
 
 # ============================================================================
@@ -172,11 +188,15 @@ __all__ = [
     'CHART_PATTERN_DATA',
     'BACKTEST_RESULTS',
     'DATA_ACQUISITIONS',
+    'INGESTION_METHODS',
     'SGX_FILINGS',
     'EDINET_FILINGS',
+    'SEC_EDGAR_FILINGS',
+    'HKEX_FILINGS',
     'WEBHOOK_HEALTH_CHECKS',
     'USERS',
     'USER_REQUESTS',
+    'METRIC_CONFIG',
 
     # Convenience namespace
     'TABLES',
