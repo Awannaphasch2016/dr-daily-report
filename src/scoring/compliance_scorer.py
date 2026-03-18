@@ -25,7 +25,7 @@ class ComplianceScore:
 class ComplianceScorer:
     """
     Score report compliance with format, structure, and policy requirements
-    
+
     Checks:
     1. Structure Compliance - All 4 required sections present with correct format
     2. Content Compliance - All required content elements present
@@ -33,7 +33,11 @@ class ComplianceScorer:
     4. Length Compliance - Meets length requirements
     5. Language Compliance - Written in Thai, proper style
     6. Citation Compliance - News citations follow format [1], [2]
+
+    VERSION history:
+        1.0 — Initial weights: structure 30%, content 25%, format 15%, length 10%, language 10%, citation 10%
     """
+    VERSION = "1.0"
     
     def __init__(self):
         """Initialize compliance scorer"""

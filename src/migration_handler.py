@@ -526,6 +526,24 @@ def lambda_handler(event: dict, context: Any) -> dict:
             'statusCode': 200 if result['status'] == 'success' else 500,
             'body': json.dumps(result)
         }
+    elif migration == 'create_model_catalog':
+        result = run_sql_migration(
+            'Create model_catalog table + performance view (039)',
+            '039_create_model_catalog.sql'
+        )
+        return {
+            'statusCode': 200 if result['status'] == 'success' else 500,
+            'body': json.dumps(result)
+        }
+    elif migration == 'update_performance_view':
+        result = run_sql_migration(
+            'Reshape performance view for per-scorer versioning (040)',
+            '040_update_performance_view.sql'
+        )
+        return {
+            'statusCode': 200 if result['status'] == 'success' else 500,
+            'body': json.dumps(result)
+        }
     elif migration == 'inspect_reports_uncertainty':
         from src.data.aurora.client import get_aurora_client
         client = get_aurora_client()
@@ -579,7 +597,9 @@ def lambda_handler(event: dict, context: Any) -> dict:
                     'create_webhook_health_checks', 'create_ingestion_methods',
                     'create_sec_edgar_filings', 'create_hkex_filings',
                     'create_metric_config',
-                    'create_traces'
+                    'create_traces',
+                    'create_model_catalog',
+                    'update_performance_view'
                 ]
             })
         }

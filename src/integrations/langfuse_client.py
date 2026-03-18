@@ -226,6 +226,22 @@ def score_trace_batch(scores: Dict[str, Tuple[float, Optional[str]]]) -> int:
     return count
 
 
+def get_current_trace_id() -> Optional[str]:
+    """Get the ID of the currently active Langfuse trace.
+
+    Returns:
+        Trace ID string, or None if Langfuse not configured or no active trace.
+    """
+    client = get_langfuse_client()
+    if client is None:
+        return None
+    try:
+        return client.get_current_trace_id()
+    except Exception as e:
+        logger.warning(f"Failed to get current trace ID: {e}")
+        return None
+
+
 def set_trace_level(level: str) -> bool:
     """Set level on the current trace.
 

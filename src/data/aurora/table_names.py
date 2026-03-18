@@ -109,6 +109,12 @@ TRACES = "traces"
 TRACE_SCORES = "trace_scores"
 """Quality scores with sub-score breakdown and config for reproducibility"""
 
+MODEL_PRICING = "model_pricing"
+"""Model pricing reference for cost calculation and backfill"""
+
+MODEL_CATALOG = "model_catalog"
+"""Model metadata synced from OpenRouter API (pricing, context length, modality)"""
+
 
 # ============================================================================
 # Deprecated Tables (Scheduled for Removal)
@@ -155,6 +161,8 @@ class TABLES:
     METRIC_CONFIG = METRIC_CONFIG
     TRACES = TRACES
     TRACE_SCORES = TRACE_SCORES
+    MODEL_PRICING = MODEL_PRICING
+    MODEL_CATALOG = MODEL_CATALOG
 
 
 # ============================================================================
@@ -217,6 +225,8 @@ __all__ = [
     'METRIC_CONFIG',
     'TRACES',
     'TRACE_SCORES',
+    'MODEL_PRICING',
+    'MODEL_CATALOG',
 
     # Convenience namespace
     'TABLES',

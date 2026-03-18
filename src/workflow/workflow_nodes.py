@@ -1127,8 +1127,25 @@ class WorkflowNodes:
             # ============================================
             try:
                 from src.data.aurora.trace_repository import get_trace_repository
+                from src.integrations.langfuse_client import get_current_trace_id
+                from src.scoring import (
+                    FaithfulnessScorer, CompletenessScorer, ReasoningQualityScorer,
+                    ComplianceScorer, ConsistencyScorer, CostScorer, QoSScorer,
+                )
+
+                scorer_versions = {
+                    'faithfulness': FaithfulnessScorer.VERSION,
+                    'completeness': CompletenessScorer.VERSION,
+                    'reasoning_quality': ReasoningQualityScorer.VERSION,
+                    'compliance': ComplianceScorer.VERSION,
+                    'consistency': ConsistencyScorer.VERSION,
+                    'cost_efficiency': CostScorer.VERSION,
+                    'qos': QoSScorer.VERSION,
+                    'placeholder_compliance': '1.0',
+                }
 
                 trace_repo = get_trace_repository()
+                api_costs = state.get('api_costs', {})
                 trace_data = {
                     'trace_type': 'report_generation',
                     'model_id': getattr(self.llm, 'model_name', None) or getattr(self.llm, 'model', 'unknown'),
@@ -1136,7 +1153,11 @@ class WorkflowNodes:
                     'agent_type': 'single-stage',
                     'release': os.environ.get('LANGFUSE_RELEASE') or os.environ.get('AWS_LAMBDA_FUNCTION_VERSION'),
                     'trace_provider': 'langfuse' if os.environ.get('LANGFUSE_PUBLIC_KEY') else None,
-                    'trace_external_id': None,
+                    'trace_external_id': get_current_trace_id(),
+                    'input_tokens': api_costs.get('input_tokens'),
+                    'output_tokens': api_costs.get('output_tokens'),
+                    'cost_usd': api_costs.get('llm_estimated'),
+                    'calc_version': 'v1',
                     'context': {'symbol': ticker, 'report_date': str(state.get('data_date', ''))},
                     'status': 'failed' if state.get('error') else 'completed',
                     'error_message': state.get('error'),
@@ -1149,7 +1170,7 @@ class WorkflowNodes:
                         'value': value,
                         'comment': comment,
                         'scorer_type': 'rule',
-                        'scorer_version': '1.0',
+                        'scorer_version': scorer_versions.get(name, '1.0'),
                         'sub_scores': None,
                         'config': None,
                     }

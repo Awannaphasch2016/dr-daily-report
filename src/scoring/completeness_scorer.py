@@ -104,7 +104,11 @@ class CompletenessScorer:
 
     Refactored to use table-driven configuration and helper methods
     for reduced cyclomatic complexity.
+
+    VERSION history:
+        1.0 — Initial weights: context 20%, analysis 25%, temporal 15%, action 20%, structure 10%, quant 10%
     """
+    VERSION = "1.0"
 
     def __init__(self):
         """Initialize completeness scorer"""

@@ -25,16 +25,20 @@ class QoSScore:
 class QoSScorer:
     """
     Score Quality of Service (QoS) metrics for report generation
-    
+
     Dimensions:
     1. Latency - Performance timing metrics
     2. Determinism - Consistency of deterministic components
     3. Reliability - Success/error rates
     4. Resource Efficiency - Database, memory, API call efficiency
     5. Scalability - Performance under load
-    
+
     Note: Cost is tracked separately by CostScorer.
+
+    VERSION history:
+        1.0 — Initial: latency thresholds 5/10/20s, weights 30/20/25/15/10
     """
+    VERSION = "1.0"
     
     # Latency thresholds (in seconds)
     LATENCY_THRESHOLDS = {

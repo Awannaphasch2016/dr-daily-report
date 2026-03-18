@@ -36,7 +36,11 @@ class FaithfulnessScorer:
     5. Claim support - All statements backed by provided data (no external knowledge)
 
     Note: Logical consistency (interpretations matching data) is handled by ConsistencyScorer
+
+    VERSION history:
+        1.0 — Initial weights: numeric 35%, percentile 25%, news 20%, factual 15%, claim 5%
     """
+    VERSION = "1.0"
 
     def __init__(self):
         """Initialize faithfulness scorer"""

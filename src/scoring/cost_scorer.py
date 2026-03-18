@@ -26,12 +26,16 @@ class CostScore:
 class CostScorer:
     """
     Score operational costs for report generation
-    
+
     Tracks:
     1. LLM API costs (OpenAI)
     2. Database operation costs
     3. External API costs (if applicable)
+
+    VERSION history:
+        1.0 — Initial thresholds: excellent <1.75 THB, good <3.50, acceptable <7.00
     """
+    VERSION = "1.0"
     
     # GPT-4o pricing (as of 2024, update as needed)
     GPT4O_INPUT_RATE_USD = 2.50 / 1_000_000   # $2.50 per 1M input tokens
@@ -154,24 +158,40 @@ class CostScorer:
         self,
         input_tokens: int,
         output_tokens: int,
-        actual_cost_usd: Optional[float] = None
+        actual_cost_usd: Optional[float] = None,
+        model_id: Optional[str] = None
     ) -> Dict[str, float]:
         """
         Calculate API cost in USD
-        
+
         Args:
             input_tokens: Number of input tokens
             output_tokens: Number of output tokens
             actual_cost_usd: Actual cost from API response (if available)
-        
+            model_id: OpenRouter model ID for dynamic pricing lookup.
+                       Fallback chain: catalog -> model_pricing -> hardcoded GPT-4o rates.
+
         Returns:
             Dict with 'llm_actual' and 'llm_estimated' costs in USD
         """
+        input_rate = self.GPT4O_INPUT_RATE_USD
+        output_rate = self.GPT4O_OUTPUT_RATE_USD
+
+        if model_id:
+            try:
+                from src.data.aurora.model_catalog_repository import get_model_catalog_repository
+                pricing = get_model_catalog_repository().get_pricing(model_id)
+                if pricing:
+                    input_rate = float(pricing[0])
+                    output_rate = float(pricing[1])
+            except Exception:
+                pass  # Fall through to hardcoded rates
+
         estimated_cost_usd = (
-            input_tokens * self.GPT4O_INPUT_RATE_USD +
-            output_tokens * self.GPT4O_OUTPUT_RATE_USD
+            input_tokens * input_rate +
+            output_tokens * output_rate
         )
-        
+
         return {
             'llm_actual': actual_cost_usd,
             'llm_estimated': estimated_cost_usd,

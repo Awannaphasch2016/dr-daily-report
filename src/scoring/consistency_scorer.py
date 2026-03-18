@@ -47,7 +47,11 @@ class ConsistencyScorer:
     without re-checking numeric accuracy (FaithfulnessScorer's job).
 
     Cross-validates interpretation logic from narrative against quantitative evidence.
+
+    VERSION history:
+        1.0 — Initial LLM-as-judge: logical 40%, internal 30%, semantic 20%, temporal 10%
     """
+    VERSION = "1.0"
 
     SYSTEM_PROMPT = """คุณเป็นผู้ตรวจสอบความสอดคล้องเชิงตรรกะของรายงานการวิเคราะห์หุ้น
 

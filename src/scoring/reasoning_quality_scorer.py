@@ -33,7 +33,11 @@ class ReasoningQualityScorer:
     4. Minimality (25%) - Is reasoning concise without being incomplete?
 
     Note: Logical consistency (interpretations matching data) is handled by ConsistencyScorer
+
+    VERSION history:
+        1.0 — Initial weights: clarity 25%, coverage 25%, specificity 25%, minimality 25%
     """
+    VERSION = "1.0"
     
     def __init__(self):
         """Initialize reasoning quality scorer"""
