@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS model_pricing (
 COMMENT='Model pricing reference for cost calculation and backfill';
 
 -- 2. Add cost columns to traces table
--- Tokens are immutable facts; cost_usd is derived from tokens × rates at calc_version.
+-- Tokens are immutable facts. cost_usd is derived from tokens x rates at calc_version.
 ALTER TABLE traces
     ADD COLUMN input_tokens   INT            AFTER trace_external_id,
     ADD COLUMN output_tokens  INT            AFTER input_tokens,
