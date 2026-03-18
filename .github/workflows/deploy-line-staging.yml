@@ -171,6 +171,14 @@ jobs:
           aws lambda wait function-updated \
             --function-name ${{ env.FUNCTION_NAME }}
 
+          # Set LINE bot handler (shared image defaults to Telegram handler)
+          echo "🔧 Setting LINE bot handler override..."
+          aws lambda update-function-configuration \
+            --function-name ${{ env.FUNCTION_NAME }} \
+            --image-config '{"Command":["lambda_handler.lambda_handler"]}'
+          aws lambda wait function-updated \
+            --function-name ${{ env.FUNCTION_NAME }}
+
           echo "✅ LINE bot staging Lambda updated (same image tested in dev)"
 
       - name: Update LANGFUSE_RELEASE

@@ -1,57 +1,46 @@
 """Report Worker Lambda Handler
 
-Processes SQS messages for async report generation.
-Each message contains job_id and ticker to analyze.
+Ports & Adapters architecture:
+- generate_report(): Pure core — resolve ticker, run agent, return state + metrics
+- _handle_job_mode(): Adapter — job tracking (DynamoDB) + transform + cache (Aurora)
+- _handle_experiment_mode(): Adapter — return raw metrics, no side effects
+- _handle_step_functions_mode(): Adapter — transform + cache, no job tracking
 
 Flow:
-1. Parse SQS message (job_id, ticker)
-2. Mark job as in_progress
-3. Run TickerAnalysisAgent
-4. Transform result to API format
-5. Mark job as completed (or failed)
+  handler() routes by event shape → adapter calls generate_report() → adapter applies side effects
 """
 
 import asyncio
 import json
 import logging
 import os
+from datetime import datetime, timedelta
 from typing import Any
 
 from src.agent import TickerAnalysisAgent
-from src.types import AgentState
+from src.types import create_initial_state
 from src.api.job_service import get_job_service
 from src.api.ticker_service import get_ticker_service
 from src.api.transformer import get_transformer
 from src.data.aurora.precompute_service import PrecomputeService
 from src.data.aurora.ticker_resolver import get_ticker_resolver
 
-# Configure logging
-# NOTE: In Lambda, basicConfig() is a no-op because Lambda pre-configures the root logger.
-# Instead, get the logger and explicitly set its level.
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
-
-# Also ensure the root logger level allows INFO through (Lambda default may be WARNING)
 logging.getLogger().setLevel(logging.INFO)
 
 
 class AgentError(Exception):
-    """Raised when agent returns error in state (already marked as failed)"""
+    """Raised when agent returns error in state."""
     pass
 
 
+# ============================================================================
+# Configuration
+# ============================================================================
+
 def _validate_required_config() -> None:
-    """Validate required environment variables at startup
-
-    Defensive programming principle from CLAUDE.md:
-    'Validate configuration at startup, not on first use (prevents production surprises)'
-
-    This catches missing/empty environment variables immediately, preventing wasted
-    compute on jobs that will inevitably fail during workflow execution.
-
-    Raises:
-        ValueError: If any required environment variable is missing or empty
-    """
+    """Validate required environment variables at startup. Fail fast."""
     required_vars = {
         'OPENROUTER_API_KEY': 'LLM report generation',
         'AURORA_HOST': 'Aurora database caching',
@@ -66,52 +55,14 @@ def _validate_required_config() -> None:
         error_msg = "Missing required environment variables:\n"
         for var, purpose in missing.items():
             error_msg += f"  - {var} (needed for: {purpose})\n"
-        error_msg += "\nThis Lambda cannot process jobs without these environment variables."
         logger.error(error_msg)
         raise ValueError(error_msg)
 
     logger.info(f"✅ All {len(required_vars)} required environment variables present")
 
 
-def handler(event: dict, context: Any) -> dict:
-    """Lambda handler for report generation - supports SQS, direct invocation, and migrations
-
-    Four modes:
-    1. Migration Mode: Database migration requests
-    2. Direct Invocation Mode (NEW): Direct Lambda.invoke() with job_id/ticker
-    3. SQS Mode (DEPRECATED): Processes SQS records for async report generation
-    4. Step Functions Mode: Step Functions invocation for precompute workflow
-
-    Migration context (2026-01-04): Added direct invocation support to replace SQS pattern.
-    SQS mode maintained for backward compatibility during staged rollout.
-
-    Args:
-        event: One of:
-               - Migration: {'migration': 'migration_name'}
-               - Direct: {'job_id': 'xxx', 'ticker': 'YYY', 'source': 'telegram_api'}
-               - SQS: {'Records': [{'body': '{"job_id": "xxx", "ticker": "YYY"}'}]}
-               - Step Functions: {'ticker': 'YYY', 'source': 'precompute'}
-        context: Lambda context (unused)
-
-    Returns:
-        Dict with processing status or ticker result
-
-    Raises:
-        ValueError: If required environment variables missing or event format unknown
-        Exception: Re-raised after marking job as failed (for DLQ)
-    """
-    # Migration mode (priority: check first)
-    if 'migration' in event:
-        logger.info(f"Detected migration request: {event.get('migration')}")
-        from src.migration_handler import lambda_handler as migration_lambda_handler
-        return migration_lambda_handler(event, context)
-
-    # Validate configuration at startup - fail fast!
-    # Defensive programming: catch missing env vars before wasting compute
-    _validate_required_config()
-
-    # Initialize MetricRegistry from DB (sole source of truth for which metrics are active)
-    # This runs once per cold start; cached via singleton for subsequent warm invocations
+def _init_metric_registry() -> None:
+    """Initialize MetricRegistry from DB. Cached via singleton for warm starts."""
     from src.data.aurora.metric_config_repository import get_metric_config_repository
     from src.report.metric_registry import get_metric_registry
     try:
@@ -121,323 +72,277 @@ def handler(event: dict, context: Any) -> dict:
     except Exception as e:
         logger.warning(f"Could not load metric_config from DB: {e}. MetricRegistry may not be available.")
 
-    # Direct invocation mode (NEW - replaces SQS pattern)
-    # Event structure: {'job_id': 'xxx', 'ticker': 'YYY', 'source': 'telegram_api'}
-    if 'job_id' in event and 'ticker' in event:
-        logger.info(
-            f"📋 Direct invocation mode detected\n"
-            f"  Job ID: {event['job_id']}\n"
-            f"  Ticker: {event['ticker']}\n"
-            f"  Source: {event.get('source', 'unknown')}"
-        )
-        return _process_single_job(event['job_id'], event['ticker'])
 
-    # Step Functions invocation mode (for precompute workflow)
-    # Event structure: {'ticker': 'YYY', 'source': 'precompute'}
-    # NOTE: No job_id field (distinguishes from direct invocation)
-    if 'ticker' in event and 'source' in event:
-        logger.info(f"Step Functions invocation: {event.get('ticker')}")
-        result = asyncio.run(process_ticker_direct(event))
-        return result
+# ============================================================================
+# Core: Pure report generation (no side effects beyond Langfuse tracing)
+# ============================================================================
 
-    # SQS mode (DEPRECATED - backward compatible during migration)
-    # Event structure: {'Records': [{'body': '{"job_id": "xxx", "ticker": "YYY"}'}]}
-    if 'Records' in event:
-        records = event['Records']
-        logger.info(f"📨 SQS mode detected: processing {len(records)} records")
-
-        for record in records:
-            # Use asyncio.run() for async transformer.transform_report()
-            asyncio.run(process_record(record))
-
-        return {'statusCode': 200, 'processed': len(records)}
-
-    # Unknown event format - fail fast (Principle #1: Defensive Programming)
-    logger.error(f"❌ Unknown event format: {json.dumps(event)}")
-    raise ValueError(
-        f"Unknown event format. Expected one of:\n"
-        f"  - Migration: {{'migration': '...'}}\n"
-        f"  - Direct: {{'job_id': '...', 'ticker': '...'}}\n"
-        f"  - Step Functions: {{'ticker': '...', 'source': 'precompute'}}\n"
-        f"  - SQS: {{'Records': [...]}}\n"
-        f"Received: {json.dumps(event)}"
-    )
-
-
-def _process_single_job(job_id: str, ticker: str) -> dict:
-    """Process a single job from direct Lambda invocation
-
-    Helper function for direct invocation mode. Creates a synthetic SQS record
-    structure and delegates to the existing process_record() logic.
+def generate_report(ticker_raw: str, model: str = None, tags: list = None, data_date: str = None) -> dict:
+    """Core report generation. Resolve ticker, run agent, return state + metrics.
 
     Args:
-        job_id: Unique job identifier (already created in DynamoDB by API)
-        ticker: Ticker symbol to analyze (DR format like NVDA19 or DBS19)
+        ticker_raw: Ticker symbol (DR or Yahoo format)
+        model: Optional LLM model override
+        tags: Optional Langfuse trace tags (e.g. ["experiment"], ["job", "report_generation"])
+        data_date: Optional ISO date string (e.g. "2026-03-16"). Defaults to today if not provided.
 
     Returns:
-        Dict with processing status and ticker
+        {'state': AgentState, 'dr_symbol': str, 'yahoo_symbol': str,
+         'placeholder_metrics': dict, 'placeholder_compliance': float}
 
     Raises:
-        Exception: Re-raised from process_record after marking job as failed
+        ValueError: If ticker cannot be resolved
+        AgentError: If agent returns error in state
     """
-    # Create synthetic SQS record structure for backward compatibility
-    # This allows reusing existing process_record() logic without duplication
-    synthetic_record = {
-        'messageId': f'direct-invoke-{job_id}',
-        'body': json.dumps({
-            'job_id': job_id,
-            'ticker': ticker
-        })
-    }
+    from src.integrations.langfuse_client import trace_context
 
-    # Process using existing SQS handler logic
-    asyncio.run(process_record(synthetic_record))
+    # Resolve ticker
+    resolver = get_ticker_resolver()
+    resolved = resolver.resolve(ticker_raw)
+    if not resolved:
+        raise ValueError(f"Unknown ticker: {ticker_raw}")
 
-    return {
-        'statusCode': 200,
-        'ticker': ticker,
-        'job_id': job_id
-    }
+    dr_symbol = resolved.dr_symbol
+    yahoo_symbol = resolved.yahoo_symbol
+    logger.info(f"Generating report: {ticker_raw} → {dr_symbol} (DR) / {yahoo_symbol} (Yahoo), model={model}")
 
+    # Create agent and run
+    agent = TickerAnalysisAgent(model=model)
+    initial_state = create_initial_state(dr_symbol.upper(), data_date=data_date or "")
 
-async def process_record(record: dict) -> None:
-    """Process a single SQS record
-
-    Args:
-        record: SQS record with messageId and body
-
-    Raises:
-        Exception: Re-raised after marking job as failed
-    """
-    message_id = record.get('messageId', 'unknown')
-    body = record.get('body', '')
-
-    job_id = None
-    ticker = None
-
-    try:
-        # Parse message body
-        message = json.loads(body)
-        job_id = message['job_id']
-        ticker_raw = message['ticker']
-
-        # Defensive validation: Resolve ticker to canonical form
-        # This handles both DR symbols (DBS19) and Yahoo symbols (D05.SI)
-        resolver = get_ticker_resolver()
-        resolved = resolver.resolve(ticker_raw)
-
-        if not resolved:
-            error_msg = f"Unknown ticker: {ticker_raw}"
-            logger.error(f"Job {job_id}: {error_msg}")
-            job_service = get_job_service()
-            job_service.fail_job(job_id, error_msg)
-            raise ValueError(error_msg)
-
-        # Use Yahoo symbol for Aurora data queries
-        # ticker_data is stored with Yahoo symbols (D05.SI, NVDA, 1378.HK)
-        # Workers receive DR symbols from SQS but must query Aurora with Yahoo symbols
-        ticker = resolved.yahoo_symbol
-        dr_symbol = resolved.dr_symbol  # Keep for reference
-        logger.info(f"Processing job {job_id} for ticker {ticker_raw} → {ticker} (Yahoo) / {dr_symbol} (DR)")
-
-        # Get services
-        job_service = get_job_service()
-        ticker_service = get_ticker_service()
-        transformer = get_transformer()
-
-        # For Step Functions jobs, create job record first (SQS jobs are created by API before queuing)
-        # Use DynamoDB put_item to create job with specific job_id and ticker field
-        from datetime import datetime, timedelta
-        created_at = datetime.now()
-        ttl = int((created_at + timedelta(hours=24)).timestamp())
-
-        job_service.table.put_item(
-            Item={
-                'job_id': job_id,
-                'ticker': dr_symbol.upper(),
-                'status': 'pending',
-                'created_at': created_at.isoformat(),
-                'ttl': ttl
-            }
-        )
-        logger.info(f"Created job {job_id} for ticker {dr_symbol.upper()}")
-
-        # Mark job as in_progress
-        job_service.start_job(job_id)
-
-        # Get ticker info (ticker_service expects DR symbol, not Yahoo symbol)
-        ticker_info = ticker_service.get_ticker_info(dr_symbol)
-
-        # Initialize agent
-        agent = TickerAnalysisAgent()
-
-        # Create initial state
-        # NOTE: state['ticker'] must be DR symbol (workflow nodes expect it for their ticker_map lookups)
-        initial_state: AgentState = {
-            "messages": [],
-            "ticker": dr_symbol.upper(),
-            "ticker_data": {},
-            "indicators": {},
-            "percentiles": {},
-            "chart_patterns": [],
-            "pattern_statistics": {},
-            "strategy_performance": {},
-            "news": [],
-            "news_summary": {},
-            "comparative_data": {},
-            "comparative_insights": {},
-            "chart_base64": "",
-            "report": "",
-            "faithfulness_score": {},
-            "completeness_score": {},
-            "reasoning_quality_score": {},
-            "compliance_score": {},
-            "qos_score": {},
-            "cost_score": {},
-            "timing_metrics": {},
-            "api_costs": {},
-            "database_metrics": {},
-            "error": "",
-        }
-
-        # Run analysis
+    with trace_context(tags=tags, metadata={'ticker': dr_symbol, 'model': model, 'data_date': data_date}):
         final_state = agent.graph.invoke(initial_state)
 
-        # Check for agent errors
-        if final_state.get("error"):
-            error_msg = final_state["error"]
-            logger.error(f"Agent error for {ticker}: {error_msg}")
-            job_service.fail_job(job_id, error_msg)
-            # Raise with special marker to avoid double fail_job call
-            raise AgentError(error_msg)
+    # Check for agent errors
+    if final_state.get("error"):
+        raise AgentError(final_state["error"])
 
-        # Transform to API response format (async method)
-        response = await transformer.transform_report(final_state, ticker_info)
-        result = response.model_dump()
+    # Extract placeholder metrics
+    ni = agent.workflow_nodes.number_injector
+    last_metrics = getattr(ni, 'last_metrics', {}) or {}
+    total = last_metrics.get('injected_count', 0) + last_metrics.get('unresolved_count', 0)
+    compliance = (last_metrics['injected_count'] / total * 100) if total > 0 else 0
 
-        # Mark job as completed in DynamoDB
-        job_service.complete_job(job_id, result)
-        logger.info(f"Completed job {job_id} for ticker {ticker}")
-
-        # ========================================
-        # STEP 4.5: Store Report (PDF generated separately)
-        # ========================================
-        # Note: PDF generation moved to separate Step Function workflow
-        # This worker ONLY generates and stores the report
-
-        try:
-            logger.info(f"====== Storing Report ======")
-            ps = PrecomputeService()
-
-            # Store report WITHOUT PDF (PDF workflow handles it)
-            success = ps.store_report_from_api(
-                symbol=ticker,
-                report_text=result.get('narrative_report', ''),
-                report_json=result,
-                chart_base64=final_state.get('chart_base64', ''),
-                pdf_s3_key=None,           # PDF generated in separate workflow
-                pdf_generated_at=None,
-            )
-
-            if not success:
-                logger.error(f"❌ Failed to store report for {ticker}")
-                raise ValueError(f"Failed to store report for {ticker}")
-
-            logger.info(f"✅ Stored report for {ticker}")
-
-        except Exception as e:
-            logger.error(f"❌ Failed to store report for {ticker}: {e}", exc_info=True)
-            raise  # Re-raise to fail job (SQS will retry or DLQ)
-
-    except json.JSONDecodeError as e:
-        error_msg = f"Invalid JSON in message body: {e}"
-        logger.error(f"Message {message_id}: {error_msg}")
-        raise Exception(error_msg)
-
-    except KeyError as e:
-        error_msg = f"Missing required field in message: {e}"
-        logger.error(f"Message {message_id}: {error_msg}")
-        raise Exception(error_msg)
-
-    except AgentError:
-        # Job already marked as failed, just re-raise for SQS DLQ
-        raise
-
-    except Exception as e:
-        error_msg = str(e)
-        logger.error(f"Failed to process job {job_id}: {error_msg}")
-
-        # Mark job as failed if we have job_id
-        if job_id:
-            try:
-                job_service = get_job_service()
-                job_service.fail_job(job_id, error_msg)
-            except Exception as fail_error:
-                logger.error(f"Failed to mark job {job_id} as failed: {fail_error}")
-
-        # Re-raise for SQS retry/DLQ
-        raise
+    return {
+        'state': final_state,
+        'dr_symbol': dr_symbol,
+        'yahoo_symbol': yahoo_symbol,
+        'placeholder_metrics': last_metrics,
+        'placeholder_compliance': round(compliance, 1),
+    }
 
 
-async def process_ticker_direct(event: dict) -> dict:
-    """Process single ticker from direct Step Functions invocation.
+# ============================================================================
+# Adapter: Job mode (DynamoDB tracking + transform + cache)
+# ============================================================================
 
-    Args:
-        event: {"ticker": "DBS19", "execution_id": "exec_123", "source": "step_functions_precompute"}
-
-    Returns:
-        {"ticker": "DBS19", "status": "success"|"failed", "pdf_s3_key": "...", "error": ""}
+async def _handle_job_mode(job_id: str, ticker_raw: str, model: str = None, data_date: str = None) -> None:
+    """Process a job: track in DynamoDB, generate report, transform, cache.
 
     Raises:
-        ValueError: If 'ticker' field is missing
+        AgentError: If agent returns error (job marked as failed)
+        Exception: Any other error (job marked as failed, re-raised for DLQ)
     """
-    ticker_raw = event.get('ticker')
-    execution_id = event.get('execution_id', 'unknown')
+    job_service = get_job_service()
 
-    if not ticker_raw:
-        raise ValueError("Missing 'ticker' field in direct invocation event")
+    # Create + start job in DynamoDB
+    created_at = datetime.now()
+    ttl = int((created_at + timedelta(hours=24)).timestamp())
+    job_service.table.put_item(Item={
+        'job_id': job_id,
+        'ticker': ticker_raw.upper(),
+        'status': 'pending',
+        'created_at': created_at.isoformat(),
+        'ttl': ttl,
+    })
+    job_service.start_job(job_id)
+    logger.info(f"Job {job_id} started for {ticker_raw}")
 
     try:
-        # Create synthetic SQS message to reuse process_record() logic
-        synthetic_body = json.dumps({
-            'job_id': f'sfn_{execution_id}_{ticker_raw}',
-            'ticker': ticker_raw,
-            'source': event.get('source'),
-            'generate_pdf': True
-        })
+        # Core
+        result = generate_report(ticker_raw, model=model, tags=["job", "report_generation"], data_date=data_date)
+        state = result['state']
 
-        synthetic_record = {
-            'messageId': f'direct_{execution_id}',
-            'body': synthetic_body
+        # Transform to API format
+        ticker_service = get_ticker_service()
+        ticker_info = ticker_service.get_ticker_info(result['dr_symbol'])
+        transformer = get_transformer()
+        response = await transformer.transform_report(state, ticker_info)
+        api_result = response.model_dump()
+
+        # Complete job
+        job_service.complete_job(job_id, api_result)
+        logger.info(f"✅ Job {job_id} completed for {result['yahoo_symbol']}")
+
+        # Cache report in Aurora
+        ps = PrecomputeService()
+        success = ps.store_report_from_api(
+            symbol=result['yahoo_symbol'],
+            report_text=api_result.get('narrative_report', ''),
+            report_json=api_result,
+            chart_base64=state.get('chart_base64', ''),
+        )
+        if success:
+            logger.info(f"✅ Cached report for {result['yahoo_symbol']}")
+        else:
+            logger.error(f"❌ Failed to cache report for {result['yahoo_symbol']}")
+
+    except AgentError as e:
+        job_service.fail_job(job_id, str(e))
+        raise
+    except Exception as e:
+        logger.error(f"Job {job_id} failed: {e}")
+        try:
+            job_service.fail_job(job_id, str(e))
+        except Exception as fail_error:
+            logger.error(f"Failed to mark job {job_id} as failed: {fail_error}")
+        raise
+
+
+# ============================================================================
+# Adapter: Experiment mode (return metrics, no side effects)
+# ============================================================================
+
+def _handle_experiment_mode(event: dict) -> dict:
+    """Run experiment: generate report, return raw metrics. No job tracking, no cache."""
+    ticker_raw = event['ticker']
+    model = event.get('model')
+
+    try:
+        result = generate_report(ticker_raw, model=model, tags=["experiment"], data_date=event.get('data_date'))
+        state = result['state']
+
+        response = {
+            'status': 'success',
+            'ticker': result['dr_symbol'],
+            'model': model or os.getenv('LLM_MODEL', 'openai/gpt-4o'),
+            'data_date': state.get('data_date', ''),
+            'placeholder_compliance': result['placeholder_compliance'],
+            'placeholder_metrics': result['placeholder_metrics'],
+            'quality_scores': state.get('quality_scores', {}),
+            'timing_metrics': state.get('timing_metrics', {}),
+            'api_costs': state.get('api_costs', {}),
+            'report_length': len(state.get('report', '')),
+            'error': '',
         }
 
-        # Reuse existing processing logic
-        await process_record(synthetic_record)
-
-        # Get result from DynamoDB
-        job_service = get_job_service()
-        job = job_service.get_job(f'sfn_{execution_id}_{ticker_raw}')
-
-        if job.status == 'completed':
-            return {
-                'ticker': ticker_raw,
-                'status': 'success',
-                'pdf_s3_key': job.result.get('pdf_s3_key') if job.result else None,
-                'error': ''
+        # Include full report data when requested (for local re-scoring)
+        if event.get('include_report_data'):
+            from src.utils.serialization import make_json_serializable
+            response['report_text'] = state.get('report', '')
+            indicators = state.get('indicators', {})
+            response['scoring_context'] = {
+                'indicators': make_json_serializable(indicators),
+                'percentiles': make_json_serializable(state.get('percentiles', {})),
+                'news': make_json_serializable(state.get('news', [])),
+                'ticker_data': make_json_serializable(state.get('ticker_data', {})),
+                'market_conditions': {
+                    'uncertainty_score': indicators.get('uncertainty_score', 0),
+                    'atr_pct': (indicators.get('atr', 0) / indicators.get('current_price', 1)) * 100
+                    if indicators.get('current_price', 0) > 0 else 0,
+                    'price_vs_vwap_pct': indicators.get('price_vs_vwap_pct', 0),
+                    'volume_ratio': indicators.get('volume_ratio', 0),
+                },
             }
-        else:
-            return {
-                'ticker': ticker_raw,
-                'status': 'failed',
-                'pdf_s3_key': None,
-                'error': job.error or 'Unknown error'
-            }
+
+        return response
+    except Exception as e:
+        logger.error(f"Experiment failed: {e}", exc_info=True)
+        return {
+            'status': 'error',
+            'ticker': ticker_raw,
+            'model': model,
+            'error': str(e),
+        }
+
+
+# ============================================================================
+# Adapter: Step Functions mode (transform + cache, no job tracking)
+# ============================================================================
+
+async def _handle_step_functions_mode(event: dict) -> dict:
+    """Step Functions invocation: generate report, transform, cache. No DynamoDB job."""
+    ticker_raw = event.get('ticker')
+    if not ticker_raw:
+        raise ValueError("Missing 'ticker' field in Step Functions event")
+
+    try:
+        result = generate_report(ticker_raw, model=event.get('model'), tags=["precompute", "report_generation"], data_date=event.get('data_date'))
+        state = result['state']
+
+        # Transform to API format
+        ticker_service = get_ticker_service()
+        ticker_info = ticker_service.get_ticker_info(result['dr_symbol'])
+        transformer = get_transformer()
+        response = await transformer.transform_report(state, ticker_info)
+        api_result = response.model_dump()
+
+        # Cache report in Aurora
+        ps = PrecomputeService()
+        ps.store_report_from_api(
+            symbol=result['yahoo_symbol'],
+            report_text=api_result.get('narrative_report', ''),
+            report_json=api_result,
+            chart_base64=state.get('chart_base64', ''),
+        )
+
+        logger.info(f"✅ Step Functions: completed {ticker_raw}")
+        return {'ticker': ticker_raw, 'status': 'success', 'error': ''}
 
     except Exception as e:
-        logger.error(f"Failed to process {ticker_raw}: {e}")
-        return {
-            'ticker': ticker_raw,
-            'status': 'failed',
-            'pdf_s3_key': None,
-            'error': str(e)
-        }
+        logger.error(f"Step Functions failed for {ticker_raw}: {e}")
+        return {'ticker': ticker_raw, 'status': 'failed', 'error': str(e)}
+
+
+# ============================================================================
+# Router: Lambda entry point
+# ============================================================================
+
+def handler(event: dict, context: Any) -> dict:
+    """Lambda handler — routes to adapters by event shape.
+
+    Modes:
+    1. Migration:      {'migration': 'name'}
+    2. Experiment:     {'experiment': true, 'ticker': 'X', 'model': '...'}
+    3. Direct job:     {'job_id': 'xxx', 'ticker': 'X'}
+    4. Step Functions: {'ticker': 'X', 'source': 'precompute'}
+    5. SQS:            {'Records': [...]}
+    """
+    # Migration mode (priority: check first, no config validation needed)
+    if 'migration' in event:
+        logger.info(f"Detected migration request: {event.get('migration')}")
+        from src.migration_handler import lambda_handler as migration_lambda_handler
+        return migration_lambda_handler(event, context)
+
+    # Validate config + init registry
+    _validate_required_config()
+    _init_metric_registry()
+
+    # Experiment mode (no job tracking, no cache)
+    if event.get('experiment') and 'ticker' in event:
+        logger.info(f"🧪 Experiment mode: ticker={event['ticker']}, model={event.get('model', 'default')}")
+        return _handle_experiment_mode(event)
+
+    # Direct invocation with job tracking
+    if 'job_id' in event and 'ticker' in event:
+        logger.info(f"📋 Job mode: job_id={event['job_id']}, ticker={event['ticker']}")
+        asyncio.run(_handle_job_mode(event['job_id'], event['ticker'], event.get('model'), event.get('data_date')))
+        return {'statusCode': 200, 'ticker': event['ticker'], 'job_id': event['job_id']}
+
+    # Step Functions invocation
+    if 'ticker' in event and 'source' in event:
+        logger.info(f"⚙️ Step Functions mode: ticker={event['ticker']}")
+        return asyncio.run(_handle_step_functions_mode(event))
+
+    # SQS mode (backward compatible)
+    if 'Records' in event:
+        records = event['Records']
+        logger.info(f"📨 SQS mode: processing {len(records)} records")
+        for record in records:
+            message = json.loads(record.get('body', '{}'))
+            asyncio.run(_handle_job_mode(message['job_id'], message['ticker'], message.get('model'), message.get('data_date')))
+        return {'statusCode': 200, 'processed': len(records)}
+
+    # Unknown event format
+    logger.error(f"❌ Unknown event format: {json.dumps(event)}")
+    raise ValueError(f"Unknown event format: {json.dumps(event)}")

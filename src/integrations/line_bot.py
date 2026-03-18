@@ -6,7 +6,6 @@ import hashlib
 import base64
 import requests
 import logging
-import boto3
 from datetime import date
 from src.agent import TickerAnalysisAgent
 from src.data.ticker_matcher import TickerMatcher
@@ -17,11 +16,6 @@ from src.formatters.pdf_storage import PDFStorage
 logger = logging.getLogger(__name__)
 # AWS Lambda pre-configures root logger at WARNING. Explicitly set INFO for this module.
 logger.setLevel(logging.INFO)
-
-# Beta testing configuration
-# BETA_USER_LIMIT: 0 = unlimited, N = limit to N users (next N, not total)
-BETA_USER_LIMIT = int(os.getenv("BETA_USER_LIMIT", "0"))
-BETA_USERS_S3_KEY = "beta-users.json"
 
 class LineBot:
     def __init__(self):
@@ -47,91 +41,6 @@ class LineBot:
         except Exception as e:
             logger.warning(f"Failed to initialize PDF storage: {e}")
             self.pdf_storage = None
-
-        # Initialize beta user management (S3-based persistence)
-        self.beta_bucket = os.getenv("PDF_BUCKET_NAME")
-        self.beta_enabled = bool(self.beta_bucket)
-        if self.beta_enabled:
-            try:
-                self.s3_client = boto3.client('s3')
-                self.beta_users = self._load_beta_users()
-                limit_str = str(BETA_USER_LIMIT) if BETA_USER_LIMIT > 0 else "unlimited"
-                logger.info(f"✅ Beta user management initialized ({len(self.beta_users)}/{limit_str} users)")
-            except Exception as e:
-                logger.warning(f"Failed to initialize beta user management: {e}")
-                self.beta_enabled = False
-                self.beta_users = set()
-        else:
-            logger.debug("Beta user management disabled (no PDF_BUCKET_NAME)")
-            self.beta_users = set()
-
-    def _load_beta_users(self) -> set:
-        """Load beta users from S3 on cold start"""
-        try:
-            response = self.s3_client.get_object(
-                Bucket=self.beta_bucket,
-                Key=BETA_USERS_S3_KEY
-            )
-            data = json.loads(response['Body'].read())
-            users = set(data.get('users', []))
-            logger.info(f"📥 Loaded {len(users)} beta users from S3")
-            return users
-        except self.s3_client.exceptions.NoSuchKey:
-            logger.info("📥 No beta-users.json found, starting fresh")
-            return set()
-        except Exception as e:
-            logger.warning(f"⚠️ Failed to load beta users from S3: {e}")
-            return set()
-
-    def _save_beta_users(self):
-        """Persist beta users to S3"""
-        try:
-            self.s3_client.put_object(
-                Bucket=self.beta_bucket,
-                Key=BETA_USERS_S3_KEY,
-                Body=json.dumps({'users': list(self.beta_users)}, ensure_ascii=False),
-                ContentType='application/json'
-            )
-            logger.info(f"📤 Saved {len(self.beta_users)} beta users to S3")
-        except Exception as e:
-            logger.error(f"❌ Failed to save beta users to S3: {e}")
-
-    def _is_beta_user(self, user_id: str) -> bool:
-        """Check if user is in beta program"""
-        if not self.beta_enabled:
-            return True  # Beta disabled = allow all
-        return user_id in self.beta_users
-
-    def _try_add_beta_user(self, user_id: str) -> bool:
-        """Try to add user to beta. Returns True if added/exists, False if full.
-
-        Note: BETA_USER_LIMIT=0 means unlimited (no restriction).
-        """
-        if not self.beta_enabled:
-            return True  # Beta management disabled = allow all
-        if user_id in self.beta_users:
-            return True  # Already a beta user
-
-        # Check limit (0 = unlimited)
-        if BETA_USER_LIMIT > 0 and len(self.beta_users) >= BETA_USER_LIMIT:
-            logger.info(f"❌ Beta full ({len(self.beta_users)}/{BETA_USER_LIMIT}), rejecting user: {user_id[:10]}...")
-            return False  # Beta full
-
-        self.beta_users.add(user_id)
-        self._save_beta_users()
-        limit_str = f"/{BETA_USER_LIMIT}" if BETA_USER_LIMIT > 0 else " (unlimited)"
-        logger.info(f"✅ Beta user added: {user_id[:10]}... ({len(self.beta_users)}{limit_str})")
-        return True
-
-    def _get_beta_full_message(self) -> str:
-        """Get message for users when beta is full"""
-        return """ขออภัยครับ 🙏
-
-ขณะนี้ Daily Report Bot อยู่ในช่วงทดสอบ (Beta) และรับผู้ใช้ครบจำนวนแล้ว
-
-กรุณาติดต่อทีมพัฒนาหากต้องการเข้าร่วมทดสอบ
-
-ขอบคุณที่สนใจครับ! 🙂"""
 
     def verify_signature(self, body, signature):
         """Verify LINE webhook signature"""
@@ -285,16 +194,6 @@ class LineBot:
         if event_type != "follow":
             return None
 
-        # Extract user information if available
-        source = event.get("source", {})
-        user_id = source.get("userId", "")
-
-        # Beta user limit check
-        if user_id and not self._try_add_beta_user(user_id):
-            # Beta is full, return rejection message
-            return self._get_beta_full_message()
-
-        # Return welcome message for accepted beta users
         return self.get_help_message()
 
     def format_message_with_pdf_link(self, report_text: str, pdf_url: str, ticker: str = "") -> tuple:
@@ -334,13 +233,6 @@ class LineBot:
 
             if message_type != "message":
                 return None
-
-            # Beta user check - auto-add new users if within limit (BETA_USER_LIMIT=0 means unlimited)
-            source = event.get("source", {})
-            user_id = source.get("userId", "")
-            if user_id and not self._try_add_beta_user(user_id):
-                logger.info(f"🚫 Beta full, rejecting user: {user_id[:10]}...")
-                return self._get_beta_full_message()
 
             message = event.get("message", {})
             if message.get("type") != "text":

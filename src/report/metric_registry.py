@@ -154,13 +154,13 @@ _METRIC_CAPABILITIES: List[MetricDefinition] = [
                      category='volatility_indicators', source='indicators', source_key='atr',
                      format_fn=_fmt_2f, description='Average True Range (raw volatility)'),
     MetricDefinition(id='bollinger_upper', placeholder='BOLLINGER_UPPER', suffix='',
-                     category='volatility_indicators', source='indicators', source_key='bollinger_upper',
+                     category='volatility_indicators', source='indicators', source_key='bb_upper',
                      format_fn=_fmt_2f, description='Bollinger Band upper'),
     MetricDefinition(id='bollinger_lower', placeholder='BOLLINGER_LOWER', suffix='',
-                     category='volatility_indicators', source='indicators', source_key='bollinger_lower',
+                     category='volatility_indicators', source='indicators', source_key='bb_lower',
                      format_fn=_fmt_2f, description='Bollinger Band lower'),
     MetricDefinition(id='bollinger_middle', placeholder='BOLLINGER_MIDDLE', suffix='',
-                     category='volatility_indicators', source='indicators', source_key='bollinger_middle',
+                     category='volatility_indicators', source='indicators', source_key='bb_middle',
                      format_fn=_fmt_2f, description='Bollinger Band middle'),
 
     # ── Volume ──
@@ -515,8 +515,8 @@ class MetricRegistry:
 
         # For price-like values, 0 or negative means no data
         if metric.source_key in ('current_price', 'sma_20', 'sma_50', 'sma_200',
-                                  'ema_12', 'ema_26', 'atr', 'bollinger_upper',
-                                  'bollinger_lower', 'bollinger_middle', 'vwap'):
+                                  'ema_12', 'ema_26', 'atr', 'bb_upper',
+                                  'bb_lower', 'bb_middle', 'vwap'):
             return value is not None and value > 0
 
         # For fundamentals, N/A and empty string mean no data

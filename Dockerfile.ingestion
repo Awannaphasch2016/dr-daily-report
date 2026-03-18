@@ -1,0 +1,21 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install system dependencies for mysqlclient/pymysql
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY src/ src/
+COPY scripts/ scripts/
+COPY data/ data/
+COPY db/ db/
+
+# Entrypoint: python -m <module>
+# Override command in ECS task definition or run-task --overrides
+ENTRYPOINT ["python", "-m"]
+CMD ["scripts.ingest_mops_filings", "--dry-run", "--years-back", "1"]

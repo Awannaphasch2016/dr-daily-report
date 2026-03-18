@@ -281,9 +281,6 @@ resource "aws_lambda_function" "line_bot" {
       # Application config
       ENVIRONMENT               = var.environment
       LOG_LEVEL                 = "INFO"
-
-      # Beta user limit (0 = unlimited, N = limit to next N users)
-      BETA_USER_LIMIT           = tostring(var.beta_user_limit)
     }
   }
 

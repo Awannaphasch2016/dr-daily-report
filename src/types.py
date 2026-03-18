@@ -37,6 +37,7 @@ class AgentState(TypedDict):
     financial_markets_data: dict  # Chart patterns, candlestick patterns, support/resistance from Financial Markets MCP
     portfolio_insights: dict  # Portfolio allocation, diversification, risk metrics from Portfolio Manager MCP
     alpaca_data: dict  # Real-time quotes, options chain, market data from Alpaca MCP
+    data_date: str  # ISO date string (e.g. "2026-03-16") or "" for today
     error: str
 
 
@@ -58,6 +59,33 @@ RAW_DATA_FIELDS = [
     'portfolio_insights',
     'alpaca_data',
 ]
+
+
+def create_initial_state(ticker: str, data_date: str = "") -> AgentState:
+    """Create a fresh AgentState with required defaults for graph invocation.
+
+    Single source of truth for initial state construction.
+
+    Args:
+        ticker: DR symbol (e.g. "DBS19")
+        data_date: ISO date string (e.g. "2026-03-16") or "" for today
+    """
+    return AgentState(
+        messages=[], ticker=ticker,
+        ticker_data={}, indicators={}, percentiles={},
+        chart_patterns=[], pattern_statistics={},
+        strategy_performance={}, news=[], news_summary={},
+        comparative_data={}, comparative_insights={},
+        sec_filing_data={}, financial_markets_data={},
+        portfolio_insights={}, alpaca_data={},
+        chart_base64="", report="",
+        faithfulness_score={}, completeness_score={},
+        reasoning_quality_score={}, compliance_score={},
+        qos_score={}, cost_score={},
+        timing_metrics={}, api_costs={}, database_metrics={},
+        quality_scores={}, llm_scores={}, user_facing_scores={},
+        data_date=data_date, error="",
+    )
 
 
 def extract_raw_data_for_storage(state: dict) -> dict:

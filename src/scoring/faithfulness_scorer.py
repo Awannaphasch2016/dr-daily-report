@@ -49,7 +49,8 @@ class FaithfulnessScorer:
         indicators: Dict,
         percentiles: Dict,
         news_data: List[Dict],
-        ticker_data: Optional[Dict] = None
+        ticker_data: Optional[Dict] = None,
+        injected_replacements: Optional[Dict] = None
     ) -> FaithfulnessScore:
         """
         Score narrative faithfulness against ground truth
@@ -70,7 +71,8 @@ class FaithfulnessScorer:
 
         # 1. Check numeric accuracy
         numeric_score, numeric_violations, numeric_verified = self._check_numeric_accuracy(
-            narrative, ground_truth, indicators, percentiles
+            narrative, ground_truth, indicators, percentiles,
+            injected_replacements=injected_replacements
         )
         violations.extend(numeric_violations)
         verified_claims.extend(numeric_verified)
@@ -133,13 +135,50 @@ class FaithfulnessScorer:
         narrative: str,
         ground_truth: Dict,
         indicators: Dict,
-        percentiles: Dict
+        percentiles: Dict,
+        injected_replacements: Optional[Dict] = None
     ) -> Tuple[float, List[str], List[str]]:
-        """Check if numbers in narrative match ground truth"""
+        """Check if injected values are present in narrative.
+
+        Uses NumberInjector's replacement dict as source of truth:
+        if a value was injected, verify it's still in the report text.
+        Falls back to legacy regex approach if no replacements provided.
+        """
+        if injected_replacements:
+            return self._check_numeric_accuracy_universal(narrative, injected_replacements)
+        return self._check_numeric_accuracy_legacy(narrative, ground_truth, indicators, percentiles)
+
+    def _check_numeric_accuracy_universal(
+        self,
+        narrative: str,
+        injected_replacements: Dict
+    ) -> Tuple[float, List[str], List[str]]:
+        """Universal: verify all injected values are present in report text."""
         violations = []
         verified = []
 
-        # Extract key metrics from ground truth
+        for placeholder, value in injected_replacements.items():
+            value_str = str(value)
+            if value_str in narrative:
+                verified.append(f"{placeholder}: {value_str} found")
+            else:
+                violations.append(f"❌ {placeholder} injected as {value_str} but not found in report")
+
+        total = len(injected_replacements)
+        score = (len(verified) / total * 100) if total > 0 else 100
+        return score, violations, verified
+
+    def _check_numeric_accuracy_legacy(
+        self,
+        narrative: str,
+        ground_truth: Dict,
+        indicators: Dict,
+        percentiles: Dict
+    ) -> Tuple[float, List[str], List[str]]:
+        """Legacy: check 6 hardcoded metrics via regex (fallback)."""
+        violations = []
+        verified = []
+
         uncertainty_ready = False
         try:
             uncertainty_ready = get_metric_registry().is_ready('uncertainty')
@@ -157,14 +196,10 @@ class FaithfulnessScorer:
             'current_price': indicators.get('current_price', 0)
         })
 
-        # Check each metric
         for metric, expected_value in expected_values.items():
             if expected_value == 0:
                 continue
-
-            # Search for this metric's value in narrative
             found = self._find_numeric_claim(narrative, metric, expected_value)
-
             if found:
                 is_accurate, claimed_value = found
                 if is_accurate:
@@ -174,11 +209,9 @@ class FaithfulnessScorer:
                         f"❌ {metric} mismatch: narrative claims {claimed_value:.2f}, actual is {expected_value:.2f}"
                     )
 
-        # Calculate score
         total_checks = len(expected_values)
         accurate_count = len(verified)
         score = (accurate_count / total_checks * 100) if total_checks > 0 else 100
-
         return score, violations, verified
 
     def _find_numeric_claim(

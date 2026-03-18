@@ -517,13 +517,22 @@ def lambda_handler(event: dict, context: Any) -> dict:
             'statusCode': 200 if result['status'] == 'success' else 500,
             'body': json.dumps(result)
         }
+    elif migration == 'create_traces':
+        result = run_sql_migration(
+            'Create traces + trace_scores tables (037)',
+            '037_create_traces.sql'
+        )
+        return {
+            'statusCode': 200 if result['status'] == 'success' else 500,
+            'body': json.dumps(result)
+        }
     elif migration == 'inspect_reports_uncertainty':
         from src.data.aurora.client import get_aurora_client
         client = get_aurora_client()
         rows = client.fetch_all("""
             SELECT
                 pr.ticker_id,
-                tm.symbol,
+                ta.symbol,
                 CASE
                     WHEN pr.report_text LIKE '%ความไม่แน่นอน%'
                       OR pr.report_text LIKE '%uncertainty%'
@@ -531,13 +540,13 @@ def lambda_handler(event: dict, context: Any) -> dict:
                     THEN 'HAS_UNCERTAINTY'
                     ELSE 'CLEAN'
                 END as uncertainty_status,
-                LEFT(pr.computed_at, 19) as computed_at,
+                LEFT(CAST(pr.computed_at AS CHAR), 19) as computed_at,
                 LENGTH(pr.report_text) as report_length
             FROM precomputed_reports pr
-            LEFT JOIN ticker_master tm ON pr.ticker_id = tm.id
+            LEFT JOIN ticker_aliases ta ON pr.ticker_id = ta.ticker_id AND ta.is_primary = 1
             WHERE pr.report_text IS NOT NULL
               AND LENGTH(pr.report_text) > 10
-            ORDER BY tm.symbol
+            ORDER BY ta.symbol
         """)
         summary = {'HAS_UNCERTAINTY': [], 'CLEAN': []}
         for row in rows:
@@ -569,7 +578,8 @@ def lambda_handler(event: dict, context: Any) -> dict:
                     'make_sgx_ticker_nullable', 'create_edinet_filings',
                     'create_webhook_health_checks', 'create_ingestion_methods',
                     'create_sec_edgar_filings', 'create_hkex_filings',
-                    'create_metric_config'
+                    'create_metric_config',
+                    'create_traces'
                 ]
             })
         }

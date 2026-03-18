@@ -85,6 +85,12 @@ SEC_EDGAR_FILINGS = "sec_edgar_filings"
 HKEX_FILINGS = "hkex_filings"
 """HKEX (Hong Kong Exchange) filings linked to shared acquisition provenance"""
 
+MOPS_FILINGS = "mops_filings"
+"""MOPS (Taiwan Market Observation Post System) filings linked to shared acquisition provenance"""
+
+HOSE_FILINGS = "hose_filings"
+"""HOSE (Ho Chi Minh City Stock Exchange) filings linked to shared acquisition provenance"""
+
 WEBHOOK_HEALTH_CHECKS = "webhook_health_checks"
 """Daily webhook endpoint health check results"""
 
@@ -96,6 +102,12 @@ USER_REQUESTS = "user_requests"
 
 METRIC_CONFIG = "metric_config"
 """Ground truth for which metrics are active in reports"""
+
+TRACES = "traces"
+"""Provenance metadata and tracing service link for any workload type"""
+
+TRACE_SCORES = "trace_scores"
+"""Quality scores with sub-score breakdown and config for reproducibility"""
 
 
 # ============================================================================
@@ -135,10 +147,14 @@ class TABLES:
     EDINET_FILINGS = EDINET_FILINGS
     SEC_EDGAR_FILINGS = SEC_EDGAR_FILINGS
     HKEX_FILINGS = HKEX_FILINGS
+    MOPS_FILINGS = MOPS_FILINGS
+    HOSE_FILINGS = HOSE_FILINGS
     WEBHOOK_HEALTH_CHECKS = WEBHOOK_HEALTH_CHECKS
     USERS = USERS
     USER_REQUESTS = USER_REQUESTS
     METRIC_CONFIG = METRIC_CONFIG
+    TRACES = TRACES
+    TRACE_SCORES = TRACE_SCORES
 
 
 # ============================================================================
@@ -193,10 +209,14 @@ __all__ = [
     'EDINET_FILINGS',
     'SEC_EDGAR_FILINGS',
     'HKEX_FILINGS',
+    'MOPS_FILINGS',
+    'HOSE_FILINGS',
     'WEBHOOK_HEALTH_CHECKS',
     'USERS',
     'USER_REQUESTS',
     'METRIC_CONFIG',
+    'TRACES',
+    'TRACE_SCORES',
 
     # Convenience namespace
     'TABLES',

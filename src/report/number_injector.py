@@ -103,12 +103,46 @@ class NumberInjector:
             print("   - Hide numbers from context (show only structure)")
             print("━" * 70)
 
-        # Perform replacements and track successes
+        # Normalize placeholder variants before replacement.
+        # LLM may write {{VAR}}, {{{VAR}}}, or bare VAR instead of {VAR}.
+        # Normalize all to {VAR} so the replacement loop catches them.
+        known_names = sorted(
+            {m.placeholder for m in self.registry.get_ready_metrics()},
+            key=len, reverse=True  # longest first: ATR_PCT_PERCENTILE before ATR_PCT before ATR
+        )
+        normalized_count = 0
         result = narrative
+        for name in known_names:
+            # Negative lookahead (?![A-Z_]) prevents matching {ATR inside {ATR_PCT}.
+            # \b alone is insufficient because {ATR_PCT} has no word boundary after ATR.
+            lookahead = r'(?![A-Z_0-9])'
+            if '_' in name:
+                pattern = re.compile(r'\{*\b' + re.escape(name) + lookahead + r'\b\}*')
+            else:
+                pattern = re.compile(r'\{+' + re.escape(name) + lookahead + r'\}*|\{*' + re.escape(name) + lookahead + r'\}+')
+            normalized_form = '{' + name + '}'
+            for match in pattern.finditer(result):
+                if match.group() != normalized_form:
+                    normalized_count += 1
+            result = pattern.sub(normalized_form, result)
+
+        if normalized_count > 0:
+            logger.info(f"🔧 Normalized {normalized_count} placeholder variant(s) to single-brace form")
+
+        # Pre-injection diagnostic: compare what LLM used vs what we can replace
+        llm_used = set(re.findall(r'\{[A-Z_0-9]+\}', result))
+        dict_has = set(replacements.keys())
+        gap = llm_used - dict_has
+        if gap:
+            logger.warning(f"⚠️ PRE-INJECTION GAP: LLM wrote {len(gap)} placeholder(s) "
+                           f"not in replacement dict: {sorted(gap)}")
+
+        # Perform replacements and track successes
+        self.last_replacements = dict(replacements)  # Save for scorer (placeholder → formatted value)
         successful_injections = []
 
-        for placeholder, value in replacements.items():
-            if placeholder in narrative:
+        for placeholder, value in sorted(replacements.items(), key=lambda x: len(x[0]), reverse=True):
+            if placeholder in result:
                 result = result.replace(placeholder, str(value))
                 successful_injections.append(f"{placeholder} → {value}")
             else:
@@ -156,5 +190,13 @@ class NumberInjector:
                 print(f"⚠️  Warning: Unused placeholders found: {unexpected}")
                 print(f"   These placeholders are not defined in NumberInjector")
                 print(f"   LLM may have invented them or they need to be added to the replacement dict")
+
+        # Store metrics for observability (Langfuse placeholder_compliance score)
+        self.last_metrics = {
+            'normalized_count': normalized_count,
+            'injected_count': len(successful_injections),
+            'unresolved_count': len(remaining),
+            'orphan_suffix_count': len(re.findall(r'[\d.-]+_[A-Z_]+\}+', result)),
+        }
 
         return result

@@ -343,7 +343,7 @@ def build_pipeline_health_dashboard():
     panels.append(table_panel(
         "Recent Health Checks",
         """SELECT
-            check_time AS 'Time',
+            CONCAT(DATE_FORMAT(check_time, '%Y-%m-%d %H:%i:%s'), ' (ICT)') AS 'Time (Bangkok)',
             endpoint AS 'Endpoint',
             status AS 'Status',
             http_code AS 'HTTP Code',

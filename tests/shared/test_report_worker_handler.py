@@ -98,7 +98,7 @@ class TestReportWorkerCaching:
              patch('src.report_worker_handler.get_ticker_service', return_value=mock_dependencies["ticker_service"]), \
              patch('src.report_worker_handler.PrecomputeService', mock_dependencies["precompute_class"]):
 
-            from src.report_worker_handler import process_record
+            from src.report_worker_handler import _handle_job_mode
 
             # Create SQS record
             record = {
@@ -136,7 +136,7 @@ class TestReportWorkerCaching:
              patch('src.report_worker_handler.get_ticker_service', return_value=mock_dependencies["ticker_service"]), \
              patch('src.report_worker_handler.PrecomputeService', mock_dependencies["precompute_class"]):
 
-            from src.report_worker_handler import process_record
+            from src.report_worker_handler import _handle_job_mode
 
             record = {
                 "messageId": "test-msg-456",
@@ -181,7 +181,7 @@ class TestReportWorkerCaching:
              patch('src.report_worker_handler.get_ticker_service', return_value=mock_dependencies["ticker_service"]), \
              patch('src.report_worker_handler.PrecomputeService', mock_dependencies["precompute_class"]):
 
-            from src.report_worker_handler import process_record
+            from src.report_worker_handler import _handle_job_mode
 
             record = {
                 "messageId": "test-msg-789",
@@ -211,7 +211,7 @@ class TestReportWorkerCaching:
              patch('src.report_worker_handler.get_ticker_service', return_value=mock_dependencies["ticker_service"]), \
              patch('src.report_worker_handler.PrecomputeService', mock_dependencies["precompute_class"]):
 
-            from src.report_worker_handler import process_record
+            from src.report_worker_handler import _handle_job_mode
 
             record = {
                 "messageId": "test-msg-warn",
@@ -251,7 +251,7 @@ class TestReportWorkerCaching:
              patch('src.report_worker_handler.PrecomputeService', mock_dependencies["precompute_class"]), \
              patch('src.report_worker_handler.get_ticker_resolver', return_value=mock_resolver):
 
-            from src.report_worker_handler import process_record, AgentError
+            from src.report_worker_handler import _handle_job_mode, AgentError
 
             record = {
                 "messageId": "test-msg-error",
@@ -284,7 +284,7 @@ class TestReportWorkerLambdaHandler:
     @pytest.fixture
     def mock_process_record(self):
         """Mock process_record for handler tests."""
-        with patch('src.report_worker_handler.process_record', new_callable=AsyncMock) as mock:
+        with patch('src.report_worker_handler._handle_job_mode', new_callable=AsyncMock) as mock:
             yield mock
 
     def test_handler_processes_all_records(self, mock_process_record):
@@ -380,7 +380,7 @@ class TestCachingArgumentSources:
              patch('src.report_worker_handler.get_ticker_service', return_value=mock_ticker_service), \
              patch('src.report_worker_handler.PrecomputeService', mock_precompute_class):
 
-            from src.report_worker_handler import process_record
+            from src.report_worker_handler import _handle_job_mode
 
             record = {
                 "messageId": "test",
@@ -490,7 +490,7 @@ class TestWorkerSymbolValidation:
              patch('src.report_worker_handler.PrecomputeService', mocks["precompute_class"]), \
              patch('src.report_worker_handler.get_ticker_resolver', return_value=mock_resolver):
 
-            from src.report_worker_handler import process_record
+            from src.report_worker_handler import _handle_job_mode
 
             record = {
                 "messageId": "test",
@@ -530,7 +530,7 @@ class TestWorkerSymbolValidation:
              patch('src.report_worker_handler.PrecomputeService', mocks["precompute_class"]), \
              patch('src.report_worker_handler.get_ticker_resolver', return_value=mock_resolver):
 
-            from src.report_worker_handler import process_record
+            from src.report_worker_handler import _handle_job_mode
 
             # Send Yahoo symbol (simulating scheduler bug)
             record = {
@@ -564,7 +564,7 @@ class TestWorkerSymbolValidation:
              patch('src.report_worker_handler.PrecomputeService', mocks["precompute_class"]), \
              patch('src.report_worker_handler.get_ticker_resolver', return_value=mock_resolver):
 
-            from src.report_worker_handler import process_record
+            from src.report_worker_handler import _handle_job_mode
 
             record = {
                 "messageId": "test-unknown",
@@ -604,7 +604,7 @@ class TestWorkerSymbolValidation:
              patch('src.report_worker_handler.PrecomputeService', mocks["precompute_class"]), \
              patch('src.report_worker_handler.get_ticker_resolver', return_value=mock_resolver):
 
-            from src.report_worker_handler import process_record
+            from src.report_worker_handler import _handle_job_mode
 
             # Send Yahoo symbol (will be resolved to DR symbol for state)
             record = {
@@ -660,7 +660,7 @@ class TestDirectInvocationMode:
 
     def test_sqs_mode_backward_compatible(self):
         """Verify SQS mode still works (backward compatibility)."""
-        with patch('src.report_worker_handler.process_record', new_callable=AsyncMock):
+        with patch('src.report_worker_handler._handle_job_mode', new_callable=AsyncMock):
             from src.report_worker_handler import handler
             event = {
                 'Records': [{
@@ -676,7 +676,7 @@ class TestDirectInvocationMode:
     @pytest.mark.asyncio
     async def test_process_ticker_direct_success(self):
         """Test successful direct processing returns success status."""
-        with patch('src.report_worker_handler.process_record', new_callable=AsyncMock), \
+        with patch('src.report_worker_handler._handle_job_mode', new_callable=AsyncMock), \
              patch('src.report_worker_handler.get_job_service') as mock_svc:
 
             # Mock get_job to return a Job-like object with status and result attributes
@@ -685,7 +685,7 @@ class TestDirectInvocationMode:
             mock_job.result = {'pdf_s3_key': 'test.pdf'}
             mock_svc.return_value.get_job.return_value = mock_job
 
-            from src.report_worker_handler import process_ticker_direct
+            from src.report_worker_handler import _handle_step_functions_mode
             result = await process_ticker_direct({
                 'ticker': 'DBS19',
                 'execution_id': 'exec_123',
@@ -700,7 +700,7 @@ class TestDirectInvocationMode:
     @pytest.mark.asyncio
     async def test_process_ticker_direct_failure(self):
         """Test failed processing returns failed status."""
-        with patch('src.report_worker_handler.process_record', new_callable=AsyncMock), \
+        with patch('src.report_worker_handler._handle_job_mode', new_callable=AsyncMock), \
              patch('src.report_worker_handler.get_job_service') as mock_svc:
 
             # Mock get_job to return a Job-like object with failed status
@@ -709,7 +709,7 @@ class TestDirectInvocationMode:
             mock_job.error = 'Agent error: ticker not found'
             mock_svc.return_value.get_job.return_value = mock_job
 
-            from src.report_worker_handler import process_ticker_direct
+            from src.report_worker_handler import _handle_step_functions_mode
             result = await process_ticker_direct({
                 'ticker': 'INVALID',
                 'execution_id': 'exec_123',
@@ -724,7 +724,7 @@ class TestDirectInvocationMode:
     @pytest.mark.asyncio
     async def test_process_ticker_direct_missing_ticker(self):
         """Test validation fails fast on missing ticker (defensive programming)."""
-        from src.report_worker_handler import process_ticker_direct
+        from src.report_worker_handler import _handle_step_functions_mode
 
         with pytest.raises(ValueError) as exc:
             await process_ticker_direct({'execution_id': 'exec_123'})
@@ -734,10 +734,10 @@ class TestDirectInvocationMode:
     @pytest.mark.asyncio
     async def test_process_ticker_direct_exception_handling(self):
         """Test exception during processing returns failed status (not raise)."""
-        with patch('src.report_worker_handler.process_record', new_callable=AsyncMock) as mock_process:
+        with patch('src.report_worker_handler._handle_job_mode', new_callable=AsyncMock) as mock_process:
             mock_process.side_effect = Exception("Database connection error")
 
-            from src.report_worker_handler import process_ticker_direct
+            from src.report_worker_handler import _handle_step_functions_mode
             result = await process_ticker_direct({
                 'ticker': 'DBS19',
                 'execution_id': 'exec_123',

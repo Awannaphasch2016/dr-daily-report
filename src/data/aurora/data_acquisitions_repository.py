@@ -67,6 +67,7 @@ class DataAcquisitionsRepository:
         endpoint_version: Optional[str] = None,
         description: Optional[str] = None,
         parameters: Optional[Dict[str, Any]] = None,
+        ingestion_method_id: Optional[int] = None,
     ) -> int:
         """Start a new acquisition run.
 
@@ -81,6 +82,7 @@ class DataAcquisitionsRepository:
             endpoint_version: API version (e.g. 'v1.0')
             description: Human-readable description
             parameters: Request parameters / config used
+            ingestion_method_id: FK to ingestion_methods table (HOW this ran)
 
         Returns:
             acquisition_id (BIGINT) for the new run
@@ -98,12 +100,14 @@ class DataAcquisitionsRepository:
 
         query = f"""
             INSERT INTO {DATA_ACQUISITIONS} (
+                ingestion_method_id,
                 source_table, source_type, source_name, source_version,
                 artifact_s3_key, artifact_checksum,
                 endpoint_url, endpoint_version,
                 description, parameters,
                 status, started_at
             ) VALUES (
+                %s,
                 %s, %s, %s, %s,
                 %s, %s,
                 %s, %s,
@@ -112,6 +116,7 @@ class DataAcquisitionsRepository:
             )
         """
         params = (
+            ingestion_method_id,
             source_table, source_type, source_name, source_version,
             artifact_s3_key, artifact_checksum,
             endpoint_url, endpoint_version,

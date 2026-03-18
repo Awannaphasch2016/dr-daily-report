@@ -42,7 +42,7 @@ from src.types import AgentState
 import json
 
 class TickerAnalysisAgent:
-    def __init__(self):
+    def __init__(self, model: str = None):
         api_key = os.getenv("OPENROUTER_API_KEY")
         # Debug logging for API key
         if api_key:
@@ -50,12 +50,14 @@ class TickerAnalysisAgent:
         else:
             logger.error("❌ OPENROUTER_API_KEY is None or empty!")
 
+        llm_model = model or os.getenv("LLM_MODEL", "openai/gpt-4o")
         self.llm = ChatOpenAI(
-            model="openai/gpt-4o",
+            model=llm_model,
             temperature=0.8,
             base_url="https://openrouter.ai/api/v1",
             api_key=api_key
         )
+        logger.info(f"🤖 LLM model: {llm_model}")
         self.data_fetcher = DataFetcher()
         self.technical_analyzer = TechnicalAnalyzer()
         self.news_fetcher = NewsFetcher()

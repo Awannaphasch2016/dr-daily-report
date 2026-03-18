@@ -40,8 +40,6 @@ class TestSgxFilingsRepositoryValidation:
 
     def test_upsert_identifies_specific_missing_fields(self):
         partial_filing = {
-            'ticker_id': 1,
-            'symbol': 'DBS19',
             'ann_id': 'ABC123',
             # Missing: broadcast_date_time, title, raw_data
         }
@@ -108,13 +106,13 @@ class TestSgxFilingsRepositoryUpsert:
 
         assert rowcount == 2
 
-    def test_upsert_correct_14_element_params_tuple(self):
+    def test_upsert_correct_15_element_params_tuple(self):
         self.repo.upsert(self.valid_filing)
 
         call_args = self.mock_client.execute.call_args
         params = call_args[0][1]
 
-        assert len(params) == 14
+        assert len(params) == 15
         assert params[0] == 1                               # ticker_id
         assert params[1] == 'DBS19'                         # symbol
         assert params[2] == 'ABC123'                        # ann_id
@@ -126,16 +124,17 @@ class TestSgxFilingsRepositoryUpsert:
         assert params[8] == 'DBS Group Holdings'            # issuer_name
         assert params[9] == 'D05'                           # stock_code
         assert params[10] == 'https://example.com/report.pdf'  # attachment_url
-        assert params[11] == 'https://www.sgx.com/announcements'  # sgx_url
-        assert params[12] == json.dumps({'full': 'response'})  # raw_data
-        assert params[13] == 99                             # acquisition_id
+        assert params[11] is None                           # attachment_s3_key
+        assert params[12] == 'https://www.sgx.com/announcements'  # sgx_url
+        assert params[13] == json.dumps({'full': 'response'})  # raw_data
+        assert params[14] == 99                             # acquisition_id
 
     def test_upsert_serializes_raw_data_dict_to_json(self):
         self.repo.upsert(self.valid_filing)
 
         call_args = self.mock_client.execute.call_args
         params = call_args[0][1]
-        raw_data_param = params[12]
+        raw_data_param = params[13]
 
         assert isinstance(raw_data_param, str)
         assert json.loads(raw_data_param) == {'full': 'response'}
@@ -147,13 +146,11 @@ class TestSgxFilingsRepositoryUpsert:
 
         call_args = self.mock_client.execute.call_args
         params = call_args[0][1]
-        assert params[12] == '{"already": "serialized"}'
+        assert params[13] == '{"already": "serialized"}'
 
     def test_upsert_optional_fields_default_to_none(self):
-        """Filing with only required fields — optional fields should be None."""
+        """Filing with only required fields -- optional fields should be None."""
         minimal_filing = {
-            'ticker_id': 1,
-            'symbol': 'DBS19',
             'ann_id': 'ABC123',
             'broadcast_date_time': '2026-03-14 08:30:00',
             'title': 'Annual Report',
@@ -165,14 +162,17 @@ class TestSgxFilingsRepositoryUpsert:
         call_args = self.mock_client.execute.call_args
         params = call_args[0][1]
 
+        assert params[0] is None   # ticker_id
+        assert params[1] is None   # symbol
         assert params[4] is None   # category_code (now uses .get())
         assert params[5] is None   # subcategory_code (now uses .get())
         assert params[6] is None   # subcategory_name
         assert params[8] is None   # issuer_name
         assert params[9] is None   # stock_code
         assert params[10] is None  # attachment_url
-        assert params[11] is None  # sgx_url
-        assert params[13] is None  # acquisition_id
+        assert params[11] is None  # attachment_s3_key
+        assert params[12] is None  # sgx_url
+        assert params[14] is None  # acquisition_id
 
 
 class TestSgxFilingsRepositoryBatchUpsert:

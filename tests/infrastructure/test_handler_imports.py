@@ -64,13 +64,13 @@ class TestHandlerImports:
         """
         from src.report_worker_handler import (
             handler,
-            process_record,
+            generate_report,
             _validate_required_config,
         )
 
         # Verify functions are callable
         assert callable(handler), "handler() is not callable"
-        assert callable(process_record), "process_record() is not callable"
+        assert callable(generate_report), "generate_report() is not callable"
         assert callable(_validate_required_config), "_validate_required_config() is not callable"
 
     def test_handler_file_locations(self):

@@ -42,6 +42,7 @@ class ScoringContext:
     ticker_data: dict
     market_conditions: dict
     comparative_insights: Optional[dict] = None
+    injected_replacements: Optional[dict] = None  # {placeholder: value} from NumberInjector
 
     def to_json(self) -> dict:
         """Convert to JSON-serializable dict"""
@@ -166,7 +167,8 @@ class ScoringService:
             indicators=context.indicators,
             percentiles=context.percentiles,
             news_data=context.news,
-            ticker_data=context.ticker_data
+            ticker_data=context.ticker_data,
+            injected_replacements=context.injected_replacements
         )
 
         completeness_score = self.completeness_scorer.score_narrative(

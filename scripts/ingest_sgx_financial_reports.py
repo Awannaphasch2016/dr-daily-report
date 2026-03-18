@@ -3,24 +3,27 @@
 """
 SGX Financial Reports Ingestion Script
 
-Fetches all financial reports from the SGX Financial Reports API,
-matches them to DR tickers, and stores them in Aurora with full
-provenance tracking.
+Fetches ALL financial reports from the SGX Financial Reports API,
+optionally matches them to DR tickers, downloads PDF attachments to S3,
+and stores everything in Aurora with full provenance tracking.
+
+No pre-filtering: ALL filings are stored. Categorization/filtering
+happens at query time by downstream services.
 
 Usage:
-    # Full ingestion
-    ENV=dev doppler run -- python scripts/ingest_sgx_financial_reports.py
+    # Full ingestion (all filings + PDF attachments)
+    ENV=dev doppler run -- python -m scripts.ingest_sgx_financial_reports
 
-    # Dry run (test API + matching)
-    ENV=dev doppler run -- python scripts/ingest_sgx_financial_reports.py --dry-run --max-pages 2
+    # Dry run (test API, no writes)
+    ENV=dev doppler run -- python -m scripts.ingest_sgx_financial_reports --dry-run --max-pages 1
 
-    # Single symbol
-    ENV=dev doppler run -- python scripts/ingest_sgx_financial_reports.py --symbol DBS19
+    # Skip PDF downloads (faster re-runs)
+    ENV=dev doppler run -- python -m scripts.ingest_sgx_financial_reports --skip-attachments
 
 Architecture:
-    SGX Financial Reports API → this script → Aurora sgx_filings table
-                                            → Aurora data_acquisitions table (provenance)
-                                            → S3 data lake (script artifact)
+    SGX Financial Reports API -> this script -> Aurora sgx_filings table
+                                             -> Aurora data_acquisitions table (provenance)
+                                             -> S3 data lake (script artifact + PDF attachments)
 """
 
 import argparse
@@ -32,6 +35,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import urlparse
 
 import requests
 
@@ -70,13 +74,13 @@ HEADERS = {
     "Sec-Fetch-Site": "same-site",
 }
 
-# SGX companyName substring (uppercase) → (yahoo_symbol, dr_symbol, sgx_stock_code)
-# Only operating companies likely to file financial reports on SGX
+# SGX companyName substring (uppercase) -> (yahoo_symbol, dr_symbol, sgx_stock_code)
+# Used for opportunistic ticker matching — filings that don't match are still stored.
 SGX_COMPANY_MAP = {
     "DBS GROUP": ("D05.SI", "DBS19", "D05"),
     "SINGAPORE AIRLINES": ("C6L.SI", "SIA19", "C6L"),
     "UNITED OVERSEAS BANK": ("U11.SI", "UOB19", "U11"),
-    "SATS ": ("S58.SI", "STEG19", "S58"),  # trailing space to avoid matching "SATS" in other names
+    "SATS ": ("S58.SI", "STEG19", "S58"),  # trailing space to avoid partial match
     "SINGAPORE EXCHANGE": ("S68.SI", "SGX19", "S68"),
     "SEMBCORP": ("U96.SI", "SEMB19", "U96"),
     "VENTURE CORP": ("V03.SI", "VENTURE19", "V03"),
@@ -183,7 +187,7 @@ def fetch_page(
             )
 
             if resp.status_code == 403:
-                # WAF block — longer backoff
+                # WAF block -- longer backoff
                 wait = (attempt + 1) * 10
                 logger.warning(f"WAF block detected, waiting {wait}s")
                 time.sleep(wait)
@@ -248,74 +252,7 @@ def fetch_all_reports(
 
 
 # ===========================================================================
-# Company-to-Ticker Matching
-# ===========================================================================
-
-def match_company(company_name: str) -> Optional[Tuple[str, str, str]]:
-    """Match SGX companyName to DR ticker.
-
-    Args:
-        company_name: Company name from SGX API
-
-    Returns:
-        (yahoo_symbol, dr_symbol, sgx_stock_code) or None
-    """
-    upper = company_name.upper()
-    for key, value in SGX_COMPANY_MAP.items():
-        if key in upper:
-            return value
-    return None
-
-
-def match_reports_to_tickers(
-    reports: List[dict],
-    resolver,
-    symbol_filter: Optional[str] = None,
-) -> List[dict]:
-    """Match SGX reports to DR tickers and attach ticker_id.
-
-    Args:
-        reports: Raw API report items
-        resolver: TickerResolver instance
-        symbol_filter: If set, only include this DR symbol
-
-    Returns:
-        List of reports with ticker info attached (ticker_id, symbol, stock_code)
-    """
-    matched = []
-    unmatched_companies = set()
-
-    for report in reports:
-        company_name = report.get("companyName", "")
-        match = match_company(company_name)
-        if match is None:
-            unmatched_companies.add(company_name)
-            continue
-
-        yahoo_symbol, dr_symbol, stock_code = match
-
-        if symbol_filter and dr_symbol != symbol_filter:
-            continue
-
-        ticker_info = resolver.resolve(yahoo_symbol)
-        if ticker_info is None:
-            logger.warning(f"TickerResolver cannot resolve {yahoo_symbol} for {company_name}")
-            continue
-
-        report['_ticker_id'] = ticker_info.ticker_id
-        report['_dr_symbol'] = dr_symbol
-        report['_stock_code'] = stock_code
-        matched.append(report)
-
-    logger.info(
-        f"Matched {len(matched)} reports to DR tickers "
-        f"({len(unmatched_companies)} companies not in DR universe)"
-    )
-    return matched
-
-
-# ===========================================================================
-# Transform to Filing Dicts
+# Transform to Filing Dicts (ALL reports, no filtering)
 # ===========================================================================
 
 def _epoch_ms_to_datetime_str(value) -> Optional[str]:
@@ -328,21 +265,22 @@ def _epoch_ms_to_datetime_str(value) -> Optional[str]:
     return None
 
 
-def transform_to_filings(matched_reports: List[dict]) -> List[Dict[str, Any]]:
-    """Transform matched SGX API reports to sgx_filings dict format.
+def transform_to_filings(reports: List[dict]) -> List[Dict[str, Any]]:
+    """Transform ALL SGX API reports to sgx_filings dict format.
 
-    Maps API fields to table columns per the schema.
+    No filtering — every report becomes a filing. ticker_id and symbol
+    are set to None; populated later by try_match_tickers().
     """
     filings = []
-    for report in matched_reports:
+    for report in reports:
         broadcast = _epoch_ms_to_datetime_str(report.get("broadcastDateTime"))
         if not broadcast:
             logger.warning(f"Skipping report with no broadcastDateTime: {report.get('id')}")
             continue
 
         filing = {
-            'ticker_id': report['_ticker_id'],
-            'symbol': report['_dr_symbol'],
+            'ticker_id': None,
+            'symbol': None,
             'ann_id': str(report.get('id', '')),
             'broadcast_date_time': broadcast,
             'category_code': 'FIN_REPORT',
@@ -350,15 +288,203 @@ def transform_to_filings(matched_reports: List[dict]) -> List[Dict[str, Any]]:
             'subcategory_name': None,
             'title': report.get('title', 'Untitled'),
             'issuer_name': report.get('companyName'),
-            'stock_code': report.get('_stock_code'),
+            'stock_code': report.get('stockCode'),
             'attachment_url': report.get('url'),
+            'attachment_s3_key': None,
             'sgx_url': None,
             'raw_data': report,
         }
         filings.append(filing)
 
-    logger.info(f"Transformed {len(filings)} filings")
+    logger.info(f"Transformed {len(filings)} filings from {len(reports)} reports")
     return filings
+
+
+# ===========================================================================
+# Opportunistic Ticker Matching
+# ===========================================================================
+
+def _match_company(company_name: str) -> Optional[Tuple[str, str, str]]:
+    """Match SGX companyName to DR ticker.
+
+    Returns:
+        (yahoo_symbol, dr_symbol, sgx_stock_code) or None
+    """
+    upper = company_name.upper()
+    for key, value in SGX_COMPANY_MAP.items():
+        if key in upper:
+            return value
+    return None
+
+
+def try_match_tickers(filings: List[Dict[str, Any]], resolver) -> int:
+    """Opportunistically match filings to DR tickers.
+
+    For each filing, try to match its issuer_name to a DR ticker.
+    If matched: set ticker_id + symbol on the filing dict.
+    If not matched: leave both as None (filing is still stored).
+
+    Args:
+        filings: List of filing dicts (modified in-place)
+        resolver: TickerResolver instance
+
+    Returns:
+        Number of filings matched to DR tickers
+    """
+    matched_count = 0
+    unmatched_companies = set()
+
+    for filing in filings:
+        company_name = filing.get('issuer_name', '')
+        if not company_name:
+            continue
+
+        match = _match_company(company_name)
+        if match is None:
+            unmatched_companies.add(company_name)
+            continue
+
+        yahoo_symbol, dr_symbol, stock_code = match
+
+        ticker_info = resolver.resolve(yahoo_symbol)
+        if ticker_info is None:
+            logger.warning(f"TickerResolver cannot resolve {yahoo_symbol} for {company_name}")
+            continue
+
+        filing['ticker_id'] = ticker_info.ticker_id
+        filing['symbol'] = dr_symbol
+        if not filing.get('stock_code'):
+            filing['stock_code'] = stock_code
+        matched_count += 1
+
+    logger.info(
+        f"Ticker matching: {matched_count} matched to DR tickers, "
+        f"{len(unmatched_companies)} unique companies not in DR universe"
+    )
+    return matched_count
+
+
+# ===========================================================================
+# PDF Attachment Download to S3
+# ===========================================================================
+
+def _extract_filename_from_url(url: str) -> str:
+    """Extract filename from URL path, fallback to 'attachment.pdf'."""
+    try:
+        parsed = urlparse(url)
+        path = parsed.path
+        if path:
+            filename = Path(path).name
+            if filename:
+                return filename
+    except Exception:
+        pass
+    return "attachment.pdf"
+
+
+def download_attachments(
+    filings: List[Dict[str, Any]],
+    data_lake: DataLakeStorage,
+    session: requests.Session,
+    delay: float = 1.0,
+) -> int:
+    """Download PDF attachments from SGX and archive to S3.
+
+    For each filing with an attachment_url, downloads the PDF and uploads
+    it to S3 under sgx-filings/attachments/{ann_id}/{filename}.
+
+    Failures are logged but don't fail the whole run.
+
+    Args:
+        filings: List of filing dicts (modified in-place to set attachment_s3_key)
+        data_lake: DataLakeStorage instance for S3 access
+        session: requests.Session for downloading
+        delay: Seconds to wait between downloads (rate limiting)
+
+    Returns:
+        Number of attachments successfully archived
+    """
+    if not data_lake.enabled:
+        logger.warning("Data lake not configured, skipping attachment downloads")
+        return 0
+
+    archived_count = 0
+    skipped_count = 0
+    failed_count = 0
+
+    filings_with_url = [f for f in filings if f.get('attachment_url')]
+    logger.info(f"Downloading {len(filings_with_url)} PDF attachments to S3...")
+
+    for i, filing in enumerate(filings_with_url):
+        url = filing['attachment_url']
+        ann_id = filing['ann_id']
+        filename = _extract_filename_from_url(url)
+        s3_key = f"sgx-filings/attachments/{ann_id}/{filename}"
+
+        try:
+            # Check if already archived (idempotent)
+            try:
+                data_lake.s3_client.head_object(
+                    Bucket=data_lake.bucket_name,
+                    Key=s3_key,
+                )
+                # Already exists
+                filing['attachment_s3_key'] = s3_key
+                skipped_count += 1
+                continue
+            except data_lake.s3_client.exceptions.ClientError:
+                pass  # Not found, proceed to download
+
+            # Download PDF (stream to avoid buffering large files)
+            resp = session.get(url, timeout=60, stream=True)
+            if resp.status_code != 200:
+                logger.warning(
+                    f"Attachment download failed HTTP {resp.status_code}: "
+                    f"ann_id={ann_id} url={url}"
+                )
+                failed_count += 1
+                continue
+
+            # Read content
+            content = resp.content
+            content_type = resp.headers.get('Content-Type', 'application/pdf')
+
+            # Upload to S3
+            data_lake.s3_client.put_object(
+                Bucket=data_lake.bucket_name,
+                Key=s3_key,
+                Body=content,
+                ContentType=content_type,
+                Metadata={
+                    'ann_id': ann_id,
+                    'source_url': url,
+                    'archived_at': datetime.now(timezone.utc).isoformat(),
+                },
+                Tagging="type=attachment&source=sgx&purpose=filing-archive",
+            )
+
+            filing['attachment_s3_key'] = s3_key
+            archived_count += 1
+
+            if (i + 1) % 50 == 0:
+                logger.info(
+                    f"Attachment progress: {i + 1}/{len(filings_with_url)} "
+                    f"(archived={archived_count}, skipped={skipped_count}, failed={failed_count})"
+                )
+
+        except Exception as e:
+            logger.warning(f"Attachment archive failed for ann_id={ann_id}: {e}")
+            failed_count += 1
+
+        # Rate limit between downloads
+        if delay > 0 and i < len(filings_with_url) - 1:
+            time.sleep(delay)
+
+    logger.info(
+        f"Attachment download complete: "
+        f"archived={archived_count}, skipped={skipped_count}, failed={failed_count}"
+    )
+    return archived_count
 
 
 # ===========================================================================
@@ -404,7 +530,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         '--dry-run', action='store_true',
-        help='Fetch and match but do not write to Aurora or S3',
+        help='Fetch and transform but do not write to Aurora or S3',
     )
     parser.add_argument(
         '--symbol', type=str, default=None,
@@ -423,12 +549,20 @@ def parse_args() -> argparse.Namespace:
         help='Delay between API calls in seconds (default: 5.0)',
     )
     parser.add_argument(
-        '--version', type=str, default='v1',
-        help='Script version tag for provenance (default: v1)',
+        '--version', type=str, default='v2',
+        help='Script version tag for provenance (default: v2)',
     )
     parser.add_argument(
         '--skip-self-archive', action='store_true',
         help='Skip uploading script to S3',
+    )
+    parser.add_argument(
+        '--skip-attachments', action='store_true',
+        help='Skip downloading PDF attachments to S3',
+    )
+    parser.add_argument(
+        '--attachment-delay', type=float, default=1.0,
+        help='Delay between attachment downloads in seconds (default: 1.0)',
     )
     parser.add_argument(
         '--verbose', '-v', action='store_true',
@@ -446,9 +580,10 @@ def main():
     )
 
     logger.info("=" * 60)
-    logger.info("SGX Financial Reports Ingestion")
+    logger.info("SGX Financial Reports Ingestion (v2 — all filings)")
     logger.info(f"  dry_run={args.dry_run}, symbol={args.symbol}, "
                 f"max_pages={args.max_pages}, version={args.version}")
+    logger.info(f"  skip_attachments={args.skip_attachments}")
     logger.info("=" * 60)
 
     # ------------------------------------------------------------------
@@ -456,6 +591,7 @@ def main():
     # ------------------------------------------------------------------
     artifact_s3_key = None
     artifact_checksum = None
+    data_lake = None
 
     if not args.dry_run and not args.skip_self_archive:
         try:
@@ -485,12 +621,13 @@ def main():
             artifact_checksum=artifact_checksum,
             endpoint_url=SGX_FIN_REPORTS_URL,
             endpoint_version='v1.0',
-            description=f"SGX Financial Reports ingestion (symbol={args.symbol or 'all'})",
+            description=f"SGX Financial Reports ingestion v2 (symbol={args.symbol or 'all'})",
             parameters={
                 'page_size': args.page_size,
                 'delay': args.delay,
                 'max_pages': args.max_pages,
                 'symbol_filter': args.symbol,
+                'skip_attachments': args.skip_attachments,
             },
         )
         logger.info(f"Started acquisition run: id={acq_id}")
@@ -528,34 +665,58 @@ def main():
         logger.info(f"Fetched {records_fetched} reports (expected {total_expected})")
 
         # ------------------------------------------------------------------
-        # 5. Match to DR tickers
+        # 5. Transform ALL reports to filing dicts (no filtering)
         # ------------------------------------------------------------------
-        logger.info("Matching reports to DR ticker universe...")
+        filings = transform_to_filings(all_reports)
+
+        # ------------------------------------------------------------------
+        # 6. Opportunistic ticker matching
+        # ------------------------------------------------------------------
+        logger.info("Attempting opportunistic DR ticker matching...")
         resolver = get_ticker_resolver()
-        matched = match_reports_to_tickers(
-            all_reports, resolver, symbol_filter=args.symbol
-        )
+        matched_count = try_match_tickers(filings, resolver)
+
+        # Filter by --symbol if requested (post-matching)
+        if args.symbol:
+            filings = [f for f in filings if f.get('symbol') == args.symbol]
+            logger.info(f"Filtered to symbol={args.symbol}: {len(filings)} filings")
 
         # ------------------------------------------------------------------
-        # 6. Transform to filing dicts
+        # 7. Download PDF attachments to S3
         # ------------------------------------------------------------------
-        filings = transform_to_filings(matched)
+        attachments_archived = 0
+        if not args.dry_run and not args.skip_attachments:
+            if data_lake is None:
+                data_lake = DataLakeStorage()
+            if data_lake.enabled:
+                attachments_archived = download_attachments(
+                    filings, data_lake, session,
+                    delay=args.attachment_delay,
+                )
+            else:
+                logger.warning("Data lake not configured, skipping attachment downloads")
 
         # ------------------------------------------------------------------
-        # 7. Dry run summary or upsert
+        # 8. Dry run summary or upsert
         # ------------------------------------------------------------------
         if args.dry_run:
             logger.info("=" * 60)
-            logger.info("DRY RUN — No data written")
-            logger.info(f"  Total reports fetched: {records_fetched}")
-            logger.info(f"  Matched to DR tickers: {len(matched)}")
-            logger.info(f"  Filings to upsert: {len(filings)}")
+            logger.info("DRY RUN -- No data written")
+            logger.info(f"  Total reports fetched:    {records_fetched}")
+            logger.info(f"  Filings to upsert:       {len(filings)}")
+            logger.info(f"  Matched to DR tickers:   {matched_count}")
+            logger.info(f"  Unmatched (still stored): {len(filings) - matched_count}")
             logger.info("")
-            for f in filings:
+            for f in filings[:20]:
+                symbol_str = f['symbol'] or '(none)'
                 logger.info(
-                    f"  {f['symbol']:12s} | {f['ann_id']:20s} | "
-                    f"{f['broadcast_date_time'][:10]} | {f['title'][:60]}"
+                    f"  {symbol_str:12s} | {f['ann_id']:20s} | "
+                    f"{f['broadcast_date_time'][:10]} | "
+                    f"{(f.get('issuer_name') or '')[:30]:30s} | "
+                    f"{f['title'][:40]}"
                 )
+            if len(filings) > 20:
+                logger.info(f"  ... and {len(filings) - 20} more")
             logger.info("=" * 60)
             return
 
@@ -572,7 +733,7 @@ def main():
         logger.info(f"Batch upsert complete: {records_upserted} rows affected")
 
         # ------------------------------------------------------------------
-        # 8. Complete acquisition
+        # 9. Complete acquisition
         # ------------------------------------------------------------------
         status = 'success' if records_fetched >= total_expected else 'partial'
         if acq_id:
@@ -600,12 +761,14 @@ def main():
     # ------------------------------------------------------------------
     logger.info("=" * 60)
     logger.info("INGESTION COMPLETE")
-    logger.info(f"  Reports fetched:  {records_fetched}")
-    logger.info(f"  Rows upserted:    {records_upserted}")
+    logger.info(f"  Reports fetched:      {records_fetched}")
+    logger.info(f"  Filings upserted:     {records_upserted}")
+    logger.info(f"  DR ticker matches:    {matched_count}")
+    logger.info(f"  Attachments archived: {attachments_archived}")
     if acq_id:
-        logger.info(f"  Acquisition ID:   {acq_id}")
+        logger.info(f"  Acquisition ID:       {acq_id}")
     if artifact_s3_key:
-        logger.info(f"  Script artifact:  {artifact_s3_key}")
+        logger.info(f"  Script artifact:      {artifact_s3_key}")
     logger.info("=" * 60)
 
 

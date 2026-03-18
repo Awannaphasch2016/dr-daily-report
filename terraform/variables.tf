@@ -65,12 +65,6 @@ variable "log_retention_days" {
   default     = 7
 }
 
-variable "beta_user_limit" {
-  description = "Maximum number of beta users for LINE Bot (0 = unlimited, N = limit to next N users)"
-  type        = number
-  default     = 0
-}
-
 ###############################################################################
 # Environment Variables for Lambda
 # NOTE: Variable names are UPPERCASE to match Doppler's TF_VAR_* naming

@@ -286,11 +286,19 @@ class WorkflowNodes:
 
         # Query Aurora for ticker data (ground truth)
         precompute_service = PrecomputeService()
-        # Use Bangkok timezone for business dates (CLAUDE.md Principle #14: Timezone Discipline)
-        from datetime import datetime
+        # Use explicit data_date from state if provided, otherwise today (Bangkok timezone)
+        from datetime import datetime, date as date_type
         from zoneinfo import ZoneInfo
-        bangkok_tz = ZoneInfo("Asia/Bangkok")
-        ticker_data = precompute_service.get_ticker_data(symbol=ticker, data_date=datetime.now(bangkok_tz).date())
+        data_date_str = state.get('data_date', '')
+        if data_date_str:
+            query_date = date_type.fromisoformat(data_date_str)
+        else:
+            bangkok_tz = ZoneInfo("Asia/Bangkok")
+            query_date = datetime.now(bangkok_tz).date()
+        # If explicit data_date provided, skip expiry check (data is valid for experiments/historical use)
+        ticker_data = precompute_service.get_ticker_data(
+            symbol=ticker, data_date=query_date, ignore_expiry=bool(data_date_str)
+        )
 
         if not ticker_data:
             # Data not available - FAIL FAST (no fallback)
@@ -998,7 +1006,8 @@ class WorkflowNodes:
                 'price_vs_vwap_pct': market_conditions.get('price_vs_vwap_pct', 0),
                 'volume_ratio': market_conditions.get('volume_ratio', 0),
             },
-            comparative_insights=make_json_serializable(state.get('comparative_insights', {}))
+            comparative_insights=make_json_serializable(state.get('comparative_insights', {})),
+            injected_replacements=getattr(self.number_injector, 'last_replacements', None)
         )
 
         # Get yahoo ticker for background evaluation
@@ -1035,9 +1044,11 @@ class WorkflowNodes:
                 if hasattr(score_result, 'overall_score'):
                     overall = score_result.overall_score
                     # Build comment from sub-scores if available
+                    # Scorers use different attribute names: dimension_scores or metric_scores
                     comment = None
-                    if hasattr(score_result, 'sub_scores') and score_result.sub_scores:
-                        sub_details = [f"{k}={v:.1f}" for k, v in score_result.sub_scores.items()]
+                    sub = getattr(score_result, 'dimension_scores', None) or getattr(score_result, 'metric_scores', None)
+                    if sub:
+                        sub_details = [f"{k}={v:.1f}" for k, v in sub.items()]
                         comment = ", ".join(sub_details)
                     langfuse_scores[score_name] = (overall, comment)
 
@@ -1096,10 +1107,69 @@ class WorkflowNodes:
             else:
                 state["llm_scores"] = {}
 
+            # Add placeholder compliance score
+            if hasattr(self.number_injector, 'last_metrics') and self.number_injector.last_metrics:
+                metrics = self.number_injector.last_metrics
+                total = metrics['injected_count'] + metrics['unresolved_count']
+                compliance_pct = (metrics['injected_count'] / total * 100) if total > 0 else 100
+                langfuse_scores['placeholder_compliance'] = (
+                    compliance_pct,
+                    f"injected={metrics['injected_count']}, unresolved={metrics['unresolved_count']}, orphan={metrics['orphan_suffix_count']}"
+                )
+
             # Push all scores to Langfuse trace
             scores_pushed = score_trace_batch(langfuse_scores)
             if scores_pushed > 0:
                 logger.info(f"📊 Pushed {scores_pushed} scores to Langfuse")
+
+            # ============================================
+            # STORE TRACE IN AURORA (vendor-agnostic)
+            # ============================================
+            try:
+                from src.data.aurora.trace_repository import get_trace_repository
+
+                trace_repo = get_trace_repository()
+                trace_data = {
+                    'trace_type': 'report_generation',
+                    'model_id': getattr(self.llm, 'model_name', None) or getattr(self.llm, 'model', 'unknown'),
+                    'prompt_version': self.prompt_builder.get_prompt_metadata().get('prompt_version'),
+                    'agent_type': 'single-stage',
+                    'release': os.environ.get('LANGFUSE_RELEASE') or os.environ.get('AWS_LAMBDA_FUNCTION_VERSION'),
+                    'trace_provider': 'langfuse' if os.environ.get('LANGFUSE_PUBLIC_KEY') else None,
+                    'trace_external_id': None,
+                    'context': {'symbol': ticker, 'report_date': str(state.get('data_date', ''))},
+                    'status': 'failed' if state.get('error') else 'completed',
+                    'error_message': state.get('error'),
+                }
+
+                # Build scores dict with sub_scores for reproducibility
+                trace_scores = {}
+                for name, (value, comment) in langfuse_scores.items():
+                    score_entry = {
+                        'value': value,
+                        'comment': comment,
+                        'scorer_type': 'rule',
+                        'scorer_version': '1.0',
+                        'sub_scores': None,
+                        'config': None,
+                    }
+                    if name in quality_scores:
+                        result = quality_scores[name]
+                        sub = getattr(result, 'dimension_scores', None) or getattr(result, 'metric_scores', None)
+                        if sub:
+                            score_entry['sub_scores'] = dict(sub)
+                    if name == 'placeholder_compliance':
+                        score_entry['scorer_type'] = 'computed'
+                        score_entry['sub_scores'] = self.number_injector.last_metrics
+                    if name in state.get('llm_scores', {}):
+                        score_entry['scorer_type'] = 'llm'
+                    trace_scores[name] = score_entry
+
+                trace_repo.insert_trace_with_scores(trace_data, trace_scores)
+                logger.info(f"📋 Stored trace with {len(trace_scores)} scores to Aurora")
+
+            except Exception as e:
+                logger.warning(f"⚠️ Trace storage failed (non-blocking): {e}")
 
         except Exception as e:
             logger.warning(f"⚠️ Quality scoring failed (non-blocking): {e}")

@@ -1673,13 +1673,15 @@ class PrecomputeService:
     def get_ticker_data(
         self,
         symbol: str,
-        data_date: Optional[date] = None
+        data_date: Optional[date] = None,
+        ignore_expiry: bool = False,
     ) -> Optional[Dict[str, Any]]:
         """Get ticker data from Aurora (ground truth).
 
         Args:
             symbol: Ticker symbol
             data_date: Date of the data (defaults to today)
+            ignore_expiry: If True, skip expires_at filter (for experiments on historical data)
 
         Returns:
             Dict with price_history, company_info, financials or None if not found
@@ -1694,11 +1696,17 @@ class PrecomputeService:
         if master_id is None:
             return None
 
-        query = f"""
-            SELECT * FROM {TICKER_DATA}
-            WHERE ticker_master_id = %s AND date = %s
-            AND (expires_at IS NULL OR expires_at > NOW())
-        """
+        if ignore_expiry:
+            query = f"""
+                SELECT * FROM {TICKER_DATA}
+                WHERE ticker_master_id = %s AND date = %s
+            """
+        else:
+            query = f"""
+                SELECT * FROM {TICKER_DATA}
+                WHERE ticker_master_id = %s AND date = %s
+                AND (expires_at IS NULL OR expires_at > NOW())
+            """
         result = self.client.fetch_one(query, (master_id, data_date))
 
         if result:

@@ -49,7 +49,7 @@ class SgxFilingsRepository:
     """
 
     REQUIRED_FIELDS = {
-        'ticker_id', 'symbol', 'ann_id', 'broadcast_date_time',
+        'ann_id', 'broadcast_date_time',
         'title', 'raw_data',
     }
 
@@ -102,16 +102,18 @@ class SgxFilingsRepository:
                 ticker_id, symbol, ann_id, broadcast_date_time,
                 category_code, subcategory_code, subcategory_name,
                 title, issuer_name, stock_code,
-                attachment_url, sgx_url,
+                attachment_url, attachment_s3_key, sgx_url,
                 raw_data, acquisition_id, fetched_at
             ) VALUES (
                 %s, %s, %s, %s,
                 %s, %s, %s,
                 %s, %s, %s,
-                %s, %s,
+                %s, %s, %s,
                 %s, %s, NOW()
             )
             ON DUPLICATE KEY UPDATE
+                ticker_id = VALUES(ticker_id),
+                symbol = VALUES(symbol),
                 broadcast_date_time = VALUES(broadcast_date_time),
                 category_code = VALUES(category_code),
                 subcategory_code = VALUES(subcategory_code),
@@ -120,14 +122,15 @@ class SgxFilingsRepository:
                 issuer_name = VALUES(issuer_name),
                 stock_code = VALUES(stock_code),
                 attachment_url = VALUES(attachment_url),
+                attachment_s3_key = VALUES(attachment_s3_key),
                 sgx_url = VALUES(sgx_url),
                 raw_data = VALUES(raw_data),
                 acquisition_id = VALUES(acquisition_id)
         """
 
         params = (
-            filing['ticker_id'],
-            filing['symbol'],
+            filing.get('ticker_id'),
+            filing.get('symbol'),
             filing['ann_id'],
             filing['broadcast_date_time'],
             filing.get('category_code'),
@@ -137,6 +140,7 @@ class SgxFilingsRepository:
             filing.get('issuer_name'),
             filing.get('stock_code'),
             filing.get('attachment_url'),
+            filing.get('attachment_s3_key'),
             filing.get('sgx_url'),
             raw_data_json,
             filing.get('acquisition_id'),
@@ -144,7 +148,7 @@ class SgxFilingsRepository:
 
         rowcount = self.client.execute(query, params)
         logger.debug(
-            f"Upserted filing: {filing['symbol']} ann_id={filing['ann_id']} "
+            f"Upserted filing: {filing.get('symbol', 'N/A')} ann_id={filing['ann_id']} "
             f"- {rowcount} rows affected"
         )
         return rowcount
