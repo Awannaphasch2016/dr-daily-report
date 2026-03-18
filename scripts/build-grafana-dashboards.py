@@ -2,8 +2,10 @@
 """Build Grafana dashboards via API and create public snapshots.
 
 Usage:
-    export GRAFANA_API_KEY="eyJr..."
     python scripts/build-grafana-dashboards.py
+
+Authentication: Uses AWS IAM credentials (via boto3) to self-provision a
+short-lived Grafana Service Account Token. No manual API key needed.
 
 Creates 3 dashboards:
     1. Pipeline Health (CloudWatch + MySQL)
@@ -17,26 +19,38 @@ import json
 import os
 import sys
 
+import boto3
 import requests
 
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
-ENDPOINT = "https://g-4df4c51648.grafana-workspace.ap-southeast-1.amazonaws.com"
-API_KEY = os.environ.get("GRAFANA_API_KEY", "")
-MYSQL_DS = {"uid": "bfg0lw3z4zqbkf", "type": "mysql"}
-CW_DS = {"uid": "cfg0lw8bf6fpce", "type": "cloudwatch"}
+REGION = "ap-southeast-1"
+WORKSPACE_ID = "g-4df4c51648"
+ENDPOINT = f"https://{WORKSPACE_ID}.grafana-workspace.{REGION}.amazonaws.com"
+
+# Datasources use Grafana template variables — resolved at render time.
+# Requires MySQL datasources named "mysql-dev", "mysql-staging", "mysql-prod".
+MYSQL_DS = {"uid": "${datasource}", "type": "mysql"}
+CW_DS = {"uid": "${cw_datasource}", "type": "cloudwatch"}
 
 HEADERS = {}
 
-# Lambda function names (for CloudWatch queries)
-LAMBDA_FUNCTIONS = [
-    "dr-daily-report-telegram-api-dev",
-    "dr-daily-report-report-worker-dev",
-    "dr-daily-report-ticker-scheduler-dev",
-    "dr-daily-report-backtest-precompute-dev",
-    "dr-daily-report-pattern-precompute-dev",
-    "dr-daily-report-webhook-health-dev",
+# --- Environment configuration (single place to expand later) ---
+# To add staging/prod: change AVAILABLE_ENVS and DEFAULT_ENV
+AVAILABLE_ENVS = "dev"  # Future: "dev,staging,prod"
+DEFAULT_ENV = "dev"     # Future: "prod"
+DEFAULT_MYSQL_DS = f"mysql-{DEFAULT_ENV}"
+PROJECT_NAME = "dr-daily-report"
+
+# Lambda base names — combined with ${env} in CloudWatch panels
+LAMBDA_BASE_NAMES = [
+    "telegram-api",
+    "report-worker",
+    "ticker-scheduler",
+    "precompute-controller",
+    "line-bot",
+    "credit-checker",
 ]
 
 
@@ -178,7 +192,7 @@ def cloudwatch_timeseries(title, metric_name, namespace, stat, x, y, w=12, h=8,
                 "dimensions": {dim_key: [dim_val]},
                 "period": period,
                 "id": f"m{i}",
-                "label": dim_val.replace("dr-daily-report-", "").replace("-dev", ""),
+                "label": dim_val.replace(f"{PROJECT_NAME}-", "").replace("-${env}", ""),
                 "region": "ap-southeast-1",
                 "matchExact": True,
             })
@@ -217,6 +231,42 @@ def row_panel(title, y):
     }
 
 
+def _env_template_variables(extra_vars=None):
+    """Template variables for environment switching.
+
+    Provides datasource + env dropdowns at the top of every dashboard.
+    To add staging/prod: change AVAILABLE_ENVS and DEFAULT_ENV at top of file.
+    """
+    template_vars = [
+        {
+            "name": "datasource",
+            "type": "datasource",
+            "query": "mysql",
+            "regex": "/mysql-.*/",
+            "current": {"text": DEFAULT_MYSQL_DS, "value": DEFAULT_MYSQL_DS},
+            "label": "Database",
+        },
+        {
+            "name": "env",
+            "type": "custom",
+            "query": AVAILABLE_ENVS,
+            "current": {"text": DEFAULT_ENV, "value": DEFAULT_ENV},
+            "label": "Environment",
+        },
+        {
+            "name": "cw_datasource",
+            "type": "datasource",
+            "query": "cloudwatch",
+            "current": {"text": "cloudwatch", "value": "cloudwatch"},
+            "label": "CloudWatch",
+            "hide": 2,  # Hidden — only one CW datasource, avoids hardcoding UID
+        },
+    ]
+    if extra_vars:
+        template_vars.extend(extra_vars)
+    return template_vars
+
+
 # ---------------------------------------------------------------------------
 # Dashboard 1: Pipeline Health
 # ---------------------------------------------------------------------------
@@ -249,7 +299,7 @@ def build_pipeline_health_dashboard():
 
     # Row: Lambda Health
     panels.append(row_panel("Lambda Health (CloudWatch)", 5))
-    lambda_dims = [("FunctionName", fn) for fn in LAMBDA_FUNCTIONS]
+    lambda_dims = [("FunctionName", f"{PROJECT_NAME}-{base}-${{env}}") for base in LAMBDA_BASE_NAMES]
     panels.append(cloudwatch_timeseries(
         "Lambda Errors", "Errors", "AWS/Lambda", "Sum",
         x=0, y=6, w=12, h=8, dimensions=lambda_dims,
@@ -270,35 +320,55 @@ def build_pipeline_health_dashboard():
         x=12, y=15, w=12, h=8,
     ))
 
+    # Row: LLM Credits (OpenRouter)
+    panels.append(row_panel("LLM Credits", 23))
+    credit_dims = [("Environment", "${env}")]
+    panels.append(cloudwatch_timeseries(
+        "Credit Balance ($)", "CreditBalance", "DR/OpenRouter", "Minimum",
+        x=0, y=24, w=8, h=6, dimensions=credit_dims,
+    ))
+    panels.append(cloudwatch_timeseries(
+        "Days Remaining", "DaysRemaining", "DR/OpenRouter", "Minimum",
+        x=8, y=24, w=8, h=6, dimensions=credit_dims,
+    ))
+    panels.append(cloudwatch_timeseries(
+        "Actual Daily Cost ($)", "ActualDailyCost", "DR/OpenRouter", "Maximum",
+        x=16, y=24, w=8, h=6, dimensions=credit_dims,
+    ))
+    panels.append(cloudwatch_timeseries(
+        "Credit Balance History", "CreditBalance", "DR/OpenRouter", "Average",
+        x=0, y=30, w=24, h=8, dimensions=credit_dims,
+    ))
+
     # Row: Database Metrics
-    panels.append(row_panel("Database Row Counts", 23))
+    panels.append(row_panel("Database Row Counts", 38))
     panels.append(stat_panel(
         "Price Records",
         "SELECT COUNT(*) AS value FROM daily_prices",
-        x=0, y=24, w=6, h=4,
+        x=0, y=39, w=6, h=4,
     ))
     panels.append(stat_panel(
         "Indicator Records",
         "SELECT COUNT(*) AS value FROM daily_indicators",
-        x=6, y=24, w=6, h=4,
+        x=6, y=39, w=6, h=4,
     ))
     panels.append(stat_panel(
         "User Requests",
         "SELECT COUNT(*) AS value FROM user_requests",
-        x=12, y=24, w=6, h=4,
+        x=12, y=39, w=6, h=4,
     ))
     panels.append(stat_panel(
         "Total Users",
         "SELECT COUNT(*) AS value FROM users",
-        x=18, y=24, w=6, h=4,
+        x=18, y=39, w=6, h=4,
     ))
 
     # Row: Webhook Health
-    panels.append(row_panel("Webhook Health", 28))
+    panels.append(row_panel("Webhook Health", 43))
     panels.append(stat_panel(
         "Webhook Status",
         "SELECT status AS value FROM webhook_health_checks WHERE endpoint='line_webhook' ORDER BY check_time DESC LIMIT 1",
-        x=0, y=29, w=6, h=4,
+        x=0, y=44, w=6, h=4,
         thresholds=[
             {"color": "red", "value": None},
         ],
@@ -306,17 +376,17 @@ def build_pipeline_health_dashboard():
     panels.append(gauge_panel(
         "Uptime % (30d)",
         "SELECT ROUND(SUM(status='healthy')*100.0/COUNT(*),1) AS value FROM webhook_health_checks WHERE check_time >= DATE_SUB(NOW(), INTERVAL 30 DAY)",
-        x=6, y=29, w=6, h=4,
+        x=6, y=44, w=6, h=4,
     ))
     panels.append(stat_panel(
         "Avg Latency (7d)",
         "SELECT ROUND(AVG(latency_ms)) AS value FROM webhook_health_checks WHERE check_time >= DATE_SUB(NOW(), INTERVAL 7 DAY)",
-        x=12, y=29, w=6, h=4, unit="ms",
+        x=12, y=44, w=6, h=4, unit="ms",
     ))
     panels.append(stat_panel(
         "Last Check",
         "SELECT MAX(check_time) AS value FROM webhook_health_checks",
-        x=18, y=29, w=6, h=4,
+        x=18, y=44, w=6, h=4,
     ))
     panels.append(timeseries_panel(
         "Webhook Status Over Time",
@@ -327,7 +397,7 @@ def build_pipeline_health_dashboard():
         FROM webhook_health_checks
         WHERE $__timeFilter(check_time)
         ORDER BY check_time""",
-        x=0, y=33, w=12, h=8,
+        x=0, y=48, w=12, h=8,
     ))
     panels.append(timeseries_panel(
         "Webhook Latency Over Time",
@@ -338,7 +408,7 @@ def build_pipeline_health_dashboard():
         FROM webhook_health_checks
         WHERE $__timeFilter(check_time)
         ORDER BY check_time""",
-        x=12, y=33, w=12, h=8, unit="ms",
+        x=12, y=48, w=12, h=8, unit="ms",
     ))
     panels.append(table_panel(
         "Recent Health Checks",
@@ -353,7 +423,7 @@ def build_pipeline_health_dashboard():
         FROM webhook_health_checks
         ORDER BY check_time DESC
         LIMIT 14""",
-        x=0, y=41, w=24, h=6,
+        x=0, y=56, w=24, h=6,
     ))
 
     return {
@@ -363,7 +433,7 @@ def build_pipeline_health_dashboard():
         "time": {"from": "now-24h", "to": "now"},
         "refresh": "5m",
         "schemaVersion": 39,
-        "templating": {"list": []},
+        "templating": {"list": _env_template_variables()},
     }
 
 
@@ -471,17 +541,15 @@ def build_strategy_performance_dashboard():
         x=0, y=25, w=24, h=6,
     ))
 
-    # Template variable: ticker selector
-    templating = {
-        "list": [{
-            "name": "ticker",
-            "type": "query",
-            "datasource": MYSQL_DS,
-            "query": "SELECT DISTINCT symbol FROM backtest_results WHERE strategy_name != '_consensus' ORDER BY symbol",
-            "current": {"text": "DBS19", "value": "DBS19"},
-            "refresh": 1,
-            "sort": 1,
-        }]
+    # Template variable: ticker selector (uses datasource template var)
+    ticker_var = {
+        "name": "ticker",
+        "type": "query",
+        "datasource": MYSQL_DS,
+        "query": "SELECT DISTINCT symbol FROM backtest_results WHERE strategy_name != '_consensus' ORDER BY symbol",
+        "current": {"text": "DBS19", "value": "DBS19"},
+        "refresh": 1,
+        "sort": 1,
     }
 
     return {
@@ -491,7 +559,7 @@ def build_strategy_performance_dashboard():
         "time": {"from": "now-90d", "to": "now"},
         "refresh": "",
         "schemaVersion": 39,
-        "templating": templating,
+        "templating": {"list": _env_template_variables(extra_vars=[ticker_var])},
     }
 
 
@@ -601,7 +669,7 @@ def build_user_analytics_dashboard():
         "time": {"from": "now-7d", "to": "now"},
         "refresh": "5m",
         "schemaVersion": 39,
-        "templating": {"list": []},
+        "templating": {"list": _env_template_variables()},
     }
 
 
@@ -663,20 +731,109 @@ def create_snapshot(dashboard_uid):
 
 
 # ---------------------------------------------------------------------------
+# Auth: self-provision a short-lived Grafana Service Account Token via boto3
+# ---------------------------------------------------------------------------
+SERVICE_ACCOUNT_NAME = "dashboard-deployer"
+
+
+def _get_or_create_service_account(client):
+    """Find existing service account or create one. Returns service account ID."""
+    paginator = client.get_paginator("list_workspace_service_accounts")
+    for page in paginator.paginate(workspaceId=WORKSPACE_ID):
+        for sa in page["serviceAccounts"]:
+            if sa["name"] == SERVICE_ACCOUNT_NAME:
+                return sa["id"]
+
+    resp = client.create_workspace_service_account(
+        name=SERVICE_ACCOUNT_NAME,
+        grafanaRole="ADMIN",
+        workspaceId=WORKSPACE_ID,
+    )
+    print(f"Created service account: {SERVICE_ACCOUNT_NAME}")
+    return resp["id"]
+
+
+def _provision_token(client, sa_id):
+    """Create a short-lived token (5 min) for this run. Returns token key."""
+    resp = client.create_workspace_service_account_token(
+        name="ephemeral-deploy",
+        secondsToLive=300,  # 5 minutes — just enough for this run
+        serviceAccountId=sa_id,
+        workspaceId=WORKSPACE_ID,
+    )
+    return resp["serviceAccountToken"]["key"]
+
+
+def _cleanup_stale_tokens(client, sa_id):
+    """Delete old ephemeral tokens to avoid accumulation."""
+    paginator = client.get_paginator("list_workspace_service_account_tokens")
+    for page in paginator.paginate(serviceAccountId=sa_id, workspaceId=WORKSPACE_ID):
+        for token in page["serviceAccountTokens"]:
+            if token["name"] == "ephemeral-deploy":
+                client.delete_workspace_service_account_token(
+                    serviceAccountId=sa_id,
+                    tokenId=token["id"],
+                    workspaceId=WORKSPACE_ID,
+                )
+
+
+def get_grafana_token():
+    """Self-provision a short-lived Grafana token using AWS IAM credentials."""
+    client = boto3.client("grafana", region_name=REGION)
+    sa_id = _get_or_create_service_account(client)
+    _cleanup_stale_tokens(client, sa_id)
+    token = _provision_token(client, sa_id)
+    return token
+
+
+# ---------------------------------------------------------------------------
+# Datasource helpers
+# ---------------------------------------------------------------------------
+def rename_datasource_if_needed(old_uid, new_name):
+    """Rename a datasource to follow mysql-{env} convention if not already named."""
+    resp = requests.get(
+        f"{ENDPOINT}/api/datasources/uid/{old_uid}",
+        headers=HEADERS,
+        timeout=10,
+    )
+    if resp.status_code != 200:
+        print(f"  Datasource uid={old_uid} not found ({resp.status_code}), skipping rename")
+        return
+
+    ds = resp.json()
+    if ds["name"] == new_name:
+        print(f"  Datasource '{new_name}' already correctly named")
+        return
+
+    old_name = ds["name"]
+    ds["name"] = new_name
+    resp = requests.put(
+        f"{ENDPOINT}/api/datasources/{ds['id']}",
+        headers=HEADERS,
+        json=ds,
+        timeout=10,
+    )
+    if resp.status_code != 200:
+        print(f"  ERROR renaming datasource: {resp.status_code} {resp.text}")
+    else:
+        print(f"  Renamed datasource '{old_name}' → '{new_name}'")
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
+# Known datasource UIDs (from original hardcoded config)
+MYSQL_DS_UID = "bfg0lw3z4zqbkf"
+
+
 def main():
     global HEADERS
 
-    api_key = API_KEY
-    if not api_key:
-        api_key = input("Enter Grafana API key: ").strip()
-    if not api_key:
-        print("ERROR: No API key provided. Set GRAFANA_API_KEY env var.")
-        sys.exit(1)
+    print("Provisioning Grafana API token via AWS IAM...")
+    token = get_grafana_token()
 
     HEADERS = {
-        "Authorization": f"Bearer {api_key}",
+        "Authorization": f"Bearer {token}",
         "Content-Type": "application/json",
     }
 
@@ -687,6 +844,11 @@ def main():
         sys.exit(1)
     print(f"Connected to Grafana: {resp.json().get('name', 'unknown')}")
     print(f"Endpoint: {ENDPOINT}")
+    print()
+
+    # Rename MySQL datasource to mysql-{env} convention
+    print("Checking datasource naming...")
+    rename_datasource_if_needed(MYSQL_DS_UID, DEFAULT_MYSQL_DS)
     print()
 
     builders = [
