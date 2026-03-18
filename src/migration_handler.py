@@ -526,6 +526,15 @@ def lambda_handler(event: dict, context: Any) -> dict:
             'statusCode': 200 if result['status'] == 'success' else 500,
             'body': json.dumps(result)
         }
+    elif migration == 'add_cost_tracking':
+        result = run_sql_migration(
+            'Add cost tracking columns + model_pricing table (038)',
+            '038_add_cost_tracking.sql'
+        )
+        return {
+            'statusCode': 200 if result['status'] == 'success' else 500,
+            'body': json.dumps(result)
+        }
     elif migration == 'create_model_catalog':
         result = run_sql_migration(
             'Create model_catalog table + performance view (039)',
@@ -598,6 +607,7 @@ def lambda_handler(event: dict, context: Any) -> dict:
                     'create_sec_edgar_filings', 'create_hkex_filings',
                     'create_metric_config',
                     'create_traces',
+                    'add_cost_tracking',
                     'create_model_catalog',
                     'update_performance_view'
                 ]
