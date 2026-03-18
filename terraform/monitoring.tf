@@ -395,6 +395,204 @@ resource "aws_cloudwatch_metric_alarm" "precompute_workflow_failures" {
 }
 
 ###############################################################################
+# OpenRouter Credit Checker Lambda (ZIP Deployment)
+###############################################################################
+
+# IAM Role for Credit Checker Lambda
+resource "aws_iam_role" "credit_checker" {
+  name = "${var.project_name}-credit-checker-role-${var.environment}"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Action = "sts:AssumeRole"
+      Effect = "Allow"
+      Principal = {
+        Service = "lambda.amazonaws.com"
+      }
+    }]
+  })
+
+  tags = merge(local.common_tags, {
+    Name      = "${var.project_name}-credit-checker-role-${var.environment}"
+    App       = "shared"
+    Component = "monitoring"
+  })
+}
+
+# IAM Policy: CloudWatch Logs + PutMetricData + GetMetricStatistics
+resource "aws_iam_role_policy" "credit_checker" {
+  name = "${var.project_name}-credit-checker-policy-${var.environment}"
+  role = aws_iam_role.credit_checker.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "logs:CreateLogGroup",
+          "logs:CreateLogStream",
+          "logs:PutLogEvents"
+        ]
+        Resource = "arn:aws:logs:${var.aws_region}:*:log-group:/aws/lambda/${var.project_name}-credit-checker-${var.environment}:*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "cloudwatch:PutMetricData",
+          "cloudwatch:GetMetricStatistics"
+        ]
+        Resource = "*" # PutMetricData does not support resource-level permissions
+      }
+    ]
+  })
+}
+
+# Archive the credit checker source code
+data "archive_file" "credit_checker" {
+  type        = "zip"
+  source_file = "${path.module}/../src/alerting/credit_checker.py"
+  output_path = "${path.module}/.terraform/tmp/credit_checker.zip"
+}
+
+# Credit Checker Lambda Function
+resource "aws_lambda_function" "credit_checker" {
+  function_name = "${var.project_name}-credit-checker-${var.environment}"
+  role          = aws_iam_role.credit_checker.arn
+  handler       = "credit_checker.lambda_handler"
+  runtime       = "python3.11"
+  timeout       = 30
+  memory_size   = 128
+
+  # Use zip deployment for simple Python function (same pattern as slack_notifier)
+  filename         = data.archive_file.credit_checker.output_path
+  source_code_hash = data.archive_file.credit_checker.output_base64sha256
+
+  environment {
+    variables = {
+      OPENROUTER_API_KEY     = var.OPENROUTER_API_KEY
+      LANGFUSE_PUBLIC_KEY    = var.LANGFUSE_PUBLIC_KEY
+      LANGFUSE_SECRET_KEY    = var.LANGFUSE_SECRET_KEY
+      LANGFUSE_HOST          = var.LANGFUSE_HOST
+      SLACK_WEBHOOK_URL      = var.SLACK_WEBHOOK_URL
+      ENVIRONMENT            = var.environment
+      ESTIMATED_DAILY_COST   = "2.5"
+      GRAFANA_DASHBOARD_URL  = ""
+      COST_MARGIN            = "1.5"
+    }
+  }
+
+  # No VPC - only calls external APIs (OpenRouter, Langfuse, CloudWatch, Slack)
+
+  tags = merge(local.common_tags, {
+    Name      = "${var.project_name}-credit-checker-${var.environment}"
+    App       = "shared"
+    Component = "monitoring"
+  })
+}
+
+# CloudWatch Log Group for Credit Checker
+resource "aws_cloudwatch_log_group" "credit_checker" {
+  name              = "/aws/lambda/${aws_lambda_function.credit_checker.function_name}"
+  retention_in_days = var.log_retention_days
+
+  tags = merge(local.common_tags, {
+    Name      = "${var.project_name}-credit-checker-logs-${var.environment}"
+    App       = "shared"
+    Component = "monitoring"
+  })
+}
+
+###############################################################################
+# Credit Checker EventBridge Schedule (every 6 hours)
+###############################################################################
+
+# Allow EventBridge Scheduler to invoke credit checker Lambda
+resource "aws_iam_role_policy" "eventbridge_scheduler_credit_checker" {
+  name = "${var.project_name}-scheduler-credit-checker-invoke-${var.environment}"
+  role = aws_iam_role.eventbridge_scheduler.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Action = [
+        "lambda:InvokeFunction"
+      ]
+      Resource = [
+        aws_lambda_function.credit_checker.arn
+      ]
+    }]
+  })
+}
+
+resource "aws_scheduler_schedule" "credit_checker" {
+  name       = "${var.project_name}-credit-checker-${var.environment}"
+  group_name = "default"
+
+  flexible_time_window {
+    mode = "OFF" # Execute exactly at scheduled time
+  }
+
+  # Every 6 hours Bangkok time: 5AM, 11AM, 5PM, 11PM
+  # 11PM check = 6h warning before 5AM scheduler
+  schedule_expression          = "cron(0 5,11,17,23 * * ? *)"
+  schedule_expression_timezone = "Asia/Bangkok"
+
+  state = "ENABLED"
+
+  target {
+    arn      = aws_lambda_function.credit_checker.arn
+    role_arn = aws_iam_role.eventbridge_scheduler.arn
+
+    input = jsonencode({
+      source = "eventbridge-scheduler"
+    })
+
+    retry_policy {
+      maximum_retry_attempts       = 2
+      maximum_event_age_in_seconds = 3600
+    }
+  }
+
+  depends_on = [
+    aws_iam_role.eventbridge_scheduler,
+    aws_iam_role_policy.eventbridge_scheduler_credit_checker
+  ]
+}
+
+###############################################################################
+# Credit Balance CloudWatch Alarm (backup alert via SNS → Slack notifier)
+###############################################################################
+
+resource "aws_cloudwatch_metric_alarm" "credit_balance_low" {
+  alarm_name          = "${var.project_name}-openrouter-credit-low-${var.environment}"
+  comparison_operator = "LessThanThreshold"
+  evaluation_periods  = 1
+  metric_name         = "CreditBalance"
+  namespace           = "DR/OpenRouter"
+  period              = 21600 # 6 hours (matches check frequency)
+  statistic           = "Minimum"
+  threshold           = 5
+  alarm_description   = "CRITICAL: OpenRouter credit balance below $5 - daily reports will fail with HTTP 402. Top up at https://openrouter.ai/settings/credits"
+  treat_missing_data  = "breaching" # Alert if credit checker stops running
+
+  dimensions = {
+    Environment = var.environment
+  }
+
+  alarm_actions = [aws_sns_topic.telegram_alerts.arn]
+  ok_actions    = [aws_sns_topic.telegram_alerts.arn]
+
+  tags = merge(local.common_tags, {
+    Name      = "${var.project_name}-credit-balance-alarm-${var.environment}"
+    App       = "shared"
+    Component = "monitoring"
+  })
+}
+
+###############################################################################
 # Outputs
 ###############################################################################
 
@@ -406,4 +604,9 @@ output "sns_alerts_topic_arn" {
 output "slack_notifier_function_name" {
   value       = aws_lambda_function.slack_notifier.function_name
   description = "Name of the Slack notifier Lambda function"
+}
+
+output "credit_checker_function_name" {
+  value       = aws_lambda_function.credit_checker.function_name
+  description = "Name of the credit checker Lambda function"
 }

@@ -27,6 +27,7 @@ class TraceRepository:
         Args:
             trace: Dict with keys: trace_type, model_id, prompt_version,
                    agent_type, release, trace_provider, trace_external_id,
+                   input_tokens, output_tokens, cost_usd, calc_version,
                    context, status, error_message
 
         Returns:
@@ -36,10 +37,12 @@ class TraceRepository:
             INSERT INTO {TRACES} (
                 trace_type, model_id, prompt_version, agent_type, `release`,
                 trace_provider, trace_external_id,
+                input_tokens, output_tokens, cost_usd, calc_version,
                 context, status, error_message
             ) VALUES (
                 %s, %s, %s, %s, %s,
                 %s, %s,
+                %s, %s, %s, %s,
                 %s, %s, %s
             )
         """
@@ -54,6 +57,10 @@ class TraceRepository:
             trace.get('release'),
             trace.get('trace_provider'),
             trace.get('trace_external_id'),
+            trace.get('input_tokens'),
+            trace.get('output_tokens'),
+            trace.get('cost_usd'),
+            trace.get('calc_version'),
             context_json,
             trace.get('status', 'completed'),
             trace.get('error_message'),

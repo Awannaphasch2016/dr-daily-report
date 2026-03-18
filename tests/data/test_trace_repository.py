@@ -43,8 +43,8 @@ class TestTraceRepository:
         # Verify context was JSON-serialized in params
         execute_args = self.mock_client.execute.call_args
         params = execute_args[0][1]  # second positional arg = params tuple
-        # context is the 8th param (index 7)
-        assert params[7] == json.dumps(context)
+        # context is the 12th param (index 11) after adding cost columns
+        assert params[11] == json.dumps(context)
 
     def test_insert_trace_handles_null_context(self):
         self.mock_client.fetch_one.return_value = {'id': 1}
@@ -56,7 +56,7 @@ class TestTraceRepository:
 
         execute_args = self.mock_client.execute.call_args
         params = execute_args[0][1]
-        assert params[7] is None  # context param
+        assert params[11] is None  # context param
 
     def test_insert_trace_defaults_status_to_completed(self):
         self.mock_client.fetch_one.return_value = {'id': 1}
@@ -65,7 +65,7 @@ class TestTraceRepository:
 
         execute_args = self.mock_client.execute.call_args
         params = execute_args[0][1]
-        assert params[8] == 'completed'  # status param
+        assert params[12] == 'completed'  # status param
 
     def test_insert_scores_returns_count(self):
         scores = {

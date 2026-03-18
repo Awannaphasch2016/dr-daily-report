@@ -26,7 +26,9 @@ ENVIRONMENT = os.environ.get("ENVIRONMENT", "unknown")
 
 def get_severity_emoji(alarm_name: str) -> str:
     """Get emoji based on alarm severity."""
-    if "scheduler" in alarm_name.lower() or "precompute" in alarm_name.lower():
+    if "credit" in alarm_name.lower():
+        return ":moneybag:"  # Critical - LLM credit balance
+    elif "scheduler" in alarm_name.lower() or "precompute" in alarm_name.lower():
         return ":rotating_light:"  # Critical - data pipeline
     elif "5xx" in alarm_name.lower():
         return ":x:"  # High - server errors
@@ -38,7 +40,9 @@ def get_severity_emoji(alarm_name: str) -> str:
 
 def get_severity_level(alarm_name: str) -> str:
     """Get severity level based on alarm name."""
-    if "scheduler" in alarm_name.lower() or "precompute" in alarm_name.lower():
+    if "credit" in alarm_name.lower():
+        return "CRITICAL"
+    elif "scheduler" in alarm_name.lower() or "precompute" in alarm_name.lower():
         return "CRITICAL"
     elif "5xx" in alarm_name.lower() or "errors" in alarm_name.lower():
         return "HIGH"
