@@ -7,10 +7,11 @@ Usage:
 Authentication: Uses AWS IAM credentials (via boto3) to self-provision a
 short-lived Grafana Service Account Token. No manual API key needed.
 
-Creates 3 dashboards:
+Creates 4 dashboards:
     1. Pipeline Health (CloudWatch + MySQL)
     2. Strategy Performance (MySQL)
     3. User Analytics (MySQL)
+    4. Data Freshness (MySQL)
 
 Each dashboard gets a public snapshot URL viewable without login.
 """
@@ -674,6 +675,301 @@ def build_user_analytics_dashboard():
 
 
 # ---------------------------------------------------------------------------
+# Dashboard 4: Data Freshness
+# ---------------------------------------------------------------------------
+def build_data_freshness_dashboard():
+    _reset_panel_id()
+    panels = []
+
+    # === Layer 1: How Stale? ===
+    panels.append(row_panel("Layer 1: How Stale?", 0))
+    panels.append(stat_panel(
+        "Prices Lag (days)",
+        "SELECT DATEDIFF(CURDATE(), MAX(price_date)) AS value FROM daily_prices",
+        x=0, y=1, w=6, h=4,
+        thresholds=[
+            {"color": "green", "value": None},
+            {"color": "yellow", "value": 1},
+            {"color": "red", "value": 2},
+        ],
+    ))
+    panels.append(stat_panel(
+        "Indicators Lag (days)",
+        "SELECT DATEDIFF(CURDATE(), MAX(indicator_date)) AS value FROM daily_indicators",
+        x=6, y=1, w=6, h=4,
+        thresholds=[
+            {"color": "green", "value": None},
+            {"color": "yellow", "value": 1},
+            {"color": "red", "value": 2},
+        ],
+    ))
+    panels.append(stat_panel(
+        "Reports Lag (days)",
+        "SELECT DATEDIFF(CURDATE(), MAX(report_date)) AS value FROM precomputed_reports WHERE status = 'completed'",
+        x=12, y=1, w=6, h=4,
+        thresholds=[
+            {"color": "green", "value": None},
+            {"color": "yellow", "value": 1},
+            {"color": "red", "value": 2},
+        ],
+    ))
+    panels.append(stat_panel(
+        "Backtests Lag (days)",
+        "SELECT DATEDIFF(CURDATE(), MAX(backtest_date)) AS value FROM backtest_results",
+        x=18, y=1, w=6, h=4,
+        thresholds=[
+            {"color": "green", "value": None},
+            {"color": "yellow", "value": 1},
+            {"color": "red", "value": 2},
+        ],
+    ))
+
+    # === Layer 2: How Complete? ===
+    panels.append(row_panel("Layer 2: How Complete?", 5))
+    panels.append(stat_panel(
+        "Price Coverage Today",
+        """SELECT CONCAT(
+            (SELECT COUNT(DISTINCT symbol) FROM daily_prices
+             WHERE price_date = (SELECT MAX(price_date) FROM daily_prices)),
+            ' / ',
+            (SELECT COUNT(*) FROM ticker_master WHERE is_active = 1)
+        ) AS value""",
+        x=0, y=6, w=6, h=4,
+    ))
+    panels.append(stat_panel(
+        "Indicator Coverage Today",
+        """SELECT CONCAT(
+            (SELECT COUNT(DISTINCT symbol) FROM daily_indicators
+             WHERE indicator_date = (SELECT MAX(indicator_date) FROM daily_indicators)),
+            ' / ',
+            (SELECT COUNT(*) FROM ticker_master WHERE is_active = 1)
+        ) AS value""",
+        x=6, y=6, w=6, h=4,
+    ))
+    panels.append(stat_panel(
+        "Report Coverage Today",
+        """SELECT CONCAT(
+            (SELECT COUNT(DISTINCT symbol) FROM precomputed_reports
+             WHERE report_date = (SELECT MAX(report_date) FROM precomputed_reports WHERE status = 'completed')
+               AND status = 'completed'),
+            ' / ',
+            (SELECT COUNT(*) FROM ticker_master WHERE is_active = 1)
+        ) AS value""",
+        x=12, y=6, w=6, h=4,
+    ))
+    panels.append(stat_panel(
+        "Backtest Coverage Today",
+        """SELECT CONCAT(
+            (SELECT COUNT(DISTINCT symbol) FROM backtest_results
+             WHERE backtest_date = (SELECT MAX(backtest_date) FROM backtest_results)
+               AND strategy_name != '_consensus'),
+            ' / ',
+            (SELECT COUNT(*) FROM ticker_master WHERE is_active = 1)
+        ) AS value""",
+        x=18, y=6, w=6, h=4,
+    ))
+    panels.append(timeseries_panel(
+        "Price Coverage Over Time",
+        """SELECT price_date AS time, 'coverage' AS metric,
+            COUNT(DISTINCT symbol) AS value
+        FROM daily_prices
+        WHERE $__timeFilter(price_date)
+        GROUP BY price_date
+        ORDER BY price_date""",
+        x=0, y=10, w=12, h=8,
+    ))
+    panels.append(timeseries_panel(
+        "Report Coverage Over Time",
+        """SELECT report_date AS time, 'completed' AS metric,
+            COUNT(DISTINCT symbol) AS value
+        FROM precomputed_reports
+        WHERE status = 'completed' AND $__timeFilter(report_date)
+        GROUP BY report_date
+        ORDER BY report_date""",
+        x=12, y=10, w=12, h=8,
+    ))
+
+    # === Layer 3: How Much? ===
+    panels.append(row_panel("Layer 3: How Much?", 18))
+    panels.append(stat_panel(
+        "Prices Today",
+        """SELECT COUNT(*) AS value FROM daily_prices
+        WHERE price_date = (SELECT MAX(price_date) FROM daily_prices)""",
+        x=0, y=19, w=6, h=4,
+    ))
+    panels.append(stat_panel(
+        "Indicators Today",
+        """SELECT COUNT(*) AS value FROM daily_indicators
+        WHERE indicator_date = (SELECT MAX(indicator_date) FROM daily_indicators)""",
+        x=6, y=19, w=6, h=4,
+    ))
+    panels.append(stat_panel(
+        "Reports Today",
+        """SELECT COUNT(*) AS value FROM precomputed_reports
+        WHERE report_date = (SELECT MAX(report_date) FROM precomputed_reports)""",
+        x=12, y=19, w=6, h=4,
+    ))
+    panels.append(stat_panel(
+        "Backtests Today",
+        """SELECT COUNT(*) AS value FROM backtest_results
+        WHERE backtest_date = (SELECT MAX(backtest_date) FROM backtest_results)
+          AND strategy_name != '_consensus'""",
+        x=18, y=19, w=6, h=4,
+    ))
+    panels.append(timeseries_panel(
+        "Daily Price Records Trend",
+        """SELECT price_date AS time, 'records' AS metric,
+            COUNT(*) AS value
+        FROM daily_prices
+        WHERE $__timeFilter(price_date)
+        GROUP BY price_date
+        ORDER BY price_date""",
+        x=0, y=23, w=12, h=8,
+    ))
+    panels.append(timeseries_panel(
+        "Daily Report Records by Status",
+        """SELECT report_date AS time, status AS metric,
+            COUNT(*) AS value
+        FROM precomputed_reports
+        WHERE $__timeFilter(report_date)
+        GROUP BY report_date, status
+        ORDER BY report_date""",
+        x=12, y=23, w=12, h=8,
+    ))
+
+    # === Layer 4: When Did It Land? ===
+    panels.append(row_panel("Layer 4: When Did It Land?", 31))
+    panels.append(timeseries_panel(
+        "Price Ingestion Lag",
+        """SELECT price_date AS time, 'avg_lag_hours' AS metric,
+            ROUND(AVG(TIMESTAMPDIFF(HOUR, price_date, fetched_at)), 1) AS value
+        FROM daily_prices
+        WHERE $__timeFilter(price_date)
+        GROUP BY price_date
+        ORDER BY price_date""",
+        x=0, y=32, w=12, h=8, unit="h",
+    ))
+    panels.append(timeseries_panel(
+        "Report Computation Lag",
+        """SELECT report_date AS time, 'avg_lag_hours' AS metric,
+            ROUND(AVG(TIMESTAMPDIFF(HOUR, report_date, computed_at)), 1) AS value
+        FROM precomputed_reports
+        WHERE status = 'completed' AND $__timeFilter(report_date)
+        GROUP BY report_date
+        ORDER BY report_date""",
+        x=12, y=32, w=12, h=8, unit="h",
+    ))
+
+    # === Layer 5: What's Broken? ===
+    panels.append(row_panel("Layer 5: What's Broken?", 40))
+    panels.append(stat_panel(
+        "Failed Reports (latest date)",
+        """SELECT COUNT(*) AS value FROM precomputed_reports
+        WHERE report_date = (SELECT MAX(report_date) FROM precomputed_reports)
+          AND status = 'failed'""",
+        x=0, y=41, w=6, h=4,
+        thresholds=[
+            {"color": "green", "value": None},
+            {"color": "yellow", "value": 1},
+            {"color": "red", "value": 3},
+        ],
+    ))
+    panels.append(stat_panel(
+        "Pending Reports (latest date)",
+        """SELECT COUNT(*) AS value FROM precomputed_reports
+        WHERE report_date = (SELECT MAX(report_date) FROM precomputed_reports)
+          AND status = 'pending'""",
+        x=6, y=41, w=6, h=4,
+        thresholds=[
+            {"color": "green", "value": None},
+            {"color": "yellow", "value": 1},
+            {"color": "red", "value": 3},
+        ],
+    ))
+    panels.append(stat_panel(
+        "Missing Price Tickers",
+        """SELECT COUNT(*) AS value
+        FROM ticker_master m
+        JOIN ticker_aliases a ON m.id = a.ticker_id AND a.symbol_type = 'dr'
+        LEFT JOIN daily_prices dp ON a.symbol = dp.symbol
+          AND dp.price_date = (SELECT MAX(price_date) FROM daily_prices)
+        WHERE m.is_active = 1 AND dp.id IS NULL""",
+        x=12, y=41, w=6, h=4,
+        thresholds=[
+            {"color": "green", "value": None},
+            {"color": "yellow", "value": 1},
+            {"color": "red", "value": 3},
+        ],
+    ))
+    panels.append(stat_panel(
+        "Missing Report Tickers",
+        """SELECT COUNT(*) AS value
+        FROM ticker_master m
+        JOIN ticker_aliases a ON m.id = a.ticker_id AND a.symbol_type = 'dr'
+        LEFT JOIN precomputed_reports pr ON a.symbol = pr.symbol
+          AND pr.report_date = (SELECT MAX(report_date) FROM precomputed_reports WHERE status = 'completed')
+          AND pr.status = 'completed'
+        WHERE m.is_active = 1 AND pr.id IS NULL""",
+        x=18, y=41, w=6, h=4,
+        thresholds=[
+            {"color": "green", "value": None},
+            {"color": "yellow", "value": 1},
+            {"color": "red", "value": 3},
+        ],
+    ))
+    panels.append(table_panel(
+        "Failed Reports Detail (7d)",
+        """SELECT
+            pr.symbol AS Symbol,
+            pr.report_date AS Date,
+            pr.status AS Status,
+            pr.error_message AS Error,
+            CONCAT(ROUND(pr.generation_time_seconds, 1), 's') AS GenTime
+        FROM precomputed_reports pr
+        WHERE pr.status = 'failed'
+          AND pr.report_date >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
+        ORDER BY pr.report_date DESC, pr.symbol""",
+        x=0, y=45, w=24, h=8,
+    ))
+    panels.append(table_panel(
+        "Missing Tickers Detail",
+        """SELECT
+            m.company_name AS Company,
+            a.symbol AS Symbol,
+            CASE WHEN dp.id IS NOT NULL THEN 'Yes' ELSE 'No' END AS HasPrices,
+            CASE WHEN di.id IS NOT NULL THEN 'Yes' ELSE 'No' END AS HasIndicators,
+            CASE WHEN pr.id IS NOT NULL THEN 'Yes' ELSE 'No' END AS HasReport,
+            CASE WHEN bt.id IS NOT NULL THEN 'Yes' ELSE 'No' END AS HasBacktest
+        FROM ticker_master m
+        JOIN ticker_aliases a ON m.id = a.ticker_id AND a.symbol_type = 'dr'
+        LEFT JOIN daily_prices dp ON a.symbol = dp.symbol
+          AND dp.price_date = (SELECT MAX(price_date) FROM daily_prices)
+        LEFT JOIN daily_indicators di ON a.symbol = di.symbol
+          AND di.indicator_date = (SELECT MAX(indicator_date) FROM daily_indicators)
+        LEFT JOIN precomputed_reports pr ON a.symbol = pr.symbol
+          AND pr.report_date = (SELECT MAX(report_date) FROM precomputed_reports WHERE status = 'completed')
+          AND pr.status = 'completed'
+        LEFT JOIN backtest_results bt ON a.symbol = bt.symbol
+          AND bt.backtest_date = (SELECT MAX(backtest_date) FROM backtest_results)
+          AND bt.strategy_name != '_consensus'
+        WHERE m.is_active = 1
+          AND (dp.id IS NULL OR di.id IS NULL OR pr.id IS NULL OR bt.id IS NULL)
+        ORDER BY m.company_name""",
+        x=0, y=53, w=24, h=8,
+    ))
+
+    return {
+        "uid": "data-freshness",
+        "title": "Data Freshness",
+        "panels": panels,
+        "time": {"from": "now-14d", "to": "now"},
+        "refresh": "5m",
+        "schemaVersion": 39,
+        "templating": {"list": _env_template_variables()},
+    }
+
+
+# ---------------------------------------------------------------------------
 # API helpers
 # ---------------------------------------------------------------------------
 def push_dashboard(dashboard_def):
@@ -855,6 +1151,7 @@ def main():
         build_pipeline_health_dashboard,
         build_strategy_performance_dashboard,
         build_user_analytics_dashboard,
+        build_data_freshness_dashboard,
     ]
 
     results = []
