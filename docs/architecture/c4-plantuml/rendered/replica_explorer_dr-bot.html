@@ -65,8 +65,9 @@
 
 <h1>Replica Explorer — <code>dr-bot</code></h1>
 <div class="subtitle">
-  C4 zoom levels + reconciliation lens · ap-southeast-1 · account 755283537543 · audit baseline <b>2026-04-30</b><br/>
-  <b>δ_membership</b>: 18+ ORPHAN · 14 DOUBLE · 2 GHOST &nbsp;|&nbsp; <b>δ_config</b>: 6 DRIFTED &nbsp;|&nbsp; address-mismatch finding: <b>0</b> (prior was incorrect — see Reconcile tab)
+  C4 zoom levels + reconciliation lens · ap-southeast-1 · account 755283537543 · audit baseline <b>2026-04-30</b> · post-Stage-2 update <b>2026-05-02</b><br/>
+  <b>δ_membership (2026-04-30)</b>: 18+ ORPHAN · 14 DOUBLE · 2 GHOST &nbsp;|&nbsp; <b>δ_config</b>: 6 DRIFTED &nbsp;|&nbsp; address-mismatch finding: <b>0</b> (prior was incorrect — see Reconcile tab)<br/>
+  <b>δ_membership (post-Stage-2, 2026-05-02)</b>: ~6 ORPHAN remaining (Stage-3 advisory) · 0 DOUBLE · 0 GHOST · <b>+17 absorbed</b> &nbsp;|&nbsp; <b>note</b>: 3 alleged GHOSTs (<code>fund-data-sync-dev-*</code> alarms) were reclassified TRACKED — false positive from collapsed module path + filter-glob gap, fixed in <code>dr-bot.yaml</code> 2026-05-02
 </div>
 
 <div class="panel">
@@ -512,26 +513,26 @@ flowchart TB
     pdf_val["startup validator"]:::tracked
   end
 
-  subgraph WH["webhook_health_lambda · 🚨 ORPHAN"]
+  subgraph WH["webhook_health_lambda · ✅ TRACKED (post-Stage-2 absorb)"]
     direction TB
-    wh_h["health probe handler"]:::orphan
+    wh_h["health probe handler"]:::tracked
   end
 
-  subgraph MC["model_catalog_sync_lambda · 🚨 ORPHAN"]
+  subgraph MC["model_catalog_sync_lambda · ✅ TRACKED (post-Stage-2 absorb)"]
     direction TB
-    mc_h["model sync handler"]:::orphan
-    mc_or["OpenRouter client"]:::orphan
-    mc_ddb["DynamoDB writer"]:::orphan
+    mc_h["model sync handler"]:::tracked
+    mc_or["OpenRouter client"]:::tracked
+    mc_ddb["DynamoDB writer"]:::tracked
   end
 
-  subgraph QA["quant_agent_lambda · 🚨 ORPHAN"]
+  subgraph QA["quant_agent_lambda · ✅ TRACKED (post-Stage-2 rename + absorb)"]
     direction TB
-    qa_h["async report handler"]:::orphan
-    qa_writer["Writer"]:::orphan
-    qa_judge["Judge (Fast + Deep)"]:::orphan
-    qa_loop["InnerLoop"]:::orphan
-    qa_ctx["ContextBuffer"]:::orphan
-    qa_cfg["QuantAgentConfig"]:::orphan
+    qa_h["async report handler"]:::tracked
+    qa_writer["Writer"]:::tracked
+    qa_judge["Judge (Fast + Deep)"]:::tracked
+    qa_loop["InnerLoop"]:::tracked
+    qa_ctx["ContextBuffer"]:::tracked
+    qa_cfg["QuantAgentConfig"]:::tracked
   end
 
   subgraph SM["schema_manager_lambda"]
@@ -1050,12 +1051,20 @@ flowchart LR
 <h2>Reconcile (audit lens) — Realization view + Reconcile Table</h2>
 
 <div class="count-row">
-  <span class="stat"><b>2026-04-30</b> audit baseline</span>
-  <span class="stat tracked"><b>23</b> tracked containers</span>
+  <span class="stat"><b>2026-04-30</b> baseline</span>
+  <span class="stat tracked"><b>23</b> tracked</span>
   <span class="stat drifted"><b>6</b> drifted</span>
   <span class="stat orphan"><b>18+</b> orphan</span>
   <span class="stat ghost"><b>2</b> ghost</span>
   <span class="stat double"><b>14</b> double</span>
+</div>
+<div class="count-row" style="margin-top:8px">
+  <span class="stat"><b>2026-05-02</b> post-Stage-2</span>
+  <span class="stat tracked"><b>+17 absorbed</b> (Lambdas, aliases, log groups, alarms, scheduler chain)</span>
+  <span class="stat ghost"><b>0</b> ghost (3 alleged were false-positive — module-path collapse + filter gap; fixed)</span>
+  <span class="stat double"><b>0</b> double (cleared in Stage 1, 2026-05-01)</span>
+  <span class="stat orphan"><b>~6</b> orphan remaining → Stage 3 advisory review</span>
+  <span class="stat drifted"><b>6</b> drifted → Stage 4</span>
 </div>
 
 <div class="panel">

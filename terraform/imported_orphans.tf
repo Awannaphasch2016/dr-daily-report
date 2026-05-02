@@ -386,3 +386,117 @@ resource "aws_scheduler_schedule" "webhook_health" {
     }
   }
 }
+
+###############################################################################
+# Stage 3 imports (2026-05-02): preserve real-but-untracked AWS resources
+###############################################################################
+# Per .claude/journals/architecture/2026-05-02-stage-3-advisory-deletes.md:
+#   #6: Grafana SG (real dependency: Aurora SG ingress)
+#   #9: Grafana IAM role (paired with #6)
+#  #11: ECR repo dr-daily-report-telegram-api (used by webhook_health,
+#       model_catalog_sync Lambdas)
+###############################################################################
+
+resource "aws_security_group" "grafana" {
+  name        = "dr-daily-report-grafana-dev"
+  description = "Security group for Managed Grafana VPC connectivity"
+  vpc_id      = "vpc-0fb04b10ef8c3d18b" # project VPC; replace with data source ref in Stage 4 cleanup if desired
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = merge(local.common_tags, {
+    Name      = "dr-daily-report-grafana-sg"
+    App       = "shared"
+    Component = "grafana-security-group"
+  })
+
+  lifecycle {
+    ignore_changes = [tags, tags_all]
+  }
+}
+
+resource "aws_iam_role" "grafana" {
+  name        = "dr-daily-report-grafana-role-dev"
+  description = "Role assumed by Managed Grafana for CloudWatch + SNS data sources"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Principal = { Service = "grafana.amazonaws.com" }
+      Action = "sts:AssumeRole"
+    }]
+  })
+
+  tags = merge(local.common_tags, {
+    Name      = "dr-daily-report-grafana-role-dev"
+    App       = "shared"
+    Component = "grafana-iam"
+  })
+
+  lifecycle {
+    ignore_changes = [tags, tags_all]
+  }
+}
+
+# Inline policies on the Grafana role — minimal stubs so import succeeds.
+# Field-level policy reconciliation deferred to Stage 4 (pull AWS reality
+# into the policy doc once the role is bound).
+resource "aws_iam_role_policy" "grafana_cloudwatch" {
+  name = "dr-daily-report-grafana-cloudwatch-dev"
+  role = aws_iam_role.grafana.id
+
+  # Stub policy — actual policy fetched from AWS on import; ignore_changes
+  # below prevents an apply from clobbering reality before Stage 4 fixes
+  # the source declaration.
+  policy = jsonencode({
+    Version   = "2012-10-17"
+    Statement = []
+  })
+
+  lifecycle {
+    ignore_changes = [policy]
+  }
+}
+
+resource "aws_iam_role_policy" "grafana_sns" {
+  name = "dr-daily-report-grafana-sns-dev"
+  role = aws_iam_role.grafana.id
+
+  policy = jsonencode({
+    Version   = "2012-10-17"
+    Statement = []
+  })
+
+  lifecycle {
+    ignore_changes = [policy]
+  }
+}
+
+resource "aws_ecr_repository" "telegram_api" {
+  name                 = "dr-daily-report-telegram-api"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  encryption_configuration {
+    encryption_type = "AES256"
+  }
+
+  tags = merge(local.common_tags, {
+    Name      = "dr-daily-report-telegram-api"
+    App       = "telegram-api"
+    Component = "ecr-repo"
+  })
+
+  lifecycle {
+    ignore_changes = [tags, tags_all]
+  }
+}
