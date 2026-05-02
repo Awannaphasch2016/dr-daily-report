@@ -18,10 +18,12 @@ later "why did we delete that?" review) can reconstruct the call.
 ## Scope
 
 11 ORPHAN candidates surfaced by the 2026-04-30 audit + the Stage 2
-dry-run discovery pass. Each gets one of three dispositions:
+dry-run discovery pass. Each gets one of four dispositions:
 - **DELETE** — AWS resource is dead/empty/unreferenced
 - **IMPORT** — AWS resource is real and in use; bring under TF management
-- **CARVE-OUT** — pause for explicit second look (reserved for #5)
+- **CARVE-OUT** — pause for explicit second look (initial classification for #5)
+- **KEEP-FOR-NOW** — second-look surfaced new uncertainty; defer with documented
+  re-open conditions (resolved disposition for #5)
 
 ## Disposition table
 
@@ -45,11 +47,92 @@ dry-run discovery pass. Each gets one of three dispositions:
 | 9 | `aws_iam_role` `dr-daily-report-grafana-role-dev` | Paired with #6 (Managed Grafana VPC connectivity); LastUsed 2026-03-14 confirms creation-day setup. | `aws_iam_role.grafana` |
 | 11 | `aws_ecr_repository` `dr-daily-report-telegram-api` | **In active use**: webhook_health and model_catalog_sync Lambdas pull from this repo. ECR repo is unmanaged in TF, while the Lambdas using it now ARE managed (post-Stage-2 absorb). Importing closes the loop. | `aws_ecr_repository.telegram_api` |
 
-### CARVE-OUT (1 item)
+### CARVE-OUT → KEEP-FOR-NOW (1 item, resolved 2026-05-02)
 
-| # | Resource | Why pause |
-|---|---|---|
-| 5 | `aws_security_group` `line-bot-ticker-report-sg` (sg-03e0bb93ea6bd920e) | Tag Project=LineBot; description "Security group for LINE bot Lambda function". 0 ENIs attached, 0 Lambdas reference it via VPC config (verified). LINE Bot is a live product; despite zero apparent dependencies, the SG name and description suggest historical association. **Pausing for explicit second-look** before delete. |
+#### Item #5 — `aws_security_group` `line-bot-ticker-report-sg` (sg-03e0bb93ea6bd920e)
+
+**Initial classification (CARVE-OUT)**: Tag Project=LineBot; description
+"Security group for LINE bot Lambda function". 0 ENIs attached, 0 Lambdas
+reference it via VPC config. LINE Bot is a live product; despite zero
+apparent dependencies, the SG name and description suggested historical
+association. Paused for explicit second-look before delete.
+
+**Second-look findings** (2026-05-02):
+
+The original LINE-Bot-dependency worry was discharged — live LINE Bot
+Lambdas in all three envs use *entirely different* SGs:
+- prod → `sg-06af9bdfe48e9f9d0`
+- staging → `sg-0b417197a133a2e32`
+- dev → `sg-0185a0d8d92968d03`
+
+None reference `sg-03e0bb93ea6bd920e`. The orphan SG matches the same
+"half-completed rename artifact" pattern as the orphan IAM role
+`dr-daily-report-line-bot-role-dev` deleted as Item #10 above (both at the
+newer naming convention; both never wired into live LINE Bot).
+
+**However, the delete attempt failed with `DependencyViolation`**, and
+standard enumeration didn't find what depends on it:
+
+| Dependent type probed | Result |
+|---|---|
+| ENIs (any state, including `available`) | 0 |
+| Lambda VPC config refs | 0 |
+| Other SGs as source in rules | 0 |
+| Other SGs as egress target in rules | 0 |
+| RDS instances | 0 |
+| RDS clusters | 0 |
+| RDS Proxies | 0 |
+| ELBv2 load balancers | 0 |
+| VPC Endpoints | 0 |
+| EFS mount targets | 0 (no FS exists) |
+| TF source references | 0 |
+
+**Couldn't verify** (IAM `AccessDenied`):
+- CodeBuild projects (`codebuild:ListProjects` denied) — **most plausible
+  silent dependent**, given dr-bot.yaml's `policy.exceptions` already
+  contains an `aurora_from_codebuild` rule, suggesting a CodeBuild
+  project once existed in this VPC and may still
+- ElastiCache, OpenSearch (denied; project doesn't use these — low
+  likelihood)
+
+**Resolved disposition: KEEP-FOR-NOW.** Acting destructively on "AWS
+asserts a dependency we can't enumerate" violates Plug #2 (incomplete
+intent capture). Cost of keeping is zero (unattached SG charges nothing);
+cost of force-deleting is potentially breaking an unknown CodeBuild
+project or other resource.
+
+**Re-open conditions**:
+1. If the `aurora_from_codebuild` exception in `.claude/replicas/dr-bot.yaml`
+   gets resolved (CodeBuild project either gets imported into TF or
+   confirmed deleted from AWS), revisit #5 — the dependency is likely
+   located there.
+2. If CodeBuild IAM read access is granted (`codebuild:ListProjects`,
+   `codebuild:BatchGetProjects`), enumerate projects + per-project VPC
+   config to confirm/refute.
+3. If a future audit shows this SG newly attached to a resource — the
+   answer to "what depends on it" is no longer hidden, and #5's
+   disposition needs to be re-decided based on what shows up.
+4. If the SG remains unattached for 6+ months without any new
+   attachment, re-attempt force-delete (the opaque dependency may have
+   been service-linked / Hyperplane-cached and silently expired).
+
+**Rollback**: KEEP-FOR-NOW is the no-op disposition; nothing to roll
+back. If a future force-delete succeeds and breaks something, recovery
+requires re-creating the SG via TF using the configuration captured
+below as a reference snapshot:
+
+```
+Group ID:    sg-03e0bb93ea6bd920e
+Group Name:  line-bot-ticker-report-sg
+Description: Security group for LINE bot Lambda function
+VPC:         vpc-0fb04b10ef8c3d18b
+Tags:        Project=LineBot, Name=line-bot-ticker-report-sg
+Ingress:     (none)
+Egress:
+  - tcp 5432 → sg-02530c9c16142e463 ("line" / "all for dev")
+  - all     → 0.0.0.0/0
+  - tcp 443 → 0.0.0.0/0
+```
 
 ## Customer-managed policies left in place (not addressed in this pass)
 
