@@ -218,7 +218,7 @@ resource "aws_rds_cluster" "aurora" {
   cluster_identifier = "${var.project_name}-aurora-${var.environment}"
   engine             = "aurora-mysql"
   engine_mode        = "provisioned"
-  engine_version     = "8.0.mysql_aurora.3.04.0"
+  engine_version     = "8.0.mysql_aurora.3.10.3"
   database_name      = var.aurora_database_name
   master_username    = var.aurora_master_username
   master_password    = var.AURORA_MASTER_PASSWORD
@@ -252,6 +252,13 @@ resource "aws_rds_cluster" "aurora" {
     App       = "shared"
     Component = "aurora-cluster"
   })
+
+  # AWS auto-upgrades Aurora MySQL minor versions (cannot be opted out).
+  # Ignore engine_version drift to prevent terraform plan churn / downgrade attempts.
+  # Reviewed 2026-05-02 — see journals/architecture/2026-05-02-stage-4-aurora-trio.md
+  lifecycle {
+    ignore_changes = [engine_version]
+  }
 }
 
 ###############################################################################

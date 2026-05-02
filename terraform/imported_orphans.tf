@@ -420,6 +420,19 @@ resource "aws_security_group" "grafana" {
   }
 }
 
+# Aurora ingress rule for Managed Grafana — declared post-Stage-3 import.
+# Pattern matches aurora_from_codebuild (codebuild.tf:135) and aurora_from_proxy (rds_proxy.tf:123).
+# Reviewed 2026-05-02 — see journals/architecture/2026-05-02-stage-4-aurora-trio.md
+resource "aws_security_group_rule" "aurora_from_grafana" {
+  type                     = "ingress"
+  from_port                = 3306
+  to_port                  = 3306
+  protocol                 = "tcp"
+  security_group_id        = aws_security_group.aurora.id
+  source_security_group_id = aws_security_group.grafana.id
+  description              = "Allow Managed Grafana to connect to Aurora MySQL"
+}
+
 resource "aws_iam_role" "grafana" {
   name        = "dr-daily-report-grafana-role-dev"
   description = "Role assumed by Managed Grafana for CloudWatch + SNS data sources"
