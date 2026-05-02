@@ -35,6 +35,7 @@ COPY src/lambda_handler.py ${LAMBDA_TASK_ROOT}/
 COPY src/report_worker_handler.py ${LAMBDA_TASK_ROOT}/
 COPY src/telegram_lambda_handler.py ${LAMBDA_TASK_ROOT}/
 COPY src/migration_handler.py ${LAMBDA_TASK_ROOT}/
+COPY src/slack_handler.py ${LAMBDA_TASK_ROOT}/
 
 # Set the CMD to your handler
 CMD [ "lambda_handler.lambda_handler" ]
