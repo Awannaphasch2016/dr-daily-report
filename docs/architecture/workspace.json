@@ -1,0 +1,414 @@
+{
+  "configuration" : { },
+  "description" : "Auto-generated architecture from infrastructure sync",
+  "documentation" : { },
+  "id" : 1,
+  "lastModifiedDate" : "2026-04-25T05:54:22Z",
+  "model" : {
+    "people" : [ {
+      "description" : "End users accessing ticker analysis through Telegram Mini App",
+      "id" : "1",
+      "name" : "Telegram Bot Users",
+      "properties" : {
+        "structurizr.dsl.identifier" : "telegramUsers"
+      },
+      "relationships" : [ {
+        "description" : "Uses",
+        "destinationId" : "2",
+        "id" : "27",
+        "sourceId" : "1",
+        "tags" : "Relationship"
+      } ],
+      "tags" : "Element,Person"
+    } ],
+    "softwareSystems" : [ {
+      "description" : "Official Telegram Bot API",
+      "documentation" : { },
+      "id" : "2",
+      "name" : "Telegram Platform",
+      "properties" : {
+        "structurizr.dsl.identifier" : "telegramPlatform"
+      },
+      "relationships" : [ {
+        "description" : "Integrates with",
+        "destinationId" : "6",
+        "id" : "28",
+        "sourceId" : "2",
+        "tags" : "Relationship"
+      } ],
+      "tags" : "Element,Software System"
+    }, {
+      "description" : "LLM API gateway",
+      "documentation" : { },
+      "id" : "3",
+      "name" : "OpenRouter API",
+      "properties" : {
+        "structurizr.dsl.identifier" : "openRouter"
+      },
+      "tags" : "Element,Software System"
+    }, {
+      "description" : "Market data provider",
+      "documentation" : { },
+      "id" : "4",
+      "name" : "Yahoo Finance API",
+      "properties" : {
+        "structurizr.dsl.identifier" : "yahooFinance"
+      },
+      "tags" : "Element,Software System"
+    }, {
+      "description" : "LLM observability platform",
+      "documentation" : { },
+      "id" : "5",
+      "name" : "Langfuse",
+      "properties" : {
+        "structurizr.dsl.identifier" : "langfuse"
+      },
+      "tags" : "Element,Software System"
+    }, {
+      "containers" : [ {
+        "description" : "Lambda function",
+        "documentation" : { },
+        "id" : "7",
+        "name" : "dr-daily-report-fund-data-sync-dev (Lambda)",
+        "properties" : {
+          "structurizr.dsl.identifier" : "dr_daily_report_fund_data_sync_dev_lambda"
+        },
+        "tags" : "Element,Container",
+        "technology" : "AWS Lambda ()"
+      }, {
+        "description" : "Lambda function",
+        "documentation" : { },
+        "id" : "8",
+        "name" : "dr-daily-report-get-report-list-dev (Lambda)",
+        "properties" : {
+          "structurizr.dsl.identifier" : "dr_daily_report_get_report_list_dev_lambda"
+        },
+        "tags" : "Element,Container",
+        "technology" : "AWS Lambda ()"
+      }, {
+        "description" : "Lambda function",
+        "documentation" : { },
+        "id" : "9",
+        "name" : "dr-daily-report-get-ticker-list-dev (Lambda)",
+        "properties" : {
+          "structurizr.dsl.identifier" : "dr_daily_report_get_ticker_list_dev_lambda"
+        },
+        "tags" : "Element,Container",
+        "technology" : "AWS Lambda ()"
+      }, {
+        "description" : "Lambda function",
+        "documentation" : { },
+        "id" : "10",
+        "name" : "dr-daily-report-line-bot-dev (Lambda)",
+        "properties" : {
+          "structurizr.dsl.identifier" : "dr_daily_report_line_bot_dev_lambda"
+        },
+        "tags" : "Element,Container",
+        "technology" : "AWS Lambda ()"
+      }, {
+        "description" : "Lambda function",
+        "documentation" : { },
+        "id" : "11",
+        "name" : "dr-daily-report-pattern-precompute-dev (Lambda)",
+        "properties" : {
+          "structurizr.dsl.identifier" : "dr_daily_report_pattern_precompute_dev_lambda"
+        },
+        "tags" : "Element,Container",
+        "technology" : "AWS Lambda ()"
+      }, {
+        "description" : "Lambda function",
+        "documentation" : { },
+        "id" : "12",
+        "name" : "dr-daily-report-pdf-worker-dev (Lambda)",
+        "properties" : {
+          "structurizr.dsl.identifier" : "dr_daily_report_pdf_worker_dev_lambda"
+        },
+        "tags" : "Element,Container",
+        "technology" : "AWS Lambda ()"
+      }, {
+        "description" : "Lambda function",
+        "documentation" : { },
+        "id" : "13",
+        "name" : "dr-daily-report-precompute-controller-dev (Lambda)",
+        "properties" : {
+          "structurizr.dsl.identifier" : "dr_daily_report_precompute_controller_dev_lambda"
+        },
+        "tags" : "Element,Container",
+        "technology" : "AWS Lambda ()"
+      }, {
+        "description" : "Lambda function",
+        "documentation" : { },
+        "id" : "14",
+        "name" : "dr-daily-report-query-tool-dev (Lambda)",
+        "properties" : {
+          "structurizr.dsl.identifier" : "dr_daily_report_query_tool_dev_lambda"
+        },
+        "tags" : "Element,Container",
+        "technology" : "AWS Lambda ()"
+      }, {
+        "description" : "Lambda function",
+        "documentation" : { },
+        "id" : "15",
+        "name" : "dr-daily-report-report-worker-dev (Lambda)",
+        "properties" : {
+          "structurizr.dsl.identifier" : "dr_daily_report_report_worker_dev_lambda"
+        },
+        "tags" : "Element,Container",
+        "technology" : "AWS Lambda ()"
+      }, {
+        "description" : "Lambda function",
+        "documentation" : { },
+        "id" : "16",
+        "name" : "dr-daily-report-schema-manager-dev (Lambda)",
+        "properties" : {
+          "structurizr.dsl.identifier" : "dr_daily_report_schema_manager_dev_lambda"
+        },
+        "tags" : "Element,Container",
+        "technology" : "AWS Lambda ()"
+      }, {
+        "description" : "Lambda function",
+        "documentation" : { },
+        "id" : "17",
+        "name" : "dr-daily-report-slack-notifier-dev (Lambda)",
+        "properties" : {
+          "structurizr.dsl.identifier" : "dr_daily_report_slack_notifier_dev_lambda"
+        },
+        "tags" : "Element,Container",
+        "technology" : "AWS Lambda (python3.11)"
+      }, {
+        "description" : "Lambda function",
+        "documentation" : { },
+        "id" : "18",
+        "name" : "dr-daily-report-static-api-generator-dev (Lambda)",
+        "properties" : {
+          "structurizr.dsl.identifier" : "dr_daily_report_static_api_generator_dev_lambda"
+        },
+        "tags" : "Element,Container",
+        "technology" : "AWS Lambda ()"
+      }, {
+        "description" : "Lambda function",
+        "documentation" : { },
+        "id" : "19",
+        "name" : "dr-daily-report-telegram-api-dev (Lambda)",
+        "properties" : {
+          "structurizr.dsl.identifier" : "dr_daily_report_telegram_api_dev_lambda"
+        },
+        "tags" : "Element,Container",
+        "technology" : "AWS Lambda ()"
+      }, {
+        "description" : "Lambda function",
+        "documentation" : { },
+        "id" : "20",
+        "name" : "dr-daily-report-ticker-fetcher-dev (Lambda)",
+        "properties" : {
+          "structurizr.dsl.identifier" : "dr_daily_report_ticker_fetcher_dev_lambda"
+        },
+        "tags" : "Element,Container",
+        "technology" : "AWS Lambda ()"
+      }, {
+        "description" : "Lambda function",
+        "documentation" : { },
+        "id" : "21",
+        "name" : "dr-daily-report-ticker-scheduler-dev (Lambda)",
+        "properties" : {
+          "structurizr.dsl.identifier" : "dr_daily_report_ticker_scheduler_dev_lambda"
+        },
+        "tags" : "Element,Container",
+        "technology" : "AWS Lambda ()"
+      }, {
+        "description" : "Database",
+        "documentation" : { },
+        "id" : "22",
+        "name" : "aurora (Database)",
+        "properties" : {
+          "structurizr.dsl.identifier" : "aurora_db"
+        },
+        "tags" : "Element,Container",
+        "technology" : "aurora-mysql Database"
+      }, {
+        "description" : "API Gateway",
+        "documentation" : { },
+        "id" : "23",
+        "name" : "dr-daily-report-telegram-api-dev (API Gateway)",
+        "properties" : {
+          "structurizr.dsl.identifier" : "dr_daily_report_telegram_api_dev_gateway"
+        },
+        "tags" : "Element,Container",
+        "technology" : "AWS API Gateway (HTTP)"
+      }, {
+        "description" : "Storage",
+        "documentation" : { },
+        "id" : "24",
+        "name" : "line-bot-pdf-reports-755283537543 (S3)",
+        "properties" : {
+          "structurizr.dsl.identifier" : "line_bot_pdf_reports_755283537543_bucket"
+        },
+        "tags" : "Element,Container",
+        "technology" : "AWS S3"
+      }, {
+        "description" : "Storage",
+        "documentation" : { },
+        "id" : "25",
+        "name" : "dr-daily-report-static-api-dev (S3)",
+        "properties" : {
+          "structurizr.dsl.identifier" : "dr_daily_report_static_api_dev_bucket"
+        },
+        "tags" : "Element,Container",
+        "technology" : "AWS S3"
+      }, {
+        "description" : "Storage",
+        "documentation" : { },
+        "id" : "26",
+        "name" : "dr-daily-report-webapp-dev (S3)",
+        "properties" : {
+          "structurizr.dsl.identifier" : "dr_daily_report_webapp_dev_bucket"
+        },
+        "tags" : "Element,Container",
+        "technology" : "AWS S3"
+      } ],
+      "description" : "Ticker analysis platform",
+      "documentation" : { },
+      "id" : "6",
+      "name" : "Daily Report System",
+      "properties" : {
+        "structurizr.dsl.identifier" : "dailyReportSystem"
+      },
+      "tags" : "Element,Software System"
+    } ]
+  },
+  "name" : "Daily Report Platform",
+  "properties" : {
+    "structurizr.inspection.error" : "32",
+    "structurizr.dsl" : "d29ya3NwYWNlICJEYWlseSBSZXBvcnQgUGxhdGZvcm0iICJBdXRvLWdlbmVyYXRlZCBhcmNoaXRlY3R1cmUgZnJvbSBpbmZyYXN0cnVjdHVyZSBzeW5jIiB7CgogICAgbW9kZWwgewogICAgICAgICMgRXh0ZXJuYWwgQWN0b3JzCiAgICAgICAgdGVsZWdyYW1Vc2VycyA9IHBlcnNvbiAiVGVsZWdyYW0gQm90IFVzZXJzIiAiRW5kIHVzZXJzIGFjY2Vzc2luZyB0aWNrZXIgYW5hbHlzaXMgdGhyb3VnaCBUZWxlZ3JhbSBNaW5pIEFwcCIKCiAgICAgICAgIyBFeHRlcm5hbCBTeXN0ZW1zCiAgICAgICAgdGVsZWdyYW1QbGF0Zm9ybSA9IHNvZnR3YXJlU3lzdGVtICJUZWxlZ3JhbSBQbGF0Zm9ybSIgIk9mZmljaWFsIFRlbGVncmFtIEJvdCBBUEkiCiAgICAgICAgb3BlblJvdXRlciA9IHNvZnR3YXJlU3lzdGVtICJPcGVuUm91dGVyIEFQSSIgIkxMTSBBUEkgZ2F0ZXdheSIKICAgICAgICB5YWhvb0ZpbmFuY2UgPSBzb2Z0d2FyZVN5c3RlbSAiWWFob28gRmluYW5jZSBBUEkiICJNYXJrZXQgZGF0YSBwcm92aWRlciIKICAgICAgICBsYW5nZnVzZSA9IHNvZnR3YXJlU3lzdGVtICJMYW5nZnVzZSIgIkxMTSBvYnNlcnZhYmlsaXR5IHBsYXRmb3JtIgoKICAgICAgICAjIE1haW4gU3lzdGVtCiAgICAgICAgZGFpbHlSZXBvcnRTeXN0ZW0gPSBzb2Z0d2FyZVN5c3RlbSAiRGFpbHkgUmVwb3J0IFN5c3RlbSIgIlRpY2tlciBhbmFseXNpcyBwbGF0Zm9ybSIgewoKICAgICAgICAgICAgZHJfZGFpbHlfcmVwb3J0X2Z1bmRfZGF0YV9zeW5jX2Rldl9sYW1iZGEgPSBjb250YWluZXIgImRyLWRhaWx5LXJlcG9ydC1mdW5kLWRhdGEtc3luYy1kZXYgKExhbWJkYSkiICJMYW1iZGEgZnVuY3Rpb24iIHsKICAgICAgICAgICAgICAgIHRlY2hub2xvZ3kgIkFXUyBMYW1iZGEgKCkiCiAgICAgICAgICAgIH0KICAgICAgICAgICAgZHJfZGFpbHlfcmVwb3J0X2dldF9yZXBvcnRfbGlzdF9kZXZfbGFtYmRhID0gY29udGFpbmVyICJkci1kYWlseS1yZXBvcnQtZ2V0LXJlcG9ydC1saXN0LWRldiAoTGFtYmRhKSIgIkxhbWJkYSBmdW5jdGlvbiIgewogICAgICAgICAgICAgICAgdGVjaG5vbG9neSAiQVdTIExhbWJkYSAoKSIKICAgICAgICAgICAgfQogICAgICAgICAgICBkcl9kYWlseV9yZXBvcnRfZ2V0X3RpY2tlcl9saXN0X2Rldl9sYW1iZGEgPSBjb250YWluZXIgImRyLWRhaWx5LXJlcG9ydC1nZXQtdGlja2VyLWxpc3QtZGV2IChMYW1iZGEpIiAiTGFtYmRhIGZ1bmN0aW9uIiB7CiAgICAgICAgICAgICAgICB0ZWNobm9sb2d5ICJBV1MgTGFtYmRhICgpIgogICAgICAgICAgICB9CiAgICAgICAgICAgIGRyX2RhaWx5X3JlcG9ydF9saW5lX2JvdF9kZXZfbGFtYmRhID0gY29udGFpbmVyICJkci1kYWlseS1yZXBvcnQtbGluZS1ib3QtZGV2IChMYW1iZGEpIiAiTGFtYmRhIGZ1bmN0aW9uIiB7CiAgICAgICAgICAgICAgICB0ZWNobm9sb2d5ICJBV1MgTGFtYmRhICgpIgogICAgICAgICAgICB9CiAgICAgICAgICAgIGRyX2RhaWx5X3JlcG9ydF9wYXR0ZXJuX3ByZWNvbXB1dGVfZGV2X2xhbWJkYSA9IGNvbnRhaW5lciAiZHItZGFpbHktcmVwb3J0LXBhdHRlcm4tcHJlY29tcHV0ZS1kZXYgKExhbWJkYSkiICJMYW1iZGEgZnVuY3Rpb24iIHsKICAgICAgICAgICAgICAgIHRlY2hub2xvZ3kgIkFXUyBMYW1iZGEgKCkiCiAgICAgICAgICAgIH0KICAgICAgICAgICAgZHJfZGFpbHlfcmVwb3J0X3BkZl93b3JrZXJfZGV2X2xhbWJkYSA9IGNvbnRhaW5lciAiZHItZGFpbHktcmVwb3J0LXBkZi13b3JrZXItZGV2IChMYW1iZGEpIiAiTGFtYmRhIGZ1bmN0aW9uIiB7CiAgICAgICAgICAgICAgICB0ZWNobm9sb2d5ICJBV1MgTGFtYmRhICgpIgogICAgICAgICAgICB9CiAgICAgICAgICAgIGRyX2RhaWx5X3JlcG9ydF9wcmVjb21wdXRlX2NvbnRyb2xsZXJfZGV2X2xhbWJkYSA9IGNvbnRhaW5lciAiZHItZGFpbHktcmVwb3J0LXByZWNvbXB1dGUtY29udHJvbGxlci1kZXYgKExhbWJkYSkiICJMYW1iZGEgZnVuY3Rpb24iIHsKICAgICAgICAgICAgICAgIHRlY2hub2xvZ3kgIkFXUyBMYW1iZGEgKCkiCiAgICAgICAgICAgIH0KICAgICAgICAgICAgZHJfZGFpbHlfcmVwb3J0X3F1ZXJ5X3Rvb2xfZGV2X2xhbWJkYSA9IGNvbnRhaW5lciAiZHItZGFpbHktcmVwb3J0LXF1ZXJ5LXRvb2wtZGV2IChMYW1iZGEpIiAiTGFtYmRhIGZ1bmN0aW9uIiB7CiAgICAgICAgICAgICAgICB0ZWNobm9sb2d5ICJBV1MgTGFtYmRhICgpIgogICAgICAgICAgICB9CiAgICAgICAgICAgIGRyX2RhaWx5X3JlcG9ydF9yZXBvcnRfd29ya2VyX2Rldl9sYW1iZGEgPSBjb250YWluZXIgImRyLWRhaWx5LXJlcG9ydC1yZXBvcnQtd29ya2VyLWRldiAoTGFtYmRhKSIgIkxhbWJkYSBmdW5jdGlvbiIgewogICAgICAgICAgICAgICAgdGVjaG5vbG9neSAiQVdTIExhbWJkYSAoKSIKICAgICAgICAgICAgfQogICAgICAgICAgICBkcl9kYWlseV9yZXBvcnRfc2NoZW1hX21hbmFnZXJfZGV2X2xhbWJkYSA9IGNvbnRhaW5lciAiZHItZGFpbHktcmVwb3J0LXNjaGVtYS1tYW5hZ2VyLWRldiAoTGFtYmRhKSIgIkxhbWJkYSBmdW5jdGlvbiIgewogICAgICAgICAgICAgICAgdGVjaG5vbG9neSAiQVdTIExhbWJkYSAoKSIKICAgICAgICAgICAgfQogICAgICAgICAgICBkcl9kYWlseV9yZXBvcnRfc2xhY2tfbm90aWZpZXJfZGV2X2xhbWJkYSA9IGNvbnRhaW5lciAiZHItZGFpbHktcmVwb3J0LXNsYWNrLW5vdGlmaWVyLWRldiAoTGFtYmRhKSIgIkxhbWJkYSBmdW5jdGlvbiIgewogICAgICAgICAgICAgICAgdGVjaG5vbG9neSAiQVdTIExhbWJkYSAocHl0aG9uMy4xMSkiCiAgICAgICAgICAgIH0KICAgICAgICAgICAgZHJfZGFpbHlfcmVwb3J0X3N0YXRpY19hcGlfZ2VuZXJhdG9yX2Rldl9sYW1iZGEgPSBjb250YWluZXIgImRyLWRhaWx5LXJlcG9ydC1zdGF0aWMtYXBpLWdlbmVyYXRvci1kZXYgKExhbWJkYSkiICJMYW1iZGEgZnVuY3Rpb24iIHsKICAgICAgICAgICAgICAgIHRlY2hub2xvZ3kgIkFXUyBMYW1iZGEgKCkiCiAgICAgICAgICAgIH0KICAgICAgICAgICAgZHJfZGFpbHlfcmVwb3J0X3RlbGVncmFtX2FwaV9kZXZfbGFtYmRhID0gY29udGFpbmVyICJkci1kYWlseS1yZXBvcnQtdGVsZWdyYW0tYXBpLWRldiAoTGFtYmRhKSIgIkxhbWJkYSBmdW5jdGlvbiIgewogICAgICAgICAgICAgICAgdGVjaG5vbG9neSAiQVdTIExhbWJkYSAoKSIKICAgICAgICAgICAgfQogICAgICAgICAgICBkcl9kYWlseV9yZXBvcnRfdGlja2VyX2ZldGNoZXJfZGV2X2xhbWJkYSA9IGNvbnRhaW5lciAiZHItZGFpbHktcmVwb3J0LXRpY2tlci1mZXRjaGVyLWRldiAoTGFtYmRhKSIgIkxhbWJkYSBmdW5jdGlvbiIgewogICAgICAgICAgICAgICAgdGVjaG5vbG9neSAiQVdTIExhbWJkYSAoKSIKICAgICAgICAgICAgfQogICAgICAgICAgICBkcl9kYWlseV9yZXBvcnRfdGlja2VyX3NjaGVkdWxlcl9kZXZfbGFtYmRhID0gY29udGFpbmVyICJkci1kYWlseS1yZXBvcnQtdGlja2VyLXNjaGVkdWxlci1kZXYgKExhbWJkYSkiICJMYW1iZGEgZnVuY3Rpb24iIHsKICAgICAgICAgICAgICAgIHRlY2hub2xvZ3kgIkFXUyBMYW1iZGEgKCkiCiAgICAgICAgICAgIH0KICAgICAgICAgICAgYXVyb3JhX2RiID0gY29udGFpbmVyICJhdXJvcmEgKERhdGFiYXNlKSIgIkRhdGFiYXNlIiB7CiAgICAgICAgICAgICAgICB0ZWNobm9sb2d5ICJhdXJvcmEtbXlzcWwgRGF0YWJhc2UiCiAgICAgICAgICAgIH0KICAgICAgICAgICAgZHJfZGFpbHlfcmVwb3J0X3RlbGVncmFtX2FwaV9kZXZfZ2F0ZXdheSA9IGNvbnRhaW5lciAiZHItZGFpbHktcmVwb3J0LXRlbGVncmFtLWFwaS1kZXYgKEFQSSBHYXRld2F5KSIgIkFQSSBHYXRld2F5IiB7CiAgICAgICAgICAgICAgICB0ZWNobm9sb2d5ICJBV1MgQVBJIEdhdGV3YXkgKEhUVFApIgogICAgICAgICAgICB9CiAgICAgICAgICAgIGxpbmVfYm90X3BkZl9yZXBvcnRzXzc1NTI4MzUzNzU0M19idWNrZXQgPSBjb250YWluZXIgImxpbmUtYm90LXBkZi1yZXBvcnRzLTc1NTI4MzUzNzU0MyAoUzMpIiAiU3RvcmFnZSIgewogICAgICAgICAgICAgICAgdGVjaG5vbG9neSAiQVdTIFMzIgogICAgICAgICAgICB9CiAgICAgICAgICAgIGRyX2RhaWx5X3JlcG9ydF9zdGF0aWNfYXBpX2Rldl9idWNrZXQgPSBjb250YWluZXIgImRyLWRhaWx5LXJlcG9ydC1zdGF0aWMtYXBpLWRldiAoUzMpIiAiU3RvcmFnZSIgewogICAgICAgICAgICAgICAgdGVjaG5vbG9neSAiQVdTIFMzIgogICAgICAgICAgICB9CiAgICAgICAgICAgIGRyX2RhaWx5X3JlcG9ydF93ZWJhcHBfZGV2X2J1Y2tldCA9IGNvbnRhaW5lciAiZHItZGFpbHktcmVwb3J0LXdlYmFwcC1kZXYgKFMzKSIgIlN0b3JhZ2UiIHsKICAgICAgICAgICAgICAgIHRlY2hub2xvZ3kgIkFXUyBTMyIKICAgICAgICAgICAgfQogICAgICAgIH0KCiAgICAgICAgIyBCYXNpYyByZWxhdGlvbnNoaXBzICh3b3VsZCBiZSBlbmhhbmNlZCB3aXRoIGFjdHVhbCBkZXBlbmRlbmN5IGFuYWx5c2lzKQogICAgICAgIHRlbGVncmFtVXNlcnMgLT4gdGVsZWdyYW1QbGF0Zm9ybSAiVXNlcyIKICAgICAgICB0ZWxlZ3JhbVBsYXRmb3JtIC0+IGRhaWx5UmVwb3J0U3lzdGVtICJJbnRlZ3JhdGVzIHdpdGgiCiAgICB9CgogICAgdmlld3MgewogICAgICAgIHN5c3RlbUNvbnRleHQgZGFpbHlSZXBvcnRTeXN0ZW0gIlN5c3RlbUNvbnRleHQiIHsKICAgICAgICAgICAgaW5jbHVkZSAqCiAgICAgICAgICAgIGF1dG9MYXlvdXQKICAgICAgICB9CgogICAgICAgIGNvbnRhaW5lciBkYWlseVJlcG9ydFN5c3RlbSAiQ29udGFpbmVycyIgewogICAgICAgICAgICBpbmNsdWRlICoKICAgICAgICAgICAgYXV0b0xheW91dAogICAgICAgIH0KICAgIH0KfQ==",
+    "structurizr.inspection.info" : "0",
+    "structurizr.inspection.ignore" : "0",
+    "structurizr.inspection.warning" : "0"
+  },
+  "views" : {
+    "configuration" : {
+      "styles" : { },
+      "terminology" : { }
+    },
+    "containerViews" : [ {
+      "automaticLayout" : {
+        "edgeSeparation" : 50,
+        "nodeSeparation" : 50,
+        "rankDirection" : "LeftRight",
+        "rankSeparation" : 100,
+        "vertices" : true
+      },
+      "elements" : [ {
+        "id" : "7",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "8",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "9",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "10",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "11",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "12",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "13",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "14",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "15",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "16",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "17",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "18",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "19",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "20",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "21",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "22",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "23",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "24",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "25",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "26",
+        "x" : 0,
+        "y" : 0
+      } ],
+      "externalSoftwareSystemBoundariesVisible" : false,
+      "key" : "Containers",
+      "name" : "Container View: Daily Report System",
+      "order" : 2,
+      "softwareSystemId" : "6"
+    } ],
+    "systemContextViews" : [ {
+      "automaticLayout" : {
+        "edgeSeparation" : 50,
+        "nodeSeparation" : 50,
+        "rankDirection" : "LeftRight",
+        "rankSeparation" : 100,
+        "vertices" : true
+      },
+      "elements" : [ {
+        "id" : "2",
+        "x" : 0,
+        "y" : 0
+      }, {
+        "id" : "6",
+        "x" : 0,
+        "y" : 0
+      } ],
+      "enterpriseBoundaryVisible" : true,
+      "key" : "SystemContext",
+      "name" : "System Context View: Daily Report System",
+      "order" : 1,
+      "relationships" : [ {
+        "id" : "28"
+      } ],
+      "softwareSystemId" : "6"
+    } ]
+  }
+}

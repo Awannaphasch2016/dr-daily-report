@@ -1,0 +1,33 @@
+{
+  "architecture_summary": {
+    "total_objects": 24,
+    "total_connections": 15,
+    "object_types": {
+      "actor": 1,
+      "system": 5,
+      "app": 7,
+      "store": 3,
+      "component": 8
+    },
+    "technologies": [
+      "LangGraph",
+      "ReportLab",
+      "AWS Lambda (Container)",
+      "AWS API Gateway",
+      "Python",
+      "AWS S3",
+      "DynamoDB Client",
+      "AWS CloudFront",
+      "Python/yfinance",
+      "Aurora MySQL Serverless v2",
+      "AWS Step Functions",
+      "FastAPI"
+    ],
+    "external_systems": [
+      "Telegram Platform",
+      "OpenRouter",
+      "Yahoo Finance",
+      "Langfuse"
+    ]
+  }
+}

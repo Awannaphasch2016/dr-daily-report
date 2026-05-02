@@ -1,0 +1,292 @@
+{
+  "modelObjects": [
+    {
+      "id": "obj-000",
+      "name": "Telegram Bot Users",
+      "description": "End users using Telegram Mini App for ticker analysis",
+      "type": "actor"
+    },
+    {
+      "id": "obj-001",
+      "name": "Telegram Platform",
+      "description": "Official Telegram Bot API and WebApp infrastructure",
+      "type": "system"
+    },
+    {
+      "id": "obj-002",
+      "name": "Daily Report System",
+      "description": "Comprehensive ticker analysis and reporting platform",
+      "type": "system",
+      "tags": [
+        "aws",
+        "main-system"
+      ]
+    },
+    {
+      "id": "obj-003",
+      "name": "OpenRouter",
+      "description": "LLM API gateway providing access to GPT-4/Claude models",
+      "type": "system"
+    },
+    {
+      "id": "obj-004",
+      "name": "Yahoo Finance",
+      "description": "Market data provider for real-time and historical ticker information",
+      "type": "system"
+    },
+    {
+      "id": "obj-005",
+      "name": "Langfuse",
+      "description": "LLM observability and tracing platform",
+      "type": "system"
+    },
+    {
+      "id": "obj-006",
+      "name": "Telegram API Gateway",
+      "description": "HTTP REST API for Telegram Mini App interactions",
+      "type": "app",
+      "technology": "AWS API Gateway"
+    },
+    {
+      "id": "obj-007",
+      "name": "Telegram API Service",
+      "description": "Main application logic for user requests and watchlist management",
+      "type": "app",
+      "technology": "AWS Lambda (Container)"
+    },
+    {
+      "id": "obj-008",
+      "name": "Report Worker Service",
+      "description": "Async report generation with LLM integration",
+      "type": "app",
+      "technology": "AWS Lambda (Container)"
+    },
+    {
+      "id": "obj-009",
+      "name": "Ticker Data Service",
+      "description": "Scheduled market data fetching and processing",
+      "type": "app",
+      "technology": "AWS Lambda (Container)"
+    },
+    {
+      "id": "obj-010",
+      "name": "Aurora Database",
+      "description": "Primary data store for ticker data and user information",
+      "type": "store",
+      "technology": "Aurora MySQL Serverless v2"
+    },
+    {
+      "id": "obj-011",
+      "name": "PDF Storage",
+      "description": "Generated report storage with secure access",
+      "type": "store",
+      "technology": "AWS S3"
+    },
+    {
+      "id": "obj-012",
+      "name": "Data Lake",
+      "description": "Raw market data and pipeline artifact storage",
+      "type": "store",
+      "technology": "AWS S3"
+    },
+    {
+      "id": "obj-013",
+      "name": "Web App Distribution",
+      "description": "Content delivery for Telegram Mini App frontend",
+      "type": "app",
+      "technology": "AWS CloudFront"
+    },
+    {
+      "id": "obj-014",
+      "name": "Report Pipeline",
+      "description": "Orchestrated report generation workflow",
+      "type": "app",
+      "technology": "AWS Step Functions"
+    },
+    {
+      "id": "obj-015",
+      "name": "Precompute Pipeline",
+      "description": "Scheduled analysis and cache warming",
+      "type": "app",
+      "technology": "AWS Step Functions"
+    },
+    {
+      "id": "obj-016",
+      "name": "Authentication Handler",
+      "description": "Validates Telegram user data and sessions",
+      "type": "component",
+      "technology": "FastAPI"
+    },
+    {
+      "id": "obj-017",
+      "name": "Watchlist Manager",
+      "description": "CRUD operations for user ticker watchlists",
+      "type": "component",
+      "technology": "FastAPI"
+    },
+    {
+      "id": "obj-018",
+      "name": "Report Request Handler",
+      "description": "Initiates async report generation jobs",
+      "type": "component",
+      "technology": "FastAPI"
+    },
+    {
+      "id": "obj-019",
+      "name": "Cache Manager",
+      "description": "Hybrid caching (S3 + Aurora) for report data",
+      "type": "component",
+      "technology": "Python"
+    },
+    {
+      "id": "obj-020",
+      "name": "LLM Report Generator",
+      "description": "Orchestrates AI-powered financial analysis",
+      "type": "component",
+      "technology": "LangGraph"
+    },
+    {
+      "id": "obj-021",
+      "name": "Market Data Analyzer",
+      "description": "Processes ticker data for insights",
+      "type": "component",
+      "technology": "Python/yfinance"
+    },
+    {
+      "id": "obj-022",
+      "name": "PDF Generator",
+      "description": "Creates formatted PDF reports",
+      "type": "component",
+      "technology": "ReportLab"
+    },
+    {
+      "id": "obj-023",
+      "name": "Job Status Manager",
+      "description": "Tracks async job progress and completion",
+      "type": "component",
+      "technology": "DynamoDB Client"
+    }
+  ],
+  "modelConnections": [
+    {
+      "id": "conn-000",
+      "name": "Interacts with Mini App",
+      "originId": "obj-000",
+      "targetId": "obj-001",
+      "direction": "outgoing",
+      "technology": "HTTPS"
+    },
+    {
+      "id": "conn-001",
+      "name": "Loads Mini App frontend",
+      "originId": "obj-001",
+      "targetId": "obj-013",
+      "direction": "outgoing",
+      "technology": "HTTPS"
+    },
+    {
+      "id": "conn-002",
+      "name": "Makes API requests",
+      "originId": "obj-013",
+      "targetId": "obj-006",
+      "direction": "outgoing",
+      "technology": "HTTPS/REST"
+    },
+    {
+      "id": "conn-003",
+      "name": "Routes requests",
+      "originId": "obj-006",
+      "targetId": "obj-007",
+      "direction": "outgoing",
+      "technology": "AWS Integration"
+    },
+    {
+      "id": "conn-004",
+      "name": "Reads/writes user data",
+      "originId": "obj-007",
+      "targetId": "obj-010",
+      "direction": "outgoing",
+      "technology": "MySQL"
+    },
+    {
+      "id": "conn-005",
+      "name": "Invokes async report generation",
+      "originId": "obj-007",
+      "targetId": "obj-008",
+      "direction": "outgoing",
+      "technology": "Direct Lambda"
+    },
+    {
+      "id": "conn-006",
+      "name": "Caches report data",
+      "originId": "obj-008",
+      "targetId": "obj-010",
+      "direction": "outgoing",
+      "technology": "MySQL"
+    },
+    {
+      "id": "conn-007",
+      "name": "Stores generated reports",
+      "originId": "obj-008",
+      "targetId": "obj-011",
+      "direction": "outgoing",
+      "technology": "S3 API"
+    },
+    {
+      "id": "conn-008",
+      "name": "Stores market data",
+      "originId": "obj-009",
+      "targetId": "obj-010",
+      "direction": "outgoing",
+      "technology": "MySQL"
+    },
+    {
+      "id": "conn-009",
+      "name": "Archives raw data",
+      "originId": "obj-009",
+      "targetId": "obj-012",
+      "direction": "outgoing",
+      "technology": "S3 API"
+    },
+    {
+      "id": "conn-010",
+      "name": "Validates user auth",
+      "originId": "obj-007",
+      "targetId": "obj-001",
+      "direction": "outgoing",
+      "technology": "HTTPS/REST"
+    },
+    {
+      "id": "conn-011",
+      "name": "Generates AI analysis",
+      "originId": "obj-008",
+      "targetId": "obj-003",
+      "direction": "outgoing",
+      "technology": "HTTPS/REST"
+    },
+    {
+      "id": "conn-012",
+      "name": "Traces LLM operations",
+      "originId": "obj-008",
+      "targetId": "obj-005",
+      "direction": "outgoing",
+      "technology": "HTTPS/REST"
+    },
+    {
+      "id": "conn-013",
+      "name": "Fetches market data",
+      "originId": "obj-009",
+      "targetId": "obj-004",
+      "direction": "outgoing",
+      "technology": "HTTPS/REST"
+    },
+    {
+      "id": "conn-014",
+      "name": "Executes split pipeline",
+      "originId": "obj-008",
+      "targetId": "obj-014",
+      "direction": "outgoing",
+      "technology": "Step Functions"
+    }
+  ]
+}
