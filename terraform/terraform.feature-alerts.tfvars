@@ -30,8 +30,6 @@ lambda_timeout = 120
 log_retention_days = 3
 
 # Telegram Mini App Configuration (same as dev - for testing)
-telegram_app_id     = ""
-telegram_app_hash   = ""
 telegram_webapp_url = "https://demjoigiw6myp.cloudfront.net"
 
 # CORS: Same as dev for testing

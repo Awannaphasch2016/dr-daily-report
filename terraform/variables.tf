@@ -130,20 +130,6 @@ variable "TELEGRAM_BOT_TOKEN" {
   default     = ""
 }
 
-variable "telegram_app_id" {
-  description = "Telegram App ID"
-  type        = string
-  sensitive   = true
-  default     = ""
-}
-
-variable "telegram_app_hash" {
-  description = "Telegram App Hash"
-  type        = string
-  sensitive   = true
-  default     = ""
-}
-
 variable "telegram_webapp_url" {
   description = "Telegram Mini App WebApp URL (legacy, use telegram_webapp_urls for multiple)"
   type        = string

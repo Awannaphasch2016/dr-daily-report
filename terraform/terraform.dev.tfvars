@@ -30,8 +30,6 @@ log_retention_days = 365
 # Telegram Mini App Configuration
 # TELEGRAM_BOT_TOKEN comes from Doppler via TF_VAR_TELEGRAM_BOT_TOKEN
 # DO NOT set here - tfvars overrides TF_VAR_ environment variables
-telegram_app_id     = ""
-telegram_app_hash   = ""
 telegram_webapp_url = "https://demjoigiw6myp.cloudfront.net"  # CloudFront distribution URL (legacy)
 
 # CORS: All allowed WebApp origins (dev, staging, prod CloudFront distributions)

@@ -156,14 +156,9 @@ resource "aws_lambda_function" "telegram_api" {
       # S3 Data Lake (Phase 1: Raw data staging)
       DATA_LAKE_BUCKET = module.s3_data_lake.bucket_id
 
-      # Cache Configuration
-      CACHE_BACKEND  = "hybrid" # hybrid, s3, or sqlite
-      CACHE_TTL_HOURS = "24"
-
       # DynamoDB Tables
       DYNAMODB_WATCHLIST_TABLE = aws_dynamodb_table.telegram_watchlist.name
       # NOTE: DYNAMODB_CACHE_TABLE removed - cache moved to Aurora ticker_data_cache
-      JOBS_TABLE_NAME          = aws_dynamodb_table.report_jobs.name
 
       # Async Report Processing
       REPORT_WORKER_FUNCTION_NAME  = aws_lambda_function.report_worker.function_name
@@ -174,9 +169,6 @@ resource "aws_lambda_function" "telegram_api" {
 
       # Telegram Configuration
       TELEGRAM_BOT_TOKEN  = var.TELEGRAM_BOT_TOKEN
-      TELEGRAM_APP_ID     = var.telegram_app_id
-      TELEGRAM_APP_HASH   = var.telegram_app_hash
-      TELEGRAM_WEBAPP_URL = var.telegram_webapp_url
 
       # Langfuse Observability
       LANGFUSE_PUBLIC_KEY            = var.LANGFUSE_PUBLIC_KEY
@@ -193,7 +185,6 @@ resource "aws_lambda_function" "telegram_api" {
 
       # Environment
       ENVIRONMENT = var.environment
-      LOG_LEVEL   = "INFO"
     }
   }
 
