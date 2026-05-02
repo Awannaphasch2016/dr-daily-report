@@ -175,7 +175,6 @@ resource "aws_lambda_function" "report_worker" {
       TZ = "Asia/Bangkok"
 
       OPENROUTER_API_KEY       = var.OPENROUTER_API_KEY
-      JOBS_TABLE_NAME          = aws_dynamodb_table.report_jobs.name
       PDF_STORAGE_BUCKET       = aws_s3_bucket.pdf_reports.id
       PDF_BUCKET_NAME          = aws_s3_bucket.pdf_reports.id
 
