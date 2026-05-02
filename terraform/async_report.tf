@@ -113,6 +113,15 @@ resource "aws_iam_role_policy" "report_worker_policy" {
           "s3:GetObject"
         ]
         Resource = "${aws_s3_bucket.pdf_reports.arn}/*"
+      },
+      # S3 Data Lake - pipeline intermediate payloads (for split pipeline preprocess)
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:PutObject",
+          "s3:GetObject"
+        ]
+        Resource = "${module.s3_data_lake.bucket_arn}/pipeline/*"
       }
     ]
   })
@@ -186,6 +195,11 @@ resource "aws_lambda_function" "report_worker" {
       # QuantAgent routing (feature flag)
       REPORT_GENERATION_MODE    = var.report_generation_mode
       QUANT_AGENT_FUNCTION_NAME = aws_lambda_function.quant_agent_report.function_name
+
+      # Split pipeline (feature flag)
+      USE_REPORT_PIPELINE  = var.use_report_pipeline ? "true" : "false"
+      REPORT_PIPELINE_ARN  = var.use_report_pipeline ? aws_sfn_state_machine.report_pipeline[0].arn : ""
+      DATA_LAKE_BUCKET     = module.s3_data_lake.bucket_id
     }
   }
 
@@ -208,6 +222,22 @@ resource "aws_lambda_function" "report_worker" {
     aws_ecr_repository.lambda,
     aws_iam_role_policy_attachment.report_worker_basic
   ]
+}
+
+# IAM: Allow report_worker to start pipeline sync execution (for experiment mode)
+resource "aws_iam_role_policy" "report_worker_invoke_pipeline" {
+  count = var.use_report_pipeline ? 1 : 0
+  name  = "${var.project_name}-worker-invoke-pipeline-${var.environment}"
+  role  = aws_iam_role.report_worker_role.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = ["states:StartSyncExecution"]
+      Resource = aws_sfn_state_machine.report_pipeline[0].arn
+    }]
+  })
 }
 
 ###############################################################################

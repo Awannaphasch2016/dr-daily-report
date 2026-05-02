@@ -102,6 +102,9 @@ locals {
     pattern_precompute_function_arn  = "arn:aws:lambda:${var.aws_region}:${data.aws_caller_identity.current.account_id}:function:${local.pattern_precompute_function_name}"
     backtest_precompute_function_arn = "arn:aws:lambda:${var.aws_region}:${data.aws_caller_identity.current.account_id}:function:${local.backtest_precompute_function_name}"
     static_api_function_arn          = var.static_api_enabled ? "arn:aws:lambda:${var.aws_region}:${data.aws_caller_identity.current.account_id}:function:${local.static_api_function_name}" : ""
+    # Split pipeline ARN (empty string if disabled)
+    report_pipeline_arn              = var.use_report_pipeline ? aws_sfn_state_machine.report_pipeline[0].arn : ""
+    use_report_pipeline              = var.use_report_pipeline
   })
 }
 

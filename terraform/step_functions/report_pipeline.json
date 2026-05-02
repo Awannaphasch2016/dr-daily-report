@@ -1,0 +1,210 @@
+{
+  "Comment": "Report Pipeline — PreProcess → Route → Generation → PostProcess (Express workflow)",
+  "StartAt": "PreProcess",
+  "States": {
+    "PreProcess": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Comment": "Run data-only pipeline, write raw data to S3",
+      "Parameters": {
+        "FunctionName": "${preprocess_function_arn}",
+        "Payload": {
+          "ticker.$": "$.ticker",
+          "data_date.$": "$.data_date",
+          "generation_strategy.$": "$.generation_strategy",
+          "experiment.$": "$.experiment",
+          "job_id.$": "$.job_id",
+          "source.$": "$.source",
+          "model.$": "$.model",
+          "execution_id.$": "$$.Execution.Name"
+        }
+      },
+      "ResultPath": "$.preprocess",
+      "ResultSelector": {
+        "s3_key.$": "$.Payload.s3_key",
+        "ticker.$": "$.Payload.ticker",
+        "dr_symbol.$": "$.Payload.dr_symbol",
+        "yahoo_symbol.$": "$.Payload.yahoo_symbol",
+        "generation_strategy.$": "$.Payload.generation_strategy",
+        "experiment.$": "$.Payload.experiment",
+        "job_id.$": "$.Payload.job_id",
+        "source.$": "$.Payload.source",
+        "model.$": "$.Payload.model",
+        "data_date.$": "$.Payload.data_date",
+        "timing_ms.$": "$.Payload.timing_ms",
+        "execution_id.$": "$.Payload.execution_id"
+      },
+      "Retry": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error_info",
+          "Next": "HandleError"
+        }
+      ],
+      "Next": "RouteStrategy"
+    },
+
+    "RouteStrategy": {
+      "Type": "Choice",
+      "Comment": "Route to generation strategy Lambda based on generation_strategy field",
+      "Choices": [
+        {
+          "Variable": "$.preprocess.generation_strategy",
+          "StringEquals": "quant_agent",
+          "Next": "GenerateQuantAgent"
+        }
+      ],
+      "Default": "GenerateSinglePass"
+    },
+
+    "GenerateSinglePass": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Comment": "Single-pass LLM generation (context + prompt + LLM + optional 2nd pass)",
+      "Parameters": {
+        "FunctionName": "${generation_function_arn}",
+        "Payload": {
+          "s3_key.$": "$.preprocess.s3_key",
+          "ticker.$": "$.preprocess.ticker",
+          "dr_symbol.$": "$.preprocess.dr_symbol",
+          "generation_strategy": "single_pass",
+          "model.$": "$.preprocess.model",
+          "execution_id.$": "$.preprocess.execution_id"
+        }
+      },
+      "ResultPath": "$.generation",
+      "ResultSelector": {
+        "report_text.$": "$.Payload.report_text",
+        "strategy_performance.$": "$.Payload.strategy_performance",
+        "api_costs.$": "$.Payload.api_costs",
+        "timing_ms.$": "$.Payload.timing_ms",
+        "generation_mode.$": "$.Payload.generation_mode",
+        "model.$": "$.Payload.model"
+      },
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error_info",
+          "Next": "HandleError"
+        }
+      ],
+      "Next": "PostProcess"
+    },
+
+    "GenerateQuantAgent": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Comment": "QuantAgent multi-agent generation (reuse existing Lambda)",
+      "Parameters": {
+        "FunctionName": "${quant_agent_function_arn}",
+        "Payload": {
+          "s3_key.$": "$.preprocess.s3_key",
+          "ticker.$": "$.preprocess.ticker",
+          "source": "report_pipeline"
+        }
+      },
+      "ResultPath": "$.generation",
+      "ResultSelector": {
+        "report_text.$": "$.Payload.report",
+        "strategy_performance": {},
+        "api_costs": {},
+        "timing_ms.$": "$.Payload.timing_ms",
+        "generation_mode": "quant_agent",
+        "model": "quant_agent"
+      },
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error_info",
+          "Next": "HandleError"
+        }
+      ],
+      "Next": "PostProcess"
+    },
+
+    "PostProcess": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Comment": "Number injection + scoring + trace storage + report caching",
+      "Parameters": {
+        "FunctionName": "${postprocess_function_arn}",
+        "Payload": {
+          "s3_key.$": "$.preprocess.s3_key",
+          "report_text.$": "$.generation.report_text",
+          "strategy_performance.$": "$.generation.strategy_performance",
+          "ticker.$": "$.preprocess.ticker",
+          "dr_symbol.$": "$.preprocess.dr_symbol",
+          "yahoo_symbol.$": "$.preprocess.yahoo_symbol",
+          "experiment.$": "$.preprocess.experiment",
+          "job_id.$": "$.preprocess.job_id",
+          "source.$": "$.preprocess.source",
+          "api_costs.$": "$.generation.api_costs",
+          "generation_mode.$": "$.generation.generation_mode",
+          "model.$": "$.generation.model",
+          "execution_id.$": "$.preprocess.execution_id"
+        }
+      },
+      "ResultPath": "$.postprocess",
+      "ResultSelector": {
+        "status.$": "$.Payload.status",
+        "quality_scores.$": "$.Payload.quality_scores",
+        "placeholder_compliance.$": "$.Payload.placeholder_compliance",
+        "timing_ms.$": "$.Payload.timing_ms",
+        "report_length.$": "$.Payload.report_length"
+      },
+      "Retry": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 2,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error_info",
+          "Next": "HandleError"
+        }
+      ],
+      "Next": "PipelineComplete"
+    },
+
+    "PipelineComplete": {
+      "Type": "Pass",
+      "Comment": "Pipeline completed successfully",
+      "Parameters": {
+        "status": "success",
+        "ticker.$": "$.preprocess.ticker",
+        "quality_scores.$": "$.postprocess.quality_scores",
+        "placeholder_compliance.$": "$.postprocess.placeholder_compliance",
+        "report_length.$": "$.postprocess.report_length",
+        "timing": {
+          "preprocess_ms.$": "$.preprocess.timing_ms",
+          "generation_ms.$": "$.generation.timing_ms",
+          "postprocess_ms.$": "$.postprocess.timing_ms"
+        }
+      },
+      "End": true
+    },
+
+    "HandleError": {
+      "Type": "Pass",
+      "Comment": "Pipeline failed — propagate error for caller to handle",
+      "Parameters": {
+        "status": "failed",
+        "ticker.$": "$.ticker",
+        "error.$": "$.error_info.Cause"
+      },
+      "End": true
+    }
+  }
+}

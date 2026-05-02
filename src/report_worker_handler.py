@@ -204,7 +204,74 @@ async def _handle_job_mode(job_id: str, ticker_raw: str, model: str = None, data
 # ============================================================================
 
 def _handle_experiment_mode(event: dict) -> dict:
-    """Run experiment: generate report, return raw metrics. No job tracking, no cache."""
+    """Run experiment: generate report, return raw metrics. No job tracking, no cache.
+
+    Routes to split pipeline or legacy monolithic path based on USE_REPORT_PIPELINE flag.
+    """
+    use_pipeline = os.getenv('USE_REPORT_PIPELINE') == 'true'
+
+    if use_pipeline:
+        return _handle_experiment_via_pipeline(event)
+    else:
+        return _handle_experiment_legacy(event)
+
+
+def _handle_experiment_via_pipeline(event: dict) -> dict:
+    """Run experiment through the split pipeline (Step Functions Express sync)."""
+    import json
+    import boto3
+
+    ticker_raw = event['ticker']
+    model = event.get('model')
+
+    pipeline_arn = os.getenv('REPORT_PIPELINE_ARN')
+    if not pipeline_arn:
+        logger.warning("REPORT_PIPELINE_ARN not set, falling back to legacy experiment mode")
+        return _handle_experiment_legacy(event)
+
+    try:
+        sfn_client = boto3.client('stepfunctions')
+        response = sfn_client.start_sync_execution(
+            stateMachineArn=pipeline_arn,
+            input=json.dumps({
+                'ticker': ticker_raw,
+                'experiment': True,
+                'generation_strategy': event.get('architecture', 'single_pass'),
+                'model': model or '',
+                'data_date': event.get('data_date', ''),
+                'source': 'experiment',
+            })
+        )
+
+        if response['status'] != 'SUCCEEDED':
+            error_msg = response.get('error', 'Pipeline execution failed')
+            logger.error(f"Pipeline experiment failed: {error_msg}")
+            return {'status': 'error', 'ticker': ticker_raw, 'model': model, 'error': error_msg}
+
+        # Parse pipeline output
+        output = json.loads(response.get('output', '{}'))
+
+        return {
+            'status': 'success',
+            'ticker': ticker_raw,
+            'model': model or os.getenv('LLM_MODEL', 'openai/gpt-4o'),
+            'data_date': event.get('data_date', ''),
+            'placeholder_compliance': output.get('placeholder_compliance', 0),
+            'placeholder_metrics': {},
+            'quality_scores': output.get('quality_scores', {}),
+            'timing_metrics': output.get('timing', {}),
+            'api_costs': {},
+            'report_length': output.get('report_length', 0),
+            'error': '',
+        }
+
+    except Exception as e:
+        logger.error(f"Pipeline experiment failed: {e}", exc_info=True)
+        return {'status': 'error', 'ticker': ticker_raw, 'model': model, 'error': str(e)}
+
+
+def _handle_experiment_legacy(event: dict) -> dict:
+    """Legacy experiment mode: generate report monolithically, return raw metrics."""
     ticker_raw = event['ticker']
     model = event.get('model')
 

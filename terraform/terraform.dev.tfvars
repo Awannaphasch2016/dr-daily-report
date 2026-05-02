@@ -50,3 +50,6 @@ lambda_image_tag = "pdf-timeout-fix-20260105-061221"
 
 # QuantAgent Configuration
 report_generation_mode = "single_pass"  # "single_pass" or "quant_agent"
+
+# Split Pipeline (Step Functions Express)
+use_report_pipeline = true

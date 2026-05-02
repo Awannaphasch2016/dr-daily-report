@@ -32,14 +32,71 @@
               "MaxConcurrency": 46,
               "Parameters": {
                 "ticker.$": "$$.Map.Item.Value",
-                "execution_id.$": "$$.Execution.Name"
+                "execution_id.$": "$$.Execution.Name",
+                "use_pipeline": ${use_report_pipeline}
               },
               "Iterator": {
-                "StartAt": "InvokeReportWorker",
+                "StartAt": "RouteReportWorker",
                 "States": {
+                  "RouteReportWorker": {
+                    "Type": "Choice",
+                    "Comment": "Route between split pipeline and legacy report_worker",
+                    "Choices": [
+                      {
+                        "Variable": "$.use_pipeline",
+                        "BooleanEquals": true,
+                        "Next": "PreparePipelineInput"
+                      }
+                    ],
+                    "Default": "InvokeReportWorker"
+                  },
+                  "PreparePipelineInput": {
+                    "Type": "Pass",
+                    "Comment": "Build input object for report pipeline",
+                    "Parameters": {
+                      "ticker.$": "$.ticker",
+                      "source": "precompute",
+                      "generation_strategy": "single_pass",
+                      "experiment": false,
+                      "data_date": "",
+                      "model": ""
+                    },
+                    "ResultPath": "$.pipeline_input",
+                    "Next": "InvokeReportPipeline"
+                  },
+                  "InvokeReportPipeline": {
+                    "Type": "Task",
+                    "Resource": "arn:aws:states:::aws-sdk:sfn:startSyncExecution",
+                    "Comment": "Invoke split report pipeline (Step Functions Express, sync)",
+                    "Parameters": {
+                      "StateMachineArn": "${report_pipeline_arn}",
+                      "Input.$": "States.JsonToString($.pipeline_input)"
+                    },
+                    "ResultPath": "$.worker_result",
+                    "ResultSelector": {
+                      "Payload.$": "States.StringToJson($.Output)"
+                    },
+                    "Retry": [
+                      {
+                        "ErrorEquals": ["States.ALL"],
+                        "IntervalSeconds": 2,
+                        "MaxAttempts": 3,
+                        "BackoffRate": 2.0
+                      }
+                    ],
+                    "Catch": [
+                      {
+                        "ErrorEquals": ["States.ALL"],
+                        "ResultPath": "$.error",
+                        "Next": "HandleWorkerError"
+                      }
+                    ],
+                    "Next": "CheckWorkerSuccess"
+                  },
                   "InvokeReportWorker": {
                     "Type": "Task",
                     "Resource": "arn:aws:states:::lambda:invoke",
+                    "Comment": "Legacy monolithic report worker",
                     "Parameters": {
                       "FunctionName": "${report_worker_function_arn}",
                       "Payload": {

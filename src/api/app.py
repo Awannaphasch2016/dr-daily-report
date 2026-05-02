@@ -123,23 +123,64 @@ def get_user_id_from_header(
 
 
 def invoke_report_worker(job_id: str, ticker: str) -> None:
-    """Invoke report worker Lambda directly for async processing
+    """Invoke report worker Lambda directly for async processing.
 
-    Uses direct Lambda invocation with Event invocation type (async)
-    to maintain request-response decoupling for long-running report generation.
+    Routes between split pipeline (Step Functions Express) and legacy
+    Lambda invocation based on USE_REPORT_PIPELINE feature flag.
 
     Args:
         job_id: Unique job identifier
         ticker: Ticker symbol to analyze
 
     Raises:
-        ValueError: If REPORT_WORKER_FUNCTION_NAME environment variable not set
-        ClientError: If Lambda invocation fails (permission denied, function not found, etc.)
-
-    Example:
-        >>> invoke_report_worker('job-123', 'NVDA19')
-        # Logs: "✅ Invoked report worker for job job-123 (ticker: NVDA19)"
+        ValueError: If required environment variable not set
+        ClientError: If invocation fails
     """
+    import boto3
+    import json
+
+    use_pipeline = os.getenv('USE_REPORT_PIPELINE') == 'true'
+
+    if use_pipeline:
+        _invoke_report_pipeline(job_id, ticker)
+    else:
+        _invoke_report_worker_legacy(job_id, ticker)
+
+
+def _invoke_report_pipeline(job_id: str, ticker: str) -> None:
+    """Invoke report pipeline via Step Functions Express (async fire-and-forget)."""
+    import boto3
+    import json
+
+    pipeline_arn = os.getenv('REPORT_PIPELINE_ARN')
+    if not pipeline_arn:
+        raise ValueError("REPORT_PIPELINE_ARN not set. Check Terraform configuration.")
+
+    sfn_client = boto3.client('stepfunctions')
+
+    try:
+        # Use startExecution (not sync) for async fire-and-forget from API
+        sfn_client.start_execution(
+            stateMachineArn=pipeline_arn,
+            input=json.dumps({
+                'ticker': ticker,
+                'job_id': job_id,
+                'source': 'telegram_api',
+                'generation_strategy': 'single_pass',
+                'experiment': False,
+                'data_date': '',
+                'model': '',
+            })
+        )
+        logger.info(f"Invoked report pipeline for job {job_id} (ticker: {ticker})")
+
+    except Exception as e:
+        logger.error(f"Failed to invoke report pipeline: {e}")
+        raise
+
+
+def _invoke_report_worker_legacy(job_id: str, ticker: str) -> None:
+    """Legacy: invoke report worker Lambda directly."""
     import boto3
     import json
 
@@ -160,14 +201,14 @@ def invoke_report_worker(job_id: str, ticker: str) -> None:
             Payload=json.dumps({
                 'job_id': job_id,
                 'ticker': ticker,
-                'source': 'telegram_api'  # For tracing in CloudWatch logs
+                'source': 'telegram_api'
             })
         )
 
-        logger.info(f"✅ Invoked report worker for job {job_id} (ticker: {ticker})")
+        logger.info(f"Invoked report worker for job {job_id} (ticker: {ticker})")
 
     except Exception as e:
-        logger.error(f"❌ Failed to invoke report worker: {e}")
+        logger.error(f"Failed to invoke report worker: {e}")
         raise
 
 

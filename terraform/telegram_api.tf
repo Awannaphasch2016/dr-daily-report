@@ -168,6 +168,10 @@ resource "aws_lambda_function" "telegram_api" {
       # Async Report Processing
       REPORT_WORKER_FUNCTION_NAME  = aws_lambda_function.report_worker.function_name
 
+      # Split pipeline (feature flag)
+      USE_REPORT_PIPELINE = var.use_report_pipeline ? "true" : "false"
+      REPORT_PIPELINE_ARN = var.use_report_pipeline ? aws_sfn_state_machine.report_pipeline[0].arn : ""
+
       # Telegram Configuration
       TELEGRAM_BOT_TOKEN  = var.TELEGRAM_BOT_TOKEN
       TELEGRAM_APP_ID     = var.telegram_app_id
