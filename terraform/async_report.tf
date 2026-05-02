@@ -194,7 +194,7 @@ resource "aws_lambda_function" "report_worker" {
 
       # QuantAgent routing (feature flag)
       REPORT_GENERATION_MODE    = var.report_generation_mode
-      QUANT_AGENT_FUNCTION_NAME = aws_lambda_function.quant_agent_report.function_name
+      QUANT_AGENT_FUNCTION_NAME = aws_lambda_function.quant_agent.function_name
 
       # Split pipeline (feature flag)
       USE_REPORT_PIPELINE  = var.use_report_pipeline ? "true" : "false"

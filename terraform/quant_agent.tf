@@ -94,7 +94,7 @@ resource "aws_iam_role_policy" "quant_agent_policy" {
 # Lambda Function
 ###############################################################################
 
-resource "aws_lambda_function" "quant_agent_report" {
+resource "aws_lambda_function" "quant_agent" {
   function_name = "${var.project_name}-quant-agent-${var.environment}"
   role          = aws_iam_role.quant_agent_role.arn
 
@@ -164,8 +164,8 @@ resource "aws_lambda_function" "quant_agent_report" {
 resource "aws_lambda_alias" "quant_agent_live" {
   name             = "live"
   description      = "Production alias for quant agent"
-  function_name    = aws_lambda_function.quant_agent_report.function_name
-  function_version = aws_lambda_function.quant_agent_report.version
+  function_name    = aws_lambda_function.quant_agent.function_name
+  function_version = aws_lambda_function.quant_agent.version
 
   lifecycle {
     ignore_changes = [function_version]
@@ -186,7 +186,7 @@ resource "aws_iam_role_policy" "report_worker_invoke_quant_agent" {
       {
         Effect   = "Allow"
         Action   = "lambda:InvokeFunction"
-        Resource = aws_lambda_function.quant_agent_report.arn
+        Resource = aws_lambda_function.quant_agent.arn
       }
     ]
   })

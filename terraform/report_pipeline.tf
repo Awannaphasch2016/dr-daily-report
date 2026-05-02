@@ -144,7 +144,7 @@ resource "aws_iam_role_policy" "pipeline_generation_policy" {
       {
         Effect   = "Allow"
         Action   = ["lambda:InvokeFunction"]
-        Resource = aws_lambda_function.quant_agent_report.arn
+        Resource = aws_lambda_function.quant_agent.arn
       }
     ]
   })
@@ -318,7 +318,7 @@ resource "aws_lambda_function" "pipeline_generation" {
       AURORA_PASSWORD = var.AURORA_MASTER_PASSWORD
 
       # QuantAgent function name (for delegation)
-      QUANT_AGENT_FUNCTION_NAME = aws_lambda_function.quant_agent_report.function_name
+      QUANT_AGENT_FUNCTION_NAME = aws_lambda_function.quant_agent.function_name
     }
   }
 
@@ -449,7 +449,7 @@ locals {
     preprocess_function_arn           = "arn:aws:lambda:${var.aws_region}:${data.aws_caller_identity.current.account_id}:function:${local.pipeline_preprocess_function_name}"
     generation_function_arn           = "arn:aws:lambda:${var.aws_region}:${data.aws_caller_identity.current.account_id}:function:${local.pipeline_generation_function_name}"
     postprocess_function_arn          = "arn:aws:lambda:${var.aws_region}:${data.aws_caller_identity.current.account_id}:function:${local.pipeline_postprocess_function_name}"
-    quant_agent_function_arn          = aws_lambda_function.quant_agent_report.arn
+    quant_agent_function_arn          = aws_lambda_function.quant_agent.arn
   }) : "{}"
 }
 
@@ -525,7 +525,7 @@ resource "aws_iam_role_policy" "report_pipeline_policy" {
           "arn:aws:lambda:${var.aws_region}:${data.aws_caller_identity.current.account_id}:function:${local.pipeline_preprocess_function_name}",
           "arn:aws:lambda:${var.aws_region}:${data.aws_caller_identity.current.account_id}:function:${local.pipeline_generation_function_name}",
           "arn:aws:lambda:${var.aws_region}:${data.aws_caller_identity.current.account_id}:function:${local.pipeline_postprocess_function_name}",
-          aws_lambda_function.quant_agent_report.arn
+          aws_lambda_function.quant_agent.arn
         ]
       },
       {
