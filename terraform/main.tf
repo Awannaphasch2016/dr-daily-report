@@ -280,7 +280,6 @@ resource "aws_lambda_function" "line_bot" {
 
       # Application config
       ENVIRONMENT               = var.environment
-      LOG_LEVEL                 = "INFO"
     }
   }
 
