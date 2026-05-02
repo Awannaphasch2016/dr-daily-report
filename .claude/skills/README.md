@@ -2,7 +2,7 @@
 
 **Part of the Agent Kernel** - Auto-discovered capabilities for specialized assistance.
 
-This directory contains 15 Claude Code skills that provide focused expertise for common development tasks in the dr-daily-report project. Skills are automatically discovered and invoked by Claude when relevant to the user's request.
+This directory contains 17 Claude Code skills that provide focused expertise for common development tasks in the dr-daily-report project. Skills are automatically discovered and invoked by Claude when relevant to the user's request.
 
 > **Agent Kernel** = The complete knowledge system (`.claude/*` + `docs/*`). Skills are one layer within the Agent Kernel. See [CLAUDE.md](../CLAUDE.md#agent-kernel) for the full architecture.
 
@@ -70,7 +70,26 @@ Claude: [Detects "review" + "performance" keywords]
 
 ---
 
-### 3. refacter
+### 3. webapp-testing
+**Focus**: Web application testing with Playwright, browser automation, UI testing
+
+**When Claude uses this**:
+- Testing frontend applications
+- Browser automation and UI validation
+- Screenshot generation and DOM inspection
+- End-to-end testing workflows
+
+**Files**:
+- `SKILL.md` - Testing toolkit overview, decision tree
+- `examples/element_discovery.py` - Element discovery patterns
+- `examples/static_html_automation.py` - Static HTML testing
+- `examples/console_logging.py` - Console log capture
+
+**Example trigger**: "Test the Telegram Mini App frontend"
+
+---
+
+### 4. refacter
 **Focus**: Code complexity analysis, hotspot detection, refactoring patterns
 
 **When Claude uses this**:
@@ -91,7 +110,7 @@ Claude: [Detects "review" + "performance" keywords]
 
 ---
 
-### 4. deployment
+### 5. deployment
 **Focus**: Zero-downtime deployments, multi-environment strategy, artifact promotion
 
 **When Claude uses this**:
@@ -111,7 +130,7 @@ Claude: [Detects "review" + "performance" keywords]
 
 ---
 
-### 5. research
+### 6. research
 **Focus**: Investigation methodology, when to research vs iterate
 
 **When Claude uses this**:
@@ -129,7 +148,7 @@ Claude: [Detects "review" + "performance" keywords]
 
 ---
 
-### 6. error-investigation
+### 7. error-investigation
 **Focus**: Multi-layer verification, CloudWatch analysis, Lambda logging
 
 **When Claude uses this**:
@@ -147,7 +166,7 @@ Claude: [Detects "review" + "performance" keywords]
 
 ---
 
-### 7. line-uiux (Legacy)
+### 8. line-uiux (Legacy)
 **Focus**: LINE Bot message patterns, Flex Messages, chat flows
 
 **Status**: Maintenance mode only - no new features
@@ -167,7 +186,7 @@ Claude: [Detects "review" + "performance" keywords]
 
 ---
 
-### 8. code-review
+### 9. code-review
 **Focus**: Security, performance, defensive programming review
 
 **When Claude uses this**:
@@ -186,7 +205,7 @@ Claude: [Detects "review" + "performance" keywords]
 
 ---
 
-### 9. database-migration
+### 10. database-migration
 **Focus**: Schema migrations, reconciliation patterns, MySQL gotchas
 
 **When Claude uses this**:
@@ -323,6 +342,26 @@ Claude: [Detects "review" + "performance" keywords]
 
 ---
 
+### 16. grafana
+**Focus**: Grafana dashboard management, datasource operations, CloudWatch panels, and troubleshooting
+
+**When Claude uses this**:
+- Adding or modifying Grafana dashboards
+- Adding new panels to existing dashboards
+- Managing MySQL or CloudWatch datasources
+- Troubleshooting "no data", auth errors, or datasource issues
+- Extending Grafana to new environments
+
+**Files**:
+- `SKILL.md` - Decision tree, core patterns, auth overview
+- `DASHBOARD-PATTERNS.md` - Panel helpers, SQL patterns, CloudWatch dimensions, template variables
+- `AUTH-AND-INFRA.md` - Auth flow (boto3 → Service Account Token), workspace provisioning, datasource management
+- `TROUBLESHOOTING.md` - No data, auth errors, datasource connectivity, deploy failures
+
+**Example trigger**: "Add a new panel to the Pipeline Health dashboard" or "Grafana shows no data"
+
+---
+
 ## How Skills Work
 
 ### Auto-Discovery Process
@@ -446,6 +485,8 @@ Skills use **progressive disclosure** to balance detail and navigability:
 | "Version prompts" | prompt-management | Langfuse versioning |
 | "A/B test prompts" | prompt-management | Experiment tracking |
 | "Improve DR report" | report-prompt-workflow | Composed workflow |
+| "Add Grafana panel" | grafana | Dashboard management |
+| "Grafana no data" | grafana | Troubleshooting |
 
 ---
 
@@ -554,6 +595,7 @@ Want to know which skills are most useful? Check CLAUDE.md references:
 | code-review | Defensive Programming, Testing | "review", "quality" |
 | error-investigation | Error Investigation, Lambda Logging | "debug", "logs", "errors" |
 | testing-workflow | Testing Anti-Patterns, Testing Principles | "test", "pytest" |
+| webapp-testing | Web Application Testing with Playwright | "UI", "browser", "playwright" |
 | deployment | Deployment Section | "deploy", "production" |
 | database-migration | Database Migration Principles | "migration", "schema" |
 | refacter | (Implicit via code quality) | "refactor", "complexity" |
@@ -564,6 +606,7 @@ Want to know which skills are most useful? Check CLAUDE.md references:
 | context-engineering | (New) | "context", "hallucination", "semantic" |
 | prompt-management | (New) | "langfuse", "version", "A/B test" |
 | report-prompt-workflow | (Tier-2) | "report prompt", "DR report" |
+| grafana | (New) | "grafana", "dashboard", "datasource" |
 
 ---
 
@@ -619,21 +662,23 @@ CLAUDE.md says "fail fast and visibly." The code-review skill shows you 5 specif
 **Tier-1 (Modular)**:
 1. **testing-workflow** - Test patterns, anti-patterns, defensive testing
 2. **telegram-uiux** - Telegram Mini App UI/UX, state management
-3. **refacter** - Complexity analysis, hotspot detection, refactoring
-4. **deployment** - Zero-downtime deployments, multi-environment
-5. **research** - Investigation methodology, research vs iteration
-6. **error-investigation** - Multi-layer verification, CloudWatch, Lambda logging
-7. **line-uiux** (legacy) - LINE Bot maintenance
-8. **code-review** - Security, performance, defensive programming
-9. **database-migration** - Schema migrations, reconciliation, MySQL
-10. **data-visualization** - Mathematically correct charts, trendlines, overlays
-11. **performance-investigation** - Web performance metrics, bottleneck identification
-12. **prompt-engineering** - LLM prompt design, few-shot, chain-of-thought
-13. **context-engineering** - Semantic layers, token optimization, hallucination prevention
-14. **prompt-management** - Langfuse versioning, A/B testing, observability
+3. **webapp-testing** - Browser automation, UI testing with Playwright
+4. **refacter** - Complexity analysis, hotspot detection, refactoring
+5. **deployment** - Zero-downtime deployments, multi-environment
+6. **research** - Investigation methodology, research vs iteration
+7. **error-investigation** - Multi-layer verification, CloudWatch, Lambda logging
+8. **line-uiux** (legacy) - LINE Bot maintenance
+9. **code-review** - Security, performance, defensive programming
+10. **database-migration** - Schema migrations, reconciliation, MySQL
+11. **data-visualization** - Mathematically correct charts, trendlines, overlays
+12. **performance-investigation** - Web performance metrics, bottleneck identification
+13. **prompt-engineering** - LLM prompt design, few-shot, chain-of-thought
+14. **context-engineering** - Semantic layers, token optimization, hallucination prevention
+15. **prompt-management** - Langfuse versioning, A/B testing, observability
+16. **grafana** - Dashboard management, datasource ops, CloudWatch panels
 
 **Tier-2 (Composed)**:
-15. **report-prompt-workflow** - DR report prompt lifecycle (composes 12-14)
+17. **report-prompt-workflow** - DR report prompt lifecycle (composes 12-14)
 
 ### Commands
 

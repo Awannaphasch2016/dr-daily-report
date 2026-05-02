@@ -1,0 +1,66 @@
+services:
+  # Structurizr Local - Main architecture visualization (replaces deprecated Lite)
+  structurizr:
+    image: structurizr/structurizr
+    container_name: dr-structurizr-lite
+    command: local
+    ports:
+      - "8081:8080"
+    volumes:
+      - ./docs/architecture:/usr/local/structurizr:rw
+    restart: unless-stopped
+    environment:
+      - TZ=Asia/Bangkok
+    networks:
+      - architecture
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # File watcher for hot reload (development only)
+  file-watcher:
+    image: node:18-alpine
+    container_name: dr-file-watcher
+    working_dir: /app
+    environment:
+      - SHELL=/bin/sh
+    volumes:
+      - ./docs/architecture:/app/docs:ro
+      - ./scripts:/app/scripts:ro
+    command: >
+      sh -c "
+        npm install -g chokidar-cli &&
+        echo '🔥 Hot reload watcher started for Structurizr DSL files...' &&
+        echo 'Watching directory contents:' &&
+        ls -la docs/ &&
+        chokidar 'docs/**/*.dsl' --verbose -c 'echo \"📝 DSL file changed: {path} - \$(date)\"'
+      "
+    restart: unless-stopped
+    networks:
+      - architecture
+    profiles:
+      - dev
+
+  # Optional: Nginx reverse proxy for custom domain (production)
+  nginx:
+    image: nginx:alpine
+    container_name: dr-nginx-proxy
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - structurizr
+    restart: unless-stopped
+    networks:
+      - architecture
+    profiles:
+      - production
+
+networks:
+  architecture:
+    driver: bridge
+    name: dr-architecture-network

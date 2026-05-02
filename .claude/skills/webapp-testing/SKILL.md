@@ -82,7 +82,7 @@ with sync_playwright() as p:
 
 ## Best Practices
 
-- **Use bundled scripts as black boxes** - To accomplish a task, consider whether one of the scripts available in `scripts/` can help. These scripts handle common, complex workflows reliably without cluttering the context window. Use `--help` to see usage, then invoke directly. 
+- **Use bundled scripts as black boxes** - To accomplish a task, consider whether one of the scripts available in `scripts/` can help. These scripts handle common, complex workflows reliably without cluttering the context window. Use `--help` to see usage, then invoke directly.
 - Use `sync_playwright()` for synchronous scripts
 - Always close the browser when done
 - Use descriptive selectors: `text=`, `role=`, CSS selectors, or IDs
@@ -94,3 +94,67 @@ with sync_playwright() as p:
   - `element_discovery.py` - Discovering buttons, links, and inputs on a page
   - `static_html_automation.py` - Using file:// URLs for local HTML
   - `console_logging.py` - Capturing console logs during automation
+
+## Daily Report Project Integration
+
+For this project, webapp-testing is useful for:
+
+### **Telegram Mini App Testing**
+- Test the web dashboard interface served from S3
+- Validate responsive design and mobile UI
+- Verify ticker analysis displays correctly
+
+### **Local Development Testing**
+- Test FastAPI frontend during development
+- Validate API responses in browser context
+- Screenshot generation for documentation
+
+### **End-to-End Validation**
+- Test complete user workflows (search → select → analyze)
+- Verify data flow from API to frontend display
+- Cross-browser compatibility testing
+
+### **Example: Testing Telegram Web Dashboard**
+
+```python
+from playwright.sync_api import sync_playwright
+
+def test_telegram_dashboard():
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page()
+
+        # Navigate to deployed S3 frontend
+        page.goto('https://dr-daily-report-webapp-dev.s3-website.amazonaws.com')
+        page.wait_for_load_state('networkidle')
+
+        # Test ticker search functionality
+        search_input = page.locator('input[placeholder*="ticker"]')
+        search_input.fill('AAPL')
+        page.locator('button:has-text("Search")').click()
+
+        # Verify results display
+        page.wait_for_selector('.ticker-results')
+        results = page.locator('.ticker-item').count()
+        assert results > 0, "No ticker results found"
+
+        # Screenshot for verification
+        page.screenshot(path='/tmp/dashboard_test.png')
+        browser.close()
+```
+
+### **Integration with Testing Workflow**
+
+Use webapp-testing alongside the existing `testing-workflow` skill:
+
+```bash
+# Tier 4 (E2E) tests including webapp
+pytest --tier=4 tests/e2e/webapp/
+
+# Combined backend + frontend testing
+python scripts/with_server.py \
+  --server "uvicorn src.api.app:app --port 8000" --port 8000 \
+  -- pytest tests/e2e/
+```
+
+This enables full-stack testing of your Daily Report architecture from Lambda APIs through to the frontend user interface.

@@ -726,47 +726,56 @@ def build_data_freshness_dashboard():
 
     # === Layer 2: How Complete? ===
     panels.append(row_panel("Layer 2: How Complete?", 5))
+    coverage_thresholds = [
+        {"color": "red", "value": None},
+        {"color": "yellow", "value": 50},
+        {"color": "green", "value": 80},
+    ]
     panels.append(stat_panel(
         "Price Coverage Today",
-        """SELECT CONCAT(
-            (SELECT COUNT(DISTINCT symbol) FROM daily_prices
-             WHERE price_date = (SELECT MAX(price_date) FROM daily_prices)),
-            ' / ',
-            (SELECT COUNT(*) FROM ticker_master WHERE is_active = 1)
-        ) AS value""",
-        x=0, y=6, w=6, h=4,
+        """SELECT ROUND(
+            COUNT(DISTINCT symbol) * 100.0 /
+            (SELECT COUNT(*) FROM ticker_master WHERE is_active = 1), 1
+        ) AS value
+        FROM daily_prices
+        WHERE price_date = (SELECT MAX(price_date) FROM daily_prices)""",
+        x=0, y=6, w=6, h=4, unit="percent",
+        thresholds=coverage_thresholds,
     ))
     panels.append(stat_panel(
         "Indicator Coverage Today",
-        """SELECT CONCAT(
-            (SELECT COUNT(DISTINCT symbol) FROM daily_indicators
-             WHERE indicator_date = (SELECT MAX(indicator_date) FROM daily_indicators)),
-            ' / ',
-            (SELECT COUNT(*) FROM ticker_master WHERE is_active = 1)
-        ) AS value""",
-        x=6, y=6, w=6, h=4,
+        """SELECT ROUND(
+            COUNT(DISTINCT symbol) * 100.0 /
+            (SELECT COUNT(*) FROM ticker_master WHERE is_active = 1), 1
+        ) AS value
+        FROM daily_indicators
+        WHERE indicator_date = (SELECT MAX(indicator_date) FROM daily_indicators)""",
+        x=6, y=6, w=6, h=4, unit="percent",
+        thresholds=coverage_thresholds,
     ))
     panels.append(stat_panel(
         "Report Coverage Today",
-        """SELECT CONCAT(
-            (SELECT COUNT(DISTINCT symbol) FROM precomputed_reports
-             WHERE report_date = (SELECT MAX(report_date) FROM precomputed_reports WHERE status = 'completed')
-               AND status = 'completed'),
-            ' / ',
-            (SELECT COUNT(*) FROM ticker_master WHERE is_active = 1)
-        ) AS value""",
-        x=12, y=6, w=6, h=4,
+        """SELECT ROUND(
+            COUNT(DISTINCT symbol) * 100.0 /
+            (SELECT COUNT(*) FROM ticker_master WHERE is_active = 1), 1
+        ) AS value
+        FROM precomputed_reports
+        WHERE report_date = (SELECT MAX(report_date) FROM precomputed_reports WHERE status = 'completed')
+          AND status = 'completed'""",
+        x=12, y=6, w=6, h=4, unit="percent",
+        thresholds=coverage_thresholds,
     ))
     panels.append(stat_panel(
         "Backtest Coverage Today",
-        """SELECT CONCAT(
-            (SELECT COUNT(DISTINCT symbol) FROM backtest_results
-             WHERE backtest_date = (SELECT MAX(backtest_date) FROM backtest_results)
-               AND strategy_name != '_consensus'),
-            ' / ',
-            (SELECT COUNT(*) FROM ticker_master WHERE is_active = 1)
-        ) AS value""",
-        x=18, y=6, w=6, h=4,
+        """SELECT ROUND(
+            COUNT(DISTINCT symbol) * 100.0 /
+            (SELECT COUNT(*) FROM ticker_master WHERE is_active = 1), 1
+        ) AS value
+        FROM backtest_results
+        WHERE backtest_date = (SELECT MAX(backtest_date) FROM backtest_results)
+          AND strategy_name != '_consensus'""",
+        x=18, y=6, w=6, h=4, unit="percent",
+        thresholds=coverage_thresholds,
     ))
     panels.append(timeseries_panel(
         "Price Coverage Over Time",
