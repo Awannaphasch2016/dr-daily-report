@@ -35,13 +35,9 @@ resource "aws_lambda_function" "ticker_scheduler" {
 
       # Environment
       ENVIRONMENT = var.environment
-      LOG_LEVEL   = "INFO"
 
       # LLM API Key (required for report generation)
       OPENROUTER_API_KEY = var.OPENROUTER_API_KEY
-
-      # DynamoDB for job tracking
-      JOBS_TABLE_NAME = aws_dynamodb_table.report_jobs.name
 
       # Precompute Controller (for automatic triggering after fetch)
       PRECOMPUTE_CONTROLLER_ARN = aws_lambda_function.precompute_controller.arn
