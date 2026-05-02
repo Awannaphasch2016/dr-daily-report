@@ -115,3 +115,9 @@ tests/artifacts/
 frontend/pattern_detection_results.json
 frontend/twinbar/test-results/
 test_chart.html
+
+# Local PlantUML renderer
+tools/plantuml.jar
+
+# /tf-aws Pattern 12 invariant-bracket pre-mutation state backups (local only)
+.terraform-state-backups/

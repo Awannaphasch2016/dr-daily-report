@@ -1,0 +1,139 @@
+# Replica declaration: dr-bot
+# Used by: /tf-aws command
+# Purpose: Reconcile Terraform state with deployed AWS reality for the dr daily report bot.
+#
+# This file is INTERNAL to the /tf-aws command. The kernel does not consume it.
+# See .claude/replicas/README.md for the scoping rationale.
+
+name: dr-bot
+description: |
+  Terraform state vs deployed AWS infrastructure for the dr daily report bot
+  (LINE bot + Telegram Mini App + report worker pipeline + shared infra).
+  X = TF state on S3. Y = AWS-live scoped by App tag and resource name patterns.
+
+# noema_anchor: which profile is currently the working approximation of the
+# intent-noema (= the bot working for users as it does today). This drives
+# direction-of-change inference for ambiguous findings (HALT, ORPHAN-with-traffic,
+# DRIFTED with mixed direction). Valid values:
+#   aws_currently_working    — AWS-live is canonical proxy; .tf and .tfstate get
+#                              pulled toward it. Use for live, serving systems.
+#   tf_intent_pre_deployment — .tf source is canonical; AWS gets shaped to match.
+#                              Use for greenfield / pre-launch systems.
+# Adopted 2026-05-02 as part of language-standardization pass; replaces the
+# implicit "AWS = reality" framing which was an epistemic overreach.
+noema_anchor: aws_currently_working
+
+# X side: Terraform state (the "spec" / declared intent)
+#
+# state.role taxonomy (consumed by /tf-aws audit, Phases A/D and Phase F.5):
+#   primary      — canonical state for the replica; new bindings land here.
+#   deprecating  — state being abandoned. Bindings here are either
+#                  DOUBLE (also bound in primary) or candidates for prune.
+#                  Phase F.5 refuses --apply if any backend entry point
+#                  is wired to a deprecating-role file.
+#
+# When the deprecating file is fully drained (0 dr-bot-scoped bindings),
+# upgrade its role to "archived" or remove it from this list.
+x:
+  type: tfstate
+  files:
+    - uri: s3://dr-daily-report-tf-state/telegram-api/dev/terraform.tfstate
+      role: primary
+    - uri: s3://dr-daily-report-tf-state/dev/terraform.tfstate
+      role: deprecating
+      reason: |
+        Pre-Apr-2026 split-state era. Holds 14 DOUBLEs + 2 GHOSTs as of
+        2026-04-30 audit. Will be archived after the legacy-state-cleanup
+        journal's prune batch lands.
+  region: ap-southeast-1
+  # Legacy fields (deprecated 2026-05-01, kept for one cycle of compat):
+  primary: s3://dr-daily-report-tf-state/telegram-api/dev/terraform.tfstate
+  legacy:
+    - s3://dr-daily-report-tf-state/dev/terraform.tfstate
+
+# Y side: AWS reality (the "actual" / deployed)
+y:
+  type: aws_account
+  account: "755283537543"
+  region: ap-southeast-1
+  filter:
+    # Tag-based scoping — must match at least one tag value
+    tag_app:
+      - dr-daily-report
+      - line-bot
+      - telegram-api
+      - shared
+    # Name-glob fallback for resources without proper tags
+    name_glob:
+      - "*dr-daily-report*"
+      - "*line-bot*"
+      - "*telegram-api*"
+      - "webhook-health*"
+      - "model-catalog-sync*"
+
+# Projection: how to compare X and Y for "sameness"
+projection:
+  kind: arn-set-with-config
+  fingerprint_fields:
+    aws_lambda_function:
+      - last_modified
+      - code_sha256
+      - environment
+    aws_rds_cluster:
+      - engine_version
+      - parameter_group_name
+    aws_security_group:
+      - ingress
+      - egress
+    aws_apigatewayv2_api:
+      - routes
+      - integrations
+
+# Policy: how to resolve δ when ORPHAN/GHOST/DOUBLE found
+policy:
+  default: absorb-reality   # AWS wins; pull deployed resources into TF state
+
+  # Hard-coded exceptions — these resources require human review, never auto-import
+  exceptions:
+    - resource_pattern: "aws_security_group_rule.aurora_from_*"
+      override: review
+      reason: |
+        Two SG rules (aurora_from_codebuild, aurora_from_proxy) were deleted
+        in AWS console but remain in state per validation 2026-04-27.
+        Investigate intent before re-creating or removing from state.
+
+    - resource_pattern: "aws_apigatewayv2_api.tracked_*"
+      override: review
+      reason: |
+        Tracked API GW (ou0ivives1) may have no live traffic; live traffic
+        appears to flow through orphan API GW (ta0g00v0c7). Reconciliation
+        direction depends on which one CloudFront actually points to.
+
+# Triage: classification rules for ORPHANs
+triage:
+  # Resources matching these patterns are "empty shells" — recommend deletion
+  # (note: /tf-aws does NOT delete from AWS; this is advisory)
+  empty_shell_patterns:
+    - resource_type: aws_ecs_cluster
+      condition: "active_services_count == 0 AND running_tasks_count == 0"
+    - resource_type: aws_secretsmanager_secret
+      condition: "last_accessed_date IS NULL"
+    - resource_type: aws_sqs_queue
+      condition: "approximate_number_of_messages == 0 AND last_message_age > 90d"
+
+  # These resource classes are ALWAYS imported (observer-class — always managed)
+  always_import_classes:
+    - aws_cloudwatch_metric_alarm
+    - aws_cloudwatch_log_group
+    - aws_cloudtrail_trail
+    - aws_iam_role
+    - aws_iam_policy
+
+  # Activity window — resources with no activity in this window are flagged "review"
+  recent_activity_window: 7d
+
+# Backup configuration for state mutations
+backup:
+  enabled: true
+  directory: .terraform-state-backups
+  retention_days: 30

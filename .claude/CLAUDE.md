@@ -24,7 +24,7 @@ The **Agent Kernel** is the complete knowledge system that powers Claude's reaso
 │         │                    │                    │                 │
 │  ┌──────┴──────┐  ┌─────────┴─────────┐  ┌──────┴──────┐           │
 │  │  Commands   │  │    Principles     │  │   Skills    │           │
-│  │  (40+ cmds) │  │  (28 principles)  │  │ (15 skills) │           │
+│  │  (40+ cmds) │  │  (28 principles)  │  │ (16 skills) │           │
 │  │  /step      │  │  Tier-0 (Core)    │  │ Auto-load   │           │
 │  │  /validate  │  │  Tier-1/2/3       │  │ on context  │           │
 │  └─────────────┘  └───────────────────┘  └─────────────┘           │
@@ -238,6 +238,7 @@ Commands are not independent—they are **modes within Strategy**. Each mode def
 | `/perf` | observe | Reveals performance Constraints from CloudWatch metrics |
 | `/optimize` | transform | Transforms Constraints while maintaining Invariant stability (Tier-2) |
 | `/evolve` | meta | Tier-2: Detects drift, proposes updates, verifies Agent Kernel compliance |
+| `/tf-aws` | reconcile | **Tier-1**: Reconciles TF source ↔ TF state ↔ AWS reality for the dr-bot replica on **three axes** — `δ_source` (Edge A: UNREALIZED-INTENT / UNDECLARED-IMPORT via Phase A.5 HCL parse + diff), `δ_membership` (Edge B: ORPHAN/GHOST/DOUBLE), `δ_config` (Edge B: TRACKED-but-DRIFTED, per-type fingerprint diff using `projection.fingerprint_fields`); verbs: audit/diff/absorb/prune/sync; Phase H self-test asserts coverage (BS-6 plug); Phase F.5 backend-reference sweep refuses --apply if any CI entry point is wired to a `deprecating`-role state file; `Replica` concept stays internal pending Rule-of-Three |
 
 **Chaining**: Strategy can chain modes. Each mode updates tuple state before next mode executes.
 
@@ -273,7 +274,7 @@ Tier-N: Higher composition (builds on lower tiers)
 |--------|--------|--------|---------|
 | Principles | Core (#1,2,18,20,23,25-28) | Domain clusters | Task-specific |
 | Skills | — | Modular (prompt-eng, testing) | Composed (report-workflow) |
-| Commands | Foundation (/merge), Atomic (/explore, /validate) | Specialized (/move, /adapt, /reconcile) | Orchestrated (/optimize, /analysis) |
+| Commands | Foundation (/merge), Atomic (/explore, /validate) | Specialized (/move, /adapt, /reconcile, /tf-aws) | Orchestrated (/optimize, /analysis) |
 | Invariants | Level 4 (config) | Levels 3-2 (infra, data) | Levels 1-0 (service, user) |
 | Tests | Tier-0 (unit) | Tier-1-2 (integration) | Tier-3-4 (e2e) |
 
@@ -282,6 +283,19 @@ Tier-N: Higher composition (builds on lower tiers)
 - **Reusability**: Tier-1 modules can be composed into multiple Tier-2 solutions
 - **Maintainability**: Changes to Tier-1 automatically benefit all Tier-2 dependents
 - **Cognitive load**: Hierarchical structure is easier to navigate than flat references
+
+**Cross-cutting recognition — noema-anchor pattern** (added 2026-05-02): Several kernel concepts are instances of the same underlying pattern: *naming which profile of an intent-noema is currently the working approximation*. Specifically:
+
+| Kernel concept | Plays the noema-anchor role |
+|---|---|
+| Thinking Tuple **Invariant** slot (#26) | "What must be true at end" = the noema being realized |
+| `/feature` **spec** files | Written description of the intent-noema |
+| `/merge` **strategy** field (preserve/adapt/conform/copy) | Names which input profile is canonical for the merge |
+| `/reconcile` **domain** argument | Implicitly names the canonical axis |
+| `/tf-aws` **`noema_anchor`** field in `.claude/replicas/dr-bot.yaml` | Explicitly names which profile (`aws_currently_working` vs `tf_intent_pre_deployment`) is canonical for that replica |
+| Principle #25 **invariant levels** L0–L4 | Sub-noemata composing a top-level noema |
+
+The **general name "noema-anchor"** is reserved for skill-body usage in reconciliation/transformation modes. The kernel keeps the existing role-specific names (Invariant, spec, strategy, domain). This is recognition without rename — pattern made explicit so a future architect doesn't have to reverse-engineer it from scattered concepts. Promotion to a Tier-0 principle of its own is **deferred** pending Rule of Three (a second reconciliation skill that needs an explicit anchor field).
 
 See [Compositional Hierarchy Guide](.claude/principles/compositional-hierarchy.md).
 

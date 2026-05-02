@@ -1,0 +1,46 @@
+@startuml C4_Component_ReportWorker
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Component.puml
+
+title C4 Level 3 - Components: Report Worker Lambda
+
+Container(caller, "Caller", "Step Functions Map / Telegram API / LINE Bot", "Invokes report_worker_handler asynchronously")
+
+Container_Boundary(worker, "Report Worker (Lambda)") {
+    Component(handler, "Lambda Handler", "Python", "src/report_worker_handler.py — entrypoint, parses event, dispatches strategy")
+    Component(agent, "TickerAnalysisAgent", "LangGraph + Python", "src/agent.py — LLM orchestration, prompt construction, retries")
+    Component(strategy, "SinglePassStrategy", "Python", "src/pipeline/single_pass_strategy.py — default generation flow")
+    Component(resolver, "Ticker Resolver", "Python", "Resolves user symbol → DR ticker code via Aurora lookup")
+    Component(macro, "Macro Data Service", "Python", "Fetches index/macro context for the prompt")
+    Component(transformer, "Report Transformer", "Python", "src/api/transformer.py — JSON → LaTeX → PDF")
+    Component(aurora_dao, "Aurora DAO", "Python (PyMySQL)", "src/data/aurora/* — precompute service, cache writes")
+    Component(s3_client, "S3 Client", "boto3", "Uploads PDF, presigns URLs")
+    Component(job_tracker, "Job Tracker", "boto3 (DynamoDB)", "Updates async job state (queued → running → done/failed)")
+    Component(lf_client, "Langfuse Client", "Python SDK", "Wraps LLM calls with traces")
+}
+
+ContainerDb(aurora, "Aurora MySQL", "RDS Aurora")
+ContainerDb(s3_pdf, "PDF Reports Bucket", "S3")
+ContainerDb(jobs_ddb, "Job Status Table", "DynamoDB")
+System_Ext(openrouter, "OpenRouter", "LLM API")
+System_Ext(langfuse, "Langfuse", "Observability")
+
+Rel(caller, handler, "Invoke", "Lambda async")
+Rel(handler, job_tracker, "Mark running", "")
+Rel(handler, resolver, "Resolve symbol")
+Rel(resolver, aurora_dao, "Lookup ticker code")
+Rel(handler, strategy, "Run strategy")
+Rel(strategy, macro, "Get macro context")
+Rel(strategy, agent, "Generate report")
+Rel(agent, lf_client, "Trace call")
+Rel(lf_client, openrouter, "Chat completion", "HTTPS")
+Rel(lf_client, langfuse, "Send trace", "HTTPS")
+Rel(strategy, transformer, "Render PDF")
+Rel(transformer, s3_client, "Upload bytes")
+Rel(s3_client, s3_pdf, "PutObject")
+Rel(strategy, aurora_dao, "Cache metrics")
+Rel(aurora_dao, aurora, "INSERT/UPDATE", "MySQL")
+Rel(handler, job_tracker, "Mark done/failed")
+Rel(job_tracker, jobs_ddb, "UpdateItem", "DynamoDB")
+
+SHOW_LEGEND()
+@enduml

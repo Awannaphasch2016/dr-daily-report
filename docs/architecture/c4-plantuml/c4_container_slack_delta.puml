@@ -1,0 +1,54 @@
+@startuml C4_Container_Slack_Delta
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
+
+title Slack /dr TICKER integration — what's NEW (green) vs EXISTING (grey) vs MODIFIED (orange)
+
+AddElementTag("new",      $bgColor="#B7E4B7", $borderColor="#1E7E1E", $fontColor="#0F3C0F", $legendText="NEW (this change)")
+AddElementTag("modified", $bgColor="#FFE0B3", $borderColor="#C76A00", $fontColor="#5C2E00", $legendText="MODIFIED")
+AddElementTag("existing", $bgColor="#E6E6E6", $borderColor="#888888", $fontColor="#333333", $legendText="EXISTING (reused)")
+AddRelTag("new", $lineColor="#1E7E1E", $textColor="#1E7E1E")
+AddRelTag("existing", $lineColor="#888888", $textColor="#666666")
+
+Person(slack_user, "Slack User", "Anyone in the installed workspace types `/dr AAPL` in a channel")
+
+System_Ext(slack, "Slack Platform", "Slash command + signing secret + response_url")
+
+System_Boundary(aws, "AWS Account (ap-southeast-1)") {
+
+    System_Boundary(slack_b, "Slack Channel (NEW)") {
+        Container(apigw_slack, "Slack API Gateway", "HTTP API Gateway v2", "POST /slack/commands\nHMAC-verifies via SLACK_SIGNING_SECRET", $tags="new")
+        Container(cmd_handler, "slack_command_handler", "Lambda (Python)\nsrc/slack_command_handler.py", "1. Verify HMAC\n2. Parse /dr TICKER\n3. ACK 200 within 3s\n4. Enqueue to SQS\n5. Per-user rate limit (10/min)", $tags="new")
+        ContainerQueue(sqs, "Slack Command Queue", "SQS FIFO\nMessageGroupId = channel_id", "Per-channel ordering\nAvoids 1-msg/sec channel rate limit", $tags="new")
+        Container(worker, "slack_worker", "Lambda (Python)\nsrc/slack_worker_handler.py", "1. Aurora cache lookup\n2. If miss → invoke report_worker\n3. Build Block Kit (header + summary + PDF button)\n4. POST to response_url", $tags="new")
+    }
+
+    System_Boundary(report_b, "Report Generation (EXISTING — reused)") {
+        Container(report_worker, "report_worker", "Lambda (Python container)\nsrc/report_worker_handler.py", "Existing async report generator — invoked on cache miss", $tags="existing")
+    }
+
+    System_Boundary(data_b, "Data (EXISTING — reused)") {
+        ContainerDb(aurora, "Aurora MySQL", "RDS Aurora Serverless v2", "Precomputed daily reports — read for cache hit", $tags="existing")
+        ContainerDb(s3_pdf, "PDF Reports Bucket", "S3 (line-bot-pdf-reports-...)", "Existing PDFs — slack_worker presigns 24h URLs", $tags="existing")
+    }
+
+    System_Boundary(config_b, "Configuration") {
+        Container(doppler, "Doppler → Lambda env", "Doppler project: rag-chatbot-worktree", "Config dev:\n+ SLACK_SIGNING_SECRET (added)\n  SLACK_WEBHOOK_URL (kept)\n- TF_VAR_SLACK_WEBHOOK_URL (removed)\nstg/prd: signing secret pending", $tags="modified")
+    }
+}
+
+Rel(slack_user, slack, "Types `/dr AAPL` in channel", "")
+Rel(slack, apigw_slack, "POST /slack/commands\n(signed with team's signing secret)", "HTTPS", $tags="new")
+Rel(apigw_slack, cmd_handler, "Proxy invoke", "AWS integration", $tags="new")
+Rel(cmd_handler, sqs, "SendMessage(group=channel_id)", "AWS SDK", $tags="new")
+Rel(sqs, worker, "Trigger", "Lambda event source", $tags="new")
+Rel(worker, aurora, "Lookup cached report", "MySQL via RDS Proxy", $tags="new")
+Rel(worker, report_worker, "Invoke (only on cache miss)", "Lambda async", $tags="new")
+Rel(worker, s3_pdf, "Presign PDF URL (24h)", "S3 GetObject", $tags="new")
+Rel(worker, slack, "POST formatted Block Kit\nto response_url\n(in_channel visibility)", "HTTPS", $tags="new")
+Rel(slack, slack_user, "Renders Block Kit message in channel\n(header + summary + Open PDF button)", "")
+
+Rel(doppler, cmd_handler, "SLACK_SIGNING_SECRET\n(read once at init)", "env", $tags="new")
+Rel(doppler, worker, "SLACK_WEBHOOK_URL (optional)\n(env)", "env", $tags="existing")
+
+SHOW_LEGEND()
+@enduml

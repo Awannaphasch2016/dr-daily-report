@@ -1,0 +1,591 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>/tf-aws audit — replica=dr-bot — 2026-04-28</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<style>
+  :root {
+    --bg: #f7f8fa;
+    --panel: #ffffff;
+    --border: #d0d7de;
+    --ink: #24292f;
+    --muted: #57606a;
+    --tracked: #e0f0ff;
+    --tracked-border: #3366aa;
+    --import: #ffb3b3;
+    --import-border: #b30000;
+    --review: #ffe6a0;
+    --review-border: #b38a00;
+    --shell: #e6e6e6;
+    --shell-border: #888;
+    --missing: #ffd9b3;
+    --missing-border: #cc6600;
+    --drifted: #cff4fc;
+    --drifted-border: #087990;
+    --blindspot: #f0d6ff;
+    --blindspot-border: #6b21a8;
+  }
+  body { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--ink); margin: 0; padding: 24px; }
+  h1 { margin: 0 0 4px; font-size: 22px; }
+  h2 { margin: 28px 0 8px; font-size: 17px; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  .subtitle { color: var(--muted); font-size: 13px; margin-bottom: 16px; }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 10px; font-size: 12px; }
+  .legend .chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; border: 1px solid; }
+  .chip.tracked { background: var(--tracked); border-color: var(--tracked-border); color: var(--tracked-border); }
+  .chip.import  { background: var(--import);  border-color: var(--import-border);  color: var(--import-border); }
+  .chip.review  { background: var(--review);  border-color: var(--review-border);  color: var(--review-border); }
+  .chip.shell   { background: var(--shell);   border-color: var(--shell-border);   color: var(--shell-border); }
+  .chip.missing { background: var(--missing); border-color: var(--missing-border); color: var(--missing-border); }
+  .chip.drifted { background: var(--drifted); border-color: var(--drifted-border); color: var(--drifted-border); }
+  .chip.blindspot { background: var(--blindspot); border-color: var(--blindspot-border); color: var(--blindspot-border); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { border: 1px solid var(--border); padding: 6px 8px; text-align: left; vertical-align: top; }
+  th { background: #f0f3f6; }
+  td.center { text-align: center; }
+  td.import  { background: #ffecec; }
+  td.review  { background: #fff5d6; }
+  td.shell   { background: #ededed; }
+  td.drifted { background: var(--drifted); }
+  td.blindspot { background: var(--blindspot); }
+  .mermaid { background: #fff; padding: 8px; overflow: auto; }
+  .small { font-size: 12px; color: var(--muted); }
+  code { background: #f1f3f5; padding: 1px 5px; border-radius: 3px; font-size: 12px; }
+  .tabs { display: flex; gap: 4px; margin-bottom: 12px; border-bottom: 2px solid var(--border); }
+  .tab-button { background: var(--panel); border: 1px solid var(--border); border-bottom: none; border-radius: 6px 6px 0 0; padding: 8px 16px; cursor: pointer; font-size: 14px; color: var(--muted); font-family: inherit; }
+  .tab-button:hover { background: #eef1f4; }
+  .tab-button.active { background: var(--ink); color: #fff; border-color: var(--ink); font-weight: 600; }
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+  .reconcile-diagram { background: #fff; border: 1px solid var(--border); border-radius: 6px; padding: 16px; font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px; line-height: 1.4; white-space: pre; overflow-x: auto; }
+</style>
+</head>
+<body>
+
+<h1>/tf-aws audit — replica=dr-bot</h1>
+<div class="subtitle">2026-04-28 · ap-southeast-1 · account 755283537543 · two-axis δ: <b>9 ORPHAN</b> (membership) + <b>1 DRIFTED</b> (config) · <b>4 documented blind spots</b> (epistemic limits the audit cannot prove) · <b>scope: provisioning state (TF state ↔ AWS reality) only</b> · runtime issues tracked separately</div>
+
+<div class="panel">
+  <h2 style="margin-top:0">Legend</h2>
+  <div class="legend">
+    <span class="chip tracked">✅ TF-tracked</span>
+    <span class="chip import">🚨 ORPHAN — import-now</span>
+    <span class="chip review">⚠️ ORPHAN — review (twin/exception)</span>
+    <span class="chip shell">🗑️ ORPHAN — empty-shell (advisory delete)</span>
+    <span class="chip missing">❓ Missing observability (no paired alarm)</span>
+    <span class="chip drifted">🔄 DRIFTED — config drift on TRACKED (Phase 2)</span>
+    <span class="chip blindspot">🕳️ BLIND-SPOT — outside audit's epistemic surface</span>
+  </div>
+  <p class="small" style="margin-top:10px">
+    Dashed red edges = data-flow / dependency from an orphan into a TF-tracked resource (this is the blast radius —
+    if the orphan changes, the tracked side feels it without TF noticing).
+    Dashed orange edge = expected-but-missing observer.
+    <b>🕳️ BS-N tags</b> on a node mark resources affected by a documented audit blind spot — the verdict ✅/import-now/etc. is correct on the audit's axes, but the audit itself <b>cannot</b> prove the broader property named in the corresponding blind-spot section below (e.g. "this Lambda actually works at runtime"). See "Blind spots and limits" below the DRIFTED panel.
+  </p>
+</div>
+
+<div class="tabs">
+  <button class="tab-button active" data-tab="tab-component">Component Diagram</button>
+  <button class="tab-button" data-tab="tab-reconcile">Reconcile Diagram</button>
+</div>
+
+<div class="tab-panel active" id="tab-component">
+
+<h2>Component Diagram</h2>
+<div class="panel">
+<pre class="mermaid">
+flowchart LR
+  %% ---------- styling ----------
+  classDef tracked fill:#e0f0ff,stroke:#3366aa,color:#003366,stroke-width:1px;
+  classDef import  fill:#ffb3b3,stroke:#b30000,color:#660000,stroke-width:2px;
+  classDef review  fill:#ffe6a0,stroke:#b38a00,color:#5c4400,stroke-width:2px,stroke-dasharray:4 2;
+  classDef shell   fill:#e6e6e6,stroke:#888888,color:#444444,stroke-width:1px,stroke-dasharray:3 3;
+  classDef missing fill:#ffd9b3,stroke:#cc6600,color:#663300,stroke-width:2px,stroke-dasharray:2 2;
+  classDef drifted fill:#cff4fc,stroke:#087990,color:#03363d,stroke-width:2px;
+  classDef blindspot fill:#f0d6ff,stroke:#6b21a8,color:#3b0764,stroke-width:1.5px,stroke-dasharray:1 2;
+  classDef ext     fill:#ffffff,stroke:#666,color:#333;
+
+  %% ---------- externals ----------
+  LineUser([LINE User]):::ext
+  TgUser([Telegram Mini App User]):::ext
+  LineAPI[/LINE Messaging API/]:::ext
+  OpenRouter[/OpenRouter LLM/]:::ext
+  GrafanaAWS[/AWS Managed Grafana<br/>workspace/]:::ext
+
+  subgraph AWS["AWS Account 755283537543 · ap-southeast-1 · dev"]
+
+    subgraph TFTracked["TERRAFORM-TRACKED — telegram-api/dev/.tfstate (208 res)"]
+      direction TB
+      LineLambda["LINE Bot Lambda<br/>aws_lambda_function.line_bot"]:::tracked
+      TgLambda["🔄 D1 · 🕳️ BS-2<br/>Telegram API Lambda :live<br/>aws_lambda_function.telegram_api<br/><i>env-var drift; trim-spec pending</i>"]:::drifted
+      ReportWorker["Report Worker Lambda<br/>aws_lambda_function.report_worker"]:::tracked
+      PrecomputeCtrl["Precompute Controller<br/>aws_lambda_function.precompute_controller"]:::tracked
+      ApiGwTracked["API Gateway TRACKED<br/>id: ou0ivives1<br/>created 2025-11-24"]:::tracked
+      CloudFront["CloudFront distros<br/>demjoigiw6myp + d3c0gdizx3qv19"]:::tracked
+      Aurora[("🕳️ BS-2<br/>Aurora MySQL<br/>dr-daily-report-aurora-dev<br/><i>SG rules state-rm pending</i>")]:::tracked
+      RdsProxy["RDS Proxy"]:::tracked
+      SnsAlerts(["SNS topic<br/>telegram-alerts-dev"]):::tracked
+      IamRole["IAM role<br/>telegram-api-role-dev"]:::tracked
+      SgLambda["SG sg-0185a0d8d92968d03<br/>shared Lambda SG"]:::tracked
+      Vpc["VPC vpc-0fb04b10ef8c3d18b<br/>+ 3 subnets"]:::tracked
+      AlarmApi4xx["Alarm: api-4xx-dev"]:::tracked
+      AlarmTgErr["Alarm: telegram-api-errors-dev"]:::tracked
+    end
+
+    subgraph Orphans["ORPHANS — not in any TF state (9 resources)"]
+      direction TB
+
+      WebhookHealth["🚨 · 🕳️ BS-1<br/>webhook-health Lambda<br/><b>dr-daily-report-webhook-health-dev</b><br/>last modified 2026-03-15<br/>verdict: <b>import-now</b><br/><i>not exercised by LINE smoke test</i>"]:::import
+      ModelCatalog["🚨 · 🕳️ BS-1<br/>model-catalog-sync Lambda<br/><b>dr-daily-report-model-catalog-sync-dev</b><br/>last modified 2026-03-19<br/>verdict: <b>import-now</b><br/><i>not exercised by LINE smoke test</i>"]:::import
+      QuantAgent["🚨 · 🕳️ BS-1<br/>quant-agent Lambda<br/><b>dr-daily-report-quant-agent-dev</b><br/>last modified 2026-03-12<br/>verdict: <b>import-now</b><br/><i>not exercised by LINE smoke test</i>"]:::import
+
+      AlarmWh["🚨 Alarm: webhook-health-errors<br/>state: <b>ALARM</b> (firing)<br/>verdict: <b>import-now</b>"]:::import
+      AlarmMc["🚨 Alarm: model-catalog-sync-errors<br/>state: OK<br/>verdict: <b>import-now</b>"]:::import
+      AlarmQaMissing["❓ Alarm: quant-agent-errors<br/><b>DOES NOT EXIST</b><br/>observability gap"]:::missing
+
+      SgGrafana["🚨 SG sg-029583f3ff4d682ca<br/>dr-daily-report-grafana-dev<br/>3 ENIs attached (in use)<br/>verdict: <b>import-now</b>"]:::import
+
+      ApiGwOrphan["⚠️ API Gateway ORPHAN<br/>id: ta0g00v0c7<br/>created 2025-11-30 (newer twin)<br/>verdict: <b>review</b><br/>policy.exception match"]:::review
+
+      SecretGrafana["🗑️ Secret: grafana-mysql/dev<br/>LastAccessed: None<br/>verdict: <b>delete-empty-shell</b>"]:::shell
+      EcsCluster["🗑️ ECS: dr-data-pipeline-dev<br/>0 services / 0 tasks / 0 instances<br/>verdict: <b>delete-empty-shell</b>"]:::shell
+    end
+
+  end
+
+  %% ---------- tracked baseline ----------
+  LineUser -->|LINE msg| LineAPI
+  LineAPI -->|webhook| LineLambda
+  LineLambda -->|MySQL| RdsProxy
+  RdsProxy --> Aurora
+  TgUser -->|HTTPS| CloudFront
+  CloudFront -->|REST claimed| ApiGwTracked
+  ApiGwTracked -->|low/zero traffic?| TgLambda
+  ReportWorker -->|generate| OpenRouter
+  ReportWorker -->|cache| Aurora
+  AlarmApi4xx --> SnsAlerts
+  AlarmTgErr --> SnsAlerts
+
+  %% ---------- orphan blast-radius edges ----------
+  WebhookHealth -.->|1. health probe| LineLambda
+  WebhookHealth -.->|2. read metadata| Aurora
+  WebhookHealth -.->|3. publish alert| SnsAlerts
+  WebhookHealth -.->|uses shared| IamRole
+  WebhookHealth -.->|attached to| SgLambda
+
+  ModelCatalog -.->|sync model catalog| Aurora
+  ModelCatalog -.->|uses shared| IamRole
+  ModelCatalog -.->|attached to| SgLambda
+
+  QuantAgent -.->|reads/writes presumed| Aurora
+  QuantAgent -.->|uses shared| IamRole
+  QuantAgent -.->|attached to| SgLambda
+  QuantAgent -.->|LLM calls likely| OpenRouter
+
+  AlarmWh -.->|watches Errors| WebhookHealth
+  AlarmMc -.->|watches Errors| ModelCatalog
+  AlarmWh -.->|alarm action| SnsAlerts
+  AlarmMc -.->|alarm action| SnsAlerts
+  AlarmQaMissing -.->|SHOULD watch| QuantAgent
+
+  GrafanaAWS -.->|VPC connector| SgGrafana
+  SgGrafana -.->|MySQL egress| Aurora
+  SecretGrafana -.->|credentials FOR unused| Aurora
+
+  CloudFront ==>|🔴 LIVE TRAFFIC<br/>CORS-allowed| ApiGwOrphan
+  ApiGwOrphan ==>|🔴 invokes :live<br/>10 routes| TgLambda
+
+  linkStyle 11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29 stroke:#b30000,stroke-width:1.5px,stroke-dasharray:5 4;
+  linkStyle 30,31 stroke:#b30000,stroke-width:3px;
+</pre>
+</div>
+
+<h2>Import Table — verdicts &amp; justifications</h2>
+<div class="panel">
+<table>
+<thead>
+<tr><th>#</th><th>Proposed TF address</th><th>AWS ID / Name</th><th>Last activity</th><th>Verdict</th><th>Justification</th></tr>
+</thead>
+<tbody>
+<tr class="import"><td class="center">1</td><td><code>aws_lambda_function.webhook_health</code></td><td>dr-daily-report-webhook-health-dev</td><td>2026-03-15</td><td class="import"><b>import-now</b></td><td>Active observer Lambda. Paired alarm currently firing (state ALARM) — clearly on critical path. Drift would go undetected without TF coverage.</td></tr>
+<tr class="import"><td class="center">2</td><td><code>aws_lambda_function.model_catalog_sync</code></td><td>dr-daily-report-model-catalog-sync-dev</td><td>2026-03-19</td><td class="import"><b>import-now</b></td><td>Matches name_glob <code>model-catalog-sync*</code> in replica filter. Has paired error alarm. Without state, infra changes silently override deployed config.</td></tr>
+<tr class="import"><td class="center">3</td><td><code>aws_lambda_function.quant_agent</code></td><td>dr-daily-report-quant-agent-dev</td><td>2026-03-12</td><td class="import"><b>import-now</b></td><td>Active Lambda matching <code>*dr-daily-report*</code> glob. <b>Missing paired error alarm</b> — observability gap. Import + add alarm in same PR.</td></tr>
+<tr class="import"><td class="center">4</td><td><code>aws_cloudwatch_metric_alarm.webhook_health_errors</code></td><td>dr-daily-report-webhook-health-dev-errors-dev</td><td>state: ALARM</td><td class="import"><b>import-now</b></td><td>Observer-class (always-import per <code>triage.always_import_classes</code>). Currently firing — losing this alarm by accident silences a real signal.</td></tr>
+<tr class="import"><td class="center">5</td><td><code>aws_cloudwatch_metric_alarm.model_catalog_sync_errors</code></td><td>dr-daily-report-model-catalog-sync-dev-errors-dev</td><td>state: OK</td><td class="import"><b>import-now</b></td><td>Observer-class (always-import). Pairs with Lambda #2; managed regardless of activity.</td></tr>
+<tr class="import"><td class="center">6</td><td><code>aws_security_group.grafana</code></td><td>sg-029583f3ff4d682ca (dr-daily-report-grafana-dev)</td><td>3 ENIs attached</td><td class="import"><b>import-now</b></td><td>In-use (3 live ENIs ≠ empty shell). SG drift is high-blast-radius (network reachability) — must be in state.</td></tr>
+<tr class="review"><td class="center">7</td><td><code>aws_apigatewayv2_api.telegram_api_orphan</code></td><td>ta0g00v0c7 (dr-daily-report-telegram-api-dev)</td><td>created 2025-11-30 · 0 reqs in last 30d</td><td class="review"><b>review → likely delete</b><br/><span class="small">pending 3 cross-env checks</span></td><td><b>Initial:</b> Matched <code>policy.exceptions</code>: shadows tracked twin <code>ou0ivives1</code>. <b>Investigation revealed:</b> both API GWs invoke the SAME Lambda alias (<code>:live</code>); both got <b>0 requests in 30 days</b>; CloudFront has NO API GW origin (only S3); frontend code (<code>frontend/twinbar/.env.production:6</code> and <code>frontend/telegram-webapp-old/js/config.js:8</code>) points at the <b>tracked</b> twin; orphan ID <code>ta0g00v0c7</code> appears nowhere in the repo except the validation note that flagged it. <b>Refined verdict:</b> orphan is dev cruft from an aborted migration → delete from AWS, do not import — but verify the 3 review checks first (see Investigation section).</td></tr>
+<tr class="shell"><td class="center">8</td><td><i>(advisory delete — not import)</i></td><td>dr-data-pipeline-dev (ECS cluster)</td><td>0/0/0 · 1 lifetime event</td><td class="shell"><b>delete-empty-shell</b><br/><span class="small">CloudTrail-confirmed</span></td><td><b>Initial:</b> Matched <code>triage.empty_shell_patterns</code> (current state 0/0/0). <b>Investigation revealed:</b> CloudTrail (90-day lookback) shows exactly <b>ONE event in the cluster's lifetime</b> — the <code>CreateCluster</code> call on 2026-03-15. Zero <code>RunTask</code>, zero <code>CreateService</code>, zero <code>RegisterTaskDefinition</code>. Cluster age (44 days) is fully covered by the trail window. <b>Refined verdict:</b> high-confidence delete — created and abandoned, never used. Likely leftover from EDINET-ingestion experiment.</td></tr>
+<tr class="shell"><td class="center">9</td><td><i>(advisory delete — not import)</i></td><td>dr-daily-report/grafana-mysql/dev (Secret)</td><td>LastAccessed: None (forever)</td><td class="shell"><b>delete-empty-shell</b><br/><span class="small">historical evidence</span></td><td><b>Initial:</b> Matched empty-shell pattern (LastAccessed=null). <b>Investigation note:</b> the <code>LastAccessed=null</code> signal is <i>permanent</i> — once a secret is fetched, AWS records the timestamp; null means never read since creation. This is historical evidence (cannot retroactively become "used"), unlike the ECS 0/0/0 snapshot. <b>Refined verdict:</b> delete with high confidence after confirming no rotation lambda relies on it.</td></tr>
+</tbody>
+</table>
+<p class="small" style="margin-top:10px"><b>Initial tally:</b> 6 import-now · 1 review · 2 delete-empty-shell &nbsp;|&nbsp; <b>Refined tally:</b> 6 import-now · 0 review · 3 delete-empty-shell (item #7 demoted from review after investigation; pending 3 cross-env confirmations)</p>
+</div>
+
+<h2>DRIFTED — config drift on TRACKED resources (Phase 2 / δ_config)</h2>
+<div class="panel">
+<p class="small">The audit's <b>second axis</b>. The Import Table above lists membership δ — resources that exist on one side but not the other (ORPHAN/GHOST/DOUBLE). This section lists config δ — resources that exist in <b>both</b> the TF state and AWS, but whose live configurations disagree with the TF declaration on the fields named in <code>projection.fingerprint_fields</code> (see <code>.claude/replicas/dr-bot.yaml</code>). A membership-only audit calls these resources ✅; the two-axis audit catches the disagreement.</p>
+<table>
+<thead>
+<tr><th>#</th><th>Resource</th><th>Field drifted</th><th>TF declares</th><th>AWS has</th><th>Verdict</th><th>Direction-of-change</th></tr>
+</thead>
+<tbody>
+<tr class="drifted">
+  <td class="center">D1</td>
+  <td><code>aws_lambda_function.telegram_api</code><br/><span class="small">dr-daily-report-telegram-api-dev</span></td>
+  <td><code>environment</code></td>
+  <td>includes <code>OPENROUTER_API_KEY</code>, <code>PDF_STORAGE_BUCKET</code> (+ others)</td>
+  <td>those 2 keys <b>missing</b> from live <code>Environment.Variables</code></td>
+  <td class="drifted"><b>review</b></td>
+  <td>Ambiguous — Doppler push may have failed (then <code>apply-tf</code>) OR env was edited via console with TF later regenerated (then <code>refresh-tf</code>). Disambiguate via CloudTrail <code>UpdateFunctionConfiguration</code> events on the Lambda.</td>
+</tr>
+</tbody>
+</table>
+
+<p class="small" style="margin-top:14px"><b>Why D1 matters even though it's "TRACKED"</b>: this is the same Lambda the Import Table calls a healthy ✅ on the membership axis. Both sides agree it exists. They disagree on its env vars. That disagreement is the <b>direct cause</b> of the runtime symptom captured in the "Out of scope" panel below ("Telegram Mini App shows UI but no market data") — the Lambda's startup validator fails fast when the keys are absent. The runtime fix and the provisioning fix are the same fix; they only differ in framing. Membership audit can't see this; Phase 2 can.</p>
+
+<p class="small"><b>Reconciliation</b> — <code>/tf-aws</code> does <b>NOT</b> auto-resolve DRIFTED items (resolving mutates AWS, which is <code>terraform apply</code> territory and a deliberate change-management event):</p>
+<ul class="small" style="margin-top:4px">
+  <li><code>apply-tf</code> — TF declaration wins; push to AWS via <code>terraform apply</code>. Use when TF reflects the deliberate spec.</li>
+  <li><code>refresh-tf</code> — AWS reality wins; pull into state via <code>terraform refresh</code> then commit. Use for AWS-authoritative fields like Lambda <code>code_sha256</code>.</li>
+  <li><code>review</code> — read CloudTrail to learn who changed what when, then pick a direction. <b>D1 is here</b> because the direction is unrecoverable from a single snapshot.</li>
+</ul>
+
+<p class="small" style="margin-top:14px"><b>Candidates not yet confirmed as DRIFTED</b> (require Phase C2 execution to verify which axis they land on):</p>
+<ul class="small" style="margin-top:4px">
+  <li><b>Aurora SG rules</b> (<code>aws_security_group_rule.aurora_from_codebuild</code>, <code>aurora_from_proxy</code>) — flagged by validation 2026-04-27, matches <code>policy.exceptions</code>. May surface as <b>GHOST</b> (separate <code>aws_security_group_rule</code> resources in state, not in AWS) <i>or</i> as <b>DRIFTED</b> on the parent SG (its <code>ingress</code> field disagrees with TF). The fingerprint_fields entry <code>aws_security_group: [ingress, egress]</code> would catch the latter framing. Verdict either way: <code>review</code> per <code>policy.exceptions</code>.</li>
+  <li><b>Lambda <code>code_sha256</code> drift on freshly-deployed functions</b> — typically resolved by <code>refresh-tf</code> (AWS-authoritative for deployment artifact); won't appear if TF state was refreshed after the most recent deploy.</li>
+</ul>
+</div>
+
+<h2>Blind spots and limits — what ✅ doesn't prove</h2>
+<div class="panel">
+<p class="small">The two-axis δ above measures <b>agreement</b> between TF state and AWS reality on the fields the audit can see. It does <b>not</b> measure correctness in any broader sense. This panel names the four structural categories of things <code>/tf-aws audit</code> cannot discover, and pairs each with a "plug" — a cheap mitigation that lives <i>outside</i> the audit. Source: <code>.claude/commands/tf-aws.md</code> § "Blind spots and limits". Companion journal: <code>.claude/journals/architecture/2026-04-28-tf-aws-blind-spots-documented.md</code>.</p>
+
+<table>
+<thead>
+<tr><th>#</th><th>Category</th><th>What ✅ on the audit doesn't prove</th><th>Plug (mitigation outside the audit)</th><th>Components affected in this run</th></tr>
+</thead>
+<tbody>
+<tr>
+  <td class="center"><b>BS-1</b></td>
+  <td class="blindspot"><b>Layer-coverage</b><br/><span class="small">config-level vs runtime</span></td>
+  <td>That a TF-tracked Lambda <i>actually works at runtime</i>. The audit reads its declared config and live config on a fixed projection of fields; it never invokes the Lambda. "LINE bot working" is a <b>config-level smoke</b> for a small subset of Lambdas — it does not exercise the imports listed below.</td>
+  <td>CloudWatch error rate + Level-1 smoke (per-Lambda <code>aws lambda invoke</code> with a known-good event) + Level-0 e2e (real user flow). Run after every import.</td>
+  <td>
+    <code>WebhookHealth</code> (item #1) ·
+    <code>ModelCatalog</code> (item #2) ·
+    <code>QuantAgent</code> (item #3)
+    <br/><span class="small">Once imported, all three pass the membership audit (✅ TRACKED). None has a runtime smoke covering it.</span>
+  </td>
+</tr>
+<tr>
+  <td class="center"><b>BS-2</b></td>
+  <td class="blindspot"><b>Post-action amnesia</b><br/><span class="small">verbs that erase intent</span></td>
+  <td>Why a resource <i>was</i> in the disagreement set before reconciliation. Verbs like <code>terraform state rm</code>, <code>terraform refresh</code>, and <code>trim-spec</code> collapse the spec onto reality and leave the TF state with no record of the original finding. Future audits won't re-flag what is now absent on both sides.</td>
+  <td>Journal the decision <b>before</b> running the destructive verb (Plug #2). Capture: original finding, why we accept reality, and the conditions that would re-open the decision.</td>
+  <td>
+    <code>TgLambda</code> (D1 trim-spec pending — see <code>terraform/telegram_api.tf:149</code> + <code>src/telegram_lambda_handler.py:80</code>) ·
+    <code>Aurora</code> (Aurora SG rules <code>state rm</code> pending — <code>aws_security_group_rule.aurora_from_codebuild</code>, <code>aurora_from_proxy</code> from validation 2026-04-27)
+    <br/><span class="small">Once executed, both findings disappear from future audits. Companion journals must exist before the verbs run.</span>
+  </td>
+</tr>
+<tr>
+  <td class="center"><b>BS-3</b></td>
+  <td class="blindspot"><b>Field-coverage</b><br/><span class="small">drift on undeclared fields</span></td>
+  <td>Drift on any field <b>not</b> listed in <code>projection.fingerprint_fields</code> for the resource type. Phase C2 only diffs the named projection. A new env var, a tag change, a <code>reserved_concurrent_executions</code> bump — none surface as DRIFTED if the field isn't in the projection.</td>
+  <td>Treat <code>projection.fingerprint_fields</code> in <code>.claude/replicas/dr-bot.yaml</code> as a living list. Extend it after every incident where a field <i>should</i> have been caught and wasn't.</td>
+  <td>
+    <i>Cannot enumerate exhaustively</i> by design, but examples (truly outside the audit's reach today): on <code>aws_lambda_function</code> — <code>tags</code>, <code>timeout</code>, <code>memory_size</code>, <code>layers</code>, <code>reserved_concurrent_executions</code>, <code>tracing_config</code>, <code>dead_letter_config</code>; on <code>aws_rds_cluster</code> — <code>backup_retention_period</code>, <code>deletion_protection</code>; on <code>aws_security_group</code> — <code>tags</code>, <code>description</code>; on <code>aws_apigatewayv2_api</code> — <code>tags</code>, <code>cors_configuration</code>. <b>Not BS-3</b>: IAM policy attachments, SG rules, Lambda event source mappings — these are their own TF resource types and are caught by δ_membership when in <code>y.filter</code>. Audited as ✅ today on the projection, but invisible to drift on the fields above.
+  </td>
+</tr>
+<tr>
+  <td class="center"><b>BS-4</b></td>
+  <td class="blindspot"><b>Scope-coverage</b><br/><span class="small">resources outside the filter</span></td>
+  <td>The existence and state of any AWS resource that doesn't match the replica's <code>y.filter</code> predicates. Resources outside the filter <b>do not exist</b> to the audit — they are neither tracked nor flagged.</td>
+  <td>Periodic unscoped sweep — list <i>all</i> resources of the in-scope types in the region+account, subtract the filter, manually review the remainder. Catches both "should have been in scope" and "is silently consuming budget".</td>
+  <td>
+    <i>Cannot enumerate</i> from inside this report — by definition, the list lives outside the filter. Known suspects from prior validations: KMS keys, log groups outside the <code>dr-*</code> name pattern, IAM users/roles not tagged with the project tag.
+  </td>
+</tr>
+</tbody>
+</table>
+
+<p class="small" style="margin-top:14px"><b>Reading order for a passing audit</b> (what to combine with ✅ before claiming "system healthy"):</p>
+<pre style="background:#0d1117;color:#c9d1d9;padding:12px;border-radius:6px;overflow:auto;font-size:12px;">
+δ_membership = 0   AND   δ_config = 0
+                 AND   BS-1 plug ran:   per-Lambda runtime smoke for the imports
+                 AND   BS-2 plug ran:   Plug #2 journals exist for every state-rm / trim-spec / refresh
+                 AND   BS-3 plug ran:   projection.fingerprint_fields reviewed against last incident
+                 AND   BS-4 plug ran:   unscoped sweep within the last review cycle
+=========================================================
+                 ⇒  "system healthy" (within audit's epistemic surface + named plugs)</pre>
+
+<p class="small" style="margin-top:10px"><b>Why this section exists in this report</b>: the reconciliation plan in "Recommended next steps" runs two destructive verbs (<code>state rm</code> and <code>trim-spec</code>) and imports three Lambdas not exercised by the LINE smoke test. Without this section, an agent reading the report after reconciliation would see ✅ everywhere and conclude the system is healthy. ✅ has a <b>narrow technical meaning</b> here — it means "TF and AWS agree on the fields the projection diffs". The plugs above are what make ✅ load-bearing for the broader claim.</p>
+</div>
+
+<h2>Post-audit investigation findings (items #7, #8, #9)</h2>
+<div class="panel">
+<p class="small">The initial triage assigned conservative verdicts based on the algorithm's local view (Phase D rules). Targeted human investigation gathered stronger evidence for the three resources whose initial verdicts were either ambiguous or based on snapshot-only data. The table below summarizes how each verdict evolved.</p>
+<table>
+<thead>
+<tr><th>#</th><th>Initial verdict</th><th>What evidence the algorithm had</th><th>What investigation added</th><th>Refined verdict</th><th>Confidence shift</th></tr>
+</thead>
+<tbody>
+<tr>
+  <td class="center">7</td>
+  <td class="review">review</td>
+  <td>policy.exception match (twin shadow); reconciliation direction unknown</td>
+  <td>
+    • Both gateways invoke the same Lambda alias<br/>
+    • 0 requests on either in last 30 days<br/>
+    • CloudFront has no API GW origin at all<br/>
+    • Frontend <code>.env.production</code> + <code>js/config.js</code> reference only the tracked twin<br/>
+    • Orphan ID appears nowhere in repo<br/>
+    • <b>2026-04-28 08:39 UTC live test</b>: user opened the Mini App (<code>twinbar_dev_bot</code>); CloudWatch recorded <b>1 request to <code>ou0ivives1</code></b> and <b>0 requests to <code>ta0g00v0c7</code></b> in the same window. Active traffic confirms the SPA dials only the tracked twin, even under real use.
+  </td>
+  <td class="shell"><b>likely delete</b><br/>(pending 3 checks)</td>
+  <td>review → high-confidence delete <i>if</i> stg/prd parity confirmed (Mini App live test removed the "could have hidden caller" risk in dev)</td>
+</tr>
+<tr>
+  <td class="center">8</td>
+  <td class="shell">delete-empty-shell<br/>(snapshot)</td>
+  <td>activeServicesCount=0 AND runningTasksCount=0 right now (current-state probe)</td>
+  <td>
+    • CloudTrail lookback (90d) covers cluster's full 44-day lifetime<br/>
+    • Exactly ONE event ever: <code>CreateCluster</code> on 2026-03-15<br/>
+    • 0 <code>RunTask</code>, 0 <code>CreateService</code>, 0 <code>RegisterTaskDefinition</code><br/>
+    • <code>list-services</code> and <code>list-tasks --desired-status STOPPED</code> both empty
+  </td>
+  <td class="shell"><b>delete-empty-shell</b><br/>(historical-confirmed)</td>
+  <td>medium → high (snapshot upgraded to historical)</td>
+</tr>
+<tr>
+  <td class="center">9</td>
+  <td class="shell">delete-empty-shell<br/>(historical)</td>
+  <td>LastAccessedDate IS NULL — secret has never been retrieved since creation</td>
+  <td>
+    • Re-confirmed: <code>LastAccessed</code> is a one-way field; null = forever-never<br/>
+    • No rotation Lambda found referencing this secret name
+  </td>
+  <td class="shell"><b>delete-empty-shell</b></td>
+  <td>high → high (was already correct)</td>
+</tr>
+</tbody>
+</table>
+
+<p class="small" style="margin-top:14px"><b>Pending review checks for #7</b> — must complete before deleting <code>ta0g00v0c7</code>:</p>
+<ol class="small">
+  <li><b>stg + prd parity</b> — repeat <code>aws apigatewayv2 get-apis</code> in staging and production. If only ONE API GW exists per env, dev is a clean delete. If twins exist there too AND traffic flows through the orphan-equivalent, halt — different reconciliation direction.</li>
+  <li><b>CI build-time override</b> — grep <code>.github/workflows/</code> for <code>VITE_API_BASE_URL</code> injection. If CI overrides the <code>.env</code> file from Doppler, verify Doppler's value still points at <code>ou0ivives1</code> for all envs.</li>
+  <li><b>Stray Lambda invokers</b> — CloudTrail probe on the Lambda alias to confirm no hidden cron / webhook still calling via <code>ta0g00v0c7</code>'s URL.</li>
+</ol>
+<p class="small">All three pass → <code>aws apigatewayv2 delete-api --api-id ta0g00v0c7 --region ap-southeast-1</code>. Any one fails → halt and reassess.</p>
+
+<p class="small" style="margin-top:14px"><b>Stale signal flagged for cleanup:</b> <code>.claude/replicas/dr-bot.yaml</code> says <i>"live traffic appears to flow through orphan API GW"</i> — that statement was true at write time but is now contradicted by 30-day metric data (0 reqs on both). Update or remove the note as part of the same change.</p>
+</div>
+
+<h2>Coverage Gaps</h2>
+<div class="panel">
+<ul>
+  <li><b>CloudFront enumeration</b> — <s>IAM perms missing</s> <b>RESOLVED</b> 2026-04-28: granted <code>cloudfront:GetOriginAccessControl</code>, <code>GetResponseHeadersPolicy</code>, <code>GetDistribution</code>, <code>ListDistributions</code> via inline policy <code>tf-aws-readonly-cloudtrail-cf</code>. Next audit run will have full CloudFront coverage.</li>
+  <li><b>CloudTrail read</b> — <b>RESOLVED</b> 2026-04-28: <code>cloudtrail:LookupEvents</code> + <code>DescribeTrails</code> granted in same policy. Used to confirm item #8's full lifetime history.</li>
+  <li><b>quant-agent has no error alarm</b> — observability hole; create alarm + import together (item #3).</li>
+  <li><b>Aurora SG rules</b> (<code>aurora_from_codebuild</code>, <code>aurora_from_proxy</code>) flagged in validation 2026-04-27 — orthogonal to this audit, still pending.</li>
+  <li><b>DOUBLE detection low-confidence</b> — only ARN-level dedup attempted; per-resource fingerprint not run.</li>
+  <li><b>Activity window</b>: Lambdas modified ~6 weeks ago technically exceed the 7d <code>recent_activity_window</code>; verdict relies on alarm-pairing/glob-match. Consider widening window to 30d for next run.</li>
+  <li><b>Stale validation note</b> in <code>.claude/replicas/dr-bot.yaml</code> for the API GW twin — claim "live traffic flows through orphan" is contradicted by current 30-day metrics. Update during next config-edit pass.</li>
+</ul>
+</div>
+
+<h2>Out of scope for this audit (runtime issues, tracked elsewhere)</h2>
+<div class="panel">
+<p class="small">This audit is about <b>provisioning state</b> — the delta between Terraform state and deployed AWS reality. Two runtime/config issues surfaced during today's investigation and are <b>deliberately not</b> in this report's action plan; they will be addressed separately.</p>
+<table>
+<thead><tr><th>Issue</th><th>Surface</th><th>Cause</th><th>Why out of scope here</th></tr></thead>
+<tbody>
+<tr>
+  <td><b>LINE bot returns "ยังไม่พร้อม" for 12 tickers</b><br/>(DBS19, MITSU19, QQQM19, SP500US19, THAIBEV19, UNH19, UOB19, VCB19, VENTURE19, VHM19, VNM19, XIAOMI19)</td>
+  <td>Aurora cache miss in <code>line-bot-dev</code></td>
+  <td>Today's precompute Step Function fanned out 56 worker Lambdas in parallel; 12 hit MySQL <code>(1040, 'Too many connections')</code> and never wrote reports to Aurora.</td>
+  <td>Connection-pool exhaustion is a runtime-orchestration / capacity issue, not a provisioning gap. All resources involved (Step Functions, workers, Aurora) are TF-tracked. Fix: add <code>MaxConcurrency</code> to Map state. See <code>.claude/bug-hunts/2026-04-28-line-bot-DBS19-report-not-ready.md</code>.</td>
+</tr>
+<tr>
+  <td><b>Telegram Mini App shows UI but no market data</b><br/><span class="small">↕ same root cause as <b>DRIFTED D1</b> above</span></td>
+  <td>API GW <code>ou0ivives1</code> returns 5xx; <code>telegram-api-dev:live</code> Lambda returns <code>CONFIGURATION_ERROR</code></td>
+  <td>Two required env vars missing on the dev Lambda: <code>OPENROUTER_API_KEY</code>, <code>PDF_STORAGE_BUCKET</code>. Lambda's startup validator fails fast.</td>
+  <td>This row describes the <b>runtime symptom</b>; <b>D1 above</b> describes the <b>provisioning δ</b> that causes it. Same fix, two framings. Out-of-scope here = the runtime-side workflow (Doppler push, Lambda restart, Mini App reload). In-scope under DRIFTED = the TF/AWS config disagreement. User flagged the runtime side for separate follow-up.</td>
+</tr>
+</tbody>
+</table>
+<p class="small" style="margin-top:10px"><b>Why the distinction matters</b>: provisioning fixes are TF-state edits (this audit's domain). Runtime fixes are code/config edits (separate workflow). Mixing them here would dilute the <code>/tf-aws absorb</code> action plan with non-actionable items.</p>
+</div>
+
+<h2>Recommended next steps (refined)</h2>
+<div class="panel">
+<pre style="background:#0d1117;color:#c9d1d9;padding:12px;border-radius:6px;overflow:auto;font-size:12px;">
+# === Track A: Import the 6 import-now resources (items #1–#6) ===
+/tf-aws absorb               # dry-run; review plan + .tf stubs
+/tf-aws absorb --apply       # imports Lambdas + log groups + alarms + SG + IAM role
+
+# === Track B: Delete the empty shells (items #8, #9) ===
+# /tf-aws never mutates AWS — these are manual:
+aws ecs delete-cluster --cluster dr-data-pipeline-dev --region ap-southeast-1
+aws secretsmanager delete-secret \
+  --secret-id dr-daily-report/grafana-mysql/dev \
+  --region ap-southeast-1 \
+  --recovery-window-in-days 7      # 7-day grace period before permanent delete
+
+# === Track C: Resolve item #7 (orphan API GW twin) ===
+# Run the 3 review checks (see Investigation section above):
+#   1. Verify stg + prd parity (single API GW per env)
+#   2. Verify CI doesn't override VITE_API_BASE_URL from Doppler with a different ID
+#   3. CloudTrail probe for stray Lambda invokers
+
+# All 3 clean → delete the orphan:
+aws apigatewayv2 delete-api --api-id ta0g00v0c7 --region ap-southeast-1
+
+# === Verification (two-axis δ → 0) ===
+/tf-aws audit                # expected:
+                             #   δ_membership: ORPHAN=0, GHOST=0, DOUBLE=0
+                             #   δ_config:     DRIFTED=0  (D1 still open until env vars resolved — see Track D)
+
+# === Track D: Resolve DRIFTED item D1 (runtime fix from "Out of scope" panel) ===
+# The Lambda's TF-declared environment must match its live config.
+# Direction-of-change determined by reading CloudTrail UpdateFunctionConfiguration:
+aws cloudtrail lookup-events \
+  --lookup-attributes AttributeKey=ResourceName,AttributeValue=dr-daily-report-telegram-api-dev \
+  --max-results 50 \
+  --region ap-southeast-1
+# Then either:
+#   apply-tf  →  Doppler push + terraform apply  (TF/Doppler is source of truth for env vars)
+#   refresh-tf → terraform refresh + commit       (rare for env vars; only if console edit was deliberate)
+
+# === Cleanup ===
+# Update .claude/replicas/dr-bot.yaml — remove the now-stale
+# "live traffic flows through orphan" note for the API GW exception.
+</pre>
+</div>
+
+</div><!-- /#tab-component -->
+
+
+<div class="tab-panel" id="tab-reconcile">
+
+<h2>Reconcile Diagram — per-file summary (25 file boxes + 9 orphans)</h2>
+<div class="panel">
+  <p class="small" style="margin-top:0">
+    Maximum signal density. One node per <code>.tf</code> file with status counts as the label. Files with anomalies are colored (yellow = drift, orange = address-mismatch); silent files stay green. The 9 ORPHANs appear on the right with the address-mismatch link to <code>quant_agent.tf</code> drawn explicitly.
+  </p>
+  <p class="small">
+    <b>Legend</b> &nbsp;
+    <span style="background:#d4edda;padding:1px 6px;border:1px solid #155724;border-radius:3px">all tracked ✅</span>
+    <span style="background:#fff3cd;padding:1px 6px;border:1px solid #856404;border-radius:3px">has drift 🔄</span>
+    <span style="background:#ffe5b4;padding:1px 6px;border:1px solid #a85b00;border-radius:3px">has address-mismatch ❓</span>
+    <span style="background:#f8d7da;padding:1px 6px;border:1px solid #721c24;border-radius:3px">orphan 🚨</span>
+  </p>
+
+<pre class="mermaid">
+flowchart LR
+  subgraph SOURCE[".tf source files · 25 in dr-bot scope"]
+    direction TB
+    f01["api_gateway.tf<br/>15 ✅"]:::ok
+    f02["async_report.tf<br/>11 ✅"]:::ok
+    f03["aurora.tf<br/>9 ✅"]:::ok
+    f04["codebuild.tf<br/>5 ✅"]:::ok
+    f05["dynamodb.tf<br/>3 ✅"]:::ok
+    f06["ecr.tf<br/>3 ✅"]:::ok
+    f07["frontend.tf<br/>6 ✅"]:::ok
+    f08["fund_data_sync.tf<br/>10 ✅"]:::ok
+    f09["iam_terraform_role.tf<br/>13 ✅"]:::ok
+    f10["main.tf<br/>10 ✅"]:::ok
+    f11["mcp_servers.tf<br/>1 ✅"]:::ok
+    f12["monitoring.tf<br/>23 ✅"]:::ok
+    f13["pdf_workflow.tf<br/>17 ✅"]:::ok
+    f14["precompute_workflow.tf<br/>26 ✅"]:::ok
+    f15["quant_agent.tf<br/>7 ✅ · 1 ❓"]:::warn
+    f16["query_tool.tf<br/>4 ✅"]:::ok
+    f17["rds_proxy.tf<br/>7 ✅"]:::ok
+    f18["report_pipeline.tf<br/>33 ✅"]:::ok
+    f19["s3_fund_data_events.tf<br/>2 ✅"]:::ok
+    f20["s3_vpc_endpoint.tf<br/>1 ✅"]:::ok
+    f21["scheduler.tf<br/>9 ✅"]:::ok
+    f22["schema_manager.tf<br/>4 ✅"]:::ok
+    f23["static_api.tf<br/>9 ✅"]:::ok
+    f24["telegram_api.tf<br/>8 ✅ · 1 🔄"]:::drift
+    f25["ticker_fetcher.tf<br/>4 ✅"]:::ok
+  end
+
+  subgraph ORPHAN_BOX["AWS ORPHANs · no .tf parent · 9"]
+    direction TB
+    o1["webhook_health Lambda<br/>import-now"]:::orphan
+    o2["model_catalog_sync Lambda<br/>import-now"]:::orphan
+    o3["quant-agent-dev Lambda<br/>see f15 ❓"]:::orphan
+    o4["webhook_health_errors Alarm<br/>import-now"]:::orphan
+    o5["model_catalog_sync_errors Alarm<br/>import-now"]:::orphan
+    o6["grafana SG<br/>import-now"]:::orphan
+    o7["telegram-api orphan APIGW<br/>review"]:::orphan
+    o8["telegram-ecs empty cluster<br/>review"]:::orphan
+    o9["grafana-secret unused<br/>review"]:::orphan
+  end
+
+  o3 -.->|"address-mismatch"| f15
+
+  classDef ok fill:#d4edda,stroke:#155724,color:#0a3a17
+  classDef drift fill:#fff3cd,stroke:#856404,color:#5a4500
+  classDef warn fill:#ffe5b4,stroke:#a85b00,color:#5a3000
+  classDef orphan fill:#f8d7da,stroke:#721c24,color:#5a0c14
+</pre>
+</div>
+
+<div class="panel">
+  <h2 style="margin-top:0">How to read</h2>
+  <ul class="small">
+    <li><b>One node = one <code>.tf</code> file</b>. Counts in the label are the per-status totals.</li>
+    <li><b>Eye-scan in 2 seconds</b>: 23 green files; 1 yellow (<code>telegram_api.tf</code> → drift); 1 orange (<code>quant_agent.tf</code> → address-mismatch); orphan box on the right with 9 red nodes.</li>
+    <li><b>The dotted edge</b> from orphan <code>o3</code> → file <code>f15</code> is the only inter-cluster relationship — encodes the path-A/path-B decision the operator owes the audit.</li>
+  </ul>
+</div>
+
+</div><!-- /#tab-reconcile -->
+
+
+<script>
+// Disable startOnLoad — hidden tab panels (display:none) have zero dimensions,
+// which breaks Mermaid's SVG layout. Render only the visible tab's blocks.
+mermaid.initialize({
+  startOnLoad: false,
+  theme: 'default',
+  flowchart: { htmlLabels: true, curve: 'basis', nodeSpacing: 30, rankSpacing: 50 }
+});
+
+// Defer to the next animation frame so the browser has computed layout
+// for the newly-visible panel — Mermaid needs non-zero container dimensions.
+function nextFrame() {
+  return new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+}
+
+async function renderActiveMermaid() {
+  await nextFrame();
+  try {
+    await mermaid.run({ querySelector: '.tab-panel.active .mermaid' });
+  } catch (e) {
+    console.error('Mermaid render failed:', e);
+  }
+}
+
+// Initial render for the default-active tab.
+renderActiveMermaid();
+
+// Tab switching — render on first activation; processed blocks are skipped.
+document.querySelectorAll('.tab-button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const target = btn.dataset.tab;
+    document.querySelectorAll('.tab-button').forEach(b => b.classList.toggle('active', b === btn));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === target));
+    renderActiveMermaid();
+  });
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,84 @@
+@startuml C4_Container_DailyReport
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
+
+title C4 Level 2 - Containers: AWS Deployment
+
+Person(line_user, "LINE User", "Legacy chat interface")
+Person(tg_user, "Telegram User", "Mini App web dashboard")
+
+System_Ext(line_api, "LINE Messaging API")
+System_Ext(tg_api, "Telegram Bot API")
+System_Ext(openrouter, "OpenRouter LLM")
+System_Ext(yfinance, "Yahoo Finance")
+
+System_Boundary(aws, "AWS Account") {
+
+    System_Boundary(scheduler_b, "Scheduled Pipeline (App=shared)") {
+        Container(eventbridge, "EventBridge Scheduler", "AWS EventBridge", "Daily cron 01:00 UTC (08:00 BKK)")
+        Container(ticker_fetcher, "Ticker Fetcher", "Lambda (Python container)", "src/scheduler/ticker_fetcher_handler.py — fetch ~47 tickers from Yahoo Finance")
+        Container(precompute_ctrl, "Precompute Controller", "Lambda (Python)", "src/scheduler/precompute_controller_handler.py — kicks off Step Functions")
+        Container(sfn_precompute, "Precompute Workflow", "Step Functions Express", "Parallel Map fanout per ticker")
+        Container(get_tickers, "Get Ticker List", "Lambda (Python)", "src/scheduler/get_ticker_list_handler.py")
+    }
+
+    System_Boundary(report_b, "Report Generation (App=shared)") {
+        Container(report_worker, "Report Worker", "Lambda (Python container, 1024MB)", "src/report_worker_handler.py — async job runner; LLM agent + PDF render")
+        Container(sfn_pipeline, "Report Pipeline", "Step Functions Express (feature-flagged)", "preprocess → generation → postprocess")
+        Container(preprocess, "Preprocess", "Lambda", "src/pipeline/preprocess_handler.py")
+        Container(generation, "Generation", "Lambda", "src/pipeline/generation_handler.py")
+        Container(postprocess, "Postprocess", "Lambda", "src/pipeline/postprocess_handler.py")
+    }
+
+    System_Boundary(line_b, "LINE Bot (App=line-bot, maintenance)") {
+        Container(line_lambda, "LINE Bot Handler", "Lambda (Python container)", "src/lambda_handler.py — webhook signature verify + reply")
+    }
+
+    System_Boundary(tg_b, "Telegram Mini App (App=telegram-api)") {
+        Container(apigw, "API Gateway HTTP API", "AWS API Gateway v2", "CORS: web.telegram.org, t.me, CloudFront")
+        Container(tg_lambda, "Telegram API", "Lambda (Python container, FastAPI)", "src/telegram_lambda_handler.py + src/api/app.py")
+        Container(cloudfront, "Mini App CDN", "CloudFront + S3", "React SPA static hosting")
+    }
+
+    System_Boundary(data_b, "Data & State") {
+        ContainerDb(aurora, "Aurora MySQL Serverless v2", "RDS Aurora 8.0", "Precomputed metrics, rankings, watchlists, fund data. RDS Proxy for connection pooling.")
+        ContainerDb(jobs_ddb, "Job Status Table", "DynamoDB", "{project}-telegram-jobs-{env} (TTL 24h)")
+        ContainerDb(s3_pdf, "PDF Reports Bucket", "S3", "line-bot-pdf-reports-{acct} — presigned URLs (24h)")
+        ContainerDb(s3_lake, "Data Lake", "S3", "Raw market data, pipeline payloads")
+    }
+}
+
+Rel(line_user, line_api, "Ticker message", "LINE")
+Rel(tg_user, cloudfront, "Loads SPA", "HTTPS")
+Rel(cloudfront, apigw, "REST calls", "HTTPS/JSON")
+Rel(line_api, line_lambda, "Webhook POST", "HTTPS")
+Rel(apigw, tg_lambda, "Proxy", "AWS integration")
+
+Rel(eventbridge, ticker_fetcher, "Daily trigger", "EventBridge invoke")
+Rel(ticker_fetcher, yfinance, "Fetch quotes", "HTTPS")
+Rel(ticker_fetcher, s3_lake, "Stage raw CSV", "S3 PutObject")
+Rel(ticker_fetcher, precompute_ctrl, "Invoke", "Lambda async")
+Rel(precompute_ctrl, sfn_precompute, "StartExecution", "AWS SDK")
+Rel(sfn_precompute, get_tickers, "List tickers", "Task state")
+Rel(sfn_precompute, report_worker, "Map per ticker", "Parallel Task state")
+
+Rel(report_worker, openrouter, "Generate analysis", "HTTPS")
+Rel(report_worker, sfn_pipeline, "If split pipeline", "AWS SDK")
+Rel(sfn_pipeline, preprocess, "Step 1", "Task")
+Rel(sfn_pipeline, generation, "Step 2", "Task")
+Rel(sfn_pipeline, postprocess, "Step 3", "Task")
+Rel(report_worker, aurora, "Cache metrics", "MySQL via RDS Proxy")
+Rel(report_worker, s3_pdf, "Store PDF", "S3 PutObject")
+Rel(report_worker, jobs_ddb, "Update job status", "DynamoDB UpdateItem")
+
+Rel(tg_lambda, aurora, "Read cached reports", "MySQL")
+Rel(tg_lambda, jobs_ddb, "Track async jobs", "DynamoDB")
+Rel(tg_lambda, s3_pdf, "Presign URLs", "S3 GetObject")
+Rel(tg_lambda, report_worker, "Submit on-demand report", "Lambda invoke async")
+Rel(tg_lambda, tg_api, "Validate initData", "HTTPS")
+
+Rel(line_lambda, aurora, "Read cached report", "MySQL")
+Rel(line_lambda, s3_pdf, "Presign PDF URL", "S3 GetObject")
+Rel(line_lambda, line_api, "Reply message", "HTTPS")
+
+SHOW_LEGEND()
+@enduml

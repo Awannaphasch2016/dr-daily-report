@@ -1,0 +1,120 @@
+@startuml C4_Component_Orphan_Audit_2026_04_28
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Component.puml
+
+title /tf-aws audit — replica=dr-bot — 2026-04-28\n(red = ORPHAN, yellow = REVIEW, gray = EMPTY-SHELL, blue = TF-tracked)
+
+' ===================== Tags =====================
+AddElementTag("import_now",   $bgColor="#FFB3B3", $borderColor="#B30000", $fontColor="#660000", $legendText="🚨 ORPHAN — verdict: import-now")
+AddElementTag("review",       $bgColor="#FFE6A0", $borderColor="#B38A00", $fontColor="#5C4400", $legendText="⚠️ ORPHAN — verdict: review (twin/exception)")
+AddElementTag("empty_shell",  $bgColor="#E6E6E6", $borderColor="#888888", $fontColor="#444444", $legendText="🗑️ ORPHAN — verdict: delete-empty-shell")
+AddElementTag("missing_obs",  $bgColor="#FFD9B3", $borderColor="#CC6600", $fontColor="#663300", $legendText="❓ MISSING — observability gap (no paired alarm)")
+AddElementTag("tracked",      $bgColor="#E0F0FF", $borderColor="#3366AA", $fontColor="#003366", $legendText="✅ TF-tracked")
+AddRelTag("orphan_edge",      $lineColor="#B30000", $textColor="#B30000", $lineStyle="dashed")
+AddRelTag("review_edge",      $lineColor="#B38A00", $textColor="#B38A00", $lineStyle="dashed")
+
+' ===================== Externals =====================
+Person(line_user, "LINE User (dev)")
+Person(tg_user,   "Telegram Mini App User (dev)")
+System_Ext(line_api,    "LINE Messaging API")
+System_Ext(tg_api,      "Telegram Bot API")
+System_Ext(grafana_aws, "AWS Managed Grafana", "Workspace lives outside VPC; reads via VPC connector")
+System_Ext(openrouter,  "OpenRouter / LLM")
+
+' ===================== AWS account boundary =====================
+System_Boundary(aws, "AWS Account 755283537543 / ap-southeast-1 / dev") {
+
+    ' ----- Tracked baseline (telegram-api/dev/.tfstate) -----
+    System_Boundary(tracked_b, "TERRAFORM-TRACKED (telegram-api/dev/.tfstate — 208 resources)") {
+        Component(line_lambda,    "LINE Bot Lambda",                "AWS Lambda + Function URL", "src/lambda_handler.py", $tags="tracked")
+        Component(tg_lambda,      "Telegram API Lambda (alias: live)", "AWS Lambda",            "src/telegram_lambda_handler.py + FastAPI", $tags="tracked")
+        Component(report_worker,  "Report Worker Lambda",           "AWS Lambda (container)",    "src/report_worker_handler.py", $tags="tracked")
+        Component(precompute_ctrl,"Precompute Controller",          "AWS Lambda",                "src/scheduler/precompute_controller_handler.py", $tags="tracked")
+        Component(ticker_fetcher, "Ticker Fetcher",                 "AWS Lambda",                "src/scheduler/ticker_fetcher_handler.py", $tags="tracked")
+        Component(apigw_tracked,  "API Gateway (TRACKED)",          "API GW HTTP v2",            "ID: ou0ivives1\ncreated 2025-11-24", $tags="tracked")
+        Component(cloudfront,     "CloudFront distros",             "AWS CloudFront",            "demjoigiw6myp + d3c0gdizx3qv19", $tags="tracked")
+        ComponentDb(aurora,       "Aurora MySQL (dev)",             "RDS Aurora Serverless v2",  "dr-daily-report-aurora-dev", $tags="tracked")
+        Component(rds_proxy,      "RDS Proxy",                      "AWS RDS Proxy",             "Connection pooling", $tags="tracked")
+        Component(sns_alerts,     "SNS: telegram-alerts-dev",       "AWS SNS",                   "Tracked alarm sink", $tags="tracked")
+        Component(iam_role,       "IAM role: telegram-api-role-dev","AWS IAM Role",              "Shared by tracked + orphan Lambdas", $tags="tracked")
+        Component(sg_lambda,      "SG: sg-0185a0d8d92968d03",       "AWS Security Group",        "Shared Lambda SG", $tags="tracked")
+        Component(vpc,            "VPC vpc-0fb04b10ef8c3d18b",      "AWS VPC + 3 subnets",       "Shared infra", $tags="tracked")
+        Component(alarm_apgw_4xx, "Alarm: api-4xx-dev",             "CloudWatch Alarm",          "tracked observer", $tags="tracked")
+        Component(alarm_tg_err,   "Alarm: telegram-api-errors-dev", "CloudWatch Alarm",          "tracked observer", $tags="tracked")
+    }
+
+    ' ----- Orphans -----
+    System_Boundary(orphan_b, "ORPHANS (in AWS, not in any TF state) — 9 resources") {
+
+        ' import-now Lambdas (3)
+        Component(webhook_health, "webhook-health Lambda 🚨",         "AWS Lambda (orphan)",       "dr-daily-report-webhook-health-dev\nlast modified 2026-03-15\n→ import-now", $tags="import_now")
+        Component(model_catalog,  "model-catalog-sync Lambda 🚨",     "AWS Lambda (orphan)",       "dr-daily-report-model-catalog-sync-dev\nlast modified 2026-03-19\n→ import-now", $tags="import_now")
+        Component(quant_agent,    "quant-agent Lambda 🚨",            "AWS Lambda (orphan)",       "dr-daily-report-quant-agent-dev\nlast modified 2026-03-12\n→ import-now\n⚠ NO paired error alarm", $tags="import_now")
+
+        ' alarms (2 import-now + 1 missing)
+        Component(alarm_wh,       "Alarm: webhook-health-errors",     "CloudWatch Alarm (orphan)", "currently in ALARM state\n→ import-now (observer-class)", $tags="import_now")
+        Component(alarm_mc,       "Alarm: model-catalog-sync-errors", "CloudWatch Alarm (orphan)", "state: OK\n→ import-now (observer-class)", $tags="import_now")
+        Component(alarm_qa_miss,  "Alarm: quant-agent-errors ❓",      "CloudWatch Alarm (MISSING)","Does not exist!\nObservability gap", $tags="missing_obs")
+
+        ' SG import-now
+        Component(sg_grafana,     "SG: sg-029583f3ff4d682ca 🚨",       "AWS Security Group (orphan)", "dr-daily-report-grafana-dev\n3 ENIs attached (in use)\n→ import-now", $tags="import_now")
+
+        ' review (twin)
+        Component(apigw_orphan,   "API Gateway (ORPHAN) ⚠️",          "API GW HTTP v2",            "ID: ta0g00v0c7\ncreated 2025-11-30\nshadows tracked twin\n→ review (policy.exception)", $tags="review")
+
+        ' empty shells (2)
+        Component(secret_grafana, "Secret: grafana-mysql/dev 🗑️",     "Secrets Manager (orphan)",  "LastAccessed: None\n→ delete-empty-shell", $tags="empty_shell")
+        Component(ecs_cluster,    "ECS: dr-data-pipeline-dev 🗑️",     "Amazon ECS (orphan)",       "0 services / 0 tasks / 0 instances\n→ delete-empty-shell", $tags="empty_shell")
+    }
+}
+
+' ===================== Edges: tracked baseline =====================
+Rel(line_user, line_api,        "LINE message")
+Rel(line_api, line_lambda,      "Webhook", "HTTPS")
+Rel(line_lambda, rds_proxy,     "MySQL")
+Rel(rds_proxy, aurora,          "pool")
+Rel(tg_user, cloudfront,        "Loads SPA", "HTTPS")
+Rel(cloudfront, apigw_tracked,  "REST (claimed)", "HTTPS")
+Rel_Back(tg_lambda, apigw_tracked, "AWS_PROXY (low traffic?)")
+Rel(report_worker, openrouter,  "Generate", "HTTPS")
+Rel(report_worker, aurora,      "Cache", "MySQL")
+Rel(alarm_apgw_4xx, sns_alerts, "publish")
+Rel(alarm_tg_err,   sns_alerts, "publish")
+
+' ===================== Edges: orphan resources touching tracked =====================
+
+' webhook-health → critical path
+Rel(webhook_health, line_lambda, "1. Health probe", "HTTPS",         $tags="orphan_edge")
+Rel(webhook_health, aurora,      "2. Read metadata", "MySQL",        $tags="orphan_edge")
+Rel(webhook_health, sns_alerts,  "3. Publish alert", "SNS",          $tags="orphan_edge")
+Rel(webhook_health, iam_role,    "uses (shared)", "IAM",             $tags="orphan_edge")
+Rel(webhook_health, sg_lambda,   "attached (shared)", "VPC",         $tags="orphan_edge")
+
+' model-catalog-sync → data plane
+Rel(model_catalog, aurora,       "Sync model catalog", "MySQL",      $tags="orphan_edge")
+Rel(model_catalog, iam_role,     "uses (shared)", "IAM",             $tags="orphan_edge")
+Rel(model_catalog, sg_lambda,    "attached (shared)", "VPC",         $tags="orphan_edge")
+
+' quant-agent → data plane (exact targets uninspected)
+Rel(quant_agent,  aurora,        "Reads/writes (presumed)", "MySQL", $tags="orphan_edge")
+Rel(quant_agent,  iam_role,      "uses (shared)", "IAM",             $tags="orphan_edge")
+Rel(quant_agent,  sg_lambda,     "attached (shared)", "VPC",         $tags="orphan_edge")
+Rel(quant_agent,  openrouter,    "LLM calls (likely)", "HTTPS",      $tags="orphan_edge")
+
+' Alarms watch their Lambdas, route to tracked SNS
+Rel(alarm_wh, webhook_health,    "watches Errors", "CW",             $tags="orphan_edge")
+Rel(alarm_mc, model_catalog,     "watches Errors", "CW",             $tags="orphan_edge")
+Rel(alarm_wh, sns_alerts,        "alarm action", "SNS",              $tags="orphan_edge")
+Rel(alarm_mc, sns_alerts,        "alarm action", "SNS",              $tags="orphan_edge")
+Rel(alarm_qa_miss, quant_agent,  "SHOULD watch (missing)", "—",      $tags="review_edge")
+
+' Grafana SG → Aurora egress
+Rel(grafana_aws, sg_grafana,     "VPC connector", "TLS",             $tags="orphan_edge")
+Rel(sg_grafana, aurora,          "MySQL egress", "MySQL",            $tags="orphan_edge")
+Rel(secret_grafana, aurora,      "credentials FOR (unused)", "n/a",  $tags="orphan_edge")
+
+' THE SCARY ONE: orphan API Gateway carrying live traffic
+Rel(cloudfront, apigw_orphan,    "🔴 LIVE TRAFFIC (CORS-allowed)", "HTTPS", $tags="review_edge")
+Rel(apigw_orphan, tg_lambda,     "🔴 invokes :live (10 routes)",    "AWS_PROXY", $tags="review_edge")
+
+SHOW_LEGEND()
+@enduml

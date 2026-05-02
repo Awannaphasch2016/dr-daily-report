@@ -1,0 +1,29 @@
+@startuml C4_Context_DailyReport
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Context.puml
+
+title C4 Level 1 - System Context: Daily DR Ticker Report
+
+Person(line_user, "LINE Bot User", "Sends ticker symbol via LINE chat (legacy)")
+Person(tg_user, "Telegram Mini App User", "Browses dashboard, watchlist, on-demand reports")
+
+System_Boundary(dr_system, "Daily DR Ticker Report System") {
+    System(dr, "DR Ticker Report Platform", "AWS-hosted: scheduled daily pipeline + LINE bot + Telegram Mini App. Generates LLM-powered ticker analysis PDFs.")
+}
+
+System_Ext(line_api, "LINE Messaging API", "Webhook + reply API")
+System_Ext(tg_api, "Telegram Bot API", "WebApp init + auth")
+System_Ext(openrouter, "OpenRouter", "LLM gateway (GPT-4 / Claude)")
+System_Ext(yfinance, "Yahoo Finance", "Market data source")
+System_Ext(langfuse, "Langfuse", "LLM observability / tracing")
+
+Rel(line_user, line_api, "Sends ticker message", "LINE app")
+Rel(tg_user, tg_api, "Opens Mini App", "Telegram app")
+Rel(line_api, dr, "Webhook events", "HTTPS")
+Rel(tg_api, dr, "WebApp requests", "HTTPS")
+Rel(dr, line_api, "Replies with report link", "HTTPS")
+Rel(dr, openrouter, "Generates report text", "HTTPS")
+Rel(dr, yfinance, "Fetches market data", "HTTPS (daily 8 AM BKK)")
+Rel(dr, langfuse, "Traces LLM calls", "HTTPS")
+
+SHOW_LEGEND()
+@enduml

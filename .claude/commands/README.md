@@ -782,6 +782,54 @@ The invariant commands form a **convergence loop** distinct from failure-driven 
 
 ---
 
+### `/tf-aws` - Reconcile TF State ↔ Deployed AWS
+
+**Purpose**: Domain-specific reconciliation between the dr-bot Terraform state and deployed AWS reality. Detect drift, import orphans, prune ghosts — without ever mutating AWS.
+
+**Usage**:
+```bash
+# Read-only inspection
+/tf-aws                          # default: audit (summary)
+/tf-aws what's drifted           # NL → diff (detailed listing)
+
+# Mutating verbs (TF state only; AWS is read-only)
+/tf-aws absorb --apply           # import ORPHANs into state
+/tf-aws prune --apply            # state-rm GHOSTs and DOUBLEs
+/tf-aws sync --apply             # absorb then prune
+```
+
+**Verb dispatch**:
+| Verb | Reads | Writes | Description |
+|------|-------|--------|-------------|
+| `audit` | TF + AWS | — | Summary counts (TFM, LIVE, ORPHAN, GHOST, DOUBLE) |
+| `diff` | TF + AWS | — | Per-resource δ table with triage verdicts |
+| `absorb` | TF + AWS | TF state | `terraform import` + `.tf` stubs for ORPHANs |
+| `prune` | TF + AWS | TF state | `terraform state rm` for GHOSTs + DOUBLEs |
+| `sync` | TF + AWS | TF state | `absorb` then `prune` |
+
+**Workflow integration**:
+```
+/tf-aws audit          →    /tf-aws diff       →    /tf-aws absorb --apply
+   (summary)                  (per-item details)        (import + verify δ → 0)
+```
+
+**Replica concept (internal)**:
+The `Replica` abstraction is internal to `/tf-aws`, declared in `.claude/replicas/dr-bot.yaml`. It is **not** a kernel-level type — promotion to a Tier-0 abstraction is deferred until the Rule of Three triggers. See `.claude/specifications/workflow/2026-04-28-procedural-to-algebraic-kernel-migration.md`.
+
+**Safety properties**:
+- AWS is read-only (no AWS resource is ever deleted by this command)
+- Dry-run is default; mutations require explicit `--apply`
+- Confirmation gate before any `terraform import` or `state rm`
+- State backup written to `.terraform-state-backups/<timestamp>/` before mutating
+- Post-apply re-runs discovery to verify δ → 0 (Layer 4 evidence per Principle #2)
+- Hard-coded review patterns prevent auto-import of ambiguous resources (e.g., the deleted Aurora SG rules from validation 2026-04-27)
+
+**Core Principle**: "δ(TFM, LIVE) = 0 for the dr-bot replica" — same Invariant Feedback Loop as `/invariant`+`/reconcile`, scoped to one paired-state system.
+
+See [/tf-aws command](tf-aws.md), [replica config](../replicas/dr-bot.yaml), [drift validation](../validations/2026-04-27-terraform-state-vs-deployed-infra.md).
+
+---
+
 ### `/step` - Thinking Tuple Protocol
 **Purpose**: Instantiate a Thinking Tuple - the atomic unit of disciplined reasoning that forces composition of all layers at each reasoning step
 

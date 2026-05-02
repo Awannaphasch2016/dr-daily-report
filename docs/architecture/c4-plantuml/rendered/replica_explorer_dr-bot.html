@@ -1,0 +1,1523 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Replica Explorer — dr-bot — C4 + Reconcile</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<style>
+  :root {
+    --bg: #f7f8fa;
+    --panel: #ffffff;
+    --border: #d0d7de;
+    --ink: #24292f;
+    --muted: #57606a;
+    --tracked: #e0f0ff;
+    --tracked-border: #3366aa;
+    --drifted: #fff3cd;
+    --drifted-border: #856404;
+    --orphan: #ffb3b3;
+    --orphan-border: #b30000;
+    --ghost: #e6e6e6;
+    --ghost-border: #888;
+    --double: #f0d6ff;
+    --double-border: #6b21a8;
+    --ext: #ffffff;
+    --ext-border: #666;
+  }
+  body { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--ink); margin: 0; padding: 24px; }
+  h1 { margin: 0 0 4px; font-size: 22px; }
+  h2 { margin: 28px 0 8px; font-size: 17px; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  h3 { margin: 20px 0 8px; font-size: 14px; color: var(--muted); }
+  .subtitle { color: var(--muted); font-size: 13px; margin-bottom: 16px; }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 10px; font-size: 12px; }
+  .legend .chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; border: 1px solid; }
+  .chip.tracked { background: var(--tracked); border-color: var(--tracked-border); color: var(--tracked-border); }
+  .chip.drifted { background: var(--drifted); border-color: var(--drifted-border); color: var(--drifted-border); }
+  .chip.orphan  { background: var(--orphan);  border-color: var(--orphan-border);  color: var(--orphan-border); }
+  .chip.ghost   { background: var(--ghost);   border-color: var(--ghost-border);   color: var(--ghost-border); }
+  .chip.double  { background: var(--double);  border-color: var(--double-border);  color: var(--double-border); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { border: 1px solid var(--border); padding: 6px 8px; text-align: left; vertical-align: top; }
+  th { background: #f0f3f6; }
+  td.center { text-align: center; }
+  td.tracked { background: var(--tracked); }
+  td.drifted { background: var(--drifted); }
+  td.orphan  { background: var(--orphan); }
+  td.ghost   { background: var(--ghost); }
+  td.double  { background: var(--double); }
+  .mermaid { background: #fff; padding: 8px; overflow: auto; }
+  .small { font-size: 12px; color: var(--muted); }
+  code { background: #f1f3f5; padding: 1px 5px; border-radius: 3px; font-size: 12px; }
+  .tabs { display: flex; gap: 4px; margin-bottom: 12px; border-bottom: 2px solid var(--border); flex-wrap: wrap; }
+  .tab-button { background: var(--panel); border: 1px solid var(--border); border-bottom: none; border-radius: 6px 6px 0 0; padding: 8px 16px; cursor: pointer; font-size: 14px; color: var(--muted); font-family: inherit; }
+  .tab-button:hover { background: #eef1f4; }
+  .tab-button.active { background: var(--ink); color: #fff; border-color: var(--ink); font-weight: 600; }
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+  .tab-hint { font-size: 11px; color: var(--muted); margin-left: 8px; font-style: italic; }
+  .count-row { display: flex; gap: 16px; flex-wrap: wrap; margin: 8px 0 12px; font-size: 13px; }
+  .count-row .stat { padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border); background: #f8f9fa; }
+  .count-row .stat b { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+</style>
+</head>
+<body>
+
+<h1>Replica Explorer — <code>dr-bot</code></h1>
+<div class="subtitle">
+  C4 zoom levels + reconciliation lens · ap-southeast-1 · account 755283537543 · audit baseline <b>2026-04-30</b><br/>
+  <b>δ_membership</b>: 18+ ORPHAN · 14 DOUBLE · 2 GHOST &nbsp;|&nbsp; <b>δ_config</b>: 6 DRIFTED &nbsp;|&nbsp; address-mismatch finding: <b>0</b> (prior was incorrect — see Reconcile tab)
+</div>
+
+<div class="panel">
+  <h2 style="margin-top:0">Legend — Reconciliation State (overlay applies to Container + Components tabs only)</h2>
+  <div class="legend">
+    <span class="chip tracked">✅ TRACKED — in TF state and in AWS, fingerprint matches</span>
+    <span class="chip drifted">🔄 DRIFTED — in both, but config diverges on fingerprinted fields</span>
+    <span class="chip orphan">🚨 ORPHAN — exists in AWS, not in TF state</span>
+    <span class="chip ghost">👻 GHOST — in TF state, not in AWS</span>
+    <span class="chip double">♻️ DOUBLE — bound in legacy + primary state files</span>
+  </div>
+  <p class="small" style="margin-top:10px">
+    <b>What each tab shows</b>: <b>Context</b> = the system in its environment (no overlay; reconciliation isn't meaningful at this zoom).
+    <b>Container</b> = deployable boxes (Lambdas, databases, API GWs, etc.) with reconciliation overlay.
+    <b>Components</b> = code modules within each container (overlay reflects parent container's state).
+    <b>Class</b> = architectural classes/types (no overlay; classes don't have a reconciliation state).
+    <b>Reconcile</b> = the audit lens — Realization view (the <code>.tf</code> | <code>.tfstate</code> | AWS lattice) on top, Reconcile Table (action ledger) below.
+  </p>
+</div>
+
+<div class="tabs">
+  <button class="tab-button active" data-tab="tab-c1">Context (C1)</button>
+  <button class="tab-button" data-tab="tab-c2">Container (C2)</button>
+  <button class="tab-button" data-tab="tab-c3">Components (C3)</button>
+  <button class="tab-button" data-tab="tab-c4">Class (C4)</button>
+  <button class="tab-button" data-tab="tab-reconcile">Reconcile</button>
+  <button class="tab-button" data-tab="tab-gore">GORE</button>
+  <button class="tab-button" data-tab="tab-pheno">Phenomenology</button>
+  <span class="tab-hint">click a tab to render its diagram on demand</span>
+</div>
+
+<!-- ============================================================ -->
+<!-- C1 — CONTEXT                                                  -->
+<!-- ============================================================ -->
+<div class="tab-panel active" id="tab-c1">
+<h2>System Context (C1)</h2>
+<div class="panel">
+<p class="small" style="margin-top:0">The dr-bot system in its environment: who uses it, who it talks to. No reconciliation overlay — every external system is by definition outside the audit's scope.</p>
+
+<pre class="mermaid">
+flowchart LR
+  classDef actor fill:#fff8e1,stroke:#a08800,color:#5a4400,stroke-width:1.5px;
+  classDef system fill:#cfe9ff,stroke:#2562a8,color:#0a2842,stroke-width:2px;
+  classDef ext fill:#f5f5f5,stroke:#666,color:#333,stroke-width:1px;
+
+  LineUser([LINE User<br/>chat-based]):::actor
+  TgUser([Telegram User<br/>Mini App]):::actor
+  Dev([Developer / Operator]):::actor
+
+  subgraph Bot["dr-bot system"]
+    DrBot[/dr-daily-report<br/>LINE bot + Telegram Mini App + Pipeline/]:::system
+  end
+
+  LineAPI[/LINE Messaging API/]:::ext
+  TgBotAPI[/Telegram Bot API/]:::ext
+  TgWebApp[/Telegram WebApp SDK/]:::ext
+  OpenRouter[/OpenRouter LLM<br/>API/]:::ext
+  YFinance[/Yahoo Finance/]:::ext
+  Filings[/SEC EDGAR · SGX · HKEX<br/>EDINET · MOPS · HOSE/]:::ext
+  Langfuse[/Langfuse<br/>observability/]:::ext
+  Doppler[/Doppler<br/>secrets manager/]:::ext
+  GitHub[/GitHub<br/>VCS + CI/CD/]:::ext
+  Slack[/Slack<br/>alert sink/]:::ext
+  Grafana[/AWS Managed Grafana/]:::ext
+  AWS[/AWS Account 755283537543<br/>ap-southeast-1/]:::ext
+
+  LineUser -->|chat| LineAPI
+  LineAPI -->|webhook| DrBot
+  DrBot -->|reply| LineAPI
+
+  TgUser -->|opens Mini App| TgBotAPI
+  TgBotAPI -->|launches WebView| TgWebApp
+  TgWebApp -->|HTTPS / API calls| DrBot
+  TgUser -.->|/start, /help| TgBotAPI
+
+  DrBot -->|LLM generation| OpenRouter
+  DrBot -->|OHLCV + news| YFinance
+  DrBot -->|filings ingestion| Filings
+  DrBot -->|traces + scores| Langfuse
+  DrBot -.->|reads at startup| Doppler
+  DrBot -->|alarm forward| Slack
+
+  Dev -->|push commits| GitHub
+  GitHub -->|Actions deploy| DrBot
+  GitHub -->|secrets rotate| Doppler
+
+  DrBot -.->|hosted in| AWS
+  Grafana -.->|reads metrics from| DrBot
+</pre>
+</div>
+
+<div class="panel">
+<h3 style="margin-top:0">Notes</h3>
+<ul class="small">
+  <li><b>Two user surfaces, one backend</b>: LINE users interact via chat; Telegram users interact via Mini App (webview). Both routes converge into the same Aurora data + LLM pipeline.</li>
+  <li><b>External systems</b> are intentionally outside the audit's reconciliation scope (BS-4 in <code>tf-aws.md</code>). They appear here for completeness but do not get a TRACKED/ORPHAN classification.</li>
+  <li><b>Doppler</b> appears as a startup-time read because the audit found 18 environment variables on telegram_api are runtime-injected by Doppler rather than declared in TF — see Container/Reconcile tabs.</li>
+  <li><b>Grafana</b> is dashed-into the bot because the live Grafana SG (<code>sg-029583f3ff4d682ca</code>) is currently an ORPHAN — relationship is real but unmanaged by TF.</li>
+</ul>
+</div>
+
+</div><!-- /#tab-c1 -->
+
+
+<!-- ============================================================ -->
+<!-- C2 — CONTAINER                                                -->
+<!-- ============================================================ -->
+<div class="tab-panel" id="tab-c2">
+<h2>Containers (C2)</h2>
+<div class="count-row">
+  <span class="stat"><b>34</b> total containers in scope</span>
+  <span class="stat tracked"><b>23</b> tracked</span>
+  <span class="stat drifted"><b>5</b> drifted</span>
+  <span class="stat orphan"><b>11</b> orphan</span>
+  <span class="stat ghost"><b>2</b> ghost</span>
+</div>
+<div class="panel">
+<p class="small" style="margin-top:0">All deployable boxes inside the AWS account, scoped by <code>y.filter</code>. Color = reconciliation state from 2026-04-30 audit. Shape = role (rounded = compute, cylinder = data, hexagon = workflow, diamond = network/routing).</p>
+
+<pre class="mermaid">
+flowchart TB
+  classDef tracked fill:#e0f0ff,stroke:#3366aa,color:#003366,stroke-width:1px;
+  classDef drifted fill:#fff3cd,stroke:#856404,color:#5a4500,stroke-width:2px;
+  classDef orphan  fill:#ffb3b3,stroke:#b30000,color:#660000,stroke-width:2px;
+  classDef ghost   fill:#e6e6e6,stroke:#888,color:#444,stroke-width:1px,stroke-dasharray:3 3;
+  classDef ext fill:#fff,stroke:#666,color:#333;
+
+  LineU([LINE User]):::ext
+  TgU([Telegram User]):::ext
+  LineExt[/LINE Messaging API/]:::ext
+  TgExt[/Telegram Bot API/]:::ext
+  OR[/OpenRouter/]:::ext
+  YF[/Yahoo Finance/]:::ext
+  LF[/Langfuse/]:::ext
+  Dop[/Doppler/]:::ext
+  SlackExt[/Slack/]:::ext
+  GrafanaExt[/AWS Grafana/]:::ext
+
+  subgraph Frontend["Frontend (CloudFront + S3)"]
+    direction LR
+    fe_spa["Telegram Mini App<br/>twinbar (React+TS)"]:::tracked
+    cf_app[/CloudFront app distro<br/>demjoigiw6myp/]:::tracked
+    cf_test[/CloudFront test distro<br/>d3c0gdizx3qv19/]:::tracked
+    cf_static[/CloudFront static-API/]:::tracked
+    s3_app[("S3 webapp assets")]:::tracked
+  end
+
+  subgraph Routing["API Routing"]
+    direction LR
+    apigw_t[/API Gateway tracked<br/>ou0ivives1/]:::tracked
+    apigw_o[/API Gateway ORPHAN<br/>ta0g00v0c7/]:::orphan
+    line_url[/Lambda URL<br/>LINE webhook/]:::tracked
+  end
+
+  subgraph App["Application Lambdas"]
+    direction TB
+    tg_api["Telegram API Lambda<br/>aws_lambda_function.telegram_api<br/>FastAPI · 25 TF env / 9 AWS env"]:::drifted
+    line_bot["LINE Bot Lambda<br/>aws_lambda_function.line_bot<br/>env drift (Doppler asym)"]:::drifted
+    rw["Report Worker Lambda<br/>aws_lambda_function.report_worker<br/>env drift (Doppler asym)"]:::drifted
+    ts["Ticker Scheduler Lambda<br/>aws_lambda_function.ticker_scheduler<br/>env drift (Doppler asym)"]:::drifted
+    pc["Precompute Controller<br/>aws_lambda_function.precompute_controller"]:::tracked
+    gtl["Get Ticker List Lambda"]:::tracked
+    pp_l["Pattern Precompute Lambda"]:::tracked
+    bp_l["Backtest Precompute Lambda"]:::tracked
+    pdfw["PDF Worker Lambda"]:::tracked
+    pre["Pipeline Preprocess Lambda"]:::tracked
+    gen["Pipeline Generation Lambda"]:::tracked
+    pos["Pipeline Postprocess Lambda"]:::tracked
+    grl["Get Report List Lambda"]:::tracked
+    sm["Schema Manager Lambda<br/>(Alembic)"]:::tracked
+    fds["Fund Data Sync Lambda"]:::tracked
+    sn["Slack Notifier Lambda"]:::tracked
+    cc["Credit Checker Lambda"]:::tracked
+    sag["Static API Generator Lambda"]:::tracked
+    qt["Query Tool Lambda"]:::tracked
+    wh["webhook_health Lambda<br/>dr-daily-report-webhook-health-dev"]:::orphan
+    mc["model_catalog_sync Lambda<br/>dr-daily-report-model-catalog-sync-dev"]:::orphan
+    qa["quant_agent Lambda<br/>dr-daily-report-quant-agent-dev<br/>(source declared, never bound)"]:::orphan
+  end
+
+  subgraph Workflow["Workflow Orchestration"]
+    direction LR
+    sf_pre{{"Step Functions<br/>precompute_workflow"}}:::tracked
+    sf_pdf{{"Step Functions<br/>pdf_workflow"}}:::tracked
+    sf_rep{{"Step Functions<br/>report_pipeline"}}:::tracked
+    eb_cron{{"EventBridge<br/>daily 8AM Bangkok"}}:::tracked
+    eb_pdf{{"EventBridge<br/>precompute→pdf trigger"}}:::tracked
+  end
+
+  subgraph Data["Data Stores"]
+    direction LR
+    aurora[("Aurora MySQL<br/>3.10.3 (TF says 3.04.0)<br/>SG ingress drifted")]:::drifted
+    proxy[("RDS Proxy")]:::tracked
+    s3_pdf[("S3 PDF reports")]:::tracked
+    s3_lake[("S3 data lake")]:::tracked
+    ddb_w[("DynamoDB watchlist")]:::tracked
+    ddb_j[("DynamoDB report jobs")]:::tracked
+    sec_aur[("Secret: Aurora creds")]:::tracked
+    sec_grf[("Secret: grafana-mysql<br/>LastAccessed=null")]:::orphan
+    sqs_g1[("SQS pdf_jobs<br/>(in legacy state, gone in AWS)")]:::ghost
+    sqs_g2[("SQS pdf_jobs_dlq<br/>(in legacy state, gone in AWS)")]:::ghost
+  end
+
+  subgraph Net["Networking"]
+    direction LR
+    vpc[/"VPC default<br/>+ NAT + 3 subnets"/]:::tracked
+    sg_lambda[/"SG: Lambda shared<br/>sg-0185a0d8d92968d03"/]:::tracked
+    sg_aurora[/"SG: Aurora<br/>(ingress drifted: grafana SG added)"/]:::drifted
+    sg_proxy[/"SG: RDS Proxy"/]:::tracked
+    sg_cb[/"SG: CodeBuild"/]:::tracked
+    sg_grf[/"SG: grafana<br/>sg-029583f3ff4d682ca"/]:::orphan
+    sg_lbtr[/"SG: line-bot-ticker-report<br/>(no env tag)"/]:::orphan
+    r53[/"Route 53"/]:::tracked
+  end
+
+  subgraph Obs["Observability"]
+    direction LR
+    cw_alarms{{"CloudWatch Alarms<br/>tracked + 2 orphan<br/>(webhook_health_errors, model_catalog_sync_errors)"}}:::tracked
+    sns{{"SNS telegram-alerts-dev"}}:::tracked
+    cw_logs[("CloudWatch Logs<br/>/aws/lambda/*")]:::tracked
+    ct[("CloudTrail")]:::tracked
+  end
+
+  subgraph CICD["CI/CD"]
+    direction LR
+    gha[/"GitHub Actions<br/>(6 deploy workflows)"/]:::tracked
+    ecr[("ECR Repository")]:::tracked
+    cb[/"CodeBuild<br/>schema migrations"/]:::tracked
+    tf_be[("S3 Terraform Backend<br/>+ DynamoDB lock")]:::tracked
+  end
+
+  subgraph Compute["ECS (Orphan)"]
+    ecs_ing["ECS dr-daily-report-ingestion-dev<br/>0 services / 0 tasks"]:::orphan
+    ecs_dp["ECS dr-data-pipeline-dev<br/>0 services / 0 tasks"]:::orphan
+  end
+
+  LineU --> LineExt
+  LineExt --> line_url
+  line_url --> line_bot
+
+  TgU --> TgExt
+  TgExt --> cf_app
+  cf_app --> apigw_t
+  apigw_t --> tg_api
+  apigw_o -.->|"orphan, 0 traffic 7d"| tg_api
+
+  cf_app --> s3_app
+  cf_static --> s3_lake
+
+  line_bot --> proxy
+  tg_api --> proxy
+  rw --> proxy
+  ts --> proxy
+  pre --> proxy
+  gen --> proxy
+  pos --> proxy
+  pdfw --> proxy
+  pc --> proxy
+  proxy --> aurora
+
+  tg_api --> ddb_w
+  tg_api --> ddb_j
+  rw --> ddb_j
+  rw --> s3_pdf
+  pdfw --> s3_pdf
+  fds --> s3_lake
+  ts --> s3_lake
+
+  rw --> OR
+  line_bot --> OR
+  gen --> OR
+  qa -.->|"orphan, LLM calls"| OR
+
+  rw --> LF
+  line_bot --> LF
+  gen --> LF
+
+  tg_api -.-> Dop
+  line_bot -.-> Dop
+  rw -.-> Dop
+  ts -.-> Dop
+
+  eb_cron --> ts
+  ts --> pc
+  pc --> sf_pre
+  sf_pre --> pp_l
+  sf_pre --> bp_l
+  sf_pre --> gtl
+  sf_pre --> eb_pdf
+  eb_pdf --> sf_pdf
+  sf_pdf --> pdfw
+  sf_pdf --> grl
+  sf_rep --> pre
+  sf_rep --> gen
+  sf_rep --> pos
+
+  cw_alarms --> sns
+  sns --> sn
+  sn --> SlackExt
+  cc --> OR
+  cc --> sn
+
+  GrafanaExt -.->|"VPC connector"| sg_grf
+  sg_grf -.->|"3306 ingress"| sg_aurora
+  sec_grf -.->|"unused creds for"| aurora
+
+  tg_api -.- sg_lambda
+  line_bot -.- sg_lambda
+  rw -.- sg_lambda
+  ts -.- sg_lambda
+
+  gha --> ecr
+  gha --> tf_be
+  ecr --> tg_api
+  ecr --> line_bot
+  ecr --> rw
+  cb --> proxy
+
+  classDef external fill:#fff,stroke:#666;
+  class LineU,TgU,LineExt,TgExt,OR,YF,LF,Dop,SlackExt,GrafanaExt external;
+</pre>
+</div>
+
+</div><!-- /#tab-c2 -->
+
+
+<!-- ============================================================ -->
+<!-- C3 — COMPONENTS                                               -->
+<!-- ============================================================ -->
+<div class="tab-panel" id="tab-c3">
+<h2>Code Components (C3)</h2>
+<div class="panel">
+<p class="small" style="margin-top:0">Code-level decomposition of each in-scope container. ~160 components across 22 Lambdas + the Telegram Mini App. Subgraph color follows the parent container's reconciliation state. The user explicitly accepted high density here; navigation UX (collapse/filter) is deferred.</p>
+
+<pre class="mermaid">
+flowchart TB
+  classDef tracked fill:#e0f0ff,stroke:#3366aa,color:#003366;
+  classDef drifted fill:#fff3cd,stroke:#856404,color:#5a4500,stroke-width:1.5px;
+  classDef orphan  fill:#ffb3b3,stroke:#b30000,color:#660000,stroke-width:1.5px;
+
+  subgraph TgApi["telegram_api_lambda · 🔄 DRIFTED"]
+    direction TB
+    tg_health["health route"]:::drifted
+    tg_search["search route"]:::drifted
+    tg_rep_get["report GET route"]:::drifted
+    tg_rep_post["report POST route"]:::drifted
+    tg_rep_status["job status route"]:::drifted
+    tg_rank["rankings route"]:::drifted
+    tg_wl_get["watchlist GET"]:::drifted
+    tg_wl_post["watchlist add"]:::drifted
+    tg_wl_del["watchlist delete"]:::drifted
+    tg_svc_ticker["TickerService"]:::drifted
+    tg_svc_wl["WatchlistService"]:::drifted
+    tg_svc_rank["RankingsService"]:::drifted
+    tg_svc_job["JobService"]:::drifted
+    tg_svc_xform["ResponseTransformer"]:::drifted
+    tg_svc_peer["PeerSelectorService"]:::drifted
+    tg_auth["TelegramAuth (HMAC)"]:::drifted
+    tg_models["Pydantic models"]:::drifted
+    tg_errors["ErrorEnvelope handlers"]:::drifted
+  end
+
+  subgraph LineBot["line_bot_lambda · 🔄 DRIFTED"]
+    direction TB
+    lb_handler["LINE webhook handler"]:::drifted
+    lb_ticker_match["TickerMatcher"]:::drifted
+    lb_agent["TickerAnalysisAgent"]:::drifted
+    lb_wf_nodes["WorkflowNodes"]:::drifted
+    lb_pre_cache["PrecomputeService"]:::drifted
+    lb_pdf_storage["PDFStorage"]:::drifted
+    lb_data_fetcher["DataFetcher"]:::drifted
+    lb_ta["TechnicalAnalyzer"]:::drifted
+    lb_news["NewsFetcher"]:::drifted
+    lb_chart["ChartGenerator"]:::drifted
+    lb_score_svc["ScoringService"]:::drifted
+    lb_score_compl["ComplianceScorer"]:::drifted
+    lb_score_faith["FaithfulnessScorer"]:::drifted
+    lb_score_complete["CompletenessScorer"]:::drifted
+    lb_score_qos["QoSScorer"]:::drifted
+    lb_score_cost["CostScorer"]:::drifted
+    lb_ctx["ContextBuilder"]:::drifted
+    lb_prompt["PromptBuilder"]:::drifted
+  end
+
+  subgraph RW["report_worker_lambda · 🔄 DRIFTED"]
+    direction TB
+    rw_handler["event router"]:::drifted
+    rw_gen["report generator (pure)"]:::drifted
+    rw_job_ad["job mode adapter"]:::drifted
+    rw_sfn_ad["step_fn mode adapter"]:::drifted
+    rw_exp_ad["experiment mode adapter"]:::drifted
+    rw_agent["TickerAnalysisAgent"]:::drifted
+    rw_job["JobService"]:::drifted
+    rw_xform["ResponseTransformer"]:::drifted
+    rw_pre["PrecomputeService"]:::drifted
+    rw_resolver["TickerResolver"]:::drifted
+    rw_validator["startup config validator"]:::drifted
+  end
+
+  subgraph TS["ticker_scheduler_lambda · 🔄 DRIFTED"]
+    direction TB
+    ts_main["EventBridge cron handler"]:::drifted
+    ts_fetcher["TickerFetcher (multi-source)"]:::drifted
+    ts_writer["Aurora bulk writer"]:::drifted
+    ts_validator["startup config validator"]:::drifted
+  end
+
+  subgraph PC["precompute_controller_lambda"]
+    direction TB
+    pc_main["Step Functions invoker"]:::tracked
+  end
+
+  subgraph PrePre["pipeline_preprocess_lambda"]
+    direction TB
+    pp_h["preprocess handler"]:::tracked
+    pp_fetch["DataFetcher"]:::tracked
+    pp_payload["S3Payload writer"]:::tracked
+  end
+
+  subgraph PreGen["pipeline_generation_lambda"]
+    direction TB
+    pg_h["generation handler"]:::tracked
+    pg_rep["report_generator_simple"]:::tracked
+    pg_ctx["ContextBuilder"]:::tracked
+    pg_prompt["PromptBuilder"]:::tracked
+  end
+
+  subgraph PrePost["pipeline_postprocess_lambda"]
+    direction TB
+    ps_h["postprocess handler"]:::tracked
+    ps_engine["Postprocess engine"]:::tracked
+    ps_score["ScoringService"]:::tracked
+    ps_fmt["section_formatters"]:::tracked
+    ps_foot["transparency_footer"]:::tracked
+  end
+
+  subgraph PdfW["pdf_worker_lambda"]
+    direction TB
+    pdf_h["SQS message consumer"]:::tracked
+    pdf_pre["PrecomputeService"]:::tracked
+    pdf_gen["PDFReportGenerator"]:::tracked
+    pdf_up["S3 uploader"]:::tracked
+    pdf_val["startup validator"]:::tracked
+  end
+
+  subgraph WH["webhook_health_lambda · 🚨 ORPHAN"]
+    direction TB
+    wh_h["health probe handler"]:::orphan
+  end
+
+  subgraph MC["model_catalog_sync_lambda · 🚨 ORPHAN"]
+    direction TB
+    mc_h["model sync handler"]:::orphan
+    mc_or["OpenRouter client"]:::orphan
+    mc_ddb["DynamoDB writer"]:::orphan
+  end
+
+  subgraph QA["quant_agent_lambda · 🚨 ORPHAN"]
+    direction TB
+    qa_h["async report handler"]:::orphan
+    qa_writer["Writer"]:::orphan
+    qa_judge["Judge (Fast + Deep)"]:::orphan
+    qa_loop["InnerLoop"]:::orphan
+    qa_ctx["ContextBuffer"]:::orphan
+    qa_cfg["QuantAgentConfig"]:::orphan
+  end
+
+  subgraph SM["schema_manager_lambda"]
+    direction TB
+    sm_h["alembic runner"]:::tracked
+    sm_exec["migration executor"]:::tracked
+  end
+
+  subgraph FDS["fund_data_sync_lambda"]
+    direction TB
+    fd_h["sync orchestrator"]:::tracked
+    fd_parse["FundDataParser"]:::tracked
+    fd_writer["Aurora writer"]:::tracked
+  end
+
+  subgraph QT["query_tool_lambda"]
+    direction TB
+    qt_h["SQL executor handler"]:::tracked
+    qt_run["query runner"]:::tracked
+  end
+
+  subgraph CC["credit_checker_lambda"]
+    direction TB
+    cc_h["quota validator"]:::tracked
+    cc_or["OpenRouter balance check"]:::tracked
+    cc_slack["alert sender"]:::tracked
+  end
+
+  subgraph SN["slack_notifier_lambda"]
+    direction TB
+    sn_h["alarm relay"]:::tracked
+    sn_client["Slack webhook client"]:::tracked
+  end
+
+  subgraph SAG["static_api_generator_lambda"]
+    direction TB
+    sag_h["builder handler"]:::tracked
+    sag_gen["JSON serializer"]:::tracked
+    sag_up["S3 uploader"]:::tracked
+  end
+
+  subgraph GTL["get_ticker_list_lambda"]
+    gtl_h["ticker list handler"]:::tracked
+  end
+
+  subgraph GRL["get_report_list_lambda"]
+    grl_h["report list handler"]:::tracked
+  end
+
+  subgraph PP["pattern_precompute_lambda"]
+    direction TB
+    pp_pat_h["pattern detection handler"]:::tracked
+    pp_pat_det["PatternDetector"]:::tracked
+    pp_pat_writer["Aurora writer"]:::tracked
+  end
+
+  subgraph BP["backtest_precompute_lambda"]
+    direction TB
+    bp_h["backtest runner handler"]:::tracked
+    bp_engine["BacktestEngine"]:::tracked
+    bp_writer["Aurora writer"]:::tracked
+  end
+
+  subgraph FE["telegram_mini_app (twinbar) · React+TS"]
+    direction TB
+    fe_app["App.tsx (root)"]:::tracked
+    fe_store["MarketStore (Zustand)"]:::tracked
+    fe_api["api/client.ts"]:::tracked
+    fe_h_tg["useTelegramWebApp"]:::tracked
+    fe_h_th["useTelegramTheme"]:::tracked
+    fe_header["Header"]:::tracked
+    fe_search_bar["SearchBar"]:::tracked
+    fe_grid["MarketsGrid"]:::tracked
+    fe_card["MarketCard"]:::tracked
+    fe_modal["MarketModal"]:::tracked
+    fe_chart["FullChart"]:::tracked
+    fe_mini["MiniChart"]:::tracked
+    fe_narr["NarrativePanel"]:::tracked
+    fe_score["ScoringPanel"]:::tracked
+    fe_badge["ScoreBadge"]:::tracked
+    fe_table["ScoreTable"]:::tracked
+    fe_pat["ChartPatternsPanel"]:::tracked
+    fe_social["SocialProofPanel"]:::tracked
+    fe_agree["AgreeButton"]:::tracked
+    fe_sort["SortBar"]:::tracked
+    fe_cat["CategoryNav"]:::tracked
+    fe_types["api/types.ts"]:::tracked
+  end
+
+  %% --- key cross-container edges ---
+  fe_api --> tg_search
+  fe_api --> tg_rep_get
+  fe_api --> tg_rep_post
+  fe_api --> tg_rank
+  fe_api --> tg_wl_get
+  fe_app --> fe_store
+  fe_app --> fe_api
+
+  tg_rep_post --> rw_handler
+  rw_handler --> rw_gen
+  rw_gen --> rw_agent
+  rw_agent --> rw_pre
+
+  lb_handler --> lb_agent
+  lb_agent --> lb_wf_nodes
+  lb_wf_nodes --> lb_data_fetcher
+  lb_wf_nodes --> lb_ta
+  lb_wf_nodes --> lb_score_svc
+  lb_score_svc --> lb_score_faith
+  lb_score_svc --> lb_score_complete
+  lb_score_svc --> lb_score_qos
+  lb_score_svc --> lb_score_compl
+
+  ts_main --> ts_fetcher
+  ts_fetcher --> ts_writer
+  pc_main -.-> pp_pat_h
+  pc_main -.-> bp_h
+
+  pp_h --> pp_payload
+  pp_payload -.-> pg_h
+  pg_h --> pg_rep
+  pg_rep --> pg_ctx
+  pg_rep --> pg_prompt
+  pg_h -.-> ps_h
+  ps_h --> ps_engine
+  ps_engine --> ps_score
+
+  qa_h --> qa_loop
+  qa_loop --> qa_writer
+  qa_loop --> qa_judge
+  qa_loop --> qa_ctx
+</pre>
+</div>
+
+</div><!-- /#tab-c3 -->
+
+
+<!-- ============================================================ -->
+<!-- C4 — CLASS                                                    -->
+<!-- ============================================================ -->
+<div class="tab-panel" id="tab-c4">
+<h2>Architectural Classes (C4)</h2>
+<div class="panel">
+<p class="small" style="margin-top:0">~150 architectural classes/types grouped by source module. No reconciliation overlay — classes don't have a deployment state. Inheritance shown as solid arrows; composition/aggregation as labeled arrows; data flow as dotted. Density is intentional; use Ctrl+F or zoom to navigate.</p>
+
+<pre class="mermaid">
+flowchart LR
+  classDef td fill:#fff8dc,stroke:#a08800;
+  classDef svc fill:#e6f3ff,stroke:#2562a8;
+  classDef sc fill:#e0f7e0,stroke:#2a8b2a;
+  classDef wf fill:#f0e6ff,stroke:#6b21a8;
+  classDef ps fill:#e6f7ff,stroke:#0891b2;
+  classDef llm fill:#ffe4e1,stroke:#c92a2a;
+  classDef dao fill:#e8e8ff,stroke:#3a3aa0;
+  classDef df fill:#fff0e6,stroke:#c45a00;
+  classDef an fill:#f5e6ff,stroke:#7a2a8b;
+  classDef fmt fill:#e6fff0,stroke:#2a8b5a;
+  classDef qa fill:#fff5e0,stroke:#a87000;
+  classDef api fill:#e0f0ff,stroke:#3366aa;
+  classDef fe fill:#f0fff0,stroke:#5a8b5a;
+  classDef ad fill:#fce4ec,stroke:#a8326a;
+  classDef au fill:#fffbe0,stroke:#806800;
+  classDef bt fill:#e0f8ff,stroke:#0a607a;
+  classDef er fill:#ffe0e0,stroke:#a02020;
+  classDef cfg fill:#f8f8f8,stroke:#444;
+  classDef hp fill:#f0f0f0,stroke:#666;
+
+  subgraph CoreState["src/types.py + src/config.py"]
+    AgentState["AgentState (TypedDict)"]:::td
+    cis["create_initial_state()"]:::hp
+    erd["extract_raw_data_for_storage()"]:::hp
+    TRACE_NAMES["TRACE_NAMES"]:::cfg
+    OBS_NAMES["OBSERVATION_NAMES"]:::cfg
+    SCORE_NAMES["SCORE_NAMES"]:::cfg
+    TRACE_TAGS["TRACE_TAGS"]:::cfg
+  end
+
+  subgraph ApiSvc["src/api/ — services"]
+    JobService:::svc
+    JobStatus["JobStatus (enum)"]:::er
+    Job["Job model"]:::api
+    JobNotFoundError:::er
+    TickerService:::svc
+    WatchlistService:::svc
+    RankingsService:::svc
+    RankingItem:::api
+    PeerSelectorService:::svc
+    ResponseTransformer:::ad
+    TelegramAuth:::au
+    TelegramAuthError:::er
+  end
+
+  subgraph ApiModels["src/api/models.py"]
+    SearchResult:::api
+    SearchResponse:::api
+    PriceDataPoint:::api
+    ProjectionBand:::api
+    ScoringMetric:::api
+    SummarySections:::api
+    TechnicalMetric:::api
+    FundamentalMetric:::api
+    Fundamentals:::api
+    NewsItem:::api
+    OverallSentiment:::api
+    UncertaintyScore:::api
+    Risk:::api
+    Peer:::api
+    ChartPattern:::api
+    GenerationMetadata:::api
+    ReportResponse:::api
+    WatchlistItem:::api
+    WatchlistResponse:::api
+    WatchlistAddRequest:::api
+    WatchlistOperationResponse:::api
+    JobSubmitResponse:::api
+    JobStatusResponse:::api
+    ErrorEnvelope:::api
+    ErrorResponse:::api
+    ErrorDetail:::api
+  end
+
+  subgraph ApiErr["src/api/errors.py"]
+    APIError:::er
+    InvalidRequestError:::er
+    TickerNotSupportedError:::er
+    ReportNotFoundError:::er
+    InternalError:::er
+    UpstreamTimeoutError:::er
+    RateLimitedError:::er
+  end
+
+  subgraph Scoring["src/scoring/"]
+    ScoringService:::svc
+    ScoringContext:::api
+    ScoreResult:::api
+    LLMScoringContext:::api
+    ScoringError:::er
+    FaithfulnessScorer:::sc
+    FaithfulnessScore:::api
+    CompletenessScorer:::sc
+    CompletenessScore:::api
+    PatternChecker:::hp
+    ReasoningQualityScorer:::sc
+    ReasoningQualityScore:::api
+    ComplianceScorer:::sc
+    ComplianceScore:::api
+    ConsistencyScorer:::sc
+    ConsistencyScore:::api
+    QoSScorer:::sc
+    QoSScore:::api
+    CostScorer:::sc
+    CostScore:::api
+    UserFacingScorer:::sc
+    UserFacingScore:::api
+    HallucinationScorer:::sc
+    HelpfulnessScorer:::sc
+    ConcisenessScorer:::sc
+    AnswerRelevancyScorer:::sc
+    LangfuseAdapter:::ad
+    RagasAdapter:::ad
+  end
+
+  subgraph DataFetch["src/data/ — fetchers"]
+    DataFetcher:::df
+    NewsFetcher:::df
+    TickerMatcher:::hp
+    DataLake:::hp
+    S3Cache:::hp
+    StaticAPIGenerator:::hp
+  end
+
+  subgraph Aurora["src/data/aurora/"]
+    AuroraClient:::dao
+    TickerRepository:::dao
+    BacktestRepository:::dao
+    ChartPatternRepository:::dao
+    DataAcquisitionsRepository:::dao
+    FundDataFetcher:::df
+    FundDataRepository:::dao
+    MetricConfigRepository:::dao
+    ModelCatalogRepository:::dao
+    SGXFilingsRepository:::dao
+    SECEDGARFilingsRepository:::dao
+    HKEXFilingsRepository:::dao
+    EDINETFilingsRepository:::dao
+    HOSEFilingsRepository:::dao
+    MOPSFilingsRepository:::dao
+    UserRepository:::dao
+    TraceRepository:::dao
+    PrecomputeService:::svc
+    TickerResolver:::hp
+    IngestionMethodsRepository:::dao
+  end
+
+  subgraph Etl["src/data/etl/"]
+    FundDataParser:::hp
+    FundDataSync:::hp
+  end
+
+  subgraph Analysis["src/analysis/"]
+    TechnicalAnalyzer:::an
+    MarketAnalyzer:::an
+    StrategyAnalyzer:::an
+    ComparativeAnalysis:::an
+    ProjectionCalculator:::an
+    SemanticStateGenerator:::an
+    BasePatternDetector:::an
+    ChartPatternDetector:::an
+    CandlestickPatternDetector:::an
+    SupportResistanceDetector:::an
+    PatternTypes:::hp
+    PatternDetectorRegistry:::hp
+    CustomAdapter:::ad
+    StockPatternAdapter:::ad
+  end
+
+  subgraph Formatters["src/formatters/"]
+    ChartGenerator:::fmt
+    PDFReportGenerator:::fmt
+    DataFormatter:::fmt
+    PDFStorage:::hp
+  end
+
+  subgraph Backtest["src/backtesting/"]
+    BaseStrategy:::bt
+    SMAStrategy["SMA_CrossoverStrategy"]:::bt
+    MACDStrategy["MACD_CrossoverStrategy"]:::bt
+    RSIStrategy["RSI_ThresholdStrategy"]:::bt
+    BollStrategy["BollingerBandStrategy"]:::bt
+    BacktestEngine:::bt
+    BacktestResult:::api
+    SignalFrame:::api
+    BacktestMetrics:::hp
+    BacktestAdapters:::ad
+  end
+
+  subgraph QuantAgent["src/quant_agent/"]
+    QuantAgentConfig:::cfg
+    Writer:::qa
+    FastJudge:::qa
+    DeepJudge:::qa
+    JudgeVerdict:::api
+    IterationRecord:::api
+    ContextBuffer:::qa
+    InnerLoopResult:::api
+    QuantAgentReportGenerator:::qa
+  end
+
+  subgraph WfPipe["src/workflow/ + src/pipeline/"]
+    WorkflowNodes:::wf
+    AuroraDataAdapter:::ad
+    DataPipeline:::ps
+    GenerationHandler:::ps
+    PreprocessHandler:::ps
+    PostprocessHandler:::ps
+    Postprocess:::ps
+    SinglePassStrategy:::ps
+    S3Payload:::api
+  end
+
+  subgraph Integ["src/integrations/"]
+    Langfuse:::llm
+    APIHandler:::llm
+    LineBot:::llm
+    MCPClient:::llm
+    MCPAsync:::llm
+    PromptService:::svc
+  end
+
+  subgraph SvcUtil["src/services/ + src/utils/"]
+    PatternDetectionService:::svc
+    Serialization:::hp
+    StrategyUtils:::hp
+    TickerUtils:::hp
+    VectorStore:::hp
+  end
+
+  subgraph Alert["src/alerting/"]
+    SlackNotifier:::hp
+    CreditChecker:::hp
+    ModelCatalogSync:::hp
+  end
+
+  subgraph EvalRep["src/evaluation/ + src/report/"]
+    observe_dec["@observe"]:::hp
+    get_lc_handler["get_langchain_handler()"]:::hp
+    set_obs_lvl["set_observation_level()"]:::hp
+    ContextBuilder:::hp
+    PromptBuilder:::hp
+    NumberInjector:::hp
+    MetricRegistry:::hp
+  end
+
+  subgraph Handlers["src/agent.py + handlers"]
+    TickerAnalysisAgent:::ad
+    AgentError:::er
+    rw_gen_fn["generate_report()"]:::ad
+    rw_job_mode["_handle_job_mode"]:::ad
+    rw_exp_mode["_handle_experiment_mode"]:::ad
+    rw_sfn_mode["_handle_step_functions_mode"]:::ad
+  end
+
+  subgraph FrontendTypes["frontend/twinbar/src/api/types.ts"]
+    fe_SearchResult:::fe
+    fe_SearchResponse:::fe
+    fe_SummarySections:::fe
+    fe_TechnicalMetric:::fe
+    fe_FundamentalMetric:::fe
+    fe_Fundamentals:::fe
+    fe_NewsItem:::fe
+    fe_OverallSentiment:::fe
+    fe_UncertaintyScore:::fe
+    fe_Risk:::fe
+    fe_Peer:::fe
+    fe_ChartPattern:::fe
+    fe_GenerationMetadata:::fe
+    fe_ReportResponse:::fe
+    fe_ScoringMetric:::fe
+    fe_PriceDataPoint:::fe
+    fe_ProjectionBand:::fe
+    fe_ChartData:::fe
+    fe_RankedTicker:::fe
+    fe_RankingsResponse:::fe
+    fe_WatchlistItem:::fe
+    fe_WatchlistResponse:::fe
+    fe_WatchlistAddRequest:::fe
+    fe_WatchlistOperationResponse:::fe
+    fe_JobSubmitResponse:::fe
+    fe_JobStatusResponse:::fe
+    fe_ErrorDetail:::fe
+    fe_ErrorResponse:::fe
+    fe_ErrorEnvelope:::fe
+    fe_APIError:::fe
+  end
+
+  %% --- inheritance ---
+  APIError --> InvalidRequestError
+  APIError --> TickerNotSupportedError
+  APIError --> ReportNotFoundError
+  APIError --> InternalError
+  APIError --> UpstreamTimeoutError
+  APIError --> RateLimitedError
+  BasePatternDetector --> ChartPatternDetector
+  BasePatternDetector --> CandlestickPatternDetector
+  BasePatternDetector --> SupportResistanceDetector
+  BaseStrategy --> SMAStrategy
+  BaseStrategy --> MACDStrategy
+  BaseStrategy --> RSIStrategy
+  BaseStrategy --> BollStrategy
+
+  %% --- composition (has-a) ---
+  ScoringService -.->|has| FaithfulnessScorer
+  ScoringService -.->|has| CompletenessScorer
+  ScoringService -.->|has| ReasoningQualityScorer
+  ScoringService -.->|has| ComplianceScorer
+  ScoringService -.->|has| ConsistencyScorer
+  ScoringService -.->|has| QoSScorer
+  ScoringService -.->|has| CostScorer
+  ScoringService -.->|has| HallucinationScorer
+  ScoringService -.->|has| HelpfulnessScorer
+  ScoringService -.->|has| ConcisenessScorer
+  ScoringService -.->|has| AnswerRelevancyScorer
+
+  WorkflowNodes -.->|has| DataFetcher
+  WorkflowNodes -.->|has| TechnicalAnalyzer
+  WorkflowNodes -.->|has| NewsFetcher
+  WorkflowNodes -.->|has| ChartGenerator
+  WorkflowNodes -.->|has| StrategyAnalyzer
+  WorkflowNodes -.->|has| ComparativeAnalysis
+  WorkflowNodes -.->|has| MarketAnalyzer
+  WorkflowNodes -.->|has| ScoringService
+
+  TickerAnalysisAgent -.->|orchestrates| WorkflowNodes
+  TickerAnalysisAgent -.->|carries| AgentState
+
+  QuantAgentReportGenerator -.->|has| Writer
+  QuantAgentReportGenerator -.->|has| FastJudge
+  QuantAgentReportGenerator -.->|has| DeepJudge
+  QuantAgentReportGenerator -.->|has| ContextBuffer
+  ContextBuffer -.->|stores| IterationRecord
+  DeepJudge -.->|emits| JudgeVerdict
+
+  ResponseTransformer -.->|uses| PDFStorage
+  ResponseTransformer -.->|maps| AgentState
+  ResponseTransformer -.->|emits| ReportResponse
+
+  BacktestEngine -.->|registry of| BaseStrategy
+  PatternDetectorRegistry -.->|registry of| BasePatternDetector
+
+  PrecomputeService -.->|caches| BacktestResult
+  PrecomputeService -.->|caches| ChartPattern
+  PrecomputeService -.->|reads| AuroraClient
+
+  ScoringService -.->|writes| LangfuseAdapter
+  Langfuse -.->|wraps| LangfuseAdapter
+
+  rw_gen_fn -.->|delegates| TickerAnalysisAgent
+  rw_job_mode -.->|wraps| rw_gen_fn
+  rw_sfn_mode -.->|wraps| rw_gen_fn
+  rw_exp_mode -.->|wraps| rw_gen_fn
+
+  %% --- API ↔ Frontend type pairing ---
+  ReportResponse -.->|wire schema| fe_ReportResponse
+  SearchResponse -.->|wire schema| fe_SearchResponse
+  ErrorEnvelope -.->|wire schema| fe_ErrorEnvelope
+</pre>
+</div>
+
+</div><!-- /#tab-c4 -->
+
+
+<!-- ============================================================ -->
+<!-- RECONCILE                                                     -->
+<!-- ============================================================ -->
+<div class="tab-panel" id="tab-reconcile">
+<h2>Reconcile (audit lens) — Realization view + Reconcile Table</h2>
+
+<div class="count-row">
+  <span class="stat"><b>2026-04-30</b> audit baseline</span>
+  <span class="stat tracked"><b>23</b> tracked containers</span>
+  <span class="stat drifted"><b>6</b> drifted</span>
+  <span class="stat orphan"><b>18+</b> orphan</span>
+  <span class="stat ghost"><b>2</b> ghost</span>
+  <span class="stat double"><b>14</b> double</span>
+</div>
+
+<div class="panel">
+<h3 style="margin-top:0">Realization view — the <code>.tf</code> | <code>.tfstate</code> | AWS lattice</h3>
+<p class="small">
+  A replica has three derived representations of the same system. <b>Edge A</b> connects <code>.tf</code> (intent) to <code>.tfstate</code> (realized intent); <b>Edge B</b> connects <code>.tfstate</code> to AWS (ground truth). Each row below is one <i>finding type</i>, shown across all three columns. <b>Solid</b> arrow = realize-intact; <b>dotted</b> arrow = realize-broken or realize-with-drift; <b>ghost-styled</b> box = "no node here" — the absence is the finding. The graph is not exhaustive: each row shows a single representative resource that stands in for every member of its scenario class.
+</p>
+
+<pre class="mermaid">
+flowchart LR
+  classDef intact fill:#d4edda,stroke:#155724,color:#0a3a17;
+  classDef drift fill:#fff3cd,stroke:#856404,color:#5a4500;
+  classDef orphan fill:#f8d7da,stroke:#721c24,color:#5a0c14;
+  classDef ghost fill:#e6e6e6,stroke:#888,color:#444,stroke-dasharray:3 3;
+  classDef double fill:#f0d6ff,stroke:#6b21a8,color:#3b0764;
+  classDef missing fill:#ffffff,stroke:#bbb,color:#999,stroke-dasharray:2 2;
+
+  subgraph S1["✅ INTACT — typical resource"]
+    direction LR
+    a1["aws_dynamodb_table.report_jobs<br/>.tf"]:::intact -->|"Edge A ✓"| a2["aws_dynamodb_table.report_jobs<br/>.tfstate"]:::intact -->|"Edge B ✓"| a3["report_jobs DDB table<br/>AWS"]:::intact
+  end
+
+  subgraph S2["🔄 DRIFTED — Edge B carries a fingerprint mismatch"]
+    direction LR
+    b1["aws_lambda_function.telegram_api<br/>.tf"]:::drift -->|"Edge A ✓"| b2["aws_lambda_function.telegram_api<br/>.tfstate"]:::drift -.->|"Edge B ⚠ drift: 18 env keys"| b3["telegram-api Lambda<br/>AWS"]:::drift
+  end
+
+  subgraph S3["⚠ ORPHAN — exists only in AWS (no .tf, no state)"]
+    direction LR
+    c1["( no .tf node )"]:::missing -.->|"absent"| c2["( no .tfstate node )"]:::missing -.->|"absent"| c3["webhook-health-dev Lambda<br/>AWS"]:::orphan
+  end
+
+  subgraph S4["👻 GHOST — state-bound but AWS resource gone"]
+    direction LR
+    d1["( no .tf node )"]:::missing -.->|"absent"| d2["aws_sqs_queue.pdf_jobs<br/>.tfstate (legacy)"]:::ghost -.->|"Edge B ✗ resource removed"| d3["( no AWS node )"]:::missing
+  end
+
+  subgraph S5["👯 DOUBLE — same AWS resource bound by two state files"]
+    direction LR
+    e1["aws_iam_role.line_bot<br/>.tf"]:::double -->|"Edge A primary"| e2a["primary state binding"]:::double -->|"Edge B ✓"| e3["line_bot IAM role<br/>AWS"]:::double
+    e1 -.->|"Edge A also legacy"| e2b["legacy state binding"]:::double -.->|"Edge B redundant"| e3
+  end
+
+  subgraph S6["🚫 BS-5 — Edge A broken (.tf declares, state never bound)"]
+    direction LR
+    f1["aws_lambda_function.quant_agent<br/>.tf (declared)"]:::drift -.->|"Edge A ✗ never bound"| f2["( no .tfstate node )"]:::missing -.->|"n/a"| f3["quant-agent-dev Lambda<br/>AWS"]:::orphan
+  end
+</pre>
+<p class="small" style="margin-bottom:0">
+  This is the structural framing the prior "address-mismatch" finding was reaching for. The 2026-04-30 audit revealed that <code>quant_agent.tf</code> declares the Lambda but <code>.tfstate</code> never bound it — that's <b>S6 (BS-5)</b> in this view, not "address-mismatch." The full enumeration of which resources fall in which scenario is the Reconcile Table below.
+</p>
+</div>
+
+<h2 style="margin-top:36px">Reconcile Table — action ledger</h2>
+
+<div class="panel">
+<h3 style="margin-top:0">Import Table — 2026-04-30 baseline</h3>
+<table>
+<thead>
+<tr><th>#</th><th>Proposed TF address</th><th>AWS ID / Name</th><th>Last activity 7d</th><th>Verdict</th><th>Notes</th></tr>
+</thead>
+<tbody>
+<tr class="orphan"><td class="center">1</td><td><code>aws_lambda_function.webhook_health</code></td><td>dr-daily-report-webhook-health-dev</td><td>21 invocations</td><td><b>import-now</b></td><td>Active observer Lambda</td></tr>
+<tr class="orphan"><td class="center">2</td><td><code>aws_lambda_function.model_catalog_sync</code></td><td>dr-daily-report-model-catalog-sync-dev</td><td>7 invocations</td><td><b>import-now</b></td><td>Matches name_glob; has paired error alarm</td></tr>
+<tr class="orphan"><td class="center">3</td><td><code>aws_lambda_function.quant_agent</code></td><td>dr-daily-report-quant-agent-dev</td><td>0 invocations</td><td><b>review→import</b></td><td>Source declares but state never bound; rename + import (per plan v2)</td></tr>
+<tr class="orphan"><td class="center">4</td><td><code>aws_cloudwatch_metric_alarm.webhook_health_errors</code></td><td>dr-daily-report-webhook-health-dev-errors-dev</td><td>—</td><td><b>import-now</b></td><td>Observer-class</td></tr>
+<tr class="orphan"><td class="center">5</td><td><code>aws_cloudwatch_metric_alarm.model_catalog_sync_errors</code></td><td>dr-daily-report-model-catalog-sync-dev-errors-dev</td><td>—</td><td><b>import-now</b></td><td>Observer-class</td></tr>
+<tr class="orphan"><td class="center">6</td><td><code>aws_security_group.grafana</code></td><td>sg-029583f3ff4d682ca</td><td>3 ENIs attached</td><td><b>import-now</b></td><td>Real Aurora dependency; feeds drift resolution 4f</td></tr>
+<tr class="orphan"><td class="center">7</td><td><code>aws_security_group.line_bot_ticker_report</code></td><td>sg-03e0bb93ea6bd920e</td><td>0 ENIs</td><td><b>delete-empty-shell</b></td><td>0 ENIs attached; sole referencing rule is a tcp/5432 (Postgres) ingress on the unrelated <code>sg-02530c9c16142e463</code>, which fronts out-of-scope Postgres RDS infra. Two-step delete: revoke ingress rule, then delete SG.</td></tr>
+<tr class="orphan"><td class="center">8</td><td><i>(advisory delete)</i></td><td>API GW <code>ta0g00v0c7</code></td><td>0 reqs 7d (traffic now flows through tracked twin)</td><td><b>review→delete</b></td><td>Traffic flipped vs 2026-04-28 — orphan now dead</td></tr>
+<tr class="orphan"><td class="center">9</td><td><i>(advisory delete)</i></td><td>ECS dr-daily-report-ingestion-dev</td><td>0/0/0</td><td><b>delete-empty-shell</b></td><td></td></tr>
+<tr class="orphan"><td class="center">10</td><td><i>(advisory delete)</i></td><td>ECS dr-data-pipeline-dev</td><td>0/0/0</td><td><b>delete-empty-shell</b></td><td>NEW vs 2026-04-28 (was missed by prior filter)</td></tr>
+<tr class="orphan"><td class="center">11</td><td><i>(advisory delete)</i></td><td>Secret dr-daily-report/grafana-mysql/dev</td><td>LastAccessed=null since 2026-03-15</td><td><b>delete-empty-shell</b></td><td></td></tr>
+</tbody>
+</table>
+<p class="small" style="margin-top:8px">+7 dependency-closure imports (IAM roles, log groups) surface during <code>/tf-aws absorb</code> via <code>triage.always_import_classes</code>.</p>
+</div>
+
+<div class="panel">
+<h3 style="margin-top:0">DRIFTED — config drift on TRACKED resources (δ_config)</h3>
+<table>
+<thead>
+<tr><th>#</th><th>Resource</th><th>Field</th><th>TF</th><th>AWS</th><th>Direction</th></tr>
+</thead>
+<tbody>
+<tr class="drifted">
+  <td class="center">D1</td>
+  <td><code>aws_lambda_function.telegram_api</code></td>
+  <td><code>environment</code></td>
+  <td>25 keys (full app config)</td>
+  <td>9 keys (Doppler scaffolding)</td>
+  <td><b>trim-spec</b> — 18 TF-only keys are Doppler-injected at runtime. <code>apply-tf</code> would clobber.</td>
+</tr>
+<tr class="drifted">
+  <td class="center">D2</td>
+  <td><code>aws_lambda_function.line_bot</code></td>
+  <td><code>environment</code></td>
+  <td>TF-only: <code>BETA_USER_LIMIT</code></td>
+  <td>AWS-only: <code>LANGFUSE_RELEASE</code>, <code>ORIGINAL_HANDLER</code></td>
+  <td><b>review→trim-spec</b> — same Doppler/CI pattern</td>
+</tr>
+<tr class="drifted">
+  <td class="center">D3</td>
+  <td><code>aws_lambda_function.report_worker</code></td>
+  <td><code>environment</code></td>
+  <td>TF-only: 4 LANGFUSE_*</td>
+  <td>AWS-only: 6 vars (Doppler-injected)</td>
+  <td><b>review→trim-spec</b></td>
+</tr>
+<tr class="drifted">
+  <td class="center">D4</td>
+  <td><code>aws_lambda_function.ticker_scheduler</code></td>
+  <td><code>environment</code></td>
+  <td>—</td>
+  <td><code>LANGFUSE_RELEASE</code> extra (CI tag)</td>
+  <td><b>informational</b> (CI-injected release tag)</td>
+</tr>
+<tr class="drifted">
+  <td class="center">D5</td>
+  <td><code>aws_rds_cluster.aurora</code></td>
+  <td><code>engine_version</code></td>
+  <td>8.0.mysql_aurora.3.04.0</td>
+  <td>8.0.mysql_aurora.3.10.3</td>
+  <td><b>refresh-tf</b> + <code>lifecycle.ignore_changes</code> (auto-upgrade)</td>
+</tr>
+<tr class="drifted">
+  <td class="center">D6</td>
+  <td><code>aws_security_group.aurora_dev</code></td>
+  <td><code>ingress</code></td>
+  <td>2 rules (lambda-aurora-sg, 172.31/16)</td>
+  <td>Consolidated rule + <code>sg-029583f3ff4d682ca</code> (grafana)</td>
+  <td><b>review</b> — matches <code>policy.exceptions.aurora_from_*</code></td>
+</tr>
+<tr class="drifted">
+  <td class="center">D6.1</td>
+  <td><code>aws_lambda_function.telegram_api</code></td>
+  <td><code>environment.AURORA_HOST</code></td>
+  <td>cluster endpoint</td>
+  <td>proxy endpoint</td>
+  <td><b>refresh-tf</b> (proxy intentional)</td>
+</tr>
+</tbody>
+</table>
+</div>
+
+<div class="panel">
+<h3 style="margin-top:0">GHOST Table — state-bound, AWS resource gone (δ_membership) — <span style="color:#16a34a">3 entries · ✅ DRAINED 2026-05-01</span></h3>
+<table>
+<thead>
+<tr><th>#</th><th>TF address</th><th>State file</th><th>AWS resource (claimed)</th><th>AWS reality</th><th>Verdict</th></tr>
+</thead>
+<tbody>
+<tr class="ghost"><td class="center">G1</td><td><code>aws_sqs_queue.pdf_jobs</code></td><td>deprecating</td><td>dr-daily-report-pdf-jobs-dev</td><td>queue not present</td><td><b>state-rm-now</b> from deprecating</td></tr>
+<tr class="ghost"><td class="center">G2</td><td><code>aws_sqs_queue.pdf_jobs_dlq</code></td><td>deprecating</td><td>dr-daily-report-pdf-jobs-dlq-dev</td><td>queue not present</td><td><b>state-rm-now</b> from deprecating</td></tr>
+<tr class="ghost"><td class="center">G3</td><td><code>aws_iam_role_policy.pdf_worker_sqs_policy</code></td><td>deprecating</td><td>dr-daily-report-pdf-worker-role-dev:dr-daily-report-pdf-worker-sqs-dev</td><td>inline policy not present</td><td><b>state-rm-now</b> from deprecating</td></tr>
+</tbody>
+</table>
+<p class="small" style="margin-top:8px">G1+G2 are remnants of the SQS-based PDF job pipeline. The architecture was migrated to a Step Functions–driven workflow (see <code>terraform/pdf_workflow.tf</code>). The queues were deleted from AWS but their state bindings were never removed. G3 was the inline IAM policy that gave <code>pdf_worker_role</code> access to those deleted queues — also removed from AWS, also still bound in deprecating state. <b>G3 was not in the 2026-04-30 journal's count of 2 GHOSTs</b>; the dry-run surfaced it.</p>
+</div>
+
+<div class="panel">
+<h3 style="margin-top:0">DOUBLE Table — bound in BOTH state files (δ_membership) — <span style="color:#16a34a">18 entries · ✅ DRAINED 2026-05-01</span></h3>
+<table>
+<thead>
+<tr><th>#</th><th>TF address</th><th>AWS ID / Name</th><th>Verdict</th></tr>
+</thead>
+<tbody>
+<tr class="double"><td class="center">DB1</td><td><code>aws_cloudfront_origin_access_identity.webapp</code> ⚠️</td><td>legacy → <code>ECE3O34PLCE64</code> (dead OAI, 0 distros) <br/>primary → <code>E3TW52UDU2O6GX</code> (live, 2 distros)</td><td><b>state-rm</b> from deprecating; <code>ECE3O34PLCE64</code> becomes a true ORPHAN-DELETE (advisory)</td></tr>
+<tr class="double"><td class="center">DB2</td><td><code>aws_cloudwatch_log_group.pdf_workflow_logs</code></td><td>/aws/vendedlogs/states/dr-daily-report-pdf-workflow-dev</td><td><b>state-rm</b> from deprecating, keep primary</td></tr>
+<tr class="double"><td class="center">DB3</td><td><code>module.fund_data_sync_queue.aws_cloudwatch_metric_alarm.dlq_messages</code></td><td>fund-data-sync-dev-dlq-messages</td><td><b>state-rm</b> from deprecating, keep primary</td></tr>
+<tr class="double"><td class="center">DB4</td><td><code>module.fund_data_sync_queue.aws_cloudwatch_metric_alarm.message_age</code></td><td>fund-data-sync-dev-message-age</td><td><b>state-rm</b> from deprecating, keep primary</td></tr>
+<tr class="double"><td class="center">DB5</td><td><code>module.fund_data_sync_queue.aws_cloudwatch_metric_alarm.queue_depth</code></td><td>fund-data-sync-dev-depth</td><td><b>state-rm</b> from deprecating, keep primary</td></tr>
+<tr class="double"><td class="center">DB6</td><td><code>aws_iam_role.eventbridge_scheduler</code></td><td>dr-daily-report-eventbridge-scheduler-role-dev</td><td><b>state-rm</b> from deprecating, keep primary</td></tr>
+<tr class="double"><td class="center">DB7</td><td><code>aws_iam_role.eventbridge_sfn_role</code></td><td>dr-daily-report-eventbridge-sfn-role-dev</td><td><b>state-rm</b> from deprecating, keep primary</td></tr>
+<tr class="double"><td class="center">DB8</td><td><code>aws_iam_role.get_report_list_role</code></td><td>dr-daily-report-get-report-list-role-dev</td><td><b>state-rm</b> from deprecating, keep primary</td></tr>
+<tr class="double"><td class="center">DB9</td><td><code>aws_iam_role.get_ticker_list_role</code></td><td>dr-daily-report-get-ticker-list-role-dev</td><td><b>state-rm</b> from deprecating, keep primary</td></tr>
+<tr class="double"><td class="center">DB10</td><td><code>aws_iam_role.pdf_worker_role</code></td><td>dr-daily-report-pdf-worker-role-dev</td><td><b>state-rm</b> from deprecating, keep primary</td></tr>
+<tr class="double"><td class="center">DB11</td><td><code>aws_iam_role.pdf_workflow_role</code></td><td>dr-daily-report-pdf-workflow-role-dev</td><td><b>state-rm</b> from deprecating, keep primary</td></tr>
+<tr class="double"><td class="center">DB12</td><td><code>aws_iam_role_policy_attachment.get_report_list_vpc</code></td><td>dr-daily-report-get-report-list-role-dev-20260103040833490000000002</td><td><b>state-rm</b> from deprecating, keep primary</td></tr>
+<tr class="double"><td class="center">DB13</td><td><code>aws_iam_role_policy_attachment.get_ticker_list_vpc</code></td><td>dr-daily-report-get-ticker-list-role-dev-20251229173644418500000003</td><td><b>state-rm</b> from deprecating, keep primary</td></tr>
+<tr class="double"><td class="center">DB14</td><td><code>aws_iam_role_policy_attachment.pdf_worker_vpc</code></td><td>dr-daily-report-pdf-worker-role-dev-20260103040833530500000003</td><td><b>state-rm</b> from deprecating, keep primary</td></tr>
+<tr class="double"><td class="center">DB15</td><td><code>aws_rds_cluster_parameter_group.aurora</code></td><td>dr-daily-report-aurora-params-dev</td><td><b>state-rm</b> from deprecating, keep primary</td></tr>
+<tr class="double"><td class="center">DB16</td><td><code>aws_sns_topic.telegram_alerts</code></td><td>arn:aws:sns:ap-southeast-1:755283537543:dr-daily-report-telegram-alerts-dev</td><td><b>state-rm</b> from deprecating, keep primary</td></tr>
+<tr class="double"><td class="center">DB17</td><td><code>module.fund_data_sync_queue.aws_sqs_queue.dlq</code></td><td>fund-data-sync-dev-dlq</td><td><b>state-rm</b> from deprecating, keep primary</td></tr>
+<tr class="double"><td class="center">DB18</td><td><code>module.fund_data_sync_queue.aws_sqs_queue.main</code></td><td>fund-data-sync-dev</td><td><b>state-rm</b> from deprecating, keep primary</td></tr>
+</tbody>
+</table>
+<p class="small" style="margin-top:8px">17 of 18 are vanilla DOUBLEs: same address bound to the same AWS ID in both state files. Primary remains authoritative; deprecating bindings are removed via <code>terraform state rm</code> — no AWS-side change. <b>DB1 is a special case</b>: the address <code>aws_cloudfront_origin_access_identity.webapp</code> binds to <em>different</em> AWS IDs in the two state files. Removing the deprecating binding leaves the dead <code>ECE3O34PLCE64</code> as a true ORPHAN, which can then be deleted via console (advisory). Pre-mutation backup is automatic via Phase G of <code>/tf-aws prune --apply</code>. Decision journal: <code>.claude/journals/architecture/2026-04-30-legacy-state-cleanup.md</code> (count addendum needed: 14→18 DOUBLE, 2→3 GHOST, +3 HALT).</p>
+<p class="small" style="margin-top:8px"><b>Count divergence from journal</b>: the 2026-04-30 journal claimed 14 DOUBLE / 2 GHOST. Stage 1 dry-run on 2026-05-01 surfaced 18 DOUBLE (+ 4: OAI, 3 IAM <code>policy_attachment.*_vpc</code>) and 3 GHOST (+ 1: <code>pdf_worker_sqs_policy</code> inline). The journal's <i>"Conditions to re-open"</i> section explicitly asked us to halt and reconcile — this section is the reconciliation. The 3 HALT entries (legacy-only with live AWS) are in the next panel.</p>
+</div>
+
+<div class="panel">
+<h3 style="margin-top:0">HALT Table — legacy-only AND live in AWS (NOT a DOUBLE) — <span style="color:#f59e0b">3 entries · ⚙️ Option B applied 2026-05-01</span></h3>
+<p class="small" style="margin:0 0 8px 0; padding:8px 12px; background:#fef3c7; border-left:3px solid #f59e0b; border-radius:4px"><b>Status</b>: <code>state rm</code> from deprecating completed 2026-05-01. AWS resources unchanged (verified live). They are now true ORPHANs (in AWS, not in any state). The next <code>/tf-aws audit</code> will surface them with verdict <code>import-now</code>; follow-up pass to absorb into primary scheduled within 24–48h. See addendum journal: <code>.claude/journals/architecture/2026-05-01-legacy-state-cleanup-addendum.md</code>.</p>
+<table>
+<thead>
+<tr><th>#</th><th>TF address (deprecating only)</th><th>Live AWS ID</th><th>AWS evidence</th><th>Direction required</th></tr>
+</thead>
+<tbody>
+<tr class="halt" style="background:#fef3c7"><td class="center">H1</td><td><code>aws_cloudwatch_metric_alarm.dlq_messages</code> (root)</td><td>dr-daily-report-dlq-messages-dev</td><td><code>describe-alarms</code> returns the alarm; not bound in primary</td><td>import-into-primary OR accept un-management OR defer</td></tr>
+<tr class="halt" style="background:#fef3c7"><td class="center">H2</td><td><code>aws_sqs_queue.report_jobs</code></td><td>dr-daily-report-telegram-queue-dev (active telegram queue)</td><td><code>get-queue-url</code> returns the queue; not bound in primary</td><td>import-into-primary (likely load-bearing)</td></tr>
+<tr class="halt" style="background:#fef3c7"><td class="center">H3</td><td><code>aws_sqs_queue.report_jobs_dlq</code></td><td>dr-daily-report-report-jobs-dlq-dev</td><td><code>get-queue-url</code> returns the queue; not bound in primary</td><td>import-into-primary (paired with H2)</td></tr>
+</tbody>
+</table>
+<p class="small" style="margin-top:8px"><b>Why HALT and not GHOST/DOUBLE</b>: these resources exist in AWS but are bound to the <code>deprecating</code> state file ONLY. <code>state rm</code>-ing them from deprecating without first importing into primary would leave the live AWS resources <em>entirely un-managed by Terraform</em> (no state binding anywhere). Per the journal's re-open clause: halt and reconcile direction-of-change before any rm.</p>
+<p class="small" style="margin-top:8px"><b>Recommended path</b> (Option C from Stage 1 dry-run): defer the 3 HALT entries this stage. Proceed with the 21 safe removals (18 DOUBLE + 3 GHOST). Spin a follow-up pass for HALT — likely <code>terraform import</code> of H1/H2/H3 into primary first (they look load-bearing — <code>dr-daily-report-telegram-queue-dev</code> is the active telegram queue), then <code>state rm</code> from deprecating. Plug #2 journal addendum required before that follow-up touches state.</p>
+</div>
+
+<div class="panel">
+<h3 style="margin-top:0">What this audit changed vs 2026-04-28</h3>
+<ul class="small">
+  <li><b>18 DOUBLEs</b> surfaced (was: 14 in journal; 2026-05-01 dry-run added 4 — OAI <code>webapp</code> with diverged IDs, plus 3 IAM <code>policy_attachment.*_vpc</code>). Prior audit only read <code>x.primary</code> state, missed the <code>x.legacy</code> overlap entirely.</li>
+  <li><b>3 GHOSTs</b> (was: 2 in journal; 2026-05-01 dry-run added <code>aws_iam_role_policy.pdf_worker_sqs_policy</code>) — pdf-jobs SQS pipeline remnants + the inline IAM policy that gated access to those queues.</li>
+  <li><b>3 HALTs</b> (NEW category surfaced 2026-05-01) — legacy-only state bindings whose AWS resources are still live and not bound in primary. Required separate handling per journal re-open clause.</li>
+  <li><b>3 newly-DRIFTED Lambdas</b> (line_bot, report_worker, ticker_scheduler) — prior audit only fingerprinted telegram_api; this run fingerprinted all TRACKED Lambdas.</li>
+  <li><b>2 extra ORPHANs</b> (line_bot_ticker_report SG, dr-data-pipeline-dev cluster) — prior filter missed name pattern.</li>
+  <li><b>Address-mismatch finding was wrong</b> — quant_agent_report is in source but never bound in state. The 2026-04-28 heuristic guessed a state-level mismatch; reality is Edge A (<code>.tf</code> ↔ <code>.tfstate</code>) is broken (BS-5; now first-class via Phase A.5 of <code>/tf-aws</code> as of 2026-05-01).</li>
+  <li><b>API GW traffic flipped</b> — the tracked twin <code>ou0ivives1</code> now has the 1-req-in-7d traffic; the orphan <code>ta0g00v0c7</code> has 0. The <code>policy.exceptions</code> note in <code>dr-bot.yaml</code> is now stale and points the wrong way.</li>
+</ul>
+<p class="small"><b>Cause of the gap</b>: not "state changed in 48h" — the <code>/tf-aws audit</code> spec didn't change, but the prior implementation only ran a partial Phase A + Phase C2. The 2026-04-30 run executed the full spec. The 2026-05-01 dry-run added another 4 DOUBLE + 1 GHOST + 3 HALT discoveries that even the 2026-04-30 run hadn't surfaced (because it didn't enumerate at full module-qualified address granularity, and it didn't verify legacy-only entries against AWS to partition GHOST vs HALT). This is the structural blind spot now formalized as BS-6 (audit-execution skew); the plug is Phase H coverage assertions added to <code>/tf-aws</code> on 2026-05-01.</p>
+</div>
+
+<div class="panel">
+<h3 style="margin-top:0">Blind spots and limits — what ✅ doesn't prove</h3>
+<table>
+<thead>
+<tr><th>#</th><th>Category</th><th>What ✅ doesn't prove</th><th>Plug</th></tr>
+</thead>
+<tbody>
+<tr><td class="center">BS-1</td><td>Layer-coverage</td><td>That a TF-tracked Lambda actually works at runtime. Audit reads config, never invokes.</td><td>Per-Lambda smoke (<code>aws lambda invoke</code>) after every import; CloudWatch error rate.</td></tr>
+<tr><td class="center">BS-2</td><td>Post-action amnesia</td><td>Why a resource was in the disagreement set before reconciliation. <code>state rm</code> / <code>trim-spec</code> erase the original finding.</td><td>Journal the decision <b>before</b> the destructive verb (Plug #2).</td></tr>
+<tr><td class="center">BS-3</td><td>Field-coverage</td><td>Drift on any field NOT in <code>projection.fingerprint_fields</code>. E.g., tags, timeout, memory_size, lifecycle policies.</td><td>Treat the projection as a living list; extend after every incident.</td></tr>
+<tr><td class="center">BS-4</td><td>Scope-coverage</td><td>Resources outside <code>y.filter</code>. Don't exist to the audit.</td><td>Periodic unscoped sweep against the filter complement.</td></tr>
+<tr><td class="center">BS-5</td><td>Source-state coverage</td><td>That the <code>.tf</code> source matches the <code>.tfstate</code>. Audit only measures Edge B.</td><td><code>terraform plan</code> after every reconciliation pass.</td></tr>
+<tr><td class="center">BS-6</td><td>Audit-execution skew</td><td>That the same audit command, run twice, returned the same data. Prior runs may have executed only part of the spec.</td><td>Re-run the audit before sizing any plan; treat dated HTML as a snapshot, not authority.</td></tr>
+</tbody>
+</table>
+</div>
+
+</div><!-- /#tab-reconcile -->
+
+
+<!-- ============================================================ -->
+<!-- GORE — Goal-Oriented Requirements view                        -->
+<!-- ============================================================ -->
+<div class="tab-panel" id="tab-gore">
+<h2>GORE — Goal-Oriented Requirements view</h2>
+
+<div class="panel">
+<p class="small" style="margin-top:0">
+GORE (KAOS-style) treats the dr-bot replica as a <i>partially-satisficed goal model</i>. The root goal — "AWS reality matches stated intent in TF source" — refines into sub-goals; <b>obstacles</b> are predicates whose negation is currently true; <b>agents</b> are the actors authorised to resolve each obstacle. This view tells you what to <i>do</i> (operations + agents), and how each finding maps onto a goal that is or isn't holding right now. Snapshot is post-Stage-1 (2026-05-01).
+</p>
+
+<pre class="mermaid">
+flowchart TD
+  classDef goal fill:#e0f0ff,stroke:#3366aa,color:#003366,stroke-width:1.5px;
+  classDef obstacle fill:#ffb3b3,stroke:#b30000,color:#660000,stroke-width:2px;
+  classDef satisficed fill:#fff3cd,stroke:#856404,color:#5a4500,stroke-width:1px,stroke-dasharray:3 3;
+  classDef agent fill:#fff8e1,stroke:#a08800,color:#5a4400;
+
+  G_root["<b>G_root</b><br/>AWS reality matches stated intent in TF source"]:::goal
+
+  G_source["<b>G_source</b><br/>.tf declares every in-scope resource<br/>(Edge A whole)"]:::goal
+  G_membership["<b>G_membership</b><br/>tfstate ↔ AWS bijection<br/>(Edge B set-equality)"]:::goal
+  G_config["<b>G_config</b><br/>fingerprint fields agree per TRACKED<br/>(Edge B per-field)"]:::goal
+  G_audit["<b>G_audit</b><br/>every disagreement journaled<br/>before destructive verb"]:::goal
+
+  G_root --> G_source
+  G_root --> G_membership
+  G_root --> G_config
+  G_root --> G_audit
+
+  O_unrealized["<b>O_unrealized_intent</b><br/>quant_agent declared in .tf,<br/>never bound to state (BS-5)"]:::obstacle
+  O_orphan["<b>O_orphan</b><br/>5–7 AWS resources w/o tfstate or .tf<br/>(Stage 2 absorb pending)"]:::obstacle
+  O_halt_res["<b>O_halt_residue</b><br/>3 entities live in AWS,<br/>un-managed by TF post-Stage 1<br/>(Option B; re-absorb 2026-05-02/03)"]:::satisficed
+  O_drift_trim["<b>O_drift_trim_spec</b><br/>4 Lambdas: ~18 keys in .tf<br/>not in AWS — Doppler injects at runtime<br/>(Stage 4: trim-spec)"]:::obstacle
+  O_drift_refresh["<b>O_drift_refresh_tf</b><br/>Aurora engine_version 3.04.0→3.10.3,<br/>SG ingress added Grafana<br/>(Stage 4: refresh-tf)"]:::obstacle
+
+  G_source -.- O_unrealized
+  G_membership -.- O_orphan
+  G_membership -.- O_halt_res
+  G_config -.- O_drift_trim
+  G_config -.- O_drift_refresh
+
+  A_apply["agent: terraform apply"]:::agent
+  A_import["agent: terraform import / /tf-aws absorb"]:::agent
+  A_prune["agent: /tf-aws prune"]:::agent
+  A_console["agent: AWS console (out-of-model)"]:::agent
+
+  O_unrealized --> A_import
+  O_orphan --> A_import
+  O_halt_res --> A_import
+  O_drift_trim --> A_apply
+  O_drift_refresh --> A_apply
+  A_console -.->|"non-IaC mutations enter via this agent"| G_membership
+</pre>
+</div>
+
+<div class="panel">
+<h3 style="margin-top:0">Obstacle Table — what blocks G_root <i>right now</i></h3>
+<table>
+<thead>
+<tr><th>Obstacle</th><th>Goal obstructed</th><th>Current instances</th><th>Resolving agent</th><th>Posture</th></tr>
+</thead>
+<tbody>
+<tr><td><code>O_unrealized_intent</code></td><td>G_source</td><td><code>quant_agent</code> (rename + import)</td><td>terraform import / <code>/tf-aws absorb</code></td><td>active resolution (Stage 2)</td></tr>
+<tr><td><code>O_orphan</code></td><td>G_membership</td><td>5–7: <code>webhook_health</code>, <code>model_catalog_sync</code>, <code>quant_agent</code> (post-rename), + IAM/log closure</td><td><code>/tf-aws absorb</code></td><td>active resolution (Stage 2)</td></tr>
+<tr style="background:#fef3c7"><td><code>O_halt_residue</code></td><td>G_membership</td><td>3: <code>dlq_messages</code> alarm, <code>telegram-queue</code>, <code>report_jobs_dlq</code></td><td><code>/tf-aws absorb</code> (next pass)</td><td>satisficed (Option B; grace 7d)</td></tr>
+<tr><td><code>O_drift_trim_spec</code></td><td>G_config</td><td>4 Lambdas × ~18 env keys (<code>telegram_api</code>, <code>line_bot</code>, <code>report_worker</code>, <code>ticker_scheduler</code>)</td><td>edit .tf + <code>lifecycle.ignore_changes</code></td><td>active resolution (Stage 4)</td></tr>
+<tr><td><code>O_drift_refresh_tf</code></td><td>G_config</td><td>Aurora engine_version, Aurora SG ingress</td><td><code>terraform refresh</code> + edit .tf</td><td>active resolution (Stage 4)</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="panel">
+<h3 style="margin-top:0">Satisficing posture — what we're <i>accepting as approximately met</i></h3>
+<p class="small" style="margin-top:0">
+GORE distinguishes <b>strict satisfaction</b> (goal predicate true now) from <b>satisficing</b> (goal accepted as approximately met given constraints). For dr-bot post-Stage-1:
+</p>
+<ul class="small">
+  <li><b>Strict</b>: <code>G_audit</code> — every disagreement is journaled before any destructive verb (Plug #2 / BS-2). Non-negotiable.</li>
+  <li><b>Satisficed</b>: <code>G_membership</code> accepts a 24–48h window where 3 HALT-residue entities are un-managed (Option B). Trade: drain the deprecating state file faster, vs continuous TF management of all resources.</li>
+  <li><b>Satisficed</b>: <code>G_config</code> for the 4 Doppler Lambdas is met by <code>lifecycle.ignore_changes = [environment]</code> rather than perfect declarative parity. Trade: TF declares the contract, runtime adds secrets — vs putting secrets into <code>.tf</code>.</li>
+  <li><b>Satisficed</b>: <code>G_config</code> for Aurora engine_version is met by absorbing the auto-upgrade and adding <code>lifecycle.ignore_changes = [engine_version]</code>. Trade: AWS controls minor-version cadence, .tf is informational.</li>
+</ul>
+</div>
+
+<div class="panel">
+<h3 style="margin-top:0">Why GORE is load-bearing for <code>/tf-aws</code></h3>
+<p class="small" style="margin-top:0">
+"Load-bearing" in the carpentry sense: knock these words out and the skill stops working. GORE gives <code>/tf-aws</code> a way to mark, for <b>both Edge A (.tf ↔ .tfstate) and Edge B (.tfstate ↔ AWS)</b>, which goals must hold <b>strictly</b> and which can be accepted as <b>good-enough</b> given real-world constraints. Strict goals: <code>G_audit</code> (every disagreement journaled) and the strict side of <code>G_source</code> (every state-bound resource declared). Good-enough-acceptable goals: parts of <code>G_config</code> (the 4 Doppler Lambdas — runtime injection makes perfect parity unreachable) and parts of <code>G_membership</code> (the HALT-residue 24–48h window during Stage-1 drain). Phase D's triage rules <i>are</i> that marking module — each verdict resolves one obstacle on one sub-goal.
+</p>
+<p class="small">
+GORE vocabulary maps 1:1 onto skill body sections: <code>goal</code> ↔ Tuple Effects Invariant; <code>obstacle</code> ↔ membership/config finding; <code>agent</code> ↔ verb (audit/diff/absorb/prune/sync). Take those words out and the Phases lose their backbone. <b>Recommend: GORE is the load-bearing vocabulary for skill body.</b>
+</p>
+</div>
+
+</div><!-- /#tab-gore -->
+
+
+<!-- ============================================================ -->
+<!-- PHENOMENOLOGY — Husserlian profile view                       -->
+<!-- ============================================================ -->
+<div class="tab-panel" id="tab-pheno">
+<h2>Phenomenology — Husserlian profile view</h2>
+
+<div class="panel">
+<p class="small" style="margin-top:0">
+Phenomenology treats the three columns of the Realization view as <b>Abschattungen</b> (profiles) of one and the same noematic object — the dr-bot system <i>as intended</i>. Each profile is given by a different <i>act</i> with its own characteristic mode of fulfillment and emptiness. This view doesn't tell you what to <i>do</i>; it tells you what <b>kind of error</b> a finding is — what category of partiality it represents. Snapshot is post-Stage-1 (2026-05-01).
+</p>
+
+<pre class="mermaid">
+flowchart LR
+  classDef noema fill:#cfe9ff,stroke:#2562a8,color:#0a2842,stroke-width:2px;
+  classDef profile fill:#e0f0ff,stroke:#3366aa,color:#003366;
+  classDef act fill:#fff8e1,stroke:#a08800,color:#5a4400;
+  classDef mode fill:#fff3cd,stroke:#856404,color:#5a4500,stroke-dasharray:3 3;
+
+  N["<b>Noema</b><br/>dr-bot system<br/><i>as intended</i>"]:::noema
+
+  P_tf["<b>.tf source</b><br/>profile via authoring-act"]:::profile
+  P_state["<b>.tfstate</b><br/>profile via binding-act"]:::profile
+  P_aws["<b>AWS reality</b><br/>profile via observation-act"]:::profile
+
+  Act_author["<i>act</i>: humans edit files"]:::act
+  Act_bind["<i>act</i>: terraform apply / import / state rm"]:::act
+  Act_observe["<i>act</i>: AWS describe-* / API"]:::act
+
+  N --> P_tf
+  N --> P_state
+  N --> P_aws
+
+  P_tf --- Act_author
+  P_state --- Act_bind
+  P_aws --- Act_observe
+
+  M_unful["<b>empty intention</b><br/>quant_agent posited in P_tf,<br/>not posited in P_state"]:::mode
+  M_modal["<b>modalisation</b><br/>HALT-residue: 3 entities posited in P_aws,<br/>positing-character suspended in P_state"]:::mode
+  M_disclosed["<b>thematization of horizon</b><br/>Stage 2 ORPHANs: 'somewhere out there'<br/>→ specific items"]:::mode
+  M_passive["<b>passive synthesis</b><br/>Aurora auto-upgrade: P_aws shifted<br/>without an authoring-act"]:::mode
+  M_reflect["<b>reflective intentionality</b><br/>Phase H self-test: act-of-looking<br/>at the act-of-auditing"]:::mode
+
+  P_tf -.- M_unful
+  P_aws -.- M_modal
+  P_aws -.- M_disclosed
+  P_aws -.- M_passive
+  Act_observe -.- M_reflect
+</pre>
+</div>
+
+<div class="panel">
+<h3 style="margin-top:0">Categories of intentional non-fulfillment</h3>
+<p class="small" style="margin-top:0">Each row maps a Husserlian category onto the operational name <code>/tf-aws</code> uses for the same finding, plus the current instance.</p>
+<table>
+<thead>
+<tr><th>Husserlian category</th><th>Operational name in <code>/tf-aws</code></th><th>What it is</th><th>Current instance</th></tr>
+</thead>
+<tbody>
+<tr><td>empty intention</td><td>UNREALIZED-INTENT (BS-5)</td><td>The noema is posited in P_tf but the corresponding profile in P_state is empty.</td><td><code>quant_agent</code> Lambda</td></tr>
+<tr style="background:#fef3c7"><td>modalisation (suspension of positing)</td><td>HALT-residue (Option B)</td><td>P_aws posits the entity, P_state has been deliberately stripped of its positing — the entity is <i>known live</i>, <i>known un-managed</i>.</td><td>3: <code>dlq_messages</code> alarm, <code>telegram-queue</code>, <code>report_jobs_dlq</code></td></tr>
+<tr><td>thematization of horizon</td><td>ORPHAN (newly surfaced)</td><td>What was previously horizon-anticipation ("there might be Lambdas") is brought to thematic givenness ("these specific 5–7").</td><td>Stage 2 imports: <code>webhook_health</code>, <code>model_catalog_sync</code>, ...</td></tr>
+<tr><td>noematic mismatch</td><td>DRIFTED — trim-spec direction</td><td>Two acts intend the same key but realise it incompatibly: P_tf authors a value, P_aws receives a different value via Doppler injection at runtime.</td><td>4 Lambdas × ~18 env keys</td></tr>
+<tr><td>passive synthesis</td><td>DRIFTED — refresh-tf direction</td><td>P_aws shifts without any authoring-act; the syntheses happen "below" deliberate intent (auto-upgrades, console edits).</td><td>Aurora engine_version, Grafana SG ingress</td></tr>
+<tr><td>noematic split</td><td>DOUBLE → DIVERGED-IDS sub-case</td><td>Same TF address binds two different AWS IDs across state files — one noema, two distinct realisations.</td><td>(historical) <code>aws_cloudfront_origin_access_identity.webapp</code>, resolved 2026-05-01</td></tr>
+<tr><td>reflective intentionality</td><td>Phase H self-test (BS-6)</td><td>The act-of-auditing itself becomes the noematic object: the audit looks at whether it actually ran the spec it claims to have run.</td><td><code>invariant_bracket_executed</code> assertion</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="panel">
+<h3 style="margin-top:0">What phenomenology adds that GORE doesn't</h3>
+<p class="small" style="margin-top:0">
+GORE flattens every finding into "obstacle on goal" — useful, but lossy. Phenomenology distinguishes <i>kinds</i> of partiality:
+</p>
+<ul class="small">
+  <li><b>Empty intention</b> ≠ <b>passive synthesis</b>. GORE sees both as "a goal is not satisfied"; phenomenology sees one as <i>nothing-yet-realised on the side of the authoring-act</i>, the other as <i>realisation-without-an-act</i>. Different remedies follow.</li>
+  <li><b>Modalisation</b> is not absence. HALT-residue is not "we forgot a resource"; it is a deliberate suspension of the positing-character of P_state. The entity is <i>given as un-managed</i>, not <i>given as missing</i>. GORE collapses this distinction.</li>
+  <li><b>Thematization of horizon</b> names what the audit <i>does</i> when it surfaces an ORPHAN: the horizon (everything not currently thematic) is partially brought into thematic givenness. The audit can never thematize all of P_aws; what's outside <code>y.filter</code> stays horizon (BS-4).</li>
+  <li><b>Reflective intentionality</b> is the only category that bottoms out the regress: the audit looking at itself is what blocks BS-6 (audit-execution skew).</li>
+</ul>
+</div>
+
+<div class="panel">
+<h3 style="margin-top:0">Why phenomenology is <i>not</i> load-bearing for skill body</h3>
+<p class="small" style="margin-top:0">
+GORE produces verbs; phenomenology produces <b>nouns</b>. It gives /tf-aws's findings a categorical vocabulary — useful for: framing essays, distinguishing kinds of partiality, explaining why "fix it" isn't always the right verb. <b>Recommend: phenomenology lives in evolution notes, journals, and pedagogical blocks at the head of the skill — not in Phase descriptions.</b> The skill body needs verbs.
+</p>
+</div>
+
+</div><!-- /#tab-pheno -->
+
+
+<script>
+mermaid.initialize({
+  startOnLoad: false,
+  theme: 'default',
+  flowchart: { htmlLabels: true, curve: 'basis', nodeSpacing: 30, rankSpacing: 50 }
+});
+
+function nextFrame() {
+  return new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+}
+
+async function renderActiveMermaid() {
+  await nextFrame();
+  try {
+    await mermaid.run({ querySelector: '.tab-panel.active .mermaid' });
+  } catch (e) {
+    console.error('Mermaid render failed:', e);
+  }
+}
+
+renderActiveMermaid();
+
+document.querySelectorAll('.tab-button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const target = btn.dataset.tab;
+    document.querySelectorAll('.tab-button').forEach(b => b.classList.toggle('active', b === btn));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === target));
+    renderActiveMermaid();
+  });
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,32 @@
+@startuml C4_Dynamic_DailyPipeline
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Dynamic.puml
+
+title Dynamic Diagram - Daily Report Pipeline (08:00 BKK)
+
+Container(eb, "EventBridge Scheduler", "AWS EventBridge")
+Container(fetch, "Ticker Fetcher", "Lambda")
+Container(yf, "Yahoo Finance", "External API")
+ContainerDb(lake, "Data Lake", "S3")
+Container(ctrl, "Precompute Controller", "Lambda")
+Container(sfn, "Precompute Workflow", "Step Functions Express")
+Container(list, "Get Ticker List", "Lambda")
+Container(rw, "Report Worker", "Lambda (parallel ×47)")
+System_Ext(orouter, "OpenRouter", "LLM")
+ContainerDb(aurora, "Aurora MySQL", "RDS")
+ContainerDb(s3pdf, "PDF Reports", "S3")
+ContainerDb(ddb, "Job Status", "DynamoDB")
+
+Rel(eb, fetch, "1. Cron trigger 01:00 UTC", "EventBridge invoke")
+Rel(fetch, yf, "2. Fetch ~47 tickers", "HTTPS")
+Rel(fetch, lake, "3. Stage raw CSV", "S3 PutObject")
+Rel(fetch, ctrl, "4. Invoke", "Lambda async")
+Rel(ctrl, sfn, "5. StartExecution", "AWS SDK")
+Rel(sfn, list, "6. Get tickers", "Task")
+Rel(sfn, rw, "7. Map → parallel invoke", "Task per ticker")
+Rel(rw, ddb, "8. Mark running", "UpdateItem")
+Rel(rw, orouter, "9. Generate analysis", "HTTPS")
+Rel(rw, s3pdf, "10. Upload PDF", "S3 PutObject")
+Rel(rw, aurora, "11. Cache metrics", "MySQL")
+Rel(rw, ddb, "12. Mark done", "UpdateItem")
+
+@enduml
