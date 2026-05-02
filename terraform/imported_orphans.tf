@@ -179,3 +179,210 @@ resource "aws_cloudwatch_log_group" "quant_agent" {
     ignore_changes = [tags, tags_all]
   }
 }
+
+###############################################################################
+# Chunk B (2026-05-02): error alarms + EventBridge scheduler chain
+###############################################################################
+# - 2 CloudWatch alarms watching Lambda Errors metric, alerting via SNS
+# - 2 IAM roles for EventBridge Scheduler to assume + invoke each Lambda
+# - 2 inline policies on those roles granting lambda:InvokeFunction
+# - 2 schedulers (cron in Asia/Bangkok timezone) targeting the :live aliases
+###############################################################################
+
+###############################################################################
+# CloudWatch Error Alarms
+###############################################################################
+
+resource "aws_cloudwatch_metric_alarm" "webhook_health_errors" {
+  alarm_name          = "dr-daily-report-webhook-health-dev-errors-dev"
+  alarm_description   = "Webhook health check Lambda errors"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 1
+  metric_name         = "Errors"
+  namespace           = "AWS/Lambda"
+  period              = 86400
+  statistic           = "Sum"
+  threshold           = 0
+  treat_missing_data  = "notBreaching"
+  alarm_actions       = [aws_sns_topic.telegram_alerts.arn]
+
+  dimensions = {
+    FunctionName = aws_lambda_function.webhook_health.function_name
+  }
+
+  tags = merge(local.common_tags, {
+    Name      = "dr-daily-report-webhook-health-dev-errors-dev"
+    App       = "telegram-api"
+    Component = "webhook-health-alarm"
+  })
+
+  lifecycle {
+    ignore_changes = [tags, tags_all]
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "model_catalog_sync_errors" {
+  alarm_name          = "dr-daily-report-model-catalog-sync-dev-errors-dev"
+  alarm_description   = "Model catalog sync Lambda errors"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 1
+  metric_name         = "Errors"
+  namespace           = "AWS/Lambda"
+  period              = 86400
+  statistic           = "Sum"
+  threshold           = 0
+  treat_missing_data  = "notBreaching"
+  alarm_actions       = [aws_sns_topic.telegram_alerts.arn]
+
+  dimensions = {
+    FunctionName = aws_lambda_function.model_catalog_sync.function_name
+  }
+
+  tags = merge(local.common_tags, {
+    Name      = "dr-daily-report-model-catalog-sync-dev-errors-dev"
+    App       = "telegram-api"
+    Component = "model-catalog-sync-alarm"
+  })
+
+  lifecycle {
+    ignore_changes = [tags, tags_all]
+  }
+}
+
+###############################################################################
+# EventBridge Scheduler IAM Roles
+###############################################################################
+
+resource "aws_iam_role" "scheduler_model_catalog" {
+  name = "dr-daily-report-scheduler-model-catalog-dev"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Principal = { Service = "scheduler.amazonaws.com" }
+      Action = "sts:AssumeRole"
+    }]
+  })
+
+  tags = merge(local.common_tags, {
+    Name      = "dr-daily-report-scheduler-model-catalog-dev"
+    App       = "telegram-api"
+    Component = "scheduler-iam"
+  })
+
+  lifecycle {
+    ignore_changes = [tags, tags_all]
+  }
+}
+
+resource "aws_iam_role" "scheduler_webhook_health" {
+  name = "dr-daily-report-scheduler-webhook-health-dev"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Principal = { Service = "scheduler.amazonaws.com" }
+      Action = "sts:AssumeRole"
+    }]
+  })
+
+  tags = merge(local.common_tags, {
+    Name      = "dr-daily-report-scheduler-webhook-health-dev"
+    App       = "telegram-api"
+    Component = "scheduler-iam"
+  })
+
+  lifecycle {
+    ignore_changes = [tags, tags_all]
+  }
+}
+
+###############################################################################
+# Inline policies: scheduler invoke-lambda
+###############################################################################
+
+resource "aws_iam_role_policy" "scheduler_model_catalog_invoke_lambda" {
+  name = "invoke-lambda"
+  role = aws_iam_role.scheduler_model_catalog.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Action = "lambda:InvokeFunction"
+      Resource = [
+        aws_lambda_function.model_catalog_sync.arn,
+        "${aws_lambda_function.model_catalog_sync.arn}:*",
+      ]
+    }]
+  })
+}
+
+resource "aws_iam_role_policy" "scheduler_webhook_health_invoke_lambda" {
+  name = "invoke-lambda"
+  role = aws_iam_role.scheduler_webhook_health.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Action = "lambda:InvokeFunction"
+      Resource = [
+        aws_lambda_function.webhook_health.arn,
+        "${aws_lambda_function.webhook_health.arn}:*",
+      ]
+    }]
+  })
+}
+
+###############################################################################
+# EventBridge Schedulers
+###############################################################################
+
+resource "aws_scheduler_schedule" "model_catalog_sync" {
+  name                         = "dr-daily-report-model-catalog-sync-dev"
+  group_name                   = "default"
+  schedule_expression          = "cron(0 4 * * ? *)"
+  schedule_expression_timezone = "Asia/Bangkok"
+  state                        = "ENABLED"
+
+  flexible_time_window {
+    mode                      = "FLEXIBLE"
+    maximum_window_in_minutes = 60
+  }
+
+  target {
+    arn      = aws_lambda_alias.model_catalog_sync_live.arn
+    role_arn = aws_iam_role.scheduler_model_catalog.arn
+
+    retry_policy {
+      maximum_event_age_in_seconds = 3600
+      maximum_retry_attempts       = 2
+    }
+  }
+}
+
+resource "aws_scheduler_schedule" "webhook_health" {
+  name                         = "dr-daily-report-webhook-health-dev"
+  group_name                   = "default"
+  schedule_expression          = "cron(0 5 * * ? *)"
+  schedule_expression_timezone = "Asia/Bangkok"
+  state                        = "ENABLED"
+
+  flexible_time_window {
+    mode                      = "FLEXIBLE"
+    maximum_window_in_minutes = 60
+  }
+
+  target {
+    arn      = aws_lambda_alias.webhook_health_live.arn
+    role_arn = aws_iam_role.scheduler_webhook_health.arn
+
+    retry_policy {
+      maximum_event_age_in_seconds = 3600
+      maximum_retry_attempts       = 2
+    }
+  }
+}

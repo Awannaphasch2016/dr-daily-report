@@ -70,6 +70,10 @@ y:
       - "*telegram-api*"
       - "webhook-health*"
       - "model-catalog-sync*"
+      - "fund-data-sync*"  # Added 2026-05-02: alarms in module.fund_data_sync_queue
+                           # were false-positive flagged GHOST because the live AWS
+                           # resources matched none of the above globs and TFM
+                           # extraction collapsed the module path.
 
 # Projection: how to compare X and Y for "sameness"
 projection:
