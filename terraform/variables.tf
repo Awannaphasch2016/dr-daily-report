@@ -183,6 +183,20 @@ variable "SLACK_WEBHOOK_URL" {
   default     = ""
 }
 
+variable "SLACK_BOT_TOKEN" {
+  description = "Slack Bot User OAuth Token (xoxb-…) — used by the Slack bot Lambda to call chat.postMessage. Set TF_VAR_SLACK_BOT_TOKEN in Doppler."
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "SLACK_SIGNING_SECRET" {
+  description = "Slack signing secret — used by the Slack bot Lambda to verify Events API webhooks. Set TF_VAR_SLACK_SIGNING_SECRET in Doppler."
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
 ###############################################################################
 # Lambda Container Image Configuration
 ###############################################################################

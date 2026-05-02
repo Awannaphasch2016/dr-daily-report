@@ -1,0 +1,364 @@
+name: Deploy Slack Bot - Dev Environment
+
+# ============================================================================
+# Slack Bot Deployment: dev branch → dev environment
+# Runs when Slack-specific or shared backend code changes.
+# Mirrors deploy-line-dev.yml: shares Docker image with LINE/Telegram, just
+# overrides the Lambda image command to "slack_handler.lambda_handler".
+# Required Doppler secrets (TF_VAR_-prefixed): SLACK_BOT_TOKEN, SLACK_SIGNING_SECRET
+# ============================================================================
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - dev
+    paths:
+      # Slack bot-specific paths
+      - 'src/integrations/slack_bot.py'
+      - 'src/slack_handler.py'
+      - 'tests/slack/**'
+      - 'tests/shared/**'
+      # Shared backend (affects all Lambdas built from the shared image)
+      - 'src/data/**'
+      - 'src/types.py'
+      - 'src/config.py'
+      # Infrastructure
+      - 'Dockerfile*'
+      - 'requirements*.txt'
+      - 'terraform/slack_bot.tf'
+      - '.github/workflows/deploy-slack-dev.yml'
+      # Explicitly EXCLUDE paths owned by other apps
+      - '!src/api/**'
+      - '!frontend/twinbar/**'
+      - '!tests/telegram/**'
+      - '!tests/line_bot/**'
+
+env:
+  AWS_REGION: ap-southeast-1
+  PYTHON_VERSION: '3.11'
+  ECR_REGISTRY: 755283537543.dkr.ecr.ap-southeast-1.amazonaws.com
+  FUNCTION_NAME: dr-daily-report-slack-bot-dev
+
+jobs:
+  ###############################################################################
+  # Stage 0: Detect Changes
+  ###############################################################################
+  detect-changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      slack_bot: ${{ steps.filter.outputs.slack_bot }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Detect changed paths
+        uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            slack_bot:
+              - 'src/integrations/slack_bot.py'
+              - 'src/slack_handler.py'
+              - 'tests/slack/**'
+              - 'tests/shared/**'
+            backend:
+              - 'src/**'
+              - 'Dockerfile*'
+              - 'requirements*.txt'
+
+      - name: Log detected changes
+        run: |
+          echo "📊 Change Detection Results:"
+          echo "   Slack bot code:    ${{ steps.filter.outputs.slack_bot }}"
+          echo "   Backend changed:   ${{ steps.filter.outputs.backend }}"
+
+  ###############################################################################
+  # Stage 1: Quality Gates (Syntax, Tests)
+  ###############################################################################
+  test:
+    name: Quality Gates
+    runs-on: ubuntu-latest
+    needs: detect-changes
+    if: needs.detect-changes.outputs.backend == 'true' || needs.detect-changes.outputs.slack_bot == 'true'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-asyncio
+
+      - name: Syntax check
+        run: |
+          echo "🔍 Checking Python syntax..."
+          python -m py_compile src/slack_handler.py src/integrations/slack_bot.py
+          echo "✅ Syntax check passed"
+
+      - name: Unit tests (Slack bot)
+        run: |
+          echo "🧪 Running Slack bot tests..."
+          pytest tests/slack -m "not integration and not e2e" -v --tb=short -x
+          echo "✅ Slack bot tests passed"
+
+  ###############################################################################
+  # Stage 2: Build or Reuse Existing Image
+  ###############################################################################
+  get-or-build-image:
+    name: Get or Build Docker Image
+    runs-on: ubuntu-latest
+    needs: test
+    outputs:
+      image_uri: ${{ steps.determine-image.outputs.image_uri }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Check if a sibling Lambda already built this commit
+        id: check-existing
+        run: |
+          COMMIT_SHA=$(git rev-parse --short HEAD)
+          IMAGE_TAG="sha-${COMMIT_SHA}"
+
+          if aws ecr describe-images \
+            --repository-name dr-daily-report-telegram-api \
+            --image-ids imageTag=${IMAGE_TAG} \
+            --region ${{ env.AWS_REGION }} > /dev/null 2>&1; then
+            echo "✅ Found existing image: ${IMAGE_TAG}"
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "image_tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
+          else
+            echo "❌ No existing image found for commit ${COMMIT_SHA}"
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Login to Amazon ECR
+        if: steps.check-existing.outputs.exists == 'false'
+        run: |
+          aws ecr get-login-password --region ${{ env.AWS_REGION }} | \
+            docker login --username AWS --password-stdin ${{ env.ECR_REGISTRY }}
+
+      - name: Build and push Docker image
+        if: steps.check-existing.outputs.exists == 'false'
+        id: build
+        run: |
+          COMMIT_SHA=$(git rev-parse --short HEAD)
+          TIMESTAMP=$(date +%Y%m%d%H%M%S)
+          IMAGE_TAG="sha-${COMMIT_SHA}-${TIMESTAMP}"
+          IMAGE_URI="${{ env.ECR_REGISTRY }}/dr-daily-report-telegram-api:${IMAGE_TAG}"
+
+          echo "🐳 Building Docker image..."
+          docker build -t ${IMAGE_URI} -f Dockerfile .
+
+          echo "📤 Pushing to ECR..."
+          docker push ${IMAGE_URI}
+
+          echo "image_uri=${IMAGE_URI}" >> $GITHUB_OUTPUT
+          echo "image_tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
+
+      - name: Determine final image URI
+        id: determine-image
+        run: |
+          if [ "${{ steps.check-existing.outputs.exists }}" == "true" ]; then
+            IMAGE_URI="${{ env.ECR_REGISTRY }}/dr-daily-report-telegram-api:${{ steps.check-existing.outputs.image_tag }}"
+            echo "Using existing image: ${IMAGE_URI}"
+          else
+            IMAGE_URI="${{ steps.build.outputs.image_uri }}"
+            echo "Using newly built image: ${IMAGE_URI}"
+          fi
+          echo "image_uri=${IMAGE_URI}" >> $GITHUB_OUTPUT
+
+  ###############################################################################
+  # Stage 3: Deploy Slack Bot Lambda
+  ###############################################################################
+  deploy-slack-bot:
+    name: Deploy Slack Bot to Dev
+    runs-on: ubuntu-latest
+    needs: get-or-build-image
+
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Generate release version
+        id: release-version
+        run: |
+          SHORT_SHA="${GITHUB_SHA::7}"
+          RELEASE="dev-dev-${SHORT_SHA}"
+          echo "📋 Release version: ${RELEASE}"
+          echo "release=${RELEASE}" >> $GITHUB_OUTPUT
+
+      - name: Update Lambda function code ($LATEST)
+        run: |
+          echo "🚀 Updating Slack bot Lambda function..."
+          aws lambda update-function-code \
+            --function-name ${{ env.FUNCTION_NAME }} \
+            --image-uri ${{ needs.get-or-build-image.outputs.image_uri }}
+
+          echo "⏳ Waiting for function update to complete..."
+          aws lambda wait function-updated \
+            --function-name ${{ env.FUNCTION_NAME }}
+
+          echo "🔧 Setting Slack bot handler override..."
+          aws lambda update-function-configuration \
+            --function-name ${{ env.FUNCTION_NAME }} \
+            --image-config '{"Command":["slack_handler.lambda_handler"]}'
+          aws lambda wait function-updated \
+            --function-name ${{ env.FUNCTION_NAME }}
+
+          echo "✅ Slack bot Lambda updated to ${{ needs.get-or-build-image.outputs.image_uri }}"
+
+      - name: Update LANGFUSE_RELEASE
+        run: |
+          echo "🏷️ Setting LANGFUSE_RELEASE=${{ steps.release-version.outputs.release }}"
+          CURRENT_VARS=$(aws lambda get-function-configuration \
+            --function-name ${{ env.FUNCTION_NAME }} \
+            --query 'Environment.Variables' \
+            --output json 2>/dev/null || echo '{}')
+
+          echo "$CURRENT_VARS" | jq --arg release "${{ steps.release-version.outputs.release }}" \
+            '{Variables: (. + {LANGFUSE_RELEASE: $release})}' > /tmp/env-vars.json
+
+          aws lambda update-function-configuration \
+            --function-name ${{ env.FUNCTION_NAME }} \
+            --environment file:///tmp/env-vars.json
+          aws lambda wait function-updated --function-name ${{ env.FUNCTION_NAME }}
+          echo "✅ LANGFUSE_RELEASE updated"
+
+      - name: Smoke test ($LATEST is Active)
+        run: |
+          echo "🧪 Verifying Slack bot Lambda configuration..."
+          FUNCTION_STATE=$(aws lambda get-function \
+            --function-name ${{ env.FUNCTION_NAME }} \
+            --query 'Configuration.State' \
+            --output text)
+
+          echo "Lambda state: $FUNCTION_STATE"
+
+          if [ "$FUNCTION_STATE" != "Active" ]; then
+            echo "❌ Lambda function is not active (state: $FUNCTION_STATE)"
+            exit 1
+          fi
+          echo "✅ Slack bot Lambda is active and ready"
+
+      - name: End-to-end smoke test (url_verification handshake)
+        run: |
+          echo "🧪 Testing Slack url_verification round-trip..."
+          # Slack first-registers a Request URL by POSTing a `url_verification`
+          # envelope; the handler must echo the challenge and return 200.
+          cat > /tmp/slack-url-verify.json <<'EOF'
+          {
+            "headers": {},
+            "body": "{\"type\":\"url_verification\",\"challenge\":\"smoke_test_challenge_xyz\"}"
+          }
+          EOF
+
+          aws lambda invoke \
+            --function-name ${{ env.FUNCTION_NAME }} \
+            --payload fileb:///tmp/slack-url-verify.json \
+            --log-type Tail \
+            /tmp/response.json
+
+          echo "📥 Lambda response:"
+          cat /tmp/response.json | jq '.'
+
+          STATUS_CODE=$(jq -r '.statusCode' /tmp/response.json)
+          if [ "$STATUS_CODE" != "200" ]; then
+            echo "❌ Expected statusCode 200, got $STATUS_CODE"
+            exit 1
+          fi
+
+          BODY=$(jq -r '.body' /tmp/response.json)
+          CHALLENGE=$(echo "$BODY" | jq -r '.challenge')
+          if [ "$CHALLENGE" != "smoke_test_challenge_xyz" ]; then
+            echo "❌ Expected challenge echo, got: $CHALLENGE"
+            exit 1
+          fi
+          echo "✅ url_verification handshake works"
+
+      - name: Publish new version
+        id: publish
+        run: |
+          echo "📦 Publishing immutable version..."
+          VERSION=$(aws lambda publish-version \
+            --function-name ${{ env.FUNCTION_NAME }} \
+            --description "Slack bot dev deployment $(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --query 'Version' \
+            --output text)
+
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "✅ Published version: $VERSION"
+
+      - name: Update 'live' alias to new version
+        run: |
+          echo "🔀 Promoting version ${{ steps.publish.outputs.version }} to live..."
+
+          if aws lambda get-alias \
+            --function-name ${{ env.FUNCTION_NAME }} \
+            --name live > /dev/null 2>&1; then
+            aws lambda update-alias \
+              --function-name ${{ env.FUNCTION_NAME }} \
+              --name live \
+              --function-version ${{ steps.publish.outputs.version }}
+          else
+            aws lambda create-alias \
+              --function-name ${{ env.FUNCTION_NAME }} \
+              --name live \
+              --function-version ${{ steps.publish.outputs.version }}
+          fi
+
+          echo "✅ Slack bot 'live' alias now points to version ${{ steps.publish.outputs.version }}"
+
+  ###############################################################################
+  # Stage 4: Store Artifact Metadata
+  ###############################################################################
+  store-artifact:
+    name: Store Artifact Metadata
+    runs-on: ubuntu-latest
+    needs: [get-or-build-image, deploy-slack-bot]
+
+    steps:
+      - name: Save artifact metadata
+        run: |
+          echo "${{ needs.get-or-build-image.outputs.image_uri }}" > slack-artifact-uri.txt
+          cat slack-artifact-uri.txt
+
+      - name: Upload artifact metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: slack-dev-artifact-metadata
+          path: slack-artifact-uri.txt
+          retention-days: 30
+
+      - name: Summary
+        run: |
+          echo "## 🎉 Slack Bot Deployment Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** dev" >> $GITHUB_STEP_SUMMARY
+          echo "**Function:** ${{ env.FUNCTION_NAME }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Image:** \`${{ needs.get-or-build-image.outputs.image_uri }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Slack bot deployed and promoted to live alias" >> $GITHUB_STEP_SUMMARY
