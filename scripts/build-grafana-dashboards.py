@@ -126,8 +126,14 @@ def table_panel(title, sql, x, y, w=24, h=8, overrides=None):
     }
 
 
-def barchart_panel(title, sql, x, y, w=12, h=8):
-    """Create a bar chart panel with MySQL query."""
+def barchart_panel(title, sql, x, y, w=12, h=8, orientation="horizontal", overrides=None):
+    """Create a bar chart panel with MySQL query.
+
+    `orientation` — "horizontal" (default, days/categories on Y) or "vertical"
+    (categories on X — natural for time-series-like data).
+    `overrides` — optional list of Grafana field-override dicts (e.g., to color
+    a specific series by name). Pass `None` to keep the panel uncoloured.
+    """
     return {
         "id": _panel_id(),
         "type": "barchart",
@@ -135,8 +141,8 @@ def barchart_panel(title, sql, x, y, w=12, h=8):
         "gridPos": {"h": h, "w": w, "x": x, "y": y},
         "datasource": MYSQL_DS,
         "targets": [{"rawSql": sql, "format": "table", "refId": "A"}],
-        "fieldConfig": {"defaults": {}, "overrides": []},
-        "options": {"orientation": "horizontal", "showValue": "always", "barWidth": 0.7},
+        "fieldConfig": {"defaults": {}, "overrides": overrides or []},
+        "options": {"orientation": orientation, "showValue": "always", "barWidth": 0.7},
     }
 
 
@@ -226,13 +232,31 @@ def cloudwatch_timeseries(title, metric_name, namespace, stat, x, y, w=12, h=8,
     }
 
 
-def state_timeline_panel(title, sql, x, y, w=24, h=4, thresholds=None):
+def state_timeline_panel(title, sql, x, y, w=24, h=4, thresholds=None, data_links=None):
     """Create a state-timeline panel (calendar-row heatmap) with MySQL query.
 
     SQL must return time-series format (time, metric, value). Cell color is
     driven by `value` against `thresholds`. Useful for "row of cells per day"
     coverage views where you want to spot good/bad days at a glance.
+
+    `data_links` (optional) — list of {title, url} dicts. URL can substitute
+    Grafana variables like ${__value.time:date:YYYY-MM-DD} to drive cross-panel
+    interactivity by writing to template variables on click.
     """
+    defaults = {
+        "custom": {"lineWidth": 0, "fillOpacity": 80},
+        "color": {"mode": "thresholds"},
+        "thresholds": {
+            "mode": "absolute",
+            "steps": thresholds or [
+                {"color": "red", "value": None},
+                {"color": "yellow", "value": 100},
+                {"color": "green", "value": 250},
+            ],
+        },
+    }
+    if data_links:
+        defaults["links"] = data_links
     return {
         "id": _panel_id(),
         "type": "state-timeline",
@@ -248,18 +272,7 @@ def state_timeline_panel(title, sql, x, y, w=24, h=4, thresholds=None):
             "legend": {"displayMode": "list", "placement": "bottom"},
         },
         "fieldConfig": {
-            "defaults": {
-                "custom": {"lineWidth": 0, "fillOpacity": 80},
-                "color": {"mode": "thresholds"},
-                "thresholds": {
-                    "mode": "absolute",
-                    "steps": thresholds or [
-                        {"color": "red", "value": None},
-                        {"color": "yellow", "value": 100},
-                        {"color": "green", "value": 250},
-                    ],
-                },
-            },
+            "defaults": defaults,
             "overrides": [],
         },
     }
@@ -1054,21 +1067,56 @@ def build_daily_ticker_coverage_dashboard():
             {"color": "yellow", "value": 30},
             {"color": "green", "value": 45},
         ],
+        data_links=[{
+            "title": "View this day's per-ticker status",
+            "url": "/d/daily-ticker-coverage/daily-ticker-coverage"
+                   "?var-selected_date=${__value.time:date:YYYY-MM-DD}"
+                   "&${__url_time_range}",
+        }],
     ))
 
     # === Daily count bar chart ===
+    # Two-series trick to highlight the selected day in red:
+    #   - `tickers`: count for every day (default color)
+    #   - `selected`: same count, but ONLY on the selected day (NULL elsewhere)
+    # Field override paints `selected` red — visually it appears as a
+    # red twin-bar next to the default bar on the chosen day.
+    # The COALESCE expression must stay in lock-step with Panel 6's table SQL
+    # so the bar and the table never disagree about which day is "selected".
     panels.append(row_panel("Daily Count", 5))
     panels.append(barchart_panel(
         "Tickers Cached per Day",
         """SELECT
-            DATE_FORMAT(pr.report_date, '%Y-%m-%d') AS day,
-            COUNT(DISTINCT pr.symbol) AS tickers
+            DATE_FORMAT(pr.report_date, '%m-%d') AS day,
+            COUNT(DISTINCT pr.symbol) AS tickers,
+            CASE WHEN pr.report_date = COALESCE(
+                NULLIF('$selected_date', ''),
+                (SELECT MAX(report_date) FROM precomputed_reports WHERE status = 'completed')
+            )
+            THEN COUNT(DISTINCT pr.symbol)
+            ELSE NULL END AS selected
         FROM precomputed_reports pr
         WHERE pr.status = 'completed'
           AND $__timeFilter(pr.report_date)
         GROUP BY pr.report_date
         ORDER BY pr.report_date""",
         x=0, y=6, w=24, h=8,
+        orientation="horizontal",
+        overrides=[
+            {
+                "matcher": {"id": "byName", "options": "selected"},
+                "properties": [
+                    {"id": "color", "value": {"mode": "fixed", "fixedColor": "red"}},
+                    {"id": "displayName", "value": "Selected day"},
+                ],
+            },
+            {
+                "matcher": {"id": "byName", "options": "tickers"},
+                "properties": [
+                    {"id": "displayName", "value": "Tickers cached"},
+                ],
+            },
+        ],
     ))
 
     # === Per-ticker status table for the latest completed day ===
@@ -1097,8 +1145,9 @@ def build_daily_ticker_coverage_dashboard():
         JOIN ticker_aliases ta ON tm.id = ta.ticker_id AND ta.symbol_type = 'yahoo'
         LEFT JOIN precomputed_reports pr
             ON ta.symbol = pr.symbol
-            AND pr.report_date = (
-                SELECT MAX(report_date) FROM precomputed_reports WHERE status = 'completed'
+            AND pr.report_date = COALESCE(
+                NULLIF('$selected_date', ''),
+                (SELECT MAX(report_date) FROM precomputed_reports WHERE status = 'completed')
             )
             AND pr.status = 'completed'
         WHERE tm.is_active = 1
@@ -1127,6 +1176,17 @@ def build_daily_ticker_coverage_dashboard():
         }],
     ))
 
+    # Hidden state slot — written by clicking a calendar cell (data link),
+    # read by the per-ticker table SQL via COALESCE(NULLIF, MAX). Empty string
+    # on first load → table falls back to latest completed report_date.
+    selected_date_var = {
+        "name": "selected_date",
+        "type": "textbox",
+        "current": {"text": "", "value": ""},
+        "label": "Selected Date",
+        "hide": 2,  # hide variable + label entirely from the dashboard bar
+    }
+
     return {
         "uid": "daily-ticker-coverage",
         "title": "Daily Ticker Coverage",
@@ -1134,7 +1194,7 @@ def build_daily_ticker_coverage_dashboard():
         "time": {"from": "now-30d", "to": "now"},
         "refresh": "5m",
         "schemaVersion": 39,
-        "templating": {"list": _env_template_variables()},
+        "templating": {"list": _env_template_variables(extra_vars=[selected_date_var])},
     }
 
 
