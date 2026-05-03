@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Some Tickers Don't Produce Precompute Report — Problem Brief (dev)</title>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+  <style>
+    :root {
+      --bg: #fafafa;
+      --fg: #1a1a1a;
+      --muted: #555;
+      --border: #ddd;
+      --accent: #b88500;
+      --bad-bg: #ffe7e7;
+      --bad-stroke: #c33;
+      --good-bg: #e6f4ea;
+      --good-stroke: #2a7;
+    }
+    body {
+      margin: 0;
+      padding: 28px 40px 80px;
+      background: var(--bg);
+      color: var(--fg);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      line-height: 1.5;
+      max-width: 1200px;
+    }
+    h1 { font-size: 26px; margin: 0 0 4px; }
+    h2 { font-size: 19px; margin: 36px 0 10px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+    h3 { font-size: 15px; margin: 18px 0 8px; }
+    p, li { font-size: 14px; }
+    code { font-family: "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace; font-size: 13px; background: #f0f0f0; padding: 1px 5px; border-radius: 3px; }
+    .subtitle { color: var(--muted); margin: 0 0 18px; font-size: 13px; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; vertical-align: middle; }
+    .badge-bad { background: var(--bad-bg); color: var(--bad-stroke); border: 1px solid var(--bad-stroke); }
+    .badge-good { background: var(--good-bg); color: var(--good-stroke); border: 1px solid var(--good-stroke); }
+    .panel {
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 14px 18px;
+      margin: 12px 0;
+    }
+    .panel-evidence { border-left: 4px solid var(--accent); }
+    .panel-bad { border-left: 4px solid var(--bad-stroke); background: #fff8f8; }
+    .panel-good { border-left: 4px solid var(--good-stroke); background: #f7fbf8; }
+    table { border-collapse: collapse; margin: 10px 0; font-size: 13px; }
+    th, td { border: 1px solid var(--border); padding: 5px 10px; text-align: left; }
+    th { background: #f5f5f5; }
+    .mermaid {
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 16px;
+      overflow-x: auto;
+      margin: 10px 0;
+    }
+    .legend {
+      display: flex; flex-wrap: wrap; gap: 12px; margin: 8px 0 16px;
+      font-size: 12px; color: var(--muted);
+    }
+    .legend span { display: inline-flex; align-items: center; gap: 6px; }
+    .swatch { width: 14px; height: 14px; border-radius: 3px; border: 1px solid #888; display: inline-block; }
+    .footer { margin-top: 40px; color: var(--muted); font-size: 12px; border-top: 1px solid var(--border); padding-top: 12px; }
+  </style>
+</head>
+<body>
+
+<h1>Some tickers don't produce precompute report <span class="badge badge-bad">dev · 42 of 56</span></h1>
+<p class="subtitle">Problem brief · 2026-05-03 · scope: dev environment, daily 5 AM precompute pipeline</p>
+
+<h2>Problem statement</h2>
+<div class="panel panel-bad">
+  <p style="margin:0">
+    Every morning, dev's scheduled precompute completes and Step Functions reports <code>SUCCEEDED</code>.
+    But Aurora's <code>precomputed_reports</code> table for today's date contains
+    <strong>only 42 of the 56 active DR tickers</strong>. The 14 missing ones are different each day —
+    a stochastic gap that goes unnoticed because the workflow's surface signal (Layer&nbsp;1 status) is green.
+  </p>
+</div>
+
+<h2>Evidence (today, 2026-05-03)</h2>
+<div class="panel panel-evidence">
+  <table>
+    <thead><tr><th>Layer</th><th>Signal</th><th>Verdict</th></tr></thead>
+    <tbody>
+      <tr><td>L1 — schedule</td><td>EventBridge fired at 05:00:51 BKK; Step Functions execution <code>precompute-20260503-050051</code></td><td>✅ ran</td></tr>
+      <tr><td>L1 — workflow</td><td>SFN <code>SUCCEEDED</code> at 05:06:53 BKK (~6 min)</td><td>✅ green</td></tr>
+      <tr><td>L4 — Aurora</td><td><code>SELECT COUNT(*) FROM precomputed_reports WHERE report_date = CURDATE()</code></td><td>❌ <strong>42 / 56</strong></td></tr>
+      <tr><td>L4 — gaps</td><td>0700.HK (TENCENT19), D05.SI (DBS19), and 12 others not present today</td><td>❌ stochastic</td></tr>
+      <tr><td>Cross-env</td><td>Prod has 56/56 today (same code, different NAT IP, less concurrent traffic)</td><td>↗ pattern matches per-IP throttling</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<h2>Component diagram — only the boxes in the daily 5 AM precompute path</h2>
+<p>
+  Drawn at the level of "what gets invoked when the schedule fires". LINE bot, Telegram API, Slack bot,
+  PDF workflow, ticker-fetcher, fund-data-sync, monitoring stack are <em>deliberately omitted</em> — they
+  don't participate in the daily-report cache write path.
+</p>
+
+<div class="legend">
+  <span><span class="swatch" style="background:#fff4cc;border-color:#b88500"></span>Trigger</span>
+  <span><span class="swatch" style="background:#dde7ff;border-color:#3355aa"></span>Lambda</span>
+  <span><span class="swatch" style="background:#e8d5ff;border-color:#7733aa"></span>Workflow / fan-out</span>
+  <span><span class="swatch" style="background:#d4f4dd;border-color:#2a7"></span>Worker</span>
+  <span><span class="swatch" style="background:#ffe7d4;border-color:#cc5500"></span>Datastore</span>
+  <span><span class="swatch" style="background:#ffd6d6;border-color:#c33"></span>External API (rate-limited)</span>
+</div>
+
+<pre class="mermaid">
+flowchart LR
+    classDef trigger    fill:#fff4cc,stroke:#b88500,stroke-width:2px,color:#000
+    classDef compute    fill:#dde7ff,stroke:#3355aa,stroke-width:1px,color:#000
+    classDef workflow   fill:#e8d5ff,stroke:#7733aa,stroke-width:2px,color:#000
+    classDef worker     fill:#d4f4dd,stroke:#2a7,stroke-width:2px,color:#000
+    classDef store      fill:#ffe7d4,stroke:#cc5500,stroke-width:1px,color:#000
+    classDef external   fill:#ffd6d6,stroke:#c33,stroke-width:2px,color:#000
+
+    EB["EventBridge Scheduler<br/>cron(0 5 * * ? *) Asia/Bangkok<br/>daily_ticker_fetch_v2"]:::trigger
+
+    TS["ticker-scheduler-dev<br/>(Lambda)"]:::compute
+    PC["precompute-controller-dev<br/>(Lambda)"]:::compute
+
+    SFN["Step Functions<br/>precompute_workflow-dev"]:::workflow
+    GTL["get-ticker-list-dev<br/>(Lambda)"]:::compute
+    RWMAP["Map state<br/>MaxConcurrency = 46"]:::workflow
+    RW["report-worker-dev<br/>(Lambda &times; 46 parallel)"]:::worker
+
+    AURORA[("Aurora MySQL<br/>precomputed_reports +<br/>ticker_master / ticker_aliases")]:::store
+
+    YF["YAHOO FINANCE API<br/>yfinance + direct REST<br/>RATE-LIMITED per-IP"]:::external
+    OR["OpenRouter LLM<br/>(report narrative)"]:::external
+
+    EB --> TS
+    TS -->|invokeAsync| PC
+    PC -->|StartExecution| SFN
+    SFN --> GTL
+    GTL -->|56 active DR symbols| SFN
+    SFN --> RWMAP
+    RWMAP -->|1 ticker per worker| RW
+    RW -->|prices + history + info| YF
+    RW -->|narrate| OR
+    RW -->|INSERT row| AURORA
+    GTL -->|SELECT WHERE is_active| AURORA
+</pre>
+
+<h2>Sequence diagram — what fires when, with the failing step highlighted</h2>
+<p>
+  One representative worker invocation. Steps inside the red box are where today's 14-ticker gap originates:
+  the worker hits Yahoo, gets throttled, exhausts retries, and never writes the row.
+</p>
+
+<pre class="mermaid">
+sequenceDiagram
+    autonumber
+    participant EB as EventBridge Scheduler
+    participant TS as ticker-scheduler-dev
+    participant PC as precompute-controller-dev
+    participant SFN as Step Functions
+    participant GTL as get-ticker-list-dev
+    participant AUR as Aurora ticker_master
+    participant RW as report-worker-dev
+    participant YF as Yahoo Finance API
+    participant OR as OpenRouter LLM
+    participant CACHE as Aurora precomputed_reports
+
+    Note over EB: 05:00:00 BKK (22:00:00 UTC prev day)
+
+    EB->>TS: invoke (cron fires)
+    TS->>PC: invoke action=precompute
+    PC->>SFN: StartExecution
+
+    SFN->>GTL: PrepareTickerList
+    GTL->>AUR: SELECT a.symbol JOIN ticker_master WHERE is_active
+    AUR-->>GTL: 56 symbols
+    GTL-->>SFN: { tickers }
+
+    Note over SFN,RW: ParallelProcessing then Map MaxConcurrency=46<br/>56 tickers fan out across 46 lanes<br/>(timeline below shows ONE representative worker)
+
+    SFN->>RW: invoke worker(ticker=X)
+
+    rect rgb(255, 220, 220)
+        Note over RW,YF: RATE-LIMIT HOTSPOT — 46 workers hit Yahoo simultaneously every morning.<br/>Yahoo throttles per-IP. yfinance retries 3x with sleep(2) (data_fetcher.py:183),<br/>then falls back to direct REST against the SAME IP. About 14 of 56 workers exhaust<br/>retries and the ticker is silently dropped.
+        RW->>YF: yf.Ticker(symbol).history()
+        YF-->>RW: 429 / empty payload
+        RW->>YF: retry #1 (sleep 2s)
+        YF-->>RW: 429 / empty
+        RW->>YF: retry #2 (sleep 2s)
+        YF-->>RW: 429 / empty
+        RW->>YF: direct REST fallback
+        YF-->>RW: 429 / empty
+        RW --x CACHE: skip — no INSERT for ticker X
+    end
+
+    Note over RW,CACHE: HAPPY PATH — when Yahoo cooperates, the worker continues:
+
+    RW->>OR: generate narrative
+    OR-->>RW: report_text
+    RW->>CACHE: INSERT precomputed_reports
+
+    SFN-->>PC: ExecutionSucceeded (Map state masks per-item failures)
+
+    Note over CACHE: Layer-4 ground truth this morning: 42 of 56 rows. The 14 missing rows are the workers that traversed the red box.
+</pre>
+
+<h2>How to read these together</h2>
+<ol>
+  <li>The <strong>component diagram</strong> shows that exactly one external dependency sits between every report-worker and a successful Aurora write: the Yahoo Finance API. There is no cache, no proxy, no rate-control between the 46 Lambda workers and Yahoo.</li>
+  <li>The <strong>sequence diagram</strong> shows that the per-worker retry policy (3 attempts × 2 s, then a same-IP fallback) is consumed within ~10 s — far less than the time Yahoo's per-IP window resets. Once a worker exhausts retries, no row is written and the SFN Map state silently moves on.</li>
+  <li>The two diagrams together explain the dev/prod gap: same code, but dev's NAT IP is more saturated (developers running ad-hoc tests + scheduled run + Slack-bot live queries), so dev hits Yahoo's per-IP ceiling more often.</li>
+</ol>
+
+<h2>Intervention points (cheapest first)</h2>
+<div class="panel panel-good">
+  <table>
+    <thead><tr><th>Where</th><th>Change</th><th>Effect</th><th>Risk</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><code>terraform/step_functions/<br/>precompute_workflow.json:32</code></td>
+        <td>Drop <code>MaxConcurrency</code> 46 → 8–10</td>
+        <td>Spreads Yahoo calls; coverage approaches 56/56; total runtime increases by ~5×</td>
+        <td>low — single value, reversible</td>
+      </tr>
+      <tr>
+        <td><code>src/data/data_fetcher.py:183</code></td>
+        <td>3 × <code>sleep(2)</code> → exponential backoff <code>sleep(2,4,8)</code> with longer ceiling</td>
+        <td>Survives transient throttling without changing concurrency</td>
+        <td>low — pure code, behind worker</td>
+      </tr>
+      <tr>
+        <td>Architectural</td>
+        <td>Backfill <code>daily_indicators</code> from a single non-parallel Yahoo job; report-worker reads the cache table</td>
+        <td>Decouples 46 workers from the rate-limited dependency entirely; same shape as the deferred A4 (RDS Proxy) move in the PDF GORE</td>
+        <td>medium — one new Lambda + a schema you already have</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="footer">
+  Source code:
+  <code>terraform/scheduler.tf:208–222</code>,
+  <code>terraform/step_functions/precompute_workflow.json</code>,
+  <code>src/scheduler/get_ticker_list_handler.py</code>,
+  <code>src/report_worker_handler.py</code>,
+  <code>src/data/data_fetcher.py</code>.
+  Companion validations under <code>.claude/validations/2026-05-03-*.md</code>.
+</div>
+
+<script>
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'default',
+    securityLevel: 'loose',
+    flowchart: { htmlLabels: true, curve: 'basis', nodeSpacing: 30, rankSpacing: 50 },
+    sequence:  { showSequenceNumbers: true, wrap: true }
+  });
+</script>
+
+</body>
+</html>

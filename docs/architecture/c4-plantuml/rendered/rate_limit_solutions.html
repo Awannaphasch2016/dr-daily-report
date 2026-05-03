@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Rate-Limit Solutions — Mental Framework (dev)</title>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+  <style>
+    :root {
+      --bg: #fafafa;
+      --fg: #1a1a1a;
+      --muted: #555;
+      --border: #ddd;
+      --accent: #b88500;
+      --good-bg: #e6f4ea;
+      --good-stroke: #2a7;
+      --bad-bg: #ffe7e7;
+      --bad-stroke: #c33;
+      --src-bg: #fff4cc;
+      --pipe-bg: #e8d5ff;
+      --sink-bg: #ffd6d6;
+    }
+    body {
+      margin: 0;
+      padding: 28px 40px 80px;
+      background: var(--bg);
+      color: var(--fg);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      line-height: 1.55;
+      max-width: 1180px;
+    }
+    h1 { font-size: 26px; margin: 0 0 4px; }
+    h2 { font-size: 19px; margin: 38px 0 8px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+    h3 { font-size: 15px; margin: 18px 0 8px; }
+    p, li { font-size: 14px; }
+    code { font-family: "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace; font-size: 13px; background: #f0f0f0; padding: 1px 5px; border-radius: 3px; }
+    .subtitle { color: var(--muted); margin: 0 0 18px; font-size: 13px; }
+    table { border-collapse: collapse; margin: 10px 0; font-size: 13px; }
+    th, td { border: 1px solid var(--border); padding: 6px 10px; text-align: left; vertical-align: top; }
+    th { background: #f5f5f5; }
+    .star { color: var(--accent); font-weight: 700; }
+    .panel {
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 14px 18px;
+      margin: 12px 0;
+    }
+    .panel-good { border-left: 4px solid var(--good-stroke); background: #f7fbf8; }
+    .mermaid {
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 16px;
+      overflow-x: auto;
+      margin: 10px 0;
+    }
+    .zones { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin: 12px 0; }
+    .zone { padding: 10px 14px; border: 1px solid #ccc; border-radius: 6px; }
+    .zone h4 { margin: 0 0 6px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px; }
+    .zone p { margin: 0; font-size: 13px; }
+    .zone-source { background: var(--src-bg); border-color: #b88500; }
+    .zone-pipe   { background: var(--pipe-bg); border-color: #7733aa; }
+    .zone-sink   { background: var(--sink-bg); border-color: #c33; }
+    .footer { margin-top: 40px; color: var(--muted); font-size: 12px; border-top: 1px solid var(--border); padding-top: 12px; }
+  </style>
+</head>
+<body>
+
+<h1>Rate-limit solutions — mental framework</h1>
+<p class="subtitle">2026-05-03 · scope: dev precompute pipeline · 8 candidates organized into 3 zones</p>
+
+<h2>The reframe</h2>
+<p>
+  Stop thinking of this as "yfinance is flaky." Think of it as <strong>burst pressure flowing through a 3-segment pipe</strong>:
+  46 workers (source) → one shared NAT IP (pipe) → Yahoo's per-IP rate limit (sink).
+  Every fix lands in exactly <em>one</em> of those three zones, and the zone tells you the trade-off
+  shape before you read any details.
+</p>
+
+<div class="zones">
+  <div class="zone zone-source">
+    <h4>Source · the 46 workers</h4>
+    <p><strong>Lever</strong>: control how many calls leave per second.<br/>
+       <strong>Cost shape</strong>: code only, near-zero $/mo.<br/>
+       <strong>Ceiling</strong>: at best mitigates — Yahoo limit still applies.</p>
+  </div>
+  <div class="zone zone-pipe">
+    <h4>Pipe · the shared NAT IP</h4>
+    <p><strong>Lever</strong>: get more egress IPs.<br/>
+       <strong>Cost shape</strong>: AWS infra, $$/mo per extra IP.<br/>
+       <strong>Ceiling</strong>: linear gain (more IPs = more budget).</p>
+  </div>
+  <div class="zone zone-sink">
+    <h4>Sink · Yahoo's per-IP limit</h4>
+    <p><strong>Lever</strong>: avoid the call (cache) or replace the service (paid feed).<br/>
+       <strong>Cost shape</strong>: build effort or recurring $.<br/>
+       <strong>Ceiling</strong>: removes the dependency entirely.</p>
+  </div>
+</div>
+
+<h2>Visual 1 — Where each fix intervenes</h2>
+
+<pre class="mermaid">
+flowchart LR
+    classDef src       fill:#fff4cc,stroke:#b88500,stroke-width:2px,color:#000
+    classDef pipe      fill:#e8d5ff,stroke:#7733aa,stroke-width:2px,color:#000
+    classDef sink      fill:#ffd6d6,stroke:#c33,stroke-width:2px,color:#000
+    classDef fix       fill:#d4f4dd,stroke:#2a7,stroke-width:1px,color:#000
+    classDef star      fill:#ffe082,stroke:#b88500,stroke-width:3px,color:#000
+    classDef bad       fill:#f0f0f0,stroke:#999,stroke-dasharray:5 5,color:#666
+
+    W["46 report-workers<br/>parallel Map state"]:::src
+    NAT["NAT Gateway<br/>shared egress IP"]:::pipe
+    YF["Yahoo Finance API<br/>per-IP rate limit"]:::sink
+
+    W -->|fan-out burst| NAT
+    NAT -->|requests| YF
+
+    F1["1 · MaxConcurrency 46 to 8<br/>(slow the firehose)"]:::fix
+    F2["2 · Backoff + jitter<br/>(smooth retries)"]:::fix
+    F6["6 · SQS token-bucket consumer<br/>(pace the workers)"]:::fix
+    F8["8 · SFN Wait + retry<br/>(longer total budget)"]:::fix
+
+    F4["4 · NAT GW per AZ<br/>(3 distinct IPs)"]:::fix
+    F7["7 · Residential proxy pool<br/>(ToS risk - skip)"]:::bad
+
+    F3["3 · Single-writer price cache<br/>1 fetch per ticker per day, workers read Aurora"]:::star
+    F5["5 · Paid market data API<br/>(Polygon, Alpha Vantage)"]:::fix
+
+    F1 -. intervenes at .-> W
+    F2 -. intervenes at .-> W
+    F6 -. intervenes at .-> W
+    F8 -. intervenes at .-> W
+
+    F4 -. intervenes at .-> NAT
+    F7 -. intervenes at .-> NAT
+
+    F3 -. bypasses .-> YF
+    F5 -. replaces .-> YF
+</pre>
+
+<p style="font-size:13px;color:var(--muted);margin-top:6px">
+  Gold-bordered box (#3) is the recommended structural fix. Dashed grey (#7) is the
+  one to skip — works technically but violates Yahoo ToS.
+</p>
+
+<h2>Visual 2 — Effort vs effectiveness (which to do first)</h2>
+
+<pre class="mermaid">
+quadrantChart
+    title Effort vs Effectiveness
+    x-axis Low effort --> High effort
+    y-axis Low effectiveness --> High effectiveness
+    quadrant-1 Strategic projects
+    quadrant-2 Quick wins - do first
+    quadrant-3 Skip
+    quadrant-4 Band-aids only
+    "1 MaxConcurrency 46 to 8": [0.12, 0.55]
+    "2 Backoff plus jitter": [0.18, 0.45]
+    "3 Single-writer cache": [0.55, 0.92]
+    "4 NAT GW per AZ": [0.55, 0.65]
+    "5 Paid data API": [0.50, 0.90]
+    "6 SQS pacer": [0.70, 0.78]
+    "7 Proxy pool": [0.65, 0.55]
+    "8 SFN Wait retry": [0.30, 0.40]
+</pre>
+
+<p style="font-size:13px;color:var(--muted);margin-top:6px">
+  Top-left = high leverage now (Quick wins). Top-right = high leverage but expensive (Strategic).
+  Bottom = avoid unless desperate. The fixes you want pair one Quick Win with one Strategic.
+</p>
+
+<h2>Recommended path</h2>
+
+<div class="panel panel-good">
+  <p><strong>Step A — today, ~30 min</strong>: ship #1 + #2 together.<br/>
+     One value change in <code>precompute_workflow.json</code> (MaxConcurrency 46→8) and one
+     code change in <code>data_fetcher.py</code> (jittered exponential backoff). Buys 56/56 most
+     mornings while the structural fix is built.</p>
+  <p><strong>Step B — this sprint, ~3 days</strong>: build #3 (single-writer price cache).<br/>
+     One scheduled Lambda fetches each ticker once per day from Yahoo, writes to <code>daily_prices</code>
+     /<code>daily_indicators</code>. Report-workers read those tables instead of calling Yahoo. Removes
+     the rate-limit dependency from the precompute path entirely. Same architectural shape as
+     the A4 RDS-Proxy fix in the PDF GORE — solving once helps both problems.</p>
+  <p><strong>Skip</strong>: #7 (proxy pool) — Yahoo ToS forbids; account-ban risk.<br/>
+     <strong>Defer</strong>: #4 (NAT-per-AZ) — useful defense-in-depth, but #3 makes it unnecessary.
+     Revisit only if other Yahoo-callers start tripping the same limit.</p>
+</div>
+
+<h2>Full ranking</h2>
+
+<table>
+  <thead>
+    <tr><th>#</th><th>Option</th><th>Zone</th><th>Effort</th><th>Effectiveness</th><th>Cost</th><th>Risk</th><th>Total</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>1</td><td>MaxConcurrency 46 → 8</td><td>Source</td><td>9</td><td>6</td><td>10</td><td>9</td><td><strong>34</strong></td></tr>
+    <tr><td>2</td><td>Exponential backoff + jitter</td><td>Source</td><td>8</td><td>5</td><td>10</td><td>9</td><td>32</td></tr>
+    <tr><td>3 <span class="star">★</span></td><td>Single-writer daily price cache</td><td>Sink</td><td>5</td><td>9</td><td>9</td><td>7</td><td>30</td></tr>
+    <tr><td>5</td><td>Paid market data API</td><td>Sink</td><td>6</td><td>9</td><td>5</td><td>8</td><td>28</td></tr>
+    <tr><td>8</td><td>SFN Wait+retry orchestration</td><td>Source</td><td>7</td><td>4</td><td>9</td><td>8</td><td>28</td></tr>
+    <tr><td>6</td><td>SQS + token-bucket consumer</td><td>Source</td><td>4</td><td>8</td><td>8</td><td>7</td><td>27</td></tr>
+    <tr><td>4</td><td>NAT GW per AZ</td><td>Pipe</td><td>5</td><td>7</td><td>6</td><td>8</td><td>26</td></tr>
+    <tr><td>7</td><td>Residential proxy pool</td><td>Pipe</td><td>4</td><td>7</td><td>4</td><td>3</td><td>18</td></tr>
+  </tbody>
+</table>
+
+<p style="font-size:13px;color:var(--muted)">
+  Scoring 1–10 each, higher = better. Effort score is inverted (low effort = high score).
+  Cost score is inverted (cheap = high score). Risk score is inverted (low risk = high score).
+  Equal weights — adjust if your priority is e.g. cost-first.
+</p>
+
+<h2>Why not just jump straight to the structural fix (#3)?</h2>
+<ol>
+  <li><strong>Buys observation time.</strong> Once burst pressure is reduced (#1+#2), you can measure the
+      <em>true</em> baseline failure rate. If it drops to 0, you may not need #3 at all.</li>
+  <li><strong>Validates the diagnosis.</strong> If lowering concurrency <em>doesn't</em> help, the
+      bottleneck isn't per-IP throttling — and #3 wouldn't help either. Cheap diagnostic.</li>
+  <li><strong>Coverage <em>now</em>, not in 3 days.</strong> Every morning the system ships at 42/56
+      while you're building #3. #1+#2 close the gap in 30 minutes.</li>
+</ol>
+
+<div class="footer">
+  Source code:
+  <code>terraform/step_functions/precompute_workflow.json:32</code>,
+  <code>src/data/data_fetcher.py:183</code>.
+  Companion: problem brief at
+  <code>docs/architecture/c4-plantuml/rendered/precompute_rate_limit_problem.html</code>;
+  research doc at <code>.claude/research/2026-05-03-rate-limit-solutions.md</code>.
+</div>
+
+<script>
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'default',
+    securityLevel: 'loose',
+    flowchart: { htmlLabels: true, curve: 'basis', nodeSpacing: 30, rankSpacing: 50 },
+    quadrantChart: { quadrantPadding: 10, titleFontSize: 16, quadrantLabelFontSize: 13, pointTextFontSize: 11 }
+  });
+</script>
+
+</body>
+</html>

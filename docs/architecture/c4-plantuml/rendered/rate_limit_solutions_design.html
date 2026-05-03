@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Throttled Pipeline — design for precompute rate-limit fix</title>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+  <style>
+    :root {
+      --bg: #fafafa;
+      --fg: #1a1a1a;
+      --muted: #555;
+      --border: #ddd;
+      --new: #b88500;
+      --new-bg: #fff4cc;
+      --modified: #cc6600;
+      --modified-bg: #ffe4cc;
+      --unchanged: #888;
+      --unchanged-bg: #f0f0f0;
+      --external: #1a4ea3;
+      --external-bg: #e8f0fe;
+      --link: #1a4ea3;
+      --link-hover: #0a2e6f;
+    }
+    body {
+      margin: 0;
+      padding: 32px 40px 80px;
+      background: var(--bg);
+      color: var(--fg);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      line-height: 1.55;
+      max-width: 1100px;
+    }
+    h1 { font-size: 26px; margin: 0 0 4px; }
+    .subtitle { color: var(--muted); font-size: 13px; margin: 0 0 28px; }
+    .subtitle a { color: var(--link); }
+    h2 { font-size: 18px; margin: 32px 0 12px; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+    h3 { font-size: 15px; margin: 20px 0 8px; color: var(--muted); }
+    p { margin: 8px 0; }
+    code { font-family: "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace; font-size: 12.5px; background: #f0f0f0; padding: 1px 5px; border-radius: 3px; }
+    pre.mermaid {
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 16px;
+      margin: 12px 0 8px;
+      overflow-x: auto;
+    }
+    .legend {
+      display: flex;
+      gap: 14px;
+      flex-wrap: wrap;
+      margin: 6px 0 18px;
+      font-size: 12.5px;
+    }
+    .legend-item {
+      display: inline-block;
+      padding: 2px 10px;
+      border-radius: 3px;
+      border: 1px solid;
+      font-weight: 500;
+    }
+    .legend-new { background: var(--new-bg); color: var(--new); border-color: var(--new); }
+    .legend-modified { background: var(--modified-bg); color: var(--modified); border-color: var(--modified); }
+    .legend-unchanged { background: var(--unchanged-bg); color: var(--unchanged); border-color: var(--unchanged); }
+    .legend-external { background: var(--external-bg); color: var(--external); border-color: var(--external); }
+
+    table { border-collapse: collapse; width: 100%; margin: 8px 0 16px; font-size: 13px; }
+    th, td { border: 1px solid var(--border); padding: 8px 10px; text-align: left; vertical-align: top; }
+    th { background: #f5f5f5; font-weight: 600; }
+    td code { font-size: 12px; }
+    .pill { display: inline-block; padding: 1px 7px; font-size: 11px; border-radius: 10px; font-weight: 600; }
+    .pill-new { background: var(--new-bg); color: var(--new); border: 1px solid var(--new); }
+    .pill-modified { background: var(--modified-bg); color: var(--modified); border: 1px solid var(--modified); }
+    .pill-unchanged { background: var(--unchanged-bg); color: var(--unchanged); border: 1px solid var(--unchanged); }
+
+    .callout {
+      background: #fff;
+      border-left: 4px solid var(--new);
+      padding: 12px 16px;
+      margin: 12px 0;
+      border-radius: 0 4px 4px 0;
+      font-size: 13.5px;
+    }
+    .callout strong { color: var(--new); }
+
+    .footer { margin-top: 40px; color: var(--muted); font-size: 12px; border-top: 1px solid var(--border); padding-top: 12px; }
+    .footer a { color: var(--link); }
+  </style>
+</head>
+<body>
+
+<h1>Throttled Pipeline — design for precompute rate-limit fix</h1>
+<p class="subtitle">
+  Chosen solution from the <a href="rate_limit_solutions.html">solutions framework</a> (option #6: SQS + token-bucket consumer),
+  built as a second instance of the same pattern already running in <code>fund_data_sync</code>.
+  Companion: <a href="precompute_rate_limit_problem.html">problem brief</a>.
+</p>
+
+<p>
+  Two diagrams at increasing zoom — the <strong>Container view</strong> answers "what runs?", the
+  <strong>Component view</strong> answers "what's inside what runs?". Both share one legend.
+</p>
+
+<div class="legend">
+  <span class="legend-item legend-new">NEW — added by this plan</span>
+  <span class="legend-item legend-modified">MODIFIED — existing, edited</span>
+  <span class="legend-item legend-unchanged">UNCHANGED — in scope, unedited</span>
+  <span class="legend-item legend-external">EXTERNAL</span>
+</div>
+
+<h2>Container diagram (C4 Level 2)</h2>
+
+<p>
+  Runtime boxes only: every deployable / managed unit that has a presence in dev,
+  with the new throttling pipeline embedded. No code-level detail —
+  if it can't be seen in the AWS console, it isn't on this diagram.
+</p>
+
+<pre class="mermaid">
+flowchart TB
+
+  %% ----------- Actors and external systems -----------
+  USER["dev engineer<br/>observes &amp; verifies"]
+  YH_C2["Yahoo Finance API<br/>per-IP rate limit"]
+
+  %% ----------- System boundary -----------
+  subgraph SYS["dr-daily-report (dev environment)"]
+    EB_C2["EventBridge Schedule<br/>cron(0 5 * * ? *) BKK"]
+    CTRL_C2["Lambda<br/>precompute_controller"]
+    SFN_C2["Step Functions<br/>precompute_workflow<br/>(definition modified)"]
+    QUEUE_C2["SQS Queue<br/>precompute-tickers-dev<br/>visibility 15 min"]
+    DLQ_C2["SQS DLQ<br/>precompute-tickers-dev-dlq<br/>maxReceiveCount=3"]
+    CONS_C2["Lambda<br/>precompute_consumer<br/>image alias of report-worker"]
+    AURORA_C2["Aurora MySQL<br/>precomputed_reports table"]
+    OBS_C2["CloudWatch<br/>logs + 2 new alarms<br/>(DLQ depth, msg age)"]
+  end
+
+  %% ----------- Edges -----------
+  USER -.->|"monitors"| OBS_C2
+  EB_C2 -->|"5 AM trigger"| CTRL_C2
+  CTRL_C2 -->|"start_execution"| SFN_C2
+  SFN_C2 -->|"sqs:sendMessage<br/>56 enqueues, parallel"| QUEUE_C2
+  QUEUE_C2 -->|"long-poll<br/>max 5 concurrent"| CONS_C2
+  CONS_C2 -->|"yfinance fetch"| YH_C2
+  CONS_C2 -->|"UPSERT"| AURORA_C2
+  CONS_C2 -.->|"3rd redrive fails"| DLQ_C2
+  CONS_C2 -->|"writes"| OBS_C2
+  QUEUE_C2 -->|"metrics"| OBS_C2
+  DLQ_C2 -->|"metrics"| OBS_C2
+
+  %% ----------- Styles -----------
+  classDef new fill:#fff4cc,stroke:#b88500,stroke-width:2.5px,color:#000
+  classDef modified fill:#ffe4cc,stroke:#cc6600,stroke-width:2.5px,color:#000
+  classDef unchanged fill:#f0f0f0,stroke:#888,stroke-width:1px,color:#333
+  classDef external fill:#e8f0fe,stroke:#1a4ea3,stroke-width:1px,color:#000
+  classDef actor fill:#ffffff,stroke:#444,stroke-width:1.5px,color:#000
+
+  class QUEUE_C2,DLQ_C2,CONS_C2 new
+  class SFN_C2,OBS_C2 modified
+  class EB_C2,CTRL_C2,AURORA_C2 unchanged
+  class YH_C2 external
+  class USER actor
+
+  style SYS fill:#fafafa,stroke:#444,stroke-width:1px,stroke-dasharray:5 4
+</pre>
+
+<div class="callout">
+  <strong>What to take from the Container view</strong>: the change adds <em>three</em> new runtime boxes
+  (queue, DLQ, consumer Lambda) plus two new alarms; <em>two</em> existing things are edited (the SFN
+  definition and CloudWatch config); <em>nothing else</em> in dev moves. The throttle isn't a new piece
+  of code — it's the <code>maximum_concurrency=5</code> property of the queue→consumer edge.
+</div>
+
+<h2>Component diagram (C4 Level 3)</h2>
+
+<p>
+  Same change, one zoom level deeper: the internal modules and reused functions inside each container.
+  Use this when you need to see the seam where new code (the consumer wrapper) meets reused code
+  (<code>_handle_step_functions_mode</code>, <code>PrecomputeService</code>).
+</p>
+
+<pre class="mermaid">
+flowchart TB
+
+  %% ----------- External actors -----------
+  subgraph EXT["External"]
+    YH["Yahoo Finance API<br/>per-IP rate limit (the throttle)"]
+  end
+
+  %% ----------- Control plane (unchanged) -----------
+  subgraph CTL["Control plane"]
+    EB["EventBridge Schedule<br/>cron(0 5 * * ? *) BKK"]
+    CTRL["precompute_controller<br/>Lambda"]
+  end
+
+  %% ----------- Step Functions (mostly unchanged, one task swapped) -----------
+  subgraph SFN["Step Functions: precompute_workflow"]
+    MAP["FanOutToWorkers<br/>Map state<br/>MaxConcurrency=46"]
+    TASK["Map iterator task:<br/>EnqueueTickerToSQS<br/>(was InvokeReportWorker)"]
+  end
+
+  %% ----------- NEW: Throttled Pipeline boundary -----------
+  subgraph THROTTLE["Throttled Pipeline (NEW boundary)"]
+    QUEUE["precompute-tickers-dev<br/>SQS queue<br/>visibility=15min"]
+    DLQ["precompute-tickers-dev-dlq<br/>SQS DLQ<br/>maxReceiveCount=3"]
+    ESM["Event Source Mapping<br/>batch_size=1<br/>maximum_concurrency=5<br/>(token bucket)"]
+    CONS["precompute_consumer<br/>Lambda (image alias)"]
+  end
+
+  %% ----------- Reused worker logic (single source of truth) -----------
+  subgraph WORK["Worker logic (reused, no edits)"]
+    HSF["_handle_step_functions_mode<br/>in report_worker_handler.py"]
+    PS["PrecomputeService<br/>._store_completed_report"]
+  end
+
+  %% ----------- Data plane -----------
+  subgraph DATA["Data plane"]
+    AURORA["Aurora<br/>precomputed_reports table"]
+  end
+
+  %% ----------- Observability -----------
+  subgraph OBS["Observability (NEW alarms)"]
+    ALARM_DLQ["DLQ depth alarm<br/>≥ 1 message"]
+    ALARM_AGE["Oldest-message-age alarm<br/>&gt; 30 min"]
+  end
+
+  %% ----------- Edges -----------
+  EB -->|"5 AM trigger"| CTRL
+  CTRL -->|"start_execution"| MAP
+  MAP -->|"per ticker"| TASK
+  TASK -->|"sqs:sendMessage"| QUEUE
+  QUEUE -->|"long poll"| ESM
+  ESM -->|"invoke (max 5 concurrent)"| CONS
+  CONS -->|"reuses"| HSF
+  HSF -->|"yfinance fetch"| YH
+  HSF -->|"writes via"| PS
+  PS -->|"UPSERT"| AURORA
+  CONS -.->|"3rd redrive fail"| DLQ
+  DLQ -.->|"watches"| ALARM_DLQ
+  QUEUE -.->|"watches"| ALARM_AGE
+
+  %% ----------- Styles -----------
+  classDef new fill:#fff4cc,stroke:#b88500,stroke-width:2.5px,color:#000
+  classDef modified fill:#ffe4cc,stroke:#cc6600,stroke-width:2.5px,color:#000
+  classDef unchanged fill:#f0f0f0,stroke:#888,stroke-width:1px,color:#333
+  classDef external fill:#e8f0fe,stroke:#1a4ea3,stroke-width:1px,color:#000
+
+  class QUEUE,DLQ,ESM,CONS,ALARM_DLQ,ALARM_AGE new
+  class TASK modified
+  class EB,CTRL,MAP,HSF,PS,AURORA unchanged
+  class YH external
+
+  style THROTTLE fill:#fffbe6,stroke:#b88500,stroke-width:2px,stroke-dasharray:4 3
+  style OBS fill:#fffbe6,stroke:#b88500,stroke-width:1.5px,stroke-dasharray:4 3
+</pre>
+
+<div class="callout">
+  <strong>Read the diagram</strong> as: SFN keeps fanning out at full speed (46) — but instead of invoking workers directly, it just <em>enqueues</em>. The new SQS+ESM throttle is the throttle. The existing worker logic is reused unchanged inside a new wrapper Lambda. Aurora and Yahoo are both untouched in code; their <em>traffic shape</em> is what changes (smooth, paced, bounded — instead of bursty).
+</div>
+
+<h2>Inventory of changes</h2>
+
+<h3>NEW components <span class="pill pill-new">added</span></h3>
+
+<table>
+  <tr>
+    <th>Component</th>
+    <th>Type</th>
+    <th>Why new</th>
+    <th>File / declaration</th>
+  </tr>
+  <tr>
+    <td><code>precompute-tickers-dev</code></td>
+    <td>SQS queue</td>
+    <td>Buffer between SFN burst and paced consumer.</td>
+    <td><code>terraform/precompute_consumer.tf</code> via <code>module "precompute_queue"</code></td>
+  </tr>
+  <tr>
+    <td><code>precompute-tickers-dev-dlq</code></td>
+    <td>SQS DLQ</td>
+    <td>Failure visibility — failed tickers land here after 3 redrives instead of vanishing silently.</td>
+    <td>same module (DLQ is built-in to <code>terraform/modules/sqs-etl-queue/</code>)</td>
+  </tr>
+  <tr>
+    <td><code>precompute_consumer</code></td>
+    <td>Lambda</td>
+    <td>Reads SQS, calls existing worker logic. Same Docker image as report-worker, different command override.</td>
+    <td><code>terraform/precompute_consumer.tf</code> + <code>src/lambda_handlers/precompute_consumer_handler.py</code></td>
+  </tr>
+  <tr>
+    <td>Event Source Mapping</td>
+    <td>Lambda ESM</td>
+    <td>The <em>token bucket</em>. <code>maximum_concurrency=5</code> caps in-flight invocations regardless of queue depth.</td>
+    <td><code>terraform/precompute_consumer.tf</code> (mirrors <code>terraform/fund_data_sync.tf:143-159</code>)</td>
+  </tr>
+  <tr>
+    <td>IAM policy + role attachment</td>
+    <td>IAM</td>
+    <td>Lambda needs <code>sqs:ReceiveMessage</code>, <code>DeleteMessage</code>, <code>GetQueueAttributes</code>, <code>ChangeMessageVisibility</code> on queue + <code>sqs:SendMessage</code> on DLQ.</td>
+    <td><code>terraform/precompute_consumer.tf</code> (mirrors <code>terraform/fund_data_sync.tf:256-282</code>)</td>
+  </tr>
+  <tr>
+    <td>DLQ depth alarm</td>
+    <td>CloudWatch alarm</td>
+    <td>Page when any ticker fails all 3 retries.</td>
+    <td><code>terraform/precompute_consumer.tf</code></td>
+  </tr>
+  <tr>
+    <td>Oldest-message-age alarm</td>
+    <td>CloudWatch alarm</td>
+    <td>Page if pipeline stalls (consumer down, slow Yahoo) — caught at &gt; 30 min.</td>
+    <td><code>terraform/precompute_consumer.tf</code></td>
+  </tr>
+  <tr>
+    <td><code>precompute_consumer_handler.py</code></td>
+    <td>Python module</td>
+    <td>SQS-event wrapper. Loops records, returns <code>ReportBatchItemFailures</code>, delegates per-ticker work to the existing function.</td>
+    <td><code>src/lambda_handlers/precompute_consumer_handler.py</code></td>
+  </tr>
+</table>
+
+<h3>MODIFIED components <span class="pill pill-modified">edited</span></h3>
+
+<table>
+  <tr>
+    <th>Component</th>
+    <th>Change</th>
+    <th>File</th>
+  </tr>
+  <tr>
+    <td>SFN definition: <code>precompute_workflow</code></td>
+    <td>
+      Map iterator task swaps from <code>arn:aws:states:::lambda:invoke</code> (report-worker) to
+      <code>arn:aws:states:::sqs:sendMessage</code>. Map's <code>MaxConcurrency=46</code> stays — but the work it
+      drives is now O(1) (one enqueue), not O(seconds) (one report). The throttle moves <em>downstream</em>.
+    </td>
+    <td><code>terraform/step_functions/precompute_workflow.json</code></td>
+  </tr>
+  <tr>
+    <td>SFN module wiring</td>
+    <td>Pass <code>precompute_queue_url</code> into the templatefile call.</td>
+    <td><code>terraform/precompute_workflow.tf</code></td>
+  </tr>
+</table>
+
+<h3>UNCHANGED components in scope <span class="pill pill-unchanged">preserved</span></h3>
+
+<p>
+  Listed because they're inside the change's blast radius — but no code or config change. This is the deliberate
+  invariant: "single source of truth for ticker-processing logic" survives the refactor.
+</p>
+
+<ul>
+  <li><code>src/report_worker_handler.py:_handle_step_functions_mode</code> (lines 330–362) — imported and called by the new consumer.</li>
+  <li><code>src/data/aurora/precompute_service.py:_store_completed_report</code> (line 932) — Aurora write path is identical.</li>
+  <li><code>src/scheduler/precompute_controller_handler.py</code> — scheduler entry point, doesn't change.</li>
+  <li>EventBridge schedule — same cron, same target.</li>
+  <li>The shared Docker image / ECR — exact same artifact; consumer is a new <em>function</em>, not a new image.</li>
+  <li>Aurora <code>precomputed_reports</code> schema — no migration.</li>
+  <li>VPC, NAT Gateway, security groups — consumer joins the same SG as report-worker.</li>
+  <li>Existing <code>report-worker</code> Lambda — still used by <code>/report</code> bot path; this change only carves off the precompute traffic.</li>
+</ul>
+
+<h2>Why <code>maximum_concurrency = 5</code></h2>
+
+<p>
+  Of every value in the design, this is the <em>only</em> knob that differs from <code>fund_data_sync</code>'s
+  matching value (which is <code>10</code>). That fact is itself the proof the abstraction is correct:
+  everything else — TF module, handler shape, IAM, return contract, observability — transfers verbatim.
+</p>
+
+<table>
+  <tr>
+    <th>Instance</th>
+    <th>Bottleneck</th>
+    <th>Concurrency cap</th>
+  </tr>
+  <tr>
+    <td><code>fund_data_sync</code></td>
+    <td>Aurora write throughput (RDS Proxy connection pool ≈ 10)</td>
+    <td><code>10</code></td>
+  </tr>
+  <tr>
+    <td><code>precompute_consumer</code> (this design)</td>
+    <td>Yahoo Finance per-IP rate limit (NAT shared egress)</td>
+    <td><code>5</code></td>
+  </tr>
+</table>
+
+<p>
+  Throttle math: 56 tickers ÷ 5 concurrent ≈ 12 batches × ~30 s each ≈ <strong>~6 min</strong> total wall-clock,
+  same order as today's run — but ending at 56/56 cached instead of 42/56, because failures redrive instead of disappear.
+</p>
+
+<h2>The DRY decision (reuse-by-abstraction)</h2>
+
+<p>
+  Two levels of "DRY" were on the table — the design picks the looser coupling deliberately:
+</p>
+
+<table>
+  <tr>
+    <th>Option</th>
+    <th>What's shared</th>
+    <th>Coupling</th>
+    <th>Verdict</th>
+  </tr>
+  <tr>
+    <td>Reuse the <em>instance</em></td>
+    <td>One queue + one Lambda for both fund-sync and precompute</td>
+    <td>Tight. Throughput budgets collide. Blast radius merged. Different IAM needs forced into one role.</td>
+    <td>❌ Rejected.</td>
+  </tr>
+  <tr>
+    <td>Reuse the <em>abstraction</em> (this design)</td>
+    <td>TF module, handler-shape idiom, IAM template, alarm template</td>
+    <td>Loose. Domain-separated runtime. Knob differs (5 vs 10). Failure of one doesn't touch the other.</td>
+    <td>✅ Chosen.</td>
+  </tr>
+</table>
+
+<p>
+  Two concrete instances now exist. Per <em>Rule of Three</em>, the pattern hasn't yet earned promotion to a
+  named kernel principle, but a <code>.claude/patterns/throttled-pipeline.md</code> doc is on the table as an
+  optional artifact so the third instance can compose it without rediscovery.
+</p>
+
+<h2>Verification (Layer 1 → 4 per Principle #2)</h2>
+
+<table>
+  <tr><th>Layer</th><th>Check</th><th>Pass criterion</th></tr>
+  <tr>
+    <td>1 — Surface</td>
+    <td><code>terraform apply</code> exit code; SFN execution status</td>
+    <td><code>0</code> / <code>SUCCEEDED</code></td>
+  </tr>
+  <tr>
+    <td>2 — Content</td>
+    <td>Manual <code>aws sqs send-message</code> → consumer logs ticker → Aurora row appears</td>
+    <td>row present in <code>precomputed_reports</code></td>
+  </tr>
+  <tr>
+    <td>3 — Observability</td>
+    <td>CloudWatch logs <code>/aws/lambda/dr-daily-report-precompute-consumer-dev</code> show: start → ticker → Aurora write → 200</td>
+    <td>narrative complete; Yahoo throttles surface as retries, not silent drops</td>
+  </tr>
+  <tr>
+    <td><strong>4 — Ground truth</strong></td>
+    <td>Morning after deploy: <code>SELECT COUNT(*) FROM precomputed_reports WHERE report_date = CURDATE()</code></td>
+    <td><strong>56/56</strong>; DLQ empty; oldest-message-age never exceeded 30 min</td>
+  </tr>
+</table>
+
+<h2>Out-of-scope today (deliberate)</h2>
+
+<ul>
+  <li><strong>Single-writer daily price cache</strong> (option #3 in the solutions framework) — bigger fix; the pipeline being built here is the <em>substrate</em> for it later.</li>
+  <li><strong>Staging / prod rollout</strong> — defer until dev shows 56/56 for ≥ 3 mornings.</li>
+  <li><strong>Promotion to a kernel principle</strong> — wait for a third instance (Rule of Three).</li>
+</ul>
+
+<div class="footer">
+  Read order:
+  <a href="precompute_rate_limit_problem.html">problem brief</a> →
+  <a href="rate_limit_solutions.html">solutions framework (8 candidates)</a> →
+  <a href="rate_limit_solutions_design.html"><strong>this design</strong></a> ·
+  <a href="index.html">all architecture documents</a>
+</div>
+
+<script>
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'default',
+    securityLevel: 'loose',
+    flowchart: { htmlLabels: true, curve: 'basis', nodeSpacing: 30, rankSpacing: 50 }
+  });
+</script>
+
+</body>
+</html>

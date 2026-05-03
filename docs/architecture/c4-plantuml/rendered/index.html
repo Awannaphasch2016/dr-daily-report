@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Architecture documents — index</title>
+  <style>
+    :root {
+      --bg: #fafafa;
+      --fg: #1a1a1a;
+      --muted: #555;
+      --border: #ddd;
+      --accent: #b88500;
+      --accent-bg: #fff4cc;
+      --link: #1a4ea3;
+      --link-hover: #0a2e6f;
+    }
+    body {
+      margin: 0;
+      padding: 32px 40px 80px;
+      background: var(--bg);
+      color: var(--fg);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      line-height: 1.55;
+      max-width: 980px;
+    }
+    h1 { font-size: 26px; margin: 0 0 4px; }
+    .subtitle { color: var(--muted); font-size: 13px; margin: 0 0 28px; }
+    h2 { font-size: 16px; margin: 32px 0 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; font-weight: 600; }
+    .card {
+      display: block;
+      background: #fff;
+      border: 1px solid var(--border);
+      border-left: 4px solid var(--accent);
+      border-radius: 6px;
+      padding: 16px 20px;
+      margin: 12px 0;
+      text-decoration: none;
+      color: inherit;
+      transition: transform 0.08s ease, box-shadow 0.08s ease, border-color 0.08s ease;
+    }
+    .card:hover { transform: translateY(-1px); box-shadow: 0 2px 8px rgba(0,0,0,0.06); border-left-color: var(--link); }
+    .card .title { font-size: 16px; font-weight: 600; color: var(--link); margin: 0 0 4px; }
+    .card:hover .title { color: var(--link-hover); }
+    .card .file { font-family: "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace; font-size: 12px; color: var(--muted); }
+    .card .desc { font-size: 13px; margin: 6px 0 0; color: #333; }
+    .card .tags { margin-top: 8px; }
+    .tag { display: inline-block; padding: 1px 8px; font-size: 11px; border-radius: 10px; background: var(--accent-bg); color: var(--accent); border: 1px solid var(--accent); margin-right: 6px; }
+    .tag-external { background: #e8f0fe; color: #1a4ea3; border-color: #1a4ea3; }
+    .card-external { border-left-color: #1a4ea3; }
+    .ext-arrow { font-size: 14px; vertical-align: 1px; margin-left: 4px; color: #1a4ea3; }
+    .footer { margin-top: 40px; color: var(--muted); font-size: 12px; border-top: 1px solid var(--border); padding-top: 12px; }
+    .footer code { font-family: "JetBrains Mono", monospace; background: #f0f0f0; padding: 1px 5px; border-radius: 3px; font-size: 12px; }
+  </style>
+</head>
+<body>
+
+<h1>Architecture documents</h1>
+<p class="subtitle">Rendered pages under <code>docs/architecture/c4-plantuml/rendered/</code></p>
+
+<h2>dr-bot replica</h2>
+
+<a class="card" href="replica_explorer_dr-bot.html">
+  <div class="title">Replica explorer — dr-bot</div>
+  <div class="file">replica_explorer_dr-bot.html</div>
+  <p class="desc">
+    Multi-tab dashboard for the dr-bot replica: TF reconciliation state (Edge A / Edge B), Stage progress,
+    GORE goal/obstacle models, phenomenology view. Includes the PDF-generation GORE diagram added 2026-05-02.
+  </p>
+  <div class="tags">
+    <span class="tag">replica</span><span class="tag">GORE</span><span class="tag">multi-tab</span>
+  </div>
+</a>
+
+<h2>Precompute rate-limit problem</h2>
+
+<a class="card" href="precompute_rate_limit_problem.html">
+  <div class="title">Problem brief — some tickers don't produce precompute report</div>
+  <div class="file">precompute_rate_limit_problem.html</div>
+  <p class="desc">
+    Why dev's daily 5 AM precompute populates only 42 of 56 tickers while Step Functions reports SUCCEEDED.
+    Component diagram (dev-only, daily-precompute scope) plus sequence diagram with the Yahoo-Finance
+    rate-limit step highlighted as the failure point.
+  </p>
+  <div class="tags">
+    <span class="tag">problem brief</span><span class="tag">component</span><span class="tag">sequence</span>
+  </div>
+</a>
+
+<a class="card" href="rate_limit_solutions.html">
+  <div class="title">Solutions framework — 8 candidates in 3 zones</div>
+  <div class="file">rate_limit_solutions.html</div>
+  <p class="desc">
+    Mental framework for fixing the rate-limit problem: 3-zone reframe (Source / Pipe / Sink), where each
+    of 8 candidate fixes intervenes, and an effort-vs-effectiveness quadrant for prioritization.
+    Recommended path: combine a quick-win source-zone fix with a structural sink-zone cache.
+  </p>
+  <div class="tags">
+    <span class="tag">solutions</span><span class="tag">quadrant chart</span><span class="tag">framework</span>
+  </div>
+</a>
+
+<a class="card" href="rate_limit_solutions_design.html">
+  <div class="title">Chosen design — Throttled Pipeline (SQS + paced consumer)</div>
+  <div class="file">rate_limit_solutions_design.html</div>
+  <p class="desc">
+    Container diagram (C4-inspired) of the chosen solution. Shows every component touched by the change,
+    color-coded by category: NEW (queue, DLQ, consumer Lambda, ESM, alarms), MODIFIED (Step Functions Map task),
+    UNCHANGED in-scope (worker logic, Aurora, scheduler). Built as a second instance of the same pattern
+    already running in <code>fund_data_sync</code> — reuse-by-abstraction, not by instance.
+  </p>
+  <div class="tags">
+    <span class="tag">design</span><span class="tag">container diagram</span><span class="tag">throttled pipeline</span>
+  </div>
+</a>
+
+<h2>Live observability</h2>
+
+<a class="card card-external" href="https://g-4df4c51648.grafana-workspace.ap-southeast-1.amazonaws.com/dashboards" target="_blank" rel="noopener noreferrer">
+  <div class="title">Grafana workspace — dr-daily-report<span class="ext-arrow">↗</span></div>
+  <div class="file">g-4df4c51648.grafana-workspace.ap-southeast-1.amazonaws.com</div>
+  <p class="desc">
+    AWS Managed Grafana workspace in <code>ap-southeast-1</code>. Live dashboards for runtime telemetry —
+    Lambda invocations, Aurora health, scheduler runs, Step Functions executions, data freshness.
+    Use this to watch the system in real time; the static documents above describe the design and known issues.
+  </p>
+  <div class="tags">
+    <span class="tag tag-external">external</span><span class="tag">live</span><span class="tag">runtime telemetry</span>
+  </div>
+</a>
+
+<div class="footer">
+  Read order suggestion: <strong>Problem brief</strong> → <strong>Solutions framework</strong> for the
+  rate-limit story; <strong>Replica explorer</strong> standalone for replica reconciliation status;
+  <strong>Grafana</strong> for live runtime state.
+  Other rendered files in this directory not linked above:
+  <code>orphan_audit_2026-04-28.html</code>.
+</div>
+
+</body>
+</html>
