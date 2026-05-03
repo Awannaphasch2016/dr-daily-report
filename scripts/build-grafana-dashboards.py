@@ -7,11 +7,12 @@ Usage:
 Authentication: Uses AWS IAM credentials (via boto3) to self-provision a
 short-lived Grafana Service Account Token. No manual API key needed.
 
-Creates 4 dashboards:
+Creates 5 dashboards:
     1. Pipeline Health (CloudWatch + MySQL)
     2. Strategy Performance (MySQL)
     3. User Analytics (MySQL)
     4. Data Freshness (MySQL)
+    5. Daily Ticker Coverage (MySQL)
 
 Each dashboard gets a public snapshot URL viewable without login.
 """
@@ -107,8 +108,12 @@ def timeseries_panel(title, sql, x, y, w=12, h=8, unit=""):
     return panel
 
 
-def table_panel(title, sql, x, y, w=24, h=8):
-    """Create a table panel with MySQL query."""
+def table_panel(title, sql, x, y, w=24, h=8, overrides=None):
+    """Create a table panel with MySQL query.
+
+    `overrides` (optional) — list of Grafana field-override dicts, e.g. to
+    color a cell by value. Pass `None` (default) to keep the panel uncoloured.
+    """
     return {
         "id": _panel_id(),
         "type": "table",
@@ -116,7 +121,7 @@ def table_panel(title, sql, x, y, w=24, h=8):
         "gridPos": {"h": h, "w": w, "x": x, "y": y},
         "datasource": MYSQL_DS,
         "targets": [{"rawSql": sql, "format": "table", "refId": "A"}],
-        "fieldConfig": {"defaults": {}, "overrides": []},
+        "fieldConfig": {"defaults": {}, "overrides": overrides or []},
         "options": {"showHeader": True, "sortBy": []},
     }
 
@@ -218,6 +223,45 @@ def cloudwatch_timeseries(title, metric_name, namespace, stat, x, y, w=12, h=8,
         "targets": targets,
         "fieldConfig": {"defaults": {}, "overrides": []},
         "options": {"legend": {"displayMode": "list", "placement": "bottom"}},
+    }
+
+
+def state_timeline_panel(title, sql, x, y, w=24, h=4, thresholds=None):
+    """Create a state-timeline panel (calendar-row heatmap) with MySQL query.
+
+    SQL must return time-series format (time, metric, value). Cell color is
+    driven by `value` against `thresholds`. Useful for "row of cells per day"
+    coverage views where you want to spot good/bad days at a glance.
+    """
+    return {
+        "id": _panel_id(),
+        "type": "state-timeline",
+        "title": title,
+        "gridPos": {"h": h, "w": w, "x": x, "y": y},
+        "datasource": MYSQL_DS,
+        "targets": [{"rawSql": sql, "format": "time_series", "refId": "A"}],
+        "options": {
+            "showValue": "auto",
+            "alignValue": "center",
+            "rowHeight": 0.9,
+            "mergeValues": False,
+            "legend": {"displayMode": "list", "placement": "bottom"},
+        },
+        "fieldConfig": {
+            "defaults": {
+                "custom": {"lineWidth": 0, "fillOpacity": 80},
+                "color": {"mode": "thresholds"},
+                "thresholds": {
+                    "mode": "absolute",
+                    "steps": thresholds or [
+                        {"color": "red", "value": None},
+                        {"color": "yellow", "value": 100},
+                        {"color": "green", "value": 250},
+                    ],
+                },
+            },
+            "overrides": [],
+        },
     }
 
 
@@ -979,6 +1023,122 @@ def build_data_freshness_dashboard():
 
 
 # ---------------------------------------------------------------------------
+# Dashboard 5: Daily Ticker Coverage
+# ---------------------------------------------------------------------------
+def build_daily_ticker_coverage_dashboard():
+    """Visual-first 'did the scheduled precompute produce all tickers today?' view.
+
+    Sister to Dashboard 4 (Data Freshness): same underlying tables but framed
+    as 'show me the days and the missing tickers' rather than '5-layer pipeline
+    health'. Three panels stacked: calendar row, daily bar, per-ticker table.
+    """
+    _reset_panel_id()
+    panels = []
+
+    # === Calendar row: tickers cached per day ===
+    panels.append(row_panel("Coverage Calendar", 0))
+    panels.append(state_timeline_panel(
+        "Tickers Generated per Day",
+        """SELECT
+            pr.report_date AS time,
+            'tickers' AS metric,
+            COUNT(DISTINCT pr.symbol) AS value
+        FROM precomputed_reports pr
+        WHERE pr.status = 'completed'
+          AND $__timeFilter(pr.report_date)
+        GROUP BY pr.report_date
+        ORDER BY pr.report_date""",
+        x=0, y=1, w=24, h=4,
+        thresholds=[
+            {"color": "red", "value": None},
+            {"color": "yellow", "value": 30},
+            {"color": "green", "value": 45},
+        ],
+    ))
+
+    # === Daily count bar chart ===
+    panels.append(row_panel("Daily Count", 5))
+    panels.append(barchart_panel(
+        "Tickers Cached per Day",
+        """SELECT
+            DATE_FORMAT(pr.report_date, '%Y-%m-%d') AS day,
+            COUNT(DISTINCT pr.symbol) AS tickers
+        FROM precomputed_reports pr
+        WHERE pr.status = 'completed'
+          AND $__timeFilter(pr.report_date)
+        GROUP BY pr.report_date
+        ORDER BY pr.report_date""",
+        x=0, y=6, w=24, h=8,
+    ))
+
+    # === Per-ticker status table for the latest completed day ===
+    panels.append(row_panel("Per-Ticker Status (latest completed day)", 14))
+    panels.append(table_panel(
+        "Coverage by Country / Exchange / Ticker",
+        """SELECT
+            CASE
+                WHEN tm.exchange IN ('NASDAQ', 'NYSE', 'AMEX') THEN 'US'
+                WHEN tm.exchange IN ('SET', 'MAI') THEN 'Thailand'
+                WHEN tm.exchange IN ('HKEX', 'HKG') THEN 'Hong Kong'
+                WHEN tm.exchange = 'SGX' THEN 'Singapore'
+                WHEN tm.exchange IN ('TSE', 'OSE') THEN 'Japan'
+                WHEN tm.exchange IN ('HOSE', 'HNX') THEN 'Vietnam'
+                WHEN tm.exchange = 'TWSE' THEN 'Taiwan'
+                WHEN tm.exchange = 'KRX' THEN 'Korea'
+                WHEN tm.exchange = 'BSE' THEN 'India'
+                ELSE 'Other'
+            END AS Country,
+            COALESCE(tm.exchange, 'Unknown') AS Exchange,
+            ta.symbol AS Ticker,
+            tm.company_name AS Company,
+            CASE WHEN pr.id IS NOT NULL THEN 'cached' ELSE 'missing' END AS Status,
+            pr.computed_at AS LastGenerated
+        FROM ticker_master tm
+        JOIN ticker_aliases ta ON tm.id = ta.ticker_id AND ta.symbol_type = 'yahoo'
+        LEFT JOIN precomputed_reports pr
+            ON ta.symbol = pr.symbol
+            AND pr.report_date = (
+                SELECT MAX(report_date) FROM precomputed_reports WHERE status = 'completed'
+            )
+            AND pr.status = 'completed'
+        WHERE tm.is_active = 1
+        ORDER BY Country, Exchange, ta.symbol""",
+        x=0, y=15, w=24, h=16,
+        overrides=[{
+            "matcher": {"id": "byName", "options": "Status"},
+            "properties": [
+                {
+                    "id": "custom.cellOptions",
+                    "value": {"type": "color-background", "mode": "basic"},
+                },
+                {
+                    "id": "mappings",
+                    "value": [
+                        {
+                            "type": "value",
+                            "options": {
+                                "cached":  {"color": "green", "index": 0},
+                                "missing": {"color": "red",   "index": 1},
+                            },
+                        },
+                    ],
+                },
+            ],
+        }],
+    ))
+
+    return {
+        "uid": "daily-ticker-coverage",
+        "title": "Daily Ticker Coverage",
+        "panels": panels,
+        "time": {"from": "now-30d", "to": "now"},
+        "refresh": "5m",
+        "schemaVersion": 39,
+        "templating": {"list": _env_template_variables()},
+    }
+
+
+# ---------------------------------------------------------------------------
 # API helpers
 # ---------------------------------------------------------------------------
 def push_dashboard(dashboard_def):
@@ -1161,6 +1321,7 @@ def main():
         build_strategy_performance_dashboard,
         build_user_analytics_dashboard,
         build_data_freshness_dashboard,
+        build_daily_ticker_coverage_dashboard,
     ]
 
     results = []
