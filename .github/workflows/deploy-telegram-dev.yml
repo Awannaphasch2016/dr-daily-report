@@ -30,6 +30,10 @@ on:
       - 'requirements*.txt'
       - 'terraform/telegram*.tf'
       - 'terraform/modules/telegram-api/**'
+      # Throttled-pipeline / precompute-consumer (shares image with report_worker)
+      - 'src/lambda_handlers/**'
+      - 'terraform/precompute_*.tf'
+      - 'terraform/step_functions/precompute_workflow.json'
       - '.github/workflows/deploy-telegram-dev.yml'
       # Explicitly EXCLUDE LINE bot paths
       - '!line_bot/**'
@@ -330,6 +334,7 @@ jobs:
       ENV_NAME: dev
       TELEGRAM_FUNCTION: dr-daily-report-telegram-api-dev
       WORKER_FUNCTION: dr-daily-report-report-worker-dev
+      PRECOMPUTE_CONSUMER_FUNCTION: dr-daily-report-precompute-consumer-dev
 
     steps:
       - name: Configure AWS credentials
@@ -385,6 +390,16 @@ jobs:
             --image-uri ${{ needs.build.outputs.image_uri }}
           aws lambda wait function-updated --function-name ${{ env.WORKER_FUNCTION }}
           echo "✅ Worker code uploaded to \$LATEST"
+
+      # Precompute consumer is unversioned (SQS reads from $LATEST directly,
+      # no live alias, no LANGFUSE_RELEASE plumbing yet). Single update step.
+      - name: Update Precompute Consumer to $LATEST
+        run: |
+          aws lambda update-function-code \
+            --function-name ${{ env.PRECOMPUTE_CONSUMER_FUNCTION }} \
+            --image-uri ${{ needs.build.outputs.image_uri }}
+          aws lambda wait function-updated --function-name ${{ env.PRECOMPUTE_CONSUMER_FUNCTION }}
+          echo "✅ Precompute Consumer code uploaded to \$LATEST"
 
       # Scheduler deployment removed - now has dedicated workflow (deploy-scheduler-*.yml)
 
