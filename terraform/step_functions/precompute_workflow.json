@@ -40,7 +40,7 @@
                 "States": {
                   "RouteReportWorker": {
                     "Type": "Choice",
-                    "Comment": "Route between split pipeline and legacy report_worker",
+                    "Comment": "Route between split pipeline and throttled-pipeline enqueue (legacy report_worker Lambda invoke replaced by SQS sendMessage 2026-05-03)",
                     "Choices": [
                       {
                         "Variable": "$.use_pipeline",
@@ -48,7 +48,7 @@
                         "Next": "PreparePipelineInput"
                       }
                     ],
-                    "Default": "InvokeReportWorker"
+                    "Default": "EnqueueTickerToSQS"
                   },
                   "PreparePipelineInput": {
                     "Type": "Pass",
@@ -93,22 +93,19 @@
                     ],
                     "Next": "CheckWorkerSuccess"
                   },
-                  "InvokeReportWorker": {
+                  "EnqueueTickerToSQS": {
                     "Type": "Task",
-                    "Resource": "arn:aws:states:::lambda:invoke",
-                    "Comment": "Legacy monolithic report worker",
+                    "Resource": "arn:aws:states:::sqs:sendMessage",
+                    "Comment": "Throttled-pipeline enqueue: SFN fans out fast (46 parallel sendMessages), the precompute_consumer Lambda's ESM controls actual ticker-processing concurrency (max 5 against Yahoo). SUCCEEDED here means 'enqueued', not 'processed' — verify Aurora row count for ground truth",
                     "Parameters": {
-                      "FunctionName": "${report_worker_function_arn}",
-                      "Payload": {
+                      "QueueUrl": "${precompute_queue_url}",
+                      "MessageBody": {
                         "ticker.$": "$.ticker",
                         "execution_id.$": "$.execution_id",
                         "source": "step_functions_precompute"
                       }
                     },
-                    "ResultPath": "$.worker_result",
-                    "ResultSelector": {
-                      "Payload.$": "$.Payload"
-                    },
+                    "ResultPath": "$.enqueue_result",
                     "Retry": [
                       {
                         "ErrorEquals": ["States.ALL"],
@@ -124,7 +121,7 @@
                         "Next": "HandleWorkerError"
                       }
                     ],
-                    "Next": "CheckWorkerSuccess"
+                    "End": true
                   },
                   "CheckWorkerSuccess": {
                     "Type": "Choice",

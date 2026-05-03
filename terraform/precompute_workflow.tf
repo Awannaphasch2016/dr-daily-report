@@ -94,17 +94,19 @@ locals {
 # Read state machine definition template and substitute variables
 locals {
   precompute_workflow_definition = templatefile("${path.module}/step_functions/precompute_workflow.json", {
-    region                          = var.aws_region
-    account_id                      = data.aws_caller_identity.current.account_id
-    get_ticker_list_function_name   = aws_lambda_function.get_ticker_list.function_name
-    report_worker_function_arn      = aws_lambda_function.report_worker.arn
+    region                        = var.aws_region
+    account_id                    = data.aws_caller_identity.current.account_id
+    get_ticker_list_function_name = aws_lambda_function.get_ticker_list.function_name
+    report_worker_function_arn    = aws_lambda_function.report_worker.arn # No longer referenced in JSON (EnqueueTickerToSQS replaced InvokeReportWorker 2026-05-03); kept for rollback
+    # Throttled-pipeline queue (EnqueueTickerToSQS task) — see terraform/precompute_consumer.tf
+    precompute_queue_url = module.precompute_queue.queue_url
     # Construct ARNs from known values to avoid circular dependency
     pattern_precompute_function_arn  = "arn:aws:lambda:${var.aws_region}:${data.aws_caller_identity.current.account_id}:function:${local.pattern_precompute_function_name}"
     backtest_precompute_function_arn = "arn:aws:lambda:${var.aws_region}:${data.aws_caller_identity.current.account_id}:function:${local.backtest_precompute_function_name}"
     static_api_function_arn          = var.static_api_enabled ? "arn:aws:lambda:${var.aws_region}:${data.aws_caller_identity.current.account_id}:function:${local.static_api_function_name}" : ""
     # Split pipeline ARN (empty string if disabled)
-    report_pipeline_arn              = var.use_report_pipeline ? aws_sfn_state_machine.report_pipeline[0].arn : ""
-    use_report_pipeline              = var.use_report_pipeline
+    report_pipeline_arn = var.use_report_pipeline ? aws_sfn_state_machine.report_pipeline[0].arn : ""
+    use_report_pipeline = var.use_report_pipeline
   })
 }
 
@@ -171,12 +173,12 @@ resource "aws_lambda_function" "precompute_controller" {
 
   environment {
     variables = {
-      ENVIRONMENT                    = var.environment
-      LOG_LEVEL                      = "INFO"
-      PRECOMPUTE_STATE_MACHINE_ARN  = aws_sfn_state_machine.precompute_workflow.arn
+      ENVIRONMENT                  = var.environment
+      LOG_LEVEL                    = "INFO"
+      PRECOMPUTE_STATE_MACHINE_ARN = aws_sfn_state_machine.precompute_workflow.arn
 
       # Timezone (Principle #16: Timezone Discipline)
-      TZ                             = "Asia/Bangkok"
+      TZ = "Asia/Bangkok"
 
       # Note: AWS_REGION is automatically provided by Lambda, cannot be set manually
     }
@@ -249,13 +251,13 @@ resource "aws_lambda_function" "get_ticker_list" {
 
   environment {
     variables = {
-      ENVIRONMENT      = var.environment
-      LOG_LEVEL        = "INFO"
-      AURORA_HOST      = local.aurora_connection_endpoint
-      AURORA_PORT      = "3306"
-      AURORA_DATABASE  = var.aurora_database_name
-      AURORA_USER      = var.aurora_master_username
-      AURORA_PASSWORD  = var.AURORA_MASTER_PASSWORD
+      ENVIRONMENT     = var.environment
+      LOG_LEVEL       = "INFO"
+      AURORA_HOST     = local.aurora_connection_endpoint
+      AURORA_PORT     = "3306"
+      AURORA_DATABASE = var.aurora_database_name
+      AURORA_USER     = var.aurora_master_username
+      AURORA_PASSWORD = var.AURORA_MASTER_PASSWORD
     }
   }
 
