@@ -1,5 +1,6 @@
 ###############################################################################
 # Slack Bot Lambda — TICKER message → cached Aurora report reply
+#                  + OAuth v2 install callback (multi-tenant install path)
 ###############################################################################
 # Mirrors aws_lambda_function.line_bot (terraform/main.tf:234-297).
 # Reuses:
@@ -7,9 +8,18 @@
 #   - same lambda_aurora SG and NAT-routable private subnets (Aurora + Slack API egress)
 #   - same IAM execution role (read-only Aurora client; no SQS / state machine writes)
 #
+# One Lambda + one Function URL serves two paths:
+#   - POST /  (or /slack/events)            → events webhook (handle_webhook)
+#   - GET  /slack/oauth/callback            → OAuth install (handle_oauth_callback)
+# Path dispatch happens inside src.slack_handler.lambda_handler.
+#
 # Doppler dev secrets required (TF_VAR_-prefixed):
-#   - TF_VAR_SLACK_BOT_TOKEN          (xoxb-…)
-#   - TF_VAR_SLACK_SIGNING_SECRET     (32 hex chars)
+#   - TF_VAR_SLACK_BOT_TOKEN          (xoxb-…)              ← events path
+#   - TF_VAR_SLACK_SIGNING_SECRET     (32 hex chars)         ← both paths
+#   - TF_VAR_SLACK_CLIENT_ID                                  ← OAuth path
+#   - TF_VAR_SLACK_CLIENT_SECRET                              ← OAuth path
+#   - TF_VAR_SLACK_REDIRECT_URI       must match the URL registered
+#                                     in api.slack.com/apps → OAuth & Permissions
 ###############################################################################
 
 resource "aws_lambda_function" "slack_bot" {
@@ -33,9 +43,15 @@ resource "aws_lambda_function" "slack_bot" {
 
   environment {
     variables = {
-      # Slack credentials
+      # Slack credentials — events path
       SLACK_BOT_TOKEN      = var.SLACK_BOT_TOKEN
       SLACK_SIGNING_SECRET = var.SLACK_SIGNING_SECRET
+
+      # Slack credentials — OAuth install path
+      SLACK_CLIENT_ID       = var.SLACK_CLIENT_ID
+      SLACK_CLIENT_SECRET   = var.SLACK_CLIENT_SECRET
+      SLACK_REDIRECT_URI    = var.SLACK_REDIRECT_URI
+      SLACK_INSTALL_PERSIST = var.SLACK_INSTALL_PERSIST
 
       # OpenRouter — imported by shared modules at module load (TickerAnalysisAgent)
       OPENROUTER_API_KEY = var.OPENROUTER_API_KEY
@@ -70,10 +86,12 @@ resource "aws_lambda_function" "slack_bot" {
 }
 
 ###############################################################################
-# Lambda Function URL for Slack Events API webhook
+# Lambda Function URL for Slack Events API webhook + OAuth install callback
 ###############################################################################
-# Auth NONE — request validation is done in-handler via SLACK_SIGNING_SECRET
-# (HMAC v0= over `v0:{ts}:{raw_body}`, 5-min replay window).
+# Auth NONE — request validation is done in-handler:
+#   - Events (POST):  SLACK_SIGNING_SECRET HMAC v0= verification, 5-min replay window
+#   - OAuth  (GET):   HMAC-signed `state` nonce + Slack-issued one-time `code`
+# CORS allows POST (events) and GET (OAuth redirect from slack.com).
 ###############################################################################
 
 resource "aws_lambda_function_url" "slack_webhook" {
@@ -82,7 +100,7 @@ resource "aws_lambda_function_url" "slack_webhook" {
 
   cors {
     allow_origins = ["*"]
-    allow_methods = ["POST"]
+    allow_methods = ["POST", "GET"]
     allow_headers = ["*"]
   }
 

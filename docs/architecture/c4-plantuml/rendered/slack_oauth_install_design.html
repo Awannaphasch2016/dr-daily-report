@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Slack OAuth install design — class + sequence</title>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+  <style>
+    :root {
+      --bg: #fafafa;
+      --fg: #1a1a1a;
+      --muted: #555;
+      --border: #ddd;
+      --new: #b88500;
+      --new-bg: #fff4cc;
+      --modified: #cc6600;
+      --modified-bg: #ffe4cc;
+      --unchanged: #888;
+      --unchanged-bg: #f0f0f0;
+      --external: #1a4ea3;
+      --external-bg: #e8f0fe;
+      --link: #1a4ea3;
+      --link-hover: #0a2e6f;
+    }
+    body {
+      margin: 0;
+      padding: 32px 40px 80px;
+      background: var(--bg);
+      color: var(--fg);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      line-height: 1.55;
+      max-width: 1100px;
+    }
+    h1 { font-size: 26px; margin: 0 0 4px; }
+    .subtitle { color: var(--muted); font-size: 13px; margin: 0 0 28px; }
+    .subtitle a { color: var(--link); }
+    h2 { font-size: 18px; margin: 32px 0 12px; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+    h3 { font-size: 15px; margin: 20px 0 8px; color: var(--muted); }
+    p { margin: 8px 0; }
+    code { font-family: "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace; font-size: 12.5px; background: #f0f0f0; padding: 1px 5px; border-radius: 3px; }
+    pre.mermaid {
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 16px;
+      margin: 12px 0 8px;
+      overflow-x: auto;
+    }
+    .legend {
+      display: flex;
+      gap: 14px;
+      flex-wrap: wrap;
+      margin: 6px 0 18px;
+      font-size: 12.5px;
+    }
+    .legend-item {
+      display: inline-block;
+      padding: 2px 10px;
+      border-radius: 3px;
+      border: 1px solid;
+      font-weight: 500;
+    }
+    .legend-new { background: var(--new-bg); color: var(--new); border-color: var(--new); }
+    .legend-modified { background: var(--modified-bg); color: var(--modified); border-color: var(--modified); }
+    .legend-unchanged { background: var(--unchanged-bg); color: var(--unchanged); border-color: var(--unchanged); }
+    .legend-external { background: var(--external-bg); color: var(--external); border-color: var(--external); }
+
+    table { border-collapse: collapse; width: 100%; margin: 8px 0 16px; font-size: 13px; }
+    th, td { border: 1px solid var(--border); padding: 8px 10px; text-align: left; vertical-align: top; }
+    th { background: #f5f5f5; font-weight: 600; }
+    td code { font-size: 12px; }
+    .pill { display: inline-block; padding: 1px 7px; font-size: 11px; border-radius: 10px; font-weight: 600; }
+    .pill-new { background: var(--new-bg); color: var(--new); border: 1px solid var(--new); }
+    .pill-modified { background: var(--modified-bg); color: var(--modified); border: 1px solid var(--modified); }
+    .pill-unchanged { background: var(--unchanged-bg); color: var(--unchanged); border: 1px solid var(--unchanged); }
+
+    .callout {
+      background: #fff;
+      border-left: 4px solid var(--new);
+      padding: 12px 16px;
+      margin: 12px 0;
+      border-radius: 0 4px 4px 0;
+      font-size: 13.5px;
+    }
+    .callout strong { color: var(--new); }
+
+    .footer { margin-top: 40px; color: var(--muted); font-size: 12px; border-top: 1px solid var(--border); padding-top: 12px; }
+    .footer a { color: var(--link); }
+  </style>
+</head>
+<body>
+
+<h1>Slack OAuth install design — class &amp; sequence</h1>
+<p class="subtitle">
+  Static design for adding a one-click "Add to Slack" install flow, co-located inside the existing
+  <code>slack_handler</code> Lambda via path dispatch. Companion to the implementation plan at
+  <code>~/.claude/plans/misty-snuggling-panda.md</code> and the option-space exploration at
+  <code>.claude/research/2026-05-04-slack-oauth-callback-url.md</code>.
+</p>
+
+<h2>Goal</h2>
+
+<p>
+  Today: single-tenant. One <code>SLACK_BOT_TOKEN</code> in Doppler, hard-bound to one workspace.<br/>
+  Goal: any workspace admin can click "Add to Slack" and have their workspace's <code>bot_token</code>
+  delivered straight from Slack to our backend (via OAuth v2), persisted, and ready to use — without
+  the admin ever copy-pasting a token.
+</p>
+
+<p>
+  Scope of <em>this</em> design is the <strong>install (write) path only</strong>: acquire and store
+  the per-workspace <code>bot_token</code>. The read-path refactor (making the <code>app_mention</code>
+  handler look up the token by <code>team_id</code> instead of reading the env var) is an explicit
+  follow-up; until it lands, the existing single-tenant event handler keeps running unchanged.
+</p>
+
+<div class="legend">
+  <span class="legend-item legend-new">NEW (added by this design)</span>
+  <span class="legend-item legend-modified">MODIFIED</span>
+  <span class="legend-item legend-unchanged">UNCHANGED (reused as-is)</span>
+  <span class="legend-item legend-external">EXTERNAL</span>
+</div>
+
+<h2>Class diagram (modules + responsibilities)</h2>
+
+<p>
+  Python modules and the Aurora table they touch. Internal helpers prefixed with <code>_</code>.
+  Module boundaries kept narrow on purpose — <code>slack_oauth.py</code> never imports the events
+  module and vice versa; their only shared seam is the new <code>slack_installations_repository</code>
+  (and <code>slack_oauth</code> is the only writer of it in this scope).
+</p>
+
+<pre class="mermaid">
+classDiagram
+    direction TB
+
+    class LambdaHandler {
+        &lt;&lt;src/slack_handler.py&gt;&gt;
+        +lambda_handler(event, context) dict
+        -route_by_path(method, path) callable
+    }
+
+    class SlackOAuth {
+        &lt;&lt;src/integrations/slack_oauth.py NEW&gt;&gt;
+        -CLIENT_ID : str
+        -CLIENT_SECRET : str
+        -SIGNING_SECRET : bytes
+        -REDIRECT_URI : str
+        -STATE_MAX_AGE_SECONDS : int = 600
+        +handle_oauth_callback(event) dict
+        -_verify_state(state) bool
+        -_exchange_code(code) dict
+        -_html_ok(message) dict
+        -_html_error(status, message) dict
+    }
+
+    class SlackInstallationsRepository {
+        &lt;&lt;src/data/aurora/slack_installations_repository.py NEW&gt;&gt;
+        +upsert_installation(team_id, team_name, bot_token, bot_user_id, scope) None
+        +get_token_by_team_id(team_id) Optional~str~
+    }
+
+    class AuroraClient {
+        &lt;&lt;src/data/aurora/client.py reused&gt;&gt;
+        +get_aurora_client() AuroraClient
+        +connection() ContextManager
+    }
+
+    class TableNames {
+        &lt;&lt;src/data/aurora/table_names.py modified&gt;&gt;
+        +SLACK_INSTALLATIONS : str = slack_installations
+    }
+
+    class SlackBot {
+        &lt;&lt;src/integrations/slack_bot.py unchanged&gt;&gt;
+        -bot_token : str
+        -signing_secret : str
+        +verify_signature(ts, body, sig) bool
+        +post_message(channel, text) bool
+        +handle_event_callback(body) None
+    }
+
+    class SlackOAuthAPI {
+        &lt;&lt;external: slack.com/api/oauth.v2.access&gt;&gt;
+        +POST(client_id, client_secret, code, redirect_uri) AccessResponse
+    }
+
+    class SlackInstallationsTable {
+        &lt;&lt;Aurora MySQL table NEW&gt;&gt;
+        +team_id : VARCHAR(50) PK
+        +team_name : VARCHAR(255)
+        +bot_token : VARCHAR(255)
+        +bot_user_id : VARCHAR(50)
+        +scope : TEXT
+        +installed_at : TIMESTAMP
+        +updated_at : TIMESTAMP
+    }
+
+    LambdaHandler --&gt; SlackOAuth : routes GET /slack/oauth/callback
+    LambdaHandler --&gt; SlackBot : routes POST / (or /slack/events)
+    SlackOAuth ..&gt; SlackOAuthAPI : POST oauth.v2.access
+    SlackOAuth --&gt; SlackInstallationsRepository : upsert_installation()
+    SlackInstallationsRepository --&gt; AuroraClient : get_aurora_client()
+    SlackInstallationsRepository ..&gt; TableNames : SLACK_INSTALLATIONS
+    SlackInstallationsRepository ..&gt; SlackInstallationsTable : INSERT ... ON DUPLICATE KEY UPDATE
+    SlackBot ..&gt; SlackInstallationsRepository : (NOT YET — read-path follow-up)
+</pre>
+
+<div class="callout">
+  <strong>What to take from the class view.</strong> Three new modules
+  (<span class="pill pill-new">NEW</span> <code>slack_oauth.py</code>,
+  <span class="pill pill-new">NEW</span> <code>slack_installations_repository.py</code>,
+  <span class="pill pill-new">NEW</span> <code>slack_installations</code> table)
+  plus one tiny edit to <span class="pill pill-modified">MODIFIED</span> <code>slack_handler.py</code>
+  (path dispatch ~10 lines) and <span class="pill pill-modified">MODIFIED</span>
+  <code>table_names.py</code> (one constant). Existing <code>slack_bot.py</code> and
+  <code>aurora/client.py</code> are <span class="pill pill-unchanged">UNCHANGED</span>.
+  The dotted edge from <code>SlackBot</code> to the repository is what the follow-up spec
+  will wire up — calling out the gap explicitly so the architecture diagram doesn't lie.
+</div>
+
+<h3>Module responsibilities at a glance</h3>
+
+<table>
+  <thead>
+    <tr><th>Module</th><th>Status</th><th>Single responsibility</th><th>Key invariants</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>slack_handler.py</code></td>
+      <td><span class="pill pill-modified">MODIFIED</span></td>
+      <td>HTTP-method &amp; path dispatch only. Lazy-imports concrete handlers.</td>
+      <td>Returns 404 for unknown paths. Events-path env-var check stays scoped to the events branch.</td>
+    </tr>
+    <tr>
+      <td><code>slack_oauth.py</code></td>
+      <td><span class="pill pill-new">NEW</span></td>
+      <td>Validate <code>state</code>, exchange <code>code</code>, persist install.</td>
+      <td>No events logic ever crosses this boundary. Token never logged. State HMAC verifies origin.</td>
+    </tr>
+    <tr>
+      <td><code>slack_installations_repository.py</code></td>
+      <td><span class="pill pill-new">NEW</span></td>
+      <td>UPSERT and lookup by <code>team_id</code>.</td>
+      <td>Idempotent on re-install (<code>ON DUPLICATE KEY UPDATE</code>). No business logic.</td>
+    </tr>
+    <tr>
+      <td><code>slack_bot.py</code></td>
+      <td><span class="pill pill-unchanged">UNCHANGED</span></td>
+      <td>Single-tenant event dispatch + Slack API calls.</td>
+      <td>Still reads <code>SLACK_BOT_TOKEN</code> env var. Will become tenant-aware in follow-up.</td>
+    </tr>
+    <tr>
+      <td><code>aurora/client.py</code></td>
+      <td><span class="pill pill-unchanged">UNCHANGED</span></td>
+      <td>Shared pymysql connection pool.</td>
+      <td>Reused exactly as <code>user_repository.py</code> uses it.</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Sequence diagram (end-to-end install)</h2>
+
+<p>
+  One full happy-path install for "Beta LLC" workspace, plus inline branches for the two reject paths
+  (state-validation failure and Slack token-exchange failure). Note where workspace identity enters
+  the picture: at step 2, when the admin picks their workspace inside Slack's UI — never as a URL
+  parameter from us.
+</p>
+
+<pre class="mermaid">
+sequenceDiagram
+    autonumber
+    participant U as Workspace admin<br/>(browser)
+    participant SK as Slack<br/>(slack.com)
+    participant FU as Lambda Function URL<br/>(existing slack_webhook)
+    participant LH as slack_handler.lambda_handler
+    participant OH as slack_oauth.<br/>handle_oauth_callback
+    participant API as Slack OAuth API<br/>oauth.v2.access
+    participant R as SlackInstallations<br/>Repository
+    participant DB as Aurora<br/>slack_installations
+
+    Note over U: Click "Add to Slack" on landing page<br/>(URL pre-built with our client_id, scopes,<br/>HMAC-signed state, redirect_uri)
+
+    U->>SK: GET /oauth/v2/authorize?client_id&amp;scope&amp;state&amp;redirect_uri
+    rect rgb(255,235,204)
+    Note over U,SK: Workspace identity ENTERS HERE<br/>(step 2: admin picks workspace in Slack UI)
+    SK-->>U: Login + workspace picker + consent screen
+    U->>SK: Click "Allow" (workspace = Beta LLC selected)
+    end
+
+    SK-->>U: 302 Location: redirect_uri?code=ABCD&amp;state=signed-ts
+    U->>FU: GET /slack/oauth/callback?code=ABCD&amp;state=signed-ts
+
+    FU->>LH: invoke (Function URL event)
+    LH->>LH: route_by_path(GET, /slack/oauth/callback)
+    LH->>OH: handle_oauth_callback(event)
+
+    OH->>OH: _verify_state(signed-ts)
+    alt state missing / tampered / older than 10 min
+        OH-->>LH: {statusCode: 400, body: HTML "Invalid install request"}
+        LH-->>FU: 400
+        FU-->>U: 400 page
+    end
+
+    OH->>API: POST oauth.v2.access<br/>{client_id, client_secret, code, redirect_uri}
+    API-->>OH: {ok: true, access_token: xoxb-BETA, team:{id:T0BETA, name:Beta LLC},<br/>bot_user_id, scope}
+
+    alt response.ok == false
+        OH-->>LH: {statusCode: 502, body: HTML "Slack rejected the install"}
+        LH-->>FU: 502
+        FU-->>U: 502 page
+    end
+
+    OH->>R: upsert_installation(T0BETA, "Beta LLC", xoxb-BETA, U0BOT, "app_mentions:read,chat:write")
+    R->>DB: INSERT INTO slack_installations(...)<br/>ON DUPLICATE KEY UPDATE bot_token=VALUES(bot_token), ...
+    DB-->>R: rowcount = 1 (new install) or 2 (re-install update)
+    R-->>OH: None
+
+    OH-->>LH: {statusCode: 200, headers: text/html,<br/>body: "Installed in Beta LLC. Close this tab."}
+    LH-->>FU: 200
+    FU-->>U: HTML success page
+
+    rect rgb(220,240,220)
+    Note over DB: Ground truth: row exists keyed by team_id=T0BETA<br/>bot_token persisted, ready for future event lookups<br/>(consumed by follow-up read-path refactor)
+    end
+</pre>
+
+<div class="callout">
+  <strong>Where workspace identity enters.</strong> Step 2 inside the orange box. Slack's web UI is
+  where the admin picks the workspace; the choice rides as internal Slack state keyed by the
+  one-time <code>code</code>. Our backend learns <code>team_id</code> only at step 14, when it
+  exchanges the code via <code>oauth.v2.access</code>. No URL the user clicks contains a
+  <code>team_id</code> parameter — and intentionally so: a URL parameter would be forgeable,
+  whereas the <code>code</code> is unforgeable because only Slack can mint it.
+</div>
+
+<h2>Verification (multi-layer)</h2>
+
+<p>
+  Following Tier-0 Principle #2 (Progressive Evidence): never stop at status code; verify ground truth.
+</p>
+
+<table>
+  <thead>
+    <tr><th>Layer</th><th>What to check</th><th>How</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>L4 Config</td>
+      <td><code>SLACK_CLIENT_ID</code>, <code>SLACK_CLIENT_SECRET</code>, <code>SLACK_REDIRECT_URI</code>, <code>SLACK_SIGNING_SECRET</code> all present in Lambda env</td>
+      <td><code>doppler secrets list</code> + <code>aws lambda get-function-configuration --function-name dr-daily-report-slack-bot-dev</code></td>
+    </tr>
+    <tr>
+      <td>L3 Infra</td>
+      <td>Function URL CORS now allows GET; Slack app config lists the redirect URL</td>
+      <td><code>aws lambda get-function-url-config</code> + Slack admin UI inspection</td>
+    </tr>
+    <tr>
+      <td>L1 Service</td>
+      <td>Bad-state request returns 400 HTML</td>
+      <td><code>curl -i "&lt;fn-url&gt;/slack/oauth/callback?code=x&amp;state=bogus"</code></td>
+    </tr>
+    <tr>
+      <td>L2 Data</td>
+      <td>Real install creates a row</td>
+      <td><code>SELECT team_id, team_name, installed_at FROM slack_installations ORDER BY installed_at DESC LIMIT 5;</code></td>
+    </tr>
+    <tr>
+      <td>L0 User</td>
+      <td>Admin sees success page after clicking "Allow"</td>
+      <td>Click "Add to Slack" from a fresh test workspace, observe HTML response</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Follow-up (NOT in this design)</h2>
+
+<p>The dotted line in the class diagram (<code>SlackBot ..&gt; SlackInstallationsRepository</code>) is the next spec:</p>
+
+<ul>
+  <li>Refactor <code>SlackBot.__init__</code> to accept <code>bot_token</code> as a constructor argument.</li>
+  <li>Refactor <code>handle_webhook</code> to extract <code>team_id</code> from the event payload and look up the per-workspace token via <code>get_token_by_team_id(team_id)</code>.</li>
+  <li>Backfill the existing single-tenant install into <code>slack_installations</code> as a one-row INSERT before cutover.</li>
+  <li>Remove <code>SLACK_BOT_TOKEN</code> from Doppler + Lambda env vars.</li>
+  <li>Subscribe to <code>app_uninstalled</code> events; delete the row when a workspace removes the bot.</li>
+</ul>
+
+<div class="footer">
+  Read order:
+  <a href="../../../../.claude/research/2026-05-04-slack-bot-distribution.md">distribution exploration</a> →
+  <a href="../../../../.claude/research/2026-05-04-slack-oauth-callback-url.md">callback URL options</a> →
+  <strong>this design</strong> ·
+  <a href="index.html">all architecture documents</a>
+</div>
+
+<script>
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'default',
+    securityLevel: 'loose',
+    flowchart: { htmlLabels: true, curve: 'basis', nodeSpacing: 30, rankSpacing: 50 },
+    sequence: { mirrorActors: false, boxMargin: 8, messageMargin: 28, noteMargin: 8 }
+  });
+</script>
+
+</body>
+</html>

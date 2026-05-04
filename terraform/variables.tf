@@ -197,6 +197,31 @@ variable "SLACK_SIGNING_SECRET" {
   default     = ""
 }
 
+variable "SLACK_CLIENT_ID" {
+  description = "Slack app client_id — public app identifier used during OAuth v2 install code exchange. Found at api.slack.com/apps → Basic Information. Set TF_VAR_SLACK_CLIENT_ID in Doppler."
+  type        = string
+  default     = ""
+}
+
+variable "SLACK_CLIENT_SECRET" {
+  description = "Slack app client_secret — proves bot identity during oauth.v2.access. Set TF_VAR_SLACK_CLIENT_SECRET in Doppler."
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "SLACK_REDIRECT_URI" {
+  description = "Slack OAuth redirect URI — must EXACTLY match the URL registered in api.slack.com/apps → OAuth & Permissions → Redirect URLs. Typically <slack_webhook_function_url>/slack/oauth/callback. Set TF_VAR_SLACK_REDIRECT_URI in Doppler."
+  type        = string
+  default     = ""
+}
+
+variable "SLACK_INSTALL_PERSIST" {
+  description = "When 'true', the OAuth callback writes installs to slack_installations (Aurora). When 'false', it logs the captured install record (token redacted) and skips the DB write. Used to ship the OAuth path before Aurora migration 041 is applied. Set TF_VAR_SLACK_INSTALL_PERSIST in Doppler."
+  type        = string
+  default     = "true"
+}
+
 ###############################################################################
 # Lambda Container Image Configuration
 ###############################################################################

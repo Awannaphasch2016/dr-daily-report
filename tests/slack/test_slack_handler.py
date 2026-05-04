@@ -234,13 +234,19 @@ class TestAppMentionDispatch:
 
 
 class TestLambdaHandler:
+    # Events arrive at the Lambda Function URL as POST / (Slack default) — the
+    # path dispatcher in lambda_handler routes by method+path before delegating
+    # to handle_webhook.
+    _EVENTS_REQUEST_CONTEXT = {"requestContext": {"http": {"method": "POST", "path": "/"}}}
+
     def test_missing_env_returns_500(self, mock_deps):
         # Override env to drop required vars
         with patch.dict("os.environ", {"SLACK_BOT_TOKEN": "", "SLACK_SIGNING_SECRET": ""}, clear=False):
             from src.slack_handler import lambda_handler
             ctx = MagicMock()
             ctx.request_id = "req-1"
-            resp = lambda_handler({"headers": {}, "body": "{}"}, ctx)
+            event = {"headers": {}, "body": "{}", **self._EVENTS_REQUEST_CONTEXT}
+            resp = lambda_handler(event, ctx)
             assert resp["statusCode"] == 500
             assert "CONFIGURATION_ERROR" in resp["body"]
 
@@ -249,6 +255,19 @@ class TestLambdaHandler:
         ctx = MagicMock()
         ctx.request_id = "req-2"
         body = json.dumps({"type": "url_verification", "challenge": "abc123"})
-        resp = lambda_handler({"headers": {}, "body": body}, ctx)
+        event = {"headers": {}, "body": body, **self._EVENTS_REQUEST_CONTEXT}
+        resp = lambda_handler(event, ctx)
         assert resp["statusCode"] == 200
         assert json.loads(resp["body"])["challenge"] == "abc123"
+
+    def test_aws_direct_invoke_no_request_context_routes_to_webhook(self, mock_deps):
+        # AWS direct invoke (e.g. CI smoke test) sends events with no requestContext.
+        # Dispatch must default these to the webhook handler so url_verification works.
+        from src.slack_handler import lambda_handler
+        ctx = MagicMock()
+        ctx.request_id = "req-3"
+        body = json.dumps({"type": "url_verification", "challenge": "smoke"})
+        event = {"headers": {}, "body": body}  # no requestContext
+        resp = lambda_handler(event, ctx)
+        assert resp["statusCode"] == 200
+        assert json.loads(resp["body"])["challenge"] == "smoke"

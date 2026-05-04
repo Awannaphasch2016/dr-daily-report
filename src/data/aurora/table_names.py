@@ -115,6 +115,9 @@ MODEL_PRICING = "model_pricing"
 MODEL_CATALOG = "model_catalog"
 """Model metadata synced from OpenRouter API (pricing, context length, modality)"""
 
+SLACK_INSTALLATIONS = "slack_installations"
+"""Slack OAuth install records — one row per installed workspace (multi-tenant install path)"""
+
 
 # ============================================================================
 # Deprecated Tables (Scheduled for Removal)
@@ -163,6 +166,7 @@ class TABLES:
     TRACE_SCORES = TRACE_SCORES
     MODEL_PRICING = MODEL_PRICING
     MODEL_CATALOG = MODEL_CATALOG
+    SLACK_INSTALLATIONS = SLACK_INSTALLATIONS
 
 
 # ============================================================================
@@ -227,6 +231,7 @@ __all__ = [
     'TRACE_SCORES',
     'MODEL_PRICING',
     'MODEL_CATALOG',
+    'SLACK_INSTALLATIONS',
 
     # Convenience namespace
     'TABLES',
