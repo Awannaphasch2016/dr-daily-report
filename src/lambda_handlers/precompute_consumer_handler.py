@@ -23,10 +23,16 @@ import json
 import logging
 from typing import Any
 
-from src.report_worker_handler import _handle_step_functions_mode
+from src.report_worker_handler import _handle_step_functions_mode, _init_metric_registry
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
+
+# MetricRegistry must be primed before _handle_step_functions_mode is called.
+# The original report_worker.lambda_handler does this per-invocation, but this
+# consumer bypasses lambda_handler and calls _handle_step_functions_mode directly,
+# so the init must happen here. Singleton makes warm invocations a no-op.
+_init_metric_registry()
 
 
 def lambda_handler(event: dict, context: Any) -> dict:
