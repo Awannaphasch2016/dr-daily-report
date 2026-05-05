@@ -23,6 +23,8 @@ on:
       - 'src/types.py'
       - 'src/config.py'
       - 'src/report_worker_handler.py'
+      - 'src/migration_handler.py'
+      - 'db/migrations/**'
       # Agent/workflow removed - Telegram doesn't need these for API-only work
       # Scheduler removed - has dedicated workflow
       # Infrastructure

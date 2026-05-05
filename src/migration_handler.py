@@ -553,6 +553,15 @@ def lambda_handler(event: dict, context: Any) -> dict:
             'statusCode': 200 if result['status'] == 'success' else 500,
             'body': json.dumps(result)
         }
+    elif migration == 'create_slack_installations':
+        result = run_sql_migration(
+            'Create slack_installations table for OAuth multi-tenant install (041)',
+            '041_create_slack_installations.sql'
+        )
+        return {
+            'statusCode': 200 if result['status'] == 'success' else 500,
+            'body': json.dumps(result)
+        }
     elif migration == 'inspect_reports_uncertainty':
         from src.data.aurora.client import get_aurora_client
         client = get_aurora_client()
