@@ -385,7 +385,10 @@ def lambda_handler(event: dict, context: Any) -> dict:
         >>> lambda_handler({'migration': 'create_sgx_tables'}, None)  # runs 021 + 022
         {'statusCode': 200, 'body': {...}}
     """
-    logger.info(f"Migration handler invoked with event: {json.dumps(event)}")
+    # Redact known-secret fields so payloads like backfill_slack_install
+    # don't push bot_token into CloudWatch.
+    _safe_event = {k: ("***REDACTED***" if k in ("bot_token",) else v) for k, v in event.items()}
+    logger.info(f"Migration handler invoked with event: {json.dumps(_safe_event)}")
 
     migration = event.get('migration', '')
 
@@ -566,6 +569,37 @@ def lambda_handler(event: dict, context: Any) -> dict:
         return {
             'statusCode': 200 if result['status'] == 'success' else 500,
             'body': json.dumps(result)
+        }
+    elif migration == 'backfill_slack_install':
+        # One-shot backfill so the original (single-tenant) workspace gets a row
+        # in slack_installations before the read-path cutover. After cutover the
+        # bot looks up bot_token from this table by team_id; without a row, the
+        # original workspace would 401 itself out of its own bot. Idempotent —
+        # re-running just refreshes bot_token/scope.
+        from src.data.aurora.slack_installations_repository import SlackInstallationsRepository
+        required = ['team_id', 'team_name', 'bot_token', 'bot_user_id', 'scope']
+        missing = [k for k in required if not event.get(k)]
+        if missing:
+            return {
+                'statusCode': 400,
+                'body': json.dumps({
+                    'status': 'error',
+                    'message': f'Missing required event fields: {missing}',
+                })
+            }
+        SlackInstallationsRepository().upsert_installation(
+            team_id=event['team_id'],
+            team_name=event['team_name'],
+            bot_token=event['bot_token'],
+            bot_user_id=event['bot_user_id'],
+            scope=event['scope'],
+        )
+        return {
+            'statusCode': 200,
+            'body': json.dumps({
+                'status': 'success',
+                'message': f"Slack install backfilled for team_id={event['team_id']}",
+            })
         }
     elif migration == 'inspect_reports_uncertainty':
         from src.data.aurora.client import get_aurora_client
