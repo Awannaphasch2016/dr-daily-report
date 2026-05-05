@@ -315,8 +315,13 @@ def run_sql_migration(migration_name: str, sql_file: str):
     with open(sql_path, 'r') as f:
         sql = f.read()
 
-    # Strip comments for cleaner logging
-    statements = [s.strip() for s in sql.split(';') if s.strip() and not s.strip().startswith('--')]
+    # Strip comment lines first (otherwise a `-- header` block ahead of a
+    # CREATE TABLE causes the entire chunk to be filtered out, leaving
+    # `statements = []` and a silently no-op migration).
+    sql_no_comments = '\n'.join(
+        line for line in sql.splitlines() if not line.strip().startswith('--')
+    )
+    statements = [s.strip() for s in sql_no_comments.split(';') if s.strip()]
 
     try:
         for stmt in statements:
