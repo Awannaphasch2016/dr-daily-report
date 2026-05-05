@@ -233,6 +233,127 @@ class TestAppMentionDispatch:
         mock_post.assert_not_called()
 
 
+class TestPerWorkspaceTokenLookup:
+    """Multi-tenant read path: bot_token comes from slack_installations keyed by
+    team_id from the event envelope, with SLACK_BOT_TOKEN env as fallback so the
+    original (un-backfilled) workspace keeps working during transition.
+    """
+
+    def _make_event(self, body: str):
+        ts = str(int(time.time()))
+        sig = _slack_sign(body, ts)
+        return {
+            "headers": {
+                "X-Slack-Request-Timestamp": ts,
+                "X-Slack-Signature": sig,
+            },
+            "body": body,
+        }
+
+    def test_resolved_token_used_for_post_message(self, mock_deps):
+        from src.integrations import slack_bot as slack_mod
+
+        mock_deps["precompute"].get_cached_report.return_value = {
+            "report_text": "AAPL is up.", "pdf_presigned_url": None,
+        }
+
+        body = json.dumps({
+            "type": "event_callback",
+            "team_id": "T_OTHER_WORKSPACE",
+            "event": {"type": "app_mention", "channel": "C9", "text": "<@U1> AAPL"},
+        })
+
+        with patch(
+            "src.data.aurora.slack_installations_repository.SlackInstallationsRepository"
+        ) as repo_cls, patch(
+            "src.integrations.slack_bot.requests.post"
+        ) as mock_post:
+            repo = MagicMock()
+            repo.get_token_by_team_id.return_value = "xoxb-other-workspace-token"
+            repo_cls.return_value = repo
+
+            mock_resp = MagicMock()
+            mock_resp.status_code = 200
+            mock_resp.content = b"{}"
+            mock_resp.json.return_value = {"ok": True, "ts": "1.2"}
+            mock_post.return_value = mock_resp
+
+            resp = slack_mod.handle_webhook(self._make_event(body))
+
+        assert resp["statusCode"] == 200
+        repo.get_token_by_team_id.assert_called_once_with("T_OTHER_WORKSPACE")
+        # post_message must have used the per-workspace token, not the env token
+        _, post_kwargs = mock_post.call_args
+        assert post_kwargs["headers"]["Authorization"] == "Bearer xoxb-other-workspace-token"
+
+    def test_db_miss_falls_back_to_env_token(self, mock_deps):
+        from src.integrations import slack_bot as slack_mod
+
+        mock_deps["precompute"].get_cached_report.return_value = {
+            "report_text": "AAPL is up.", "pdf_presigned_url": None,
+        }
+
+        body = json.dumps({
+            "type": "event_callback",
+            "team_id": "T_NEW_BUT_UNREGISTERED",
+            "event": {"type": "app_mention", "channel": "C9", "text": "<@U1> AAPL"},
+        })
+
+        with patch(
+            "src.data.aurora.slack_installations_repository.SlackInstallationsRepository"
+        ) as repo_cls, patch(
+            "src.integrations.slack_bot.requests.post"
+        ) as mock_post:
+            repo = MagicMock()
+            repo.get_token_by_team_id.return_value = None  # not in DB
+            repo_cls.return_value = repo
+
+            mock_resp = MagicMock()
+            mock_resp.status_code = 200
+            mock_resp.content = b"{}"
+            mock_resp.json.return_value = {"ok": True, "ts": "1.2"}
+            mock_post.return_value = mock_resp
+
+            resp = slack_mod.handle_webhook(self._make_event(body))
+
+        assert resp["statusCode"] == 200
+        # Falls back to SLACK_BOT_TOKEN env (BOT_TOKEN constant from mock_deps)
+        _, post_kwargs = mock_post.call_args
+        assert post_kwargs["headers"]["Authorization"] == f"Bearer {BOT_TOKEN}"
+
+    def test_db_error_falls_back_to_env_token(self, mock_deps):
+        from src.integrations import slack_bot as slack_mod
+
+        mock_deps["precompute"].get_cached_report.return_value = {
+            "report_text": "AAPL is up.", "pdf_presigned_url": None,
+        }
+
+        body = json.dumps({
+            "type": "event_callback",
+            "team_id": "T_ANY",
+            "event": {"type": "app_mention", "channel": "C9", "text": "<@U1> AAPL"},
+        })
+
+        with patch(
+            "src.data.aurora.slack_installations_repository.SlackInstallationsRepository",
+            side_effect=RuntimeError("aurora down"),
+        ), patch(
+            "src.integrations.slack_bot.requests.post"
+        ) as mock_post:
+            mock_resp = MagicMock()
+            mock_resp.status_code = 200
+            mock_resp.content = b"{}"
+            mock_resp.json.return_value = {"ok": True, "ts": "1.2"}
+            mock_post.return_value = mock_resp
+
+            resp = slack_mod.handle_webhook(self._make_event(body))
+
+        # DB hiccup must NOT take the bot down — fall back to env, ack 200.
+        assert resp["statusCode"] == 200
+        _, post_kwargs = mock_post.call_args
+        assert post_kwargs["headers"]["Authorization"] == f"Bearer {BOT_TOKEN}"
+
+
 class TestLambdaHandler:
     # Events arrive at the Lambda Function URL as POST / (Slack default) — the
     # path dispatcher in lambda_handler routes by method+path before delegating

@@ -36,8 +36,11 @@ MENTION_PATTERN = re.compile(r"<@[A-Z0-9]+>")
 
 
 class SlackBot:
-    def __init__(self):
-        self.bot_token = os.getenv("SLACK_BOT_TOKEN")
+    def __init__(self, bot_token: Optional[str] = None):
+        # bot_token is per-workspace — looked up by team_id at the webhook layer.
+        # Fall back to SLACK_BOT_TOKEN env so existing tests (and the env-fallback
+        # transition path) keep working.
+        self.bot_token = bot_token or os.getenv("SLACK_BOT_TOKEN")
         self.signing_secret = os.getenv("SLACK_SIGNING_SECRET")
 
         data_fetcher = DataFetcher()
@@ -187,6 +190,34 @@ class SlackBot:
         self.post_message(channel, message)
 
 
+def _resolve_bot_token(team_id: Optional[str]) -> Optional[str]:
+    """Look up the bot_token for `team_id` from slack_installations, with a
+    fallback to `SLACK_BOT_TOKEN` env for the transition period.
+
+    DB miss (team not in table yet) → fall back to env so the original
+    single-tenant install keeps responding until it's backfilled. Returns
+    `None` only if neither path produces a token, which `verify_signature`
+    will tolerate but `post_message` will fail loudly on.
+    """
+    env_token = os.getenv("SLACK_BOT_TOKEN")
+    if not team_id:
+        return env_token
+
+    try:
+        from src.data.aurora.slack_installations_repository import SlackInstallationsRepository
+        token = SlackInstallationsRepository().get_token_by_team_id(team_id)
+    except Exception as e:
+        # DB hiccup shouldn't take the bot down for the original workspace.
+        logger.warning(f"⚠️  slack_installations lookup failed for team_id={team_id}: {e} — falling back to env")
+        return env_token
+
+    if token:
+        logger.info(f"✅ Resolved bot_token from slack_installations (team_id={team_id})")
+        return token
+    logger.info(f"ℹ️  No slack_installations row for team_id={team_id} — falling back to SLACK_BOT_TOKEN env")
+    return env_token
+
+
 def handle_webhook(event: Dict[str, Any]) -> Dict[str, Any]:
     """Module-level wrapper invoked by `src.slack_handler.lambda_handler`.
 
@@ -222,7 +253,12 @@ def handle_webhook(event: Dict[str, Any]) -> Dict[str, Any]:
             "body": json.dumps({"challenge": challenge}),
         }
 
-    bot = SlackBot()
+    # Multi-tenant: per-workspace bot_token is keyed by team_id from the envelope.
+    # Look up first; fall back to SLACK_BOT_TOKEN env so the original install
+    # keeps working until it's backfilled into slack_installations.
+    team_id = body_data.get("team_id")
+    bot_token = _resolve_bot_token(team_id)
+    bot = SlackBot(bot_token=bot_token)
 
     # Verify signature for all non-handshake events.
     timestamp = headers.get("x-slack-request-timestamp", "")
