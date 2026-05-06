@@ -65,6 +65,12 @@ REDIRECT_URI = _required_env("SLACK_REDIRECT_URI")
 # Defaults to true so production behavior is unchanged when the flag is unset.
 PERSIST_INSTALLS = os.environ.get("SLACK_INSTALL_PERSIST", "true").strip().lower() in ("true", "1", "yes")
 
+# Scopes requested when minting an install URL. Must match the scopes registered
+# in the Slack app config (api.slack.com/apps → OAuth & Permissions → Bot Token
+# Scopes); Slack rejects oauth.v2.access if you ask for a scope the app isn't
+# granted. Used by the GET /slack/install redirect endpoint in slack_handler.py.
+INSTALL_SCOPE = "app_mentions:read,chat:write"
+
 
 def build_install_state() -> str:
     """Generate a stateless `state` parameter for the install URL.

@@ -22,6 +22,7 @@ Other env reused from shared modules:
 import json
 import logging
 import os
+import urllib.parse
 from typing import Any, Dict
 
 logging.basicConfig(
@@ -38,6 +39,42 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     method = (event.get("requestContext", {}).get("http", {}) or {}).get("method", "")
     path = (event.get("requestContext", {}).get("http", {}) or {}).get("path", "")
     logger.info(f"📥 Slack Lambda invoked (request_id={request_id} method={method} path={path})")
+
+    # Install link — GET /slack/install. Mints fresh OAuth state per request and
+    # 302-redirects to slack.com/oauth/v2/authorize. The shareable artifact is
+    # this endpoint URL (never expires); the embedded `state` is < 1 s old at
+    # click-time so the 10-min TTL in slack_oauth._verify_state never bites.
+    if method == "GET" and path == "/slack/install":
+        try:
+            from src.integrations.slack_oauth import (
+                CLIENT_ID,
+                INSTALL_SCOPE,
+                REDIRECT_URI,
+                build_install_state,
+            )
+        except (ImportError, RuntimeError) as e:
+            logger.error(f"❌ Failed to import slack_oauth for install redirect: {e}")
+            return {
+                "statusCode": 500,
+                "headers": {"Content-Type": "text/html; charset=utf-8"},
+                "body": "<h1>Server misconfiguration</h1><p>Install endpoint unavailable.</p>",
+            }
+
+        authorize_url = "https://slack.com/oauth/v2/authorize?" + urllib.parse.urlencode({
+            "client_id": CLIENT_ID,
+            "scope": INSTALL_SCOPE,
+            "redirect_uri": REDIRECT_URI,
+            "state": build_install_state(),
+        })
+        logger.info(f"🔗 Minted Slack install redirect (scope={INSTALL_SCOPE})")
+        return {
+            "statusCode": 302,
+            "headers": {
+                "Location": authorize_url,
+                "Cache-Control": "no-store",
+            },
+            "body": "",
+        }
 
     # OAuth install callback path — GET /slack/oauth/callback (explicit match required)
     if method == "GET" and path == "/slack/oauth/callback":

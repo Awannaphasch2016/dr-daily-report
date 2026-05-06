@@ -164,6 +164,22 @@
   </div>
 </a>
 
+<a class="card card-external" href="https://dlthjlg6thlkejyrfabxuz2ijm0jpmtm.lambda-url.ap-southeast-1.on.aws/slack/install" target="_blank" rel="noopener noreferrer">
+  <div class="title">Install dr-bot to a Slack workspace — dev<span class="ext-arrow">↗</span></div>
+  <div class="file">dlthjlg6thlkejyrfabxuz2ijm0jpmtm.lambda-url.ap-southeast-1.on.aws/slack/install</div>
+  <p class="desc">
+    Dev-environment one-click install endpoint. Mints a fresh OAuth state per visit and
+    302-redirects to Slack's consent screen so a workspace admin can install the dev
+    <code>dr-daily-report</code> bot. Shareable forever — the link itself never expires
+    (the time-limited <code>state</code> is regenerated on every click). Goes live after
+    the next dev deploy of <code>src/slack_handler.py</code>. Dev only; staging and prod
+    use their own Lambda Function URLs.
+  </p>
+  <div class="tags">
+    <span class="tag tag-external">external</span><span class="tag">dev only</span><span class="tag">install link</span><span class="tag">slack</span>
+  </div>
+</a>
+
 <h2>Live observability</h2>
 
 <a class="card card-external" href="https://g-4df4c51648.grafana-workspace.ap-southeast-1.amazonaws.com/dashboards" target="_blank" rel="noopener noreferrer">

@@ -392,3 +392,124 @@ class TestLambdaHandler:
         resp = lambda_handler(event, ctx)
         assert resp["statusCode"] == 200
         assert json.loads(resp["body"])["challenge"] == "smoke"
+
+
+class TestInstallRedirect:
+    """GET /slack/install mints a fresh OAuth state and 302-redirects to Slack.
+
+    The shareable artifact for clients is `<lambda-fn-url>/slack/install`. The
+    actual slack.com/oauth/v2/authorize URL (with the time-limited state) lives
+    only inside the 302 response — clients never see or store it.
+    """
+
+    _CLIENT_ID = "1234567890.987654"
+    _CLIENT_SECRET = "test-client-secret"
+    _REDIRECT_URI = "https://example.lambda-url.us-east-1.on.aws/slack/oauth/callback"
+    _INSTALL_REQUEST = {"requestContext": {"http": {"method": "GET", "path": "/slack/install"}}}
+
+    @pytest.fixture(autouse=True)
+    def oauth_env(self, mock_deps):
+        """Stub OAuth env vars and reload slack_oauth so module-level constants pick them up.
+
+        Mirrors the autouse fixture in test_slack_oauth.py — slack_oauth.py reads
+        CLIENT_ID/CLIENT_SECRET/REDIRECT_URI at import via _required_env, so the
+        module must be reloaded after env is patched. SLACK_SIGNING_SECRET is
+        already patched by mock_deps.
+        """
+        import importlib
+        with patch.dict(
+            "os.environ",
+            {
+                "SLACK_CLIENT_ID": self._CLIENT_ID,
+                "SLACK_CLIENT_SECRET": self._CLIENT_SECRET,
+                "SLACK_REDIRECT_URI": self._REDIRECT_URI,
+                "SLACK_INSTALL_PERSIST": "true",
+            },
+            clear=False,
+        ):
+            import src.integrations.slack_oauth as mod
+            importlib.reload(mod)
+            yield mod
+
+    def _invoke_install(self):
+        from src.slack_handler import lambda_handler
+        ctx = MagicMock()
+        ctx.request_id = "req-install"
+        return lambda_handler({**self._INSTALL_REQUEST}, ctx)
+
+    def test_returns_302(self):
+        resp = self._invoke_install()
+        assert resp["statusCode"] == 302
+
+    def test_location_targets_slack_authorize_with_correct_params(self):
+        from urllib.parse import parse_qs, urlparse
+
+        resp = self._invoke_install()
+        parsed = urlparse(resp["headers"]["Location"])
+
+        assert parsed.scheme == "https"
+        assert parsed.netloc == "slack.com"
+        assert parsed.path == "/oauth/v2/authorize"
+
+        params = parse_qs(parsed.query)
+        assert params["client_id"] == [self._CLIENT_ID]
+        assert params["redirect_uri"] == [self._REDIRECT_URI]
+        assert params["scope"] == ["app_mentions:read,chat:write"]
+        assert "state" in params
+
+    def test_state_is_freshly_minted_per_request(self):
+        """State carries a current timestamp + valid HMAC — proves it's minted at request time.
+
+        Layer-2 evidence (Principle #2): we don't trust that the handler called
+        build_install_state(); we verify the value's structure and that the
+        timestamp is bounded by wall-clock 'now'.
+        """
+        import time
+        from urllib.parse import parse_qs, urlparse
+
+        before = int(time.time())
+        resp = self._invoke_install()
+        after = int(time.time())
+
+        state = parse_qs(urlparse(resp["headers"]["Location"]).query)["state"][0]
+        ts_str, hex_sig = state.split(".", 1)
+        assert before <= int(ts_str) <= after
+        assert len(hex_sig) == 64  # sha256 hex
+        assert all(c in "0123456789abcdef" for c in hex_sig)
+
+    def test_response_is_uncacheable(self):
+        """Cache-Control: no-store — proxies/CDNs must never cache a state value."""
+        resp = self._invoke_install()
+        assert resp["headers"].get("Cache-Control") == "no-store"
+
+    def test_post_to_install_path_falls_through_to_webhook(self):
+        """Only the exact (GET, /slack/install) tuple triggers the redirect."""
+        from src.slack_handler import lambda_handler
+        ctx = MagicMock()
+        ctx.request_id = "req-install-post"
+        event = {
+            "headers": {},
+            "body": json.dumps({"type": "url_verification", "challenge": "fallthrough"}),
+            "requestContext": {"http": {"method": "POST", "path": "/slack/install"}},
+        }
+        resp = lambda_handler(event, ctx)
+        assert resp["statusCode"] == 200
+        assert json.loads(resp["body"])["challenge"] == "fallthrough"
+
+    def test_misconfigured_oauth_module_returns_500(self):
+        """If slack_oauth fails to import (e.g. missing env), respond 500 — don't crash silently."""
+        import builtins
+        original_import = builtins.__import__
+
+        def _failing_import(name, *args, **kwargs):
+            if name == "src.integrations.slack_oauth":
+                raise RuntimeError("simulated _required_env failure")
+            return original_import(name, *args, **kwargs)
+
+        from src.slack_handler import lambda_handler
+        ctx = MagicMock()
+        ctx.request_id = "req-install-broken"
+        with patch("builtins.__import__", side_effect=_failing_import):
+            resp = lambda_handler({**self._INSTALL_REQUEST}, ctx)
+        assert resp["statusCode"] == 500
+        assert "misconfiguration" in resp["body"].lower()
